@@ -1,0 +1,32 @@
+exemplo de requisição válida gateway
+
+{
+  "identifier": "b5daszxrjd",
+  "amount": 100.5,
+  "client": {
+    "name": "João da Silva",
+    "email": "joao@gmail.com",
+    "phone": "(11) 99999-9999",
+    "document": "123.456.789-00"
+  },
+  "products": [
+    {
+      "id": "1duq6ao3y9gl",
+      "name": "Produto 1",
+      "quantity": 1,
+      "price": 80
+    },
+    {
+      "id": "blld0d9zb4hr",
+      "name": "Produto 2",
+      "quantity": 2,
+      "price": 10.25
+    }
+  ],
+  "dueDate": "2026-03-19",
+  "metadata": {
+    "key1": "value1",
+    "key2": "value2"
+  },
+  "callbackUrl": "https://minha.api.com/pix/callback/a24gx9z1ww"
+}

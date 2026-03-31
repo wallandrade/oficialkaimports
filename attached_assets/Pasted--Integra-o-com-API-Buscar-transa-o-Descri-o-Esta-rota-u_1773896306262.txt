@@ -1,0 +1,113 @@
+# Integração com API - Buscar transação
+
+## Descrição
+Esta rota é utilizada para buscar uma transação específica pelo seu ID.
+
+## Endpoint
+- **Método:** GET
+- **URL:** https://painel.appcnpay.com/api/v1/gateway/transactions
+- **Autenticação:** Requerida
+
+## Autenticação
+Para autenticar suas requisições, inclua os seguintes headers:
+- `x-public-key`: Sua chave pública
+- `x-secret-key`: Sua chave secreta
+
+## Query Parameters
+- id (string, opcional): ID da transação. Esse é o ID retornado pela nossa API ao criar uma transação.
+- clientIdentifier (string, opcional): Identificador do cliente. Esse é o ID que você nos enviou ao criar a transação.
+
+## Respostas
+### 200 OK
+- id (string, sempre retornado): ID da transação.
+- clientIdentifier (string, sempre retornado): Identificador do cliente. Corresponde ao valor enviado por você na criação da transação.
+- currency (enum, sempre retornado) [padrão: BRL]: Moeda da transação.
+  Valores possíveis: ARS, BRL, CAD, COP, EUR, GBP, JPY, MXN, MZN, USD, CNY, SAR, AUD, NZD, ZAR, PHP, NGN, GHS, MYR, ZMW, MUR, JMD, KES, TZS, TTD, GYD, LKR, FJD, SEK, BBD, GTQ, SCR, AWG, SZL, AED, ILS, NAD, THB, XCD, TRY, HNL, PGK, CRC, PAB, WST, LSL, BDM, BNB, BTC, ETH, USDC, USDT
+- amount (number, sempre retornado): Valor total da transação. Esse é o valor que você vai receber (sem contar as taxas).
+- chargeAmount (number, sempre retornado): Valor pago pelo cliente. Esse valor pode ser diferente do 'amount' por conta das taxas de parcelamento (caso a venda foi feita via checkout interno).
+- exchangeRate (number, sempre retornado) [padrão: 1]: Taxa de câmbio utilizada na transação. Caso uma transação seja feita em uma moeda diferente de BRL, utilize essa taxa e multiplique pelo 'amount' para obter o valor da venda em BRL.
+- producerExtraAmount (number, sempre retornado) [padrão: 0]: Valor de taxa extra cobrada pelo produtor. Apenas no checkout interno.
+- status (enum, sempre retornado): Status da transação.
+  Valores possíveis: PENDING, COMPLETED, FAILED, REFUNDED, CHARGED_BACK
+- statusDescription (string, opcional): Descrição do status da transação. Mostra o retorno da adquirente.
+- purchaseType (enum, sempre retornado) [padrão: ONCE]: Tipo de compra. ONCE = Compra única, RECURRING = Assinatura.
+  Valores possíveis: ONCE, RECURRING
+- paymentMethod (enum, sempre retornado): Método de pagamento.
+  Valores possíveis: PIX, CREDIT_CARD, BOLETO, TED, SPLIT, DYNAMIC, CRYPTO, CASH_ON_DELIVERY
+- details (string, opcional): Detalhes da transação. Pode ser um JSON com informações adicionais.
+- errorDescription (string, opcional): Descrição do erro, caso a transação tenha falhado.
+- webhookUrl (string, opcional): URL do webhook configurado para essa transação. Atualizações de status serão enviadas para essa URL.
+- createdAt (string, sempre retornado): Data de criação da transação.
+- availableAt (string, sempre retornado): Data em que a transação estará disponível para saque.
+- payedAt (string, opcional): Data em que a transação foi paga pelo cliente.
+- refundedAt (string, opcional): Data em que a transação foi estornada.
+- boletoInformation (object, opcional): Informações do boleto gerado para essa transação.
+  Campos do objeto:
+    - barcode (string, sempre retornado): Código de barras do boleto.
+    - digitableLine (string, sempre retornado): Linha digitável do boleto.
+    - pdfUrl (string, opcional): URL para download do boleto em PDF.
+- pixInformation (object, opcional): Informações do PIX gerado para essa transação.
+  Campos do objeto:
+    - qrCode (string, sempre retornado): QR Code do PIX.
+    - image (string, opcional): URL para download da imagem do QR Code.
+    - base64 (string, opcional): Base64 da imagem do QR Code.
+- pixMetadata (object, opcional): Informações adicionais sobre o PIX.
+  Campos do objeto:
+    - payerDocument (string, opcional): Documento do pagador.
+    - payerName (string, opcional): Nome do pagador.
+    - payerBankName (string, opcional): Nome do banco do pagador.
+    - payerBankAccount (string, opcional): Número da conta do pagador.
+    - payerBankBranch (string, opcional): Número da agência do pagador.
+    - receiverDocument (string, opcional): Documento do recebedor.
+    - receiverName (string, opcional): Nome do recebedor.
+    - receiverPixKey (string, opcional): Chave PIX do recebedor.
+    - receiverBankName (string, opcional): Nome do banco do recebedor.
+    - receiverBankAccount (string, opcional): Número da conta do recebedor.
+    - receiverBankBranch (string, opcional): Número da agência do recebedor.
+
+## Exemplo de Resposta
+### 200 OK
+```json
+{
+  "id": "cmry2h8332sgs3ub44fh7",
+  "clientIdentifier": "5286-412312-asd-123",
+  "currency": "BRL",
+  "amount": 49.8,
+  "chargeAmount": 49.8,
+  "exchangeRate": 1,
+  "producerExtraAmount": 0,
+  "status": "FAILED",
+  "statusDescription": null,
+  "purchaseType": "ONCE",
+  "paymentMethod": "PIX",
+  "details": null,
+  "errorDescription": "Transaction denied by anti-fraud",
+  "webhookUrl": null,
+  "availableAt": null,
+  "createdAt": "2026-03-18T21:41:04.065Z",
+  "refundedAt": null,
+  "payedAt": null,
+  "boletoInformation": null,
+  "pixInformation": {
+    "base64": null,
+    "qrCode": "00020101065465468949845BR.GOV.BCB.PIX2566api-h.rendimento.com.br/q/v2/cobv/6f6857274e864ae7b595291a9e5fe6b5520465481245802BR5920GalaxPay Integracoes6014Belo Horizonte6108304116646822070503***6304CD3B",
+    "image": "https://upload.wikimedia.org/wikipedia/commons/f/fa/Link_pra_pagina_principal_da_Wikipedia-PT_em_codigo_QR_b.svg"
+  },
+  "pixMetadata": {
+    "payerBankName": "Caixa Economica Federal",
+    "payerDocument": "123.456.789-00",
+    "payerName": "João da Silva",
+    "receiverBankName": "Banco do Brasil",
+    "receiverDocument": "987.654.321-00",
+    "receiverName": "Maria da Silva",
+    "receiverPixKey": "98765432100"
+  }
+}
+```
+
+## Instruções para Implementação
+1. Configure os headers de autenticação com suas credenciais
+2. Construa o body da requisição seguindo o schema acima
+3. Envie a requisição para a URL especificada usando o método GET
+4. Trate os possíveis códigos de resposta (sucesso e erro)
+5. Implemente tratamento de erros adequado para garantir robustez

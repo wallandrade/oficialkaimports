@@ -1,0 +1,16 @@
+exemplo de retorno ok
+
+{
+  "transactionId": "clwuwmn4i0007emp9lgn66u1h",
+  "status": "OK",
+  "order": {
+    "id": "cm92389asdaskdjkasjdka",
+    "url": "https://api-de-pagamentos.com/order/cm92389asdaskdjkasjdka",
+    "receiptUrl": "https://api-de-pagamentos.com/order/cm92389asdaskdjkasjdka/receipt"
+  },
+  "pix": {
+    "code": "00020101021126530014BR.GOV.BCB.PIX0136254e-7f7b-4f4a-8e4b-2b5b3d3b3d3d52040000530398654041.005802BR5923Nome do Beneficiário6008Brasília62070503***6304A8E3",
+    "base64": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABjElEQVR42mNk",
+    "image": "https://api.gateway.com/pix/qr/00020101021126530014BR.GOV.BCB.PIX0136254e-7f7b-4f4a-8e4b-2b5b3d3b3d3d52040000530398654041.005802BR5923Nome do Beneficiário6008Brasília62070503***6304A8E3"
+  }
+}

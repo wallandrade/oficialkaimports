@@ -1,0 +1,8 @@
+[phases.setup]
+pkgs = ["pnpm-9_x", "nodejs_22"]
+
+[phases.install]
+cmds = ["pnpm install --no-frozen-lockfile"]
+
+[phases.build]
+cmds = ["pnpm run build"]

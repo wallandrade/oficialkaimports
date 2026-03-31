@@ -1,0 +1,313 @@
+Crie um aplicativo web completo (fullstack) com foco em e-commerce, com design moderno, rápido e otimizado para conversão.
+
+🎨 IDENTIDADE VISUAL
+
+Usar a logo fornecida (KA Imports)
+
+Fundo: branco
+
+Cores principais: azul escuro + azul claro + detalhes em cinza
+
+Estilo: clean, premium, tecnológico
+
+Botões com leve sombra e hover elegante
+
+Cards com bordas arredondadas
+
+🏠 HOME (PÁGINA INICIAL)
+
+Exibir todos os produtos
+
+Separar por categorias
+
+Layout em grid responsivo
+
+🧱 CARD DO PRODUTO (1:1)
+
+Cada produto deve conter:
+
+Imagem (1:1)
+
+Título
+
+Preço normal
+
+Preço promocional (se houver)
+
+Descrição curta (máx. 2 linhas)
+
+Botão: Adicionar ao carrinho
+
+🛒 CARRINHO
+
+Funcionalidades:
+
+Listar produtos adicionados
+
+Alterar quantidade
+
+Remover item
+
+Calcular total automaticamente
+
+🚚 FRETE
+
+Opções:
+
+Frete normal: R$50
+
+Frete rápido: R$80
+
+Selecionável no checkout
+
+🛡️ ORDER BUMP (SEGURO)
+
+Checkbox: "Adicionar seguro (+10%)"
+
+Valor calculado em cima dos produtos (não inclui frete)
+
+Mostrar claramente:
+
+Total sem seguro
+
+Valor do seguro
+
+Total final
+
+💳 PAGAMENTO
+PIX
+
+Gerado via API externa (gateway)
+
+Limite: R$10.000
+
+REQUISIÇÃO:
+
+Usar exatamente esse formato:
+
+{
+  "identifier": "random_string",
+  "amount": 100.5,
+  "client": {
+    "name": "",
+    "email": "",
+    "phone": "",
+    "document": ""
+  },
+  "products": [],
+  "dueDate": "YYYY-MM-DD",
+  "callbackUrl": "URL_CALLBACK"
+}
+FUNCIONALIDADES PIX:
+
+Mostrar:
+
+QR Code
+
+Código copia e cola
+
+Botão: Copiar código
+
+Timer: 15 minutos
+
+Persistência:
+
+Se atualizar página → NÃO gerar novo PIX
+
+Timer continua
+
+Expiração:
+
+Mostrar botão: Gerar novo PIX
+
+Loader enquanto gera PIX
+
+🔄 VERIFICAÇÃO DE PAGAMENTO
+
+Consultar status via API
+
+Se pago:
+
+Mostrar:
+
+✅ Pagamento recebido
+
+Mensagem de agradecimento
+
+Botões:
+
+Sair
+
+Falar com ADM (WhatsApp)
+
+💳 CARTÃO
+
+Até 3x:
+
+Acrescentar +R$100 no total
+
+Mais de 3x:
+
+Abrir MODAL
+
+Cliente escolhe parcelas
+
+Enviar pedido via WhatsApp:
+
+Mensagem:
+
+Olá, quero fazer essa simulação.
+Pedido:
+[produtos]
+Parcelamento: X vezes
+Total: R$XXX
+📲 WHATSAPP
+
+Número fixo:
+
+11917082244
+
+Usado para:
+
+Simulação de parcelas
+
+Suporte
+
+Botão no rodapé
+
+📊 GOOGLE SHEETS (INTEGRAÇÃO AUTOMÁTICA)
+
+Produtos devem vir de uma planilha:
+
+Campos:
+
+id
+
+nome
+
+descrição
+
+preço
+
+preço promocional
+
+imagem
+
+categoria
+
+Requisitos:
+
+Atualização automática (fetch periódico ou webhook)
+
+Cache leve para performance
+
+🧠 BACKEND
+
+Tecnologia sugerida:
+
+Node.js + Express
+
+Funções:
+
+Gerar PIX
+
+Consultar status
+
+Integrar com Google Sheets
+
+Persistir pedidos (opcional)
+
+⚙️ FRONTEND
+
+Tecnologia:
+
+React (ou HTML + JS moderno)
+
+Requisitos:
+
+Responsivo (mobile first)
+
+Rápido
+
+UX simples e direto
+
+⏳ ESTADO DO PIX
+
+Salvar no:
+
+localStorage ou backend
+
+Dados:
+
+transactionId
+
+tempo restante
+
+status
+
+🔄 CALLBACK
+
+Criar endpoint:
+
+/pix/callback
+
+Atualizar status automaticamente
+
+🧾 RODAPÉ
+
+Simples:
+
+Texto:
+
+© KA Imports - Todos os direitos reservados
+
+Botão:
+
+Suporte via WhatsApp
+
+🎯 BANNER
+
+1 banner no topo
+
+Estilo moderno
+
+Pode ser estático (imagem)
+
+🚨 TRATAMENTO DE ERROS
+
+Exibir erro amigável:
+
+PIX inválido
+
+API falhou
+
+Exemplo:
+
+Erro ao gerar pagamento. Tente novamente.
+🚀 EXTRAS IMPORTANTES
+
+Loader global elegante
+
+Código limpo e modular
+
+Separação clara:
+
+components
+
+services
+
+api
+
+Pronto para deploy
+
+🔥 OBJETIVO FINAL
+
+Gerar um e-commerce completo, funcional e pronto para vendas com:
+
+Checkout via PIX
+
+Simulação via WhatsApp
+
+Integração com planilha
+
+Alta conversão

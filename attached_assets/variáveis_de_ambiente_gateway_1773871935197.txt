@@ -1,0 +1,5 @@
+variáveis de ambiente gateway:
+
+jonathanbarros2306_7s5hg3t7qwzzlhco
+
+secret:   2fegrlb46i21xffsely09j94iwa6bu86iw8gdqq5qdl8ugwm0np8dvz3t7kos517

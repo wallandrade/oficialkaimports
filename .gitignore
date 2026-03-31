@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+.local/
+
+# Build outputs
+dist/
+*.cjs
+*.js.map
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Drizzle migrations (optional - use if not versioning migrations)
+# drizzle/
+
+# Temp files
+*.log
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# VS Code
+.vscode/
+
+# Scripts de utilidade temporários
+lib/db/reset.js
+seed-admin.ts

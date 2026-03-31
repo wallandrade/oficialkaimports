@@ -1,0 +1,2 @@
+﻿ID;Data;Cliente;Email;Telefone;CPF;CEP;Rua;Número;Bairro;Cidade;Estado;Pagamento;Parcelamento;Frete;Seguro;Subtotal;Frete (R$);Seguro (R$);Total;Status;Transação PIX
+6c577c9a4126cf4a;19/03/2026, 00:33:47;ana maria silva;anasilva@gmail.com;(13) 99966-5434;055.950.725-98;21311-190;Rua Inhare;23;Cascadura;Rio de Janeiro;RJ;PIX;;Normal;Sim;249.90;50.00;24.99;324.89;awaiting_payment;cmmwqluq01dch1kp9m8fwtsfs;"1x Produto Importado Premium"

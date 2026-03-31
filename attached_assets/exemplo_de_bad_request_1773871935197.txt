@@ -1,0 +1,12 @@
+exemplo de bad request
+
+{
+  "statusCode": 400,
+  "errorCode": "INVALID_INPUT",
+  "message": "O valor fornecido para o campo 'amount' é inválido.",
+  "details": {
+    "field": "amount",
+    "value": -20,
+    "issue": "O valor deve ser positivo e maior que zero."
+  }
+}

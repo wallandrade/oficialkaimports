@@ -1,0 +1,23 @@
+packages:
+  "framer-motion": "For smooth page transitions, drawer animations, and polished interactions"
+  "zustand": "For lightweight, robust global state management (shopping cart, checkout state)"
+  "lucide-react": "For beautiful, consistent iconography across the application"
+  "clsx": "Utility for conditionally joining classNames safely"
+  "tailwind-merge": "Utility for merging Tailwind classes without style conflicts"
+  "date-fns": "For formatting dates and handling the PIX countdown timer elegantly"
+  "react-hook-form": "For robust checkout form state management"
+  "@hookform/resolvers": "For integrating Zod validation with react-hook-form"
+  "sonner": "For beautiful, elegant toast notifications"
+
+images:
+  - path: "artifacts/ka-imports/public/images/empty-cart.png"
+    description: "A minimalist, premium 3D illustration of an empty shopping cart or bag on a clean white background with subtle blue accents"
+    aspect_ratio: "1:1"
+  - path: "artifacts/ka-imports/public/images/success-3d.png"
+    description: "A premium 3D illustration of a green checkmark or success trophy with subtle glowing effects, suitable for a payment success page"
+    aspect_ratio: "1:1"
+
+notes:
+  - The application relies on @workspace/api-client-react for TanStack Query hooks.
+  - The backend endpoints for products, PIX generation, and status checking must be available.
+  - The cart state is persisted to localStorage using Zustand.

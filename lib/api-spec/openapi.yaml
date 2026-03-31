@@ -1,0 +1,507 @@
+openapi: 3.1.0
+info:
+  title: Api
+  version: 0.1.0
+  description: KA Imports API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: products
+    description: Product operations
+  - name: pix
+    description: PIX payment operations
+  - name: orders
+    description: Order operations
+  - name: admin
+    description: Admin operations
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /products:
+    get:
+      operationId: getProducts
+      tags: [products]
+      summary: Get all products from Google Sheets
+      responses:
+        "200":
+          description: List of products
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  products:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Product"
+                  categories:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - products
+                  - categories
+
+  /pix/generate:
+    post:
+      operationId: generatePix
+      tags: [pix]
+      summary: Generate a PIX payment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GeneratePixRequest"
+      responses:
+        "200":
+          description: PIX generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PixResponse"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /pix/status/{transactionId}:
+    get:
+      operationId: getPixStatus
+      tags: [pix]
+      summary: Check PIX payment status
+      parameters:
+        - name: transactionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Payment status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PixStatusResponse"
+        "404":
+          description: Transaction not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /pix/callback/{token}:
+    post:
+      operationId: pixCallback
+      tags: [pix]
+      summary: PIX payment callback from gateway
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PixCallbackBody"
+      responses:
+        "200":
+          description: Callback processed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+
+  /orders:
+    post:
+      operationId: createOrder
+      tags: [orders]
+      summary: Create a new order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrderRequest"
+      responses:
+        "201":
+          description: Order created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+
+  /admin/orders:
+    get:
+      operationId: getAdminOrders
+      tags: [admin]
+      summary: List all orders (admin)
+      responses:
+        "200":
+          description: List of orders
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orders:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AdminOrder"
+                required:
+                  - orders
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    Product:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        price:
+          type: number
+        promoPrice:
+          type: number
+          nullable: true
+        image:
+          type: string
+        category:
+          type: string
+      required:
+        - id
+        - name
+        - description
+        - price
+        - image
+        - category
+
+    CartItem:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        quantity:
+          type: integer
+        price:
+          type: number
+      required:
+        - id
+        - name
+        - quantity
+        - price
+
+    ClientInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        document:
+          type: string
+      required:
+        - name
+        - email
+        - phone
+        - document
+
+    AddressInfo:
+      type: object
+      properties:
+        cep:
+          type: string
+        street:
+          type: string
+        number:
+          type: string
+        complement:
+          type: string
+        neighborhood:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+      required:
+        - cep
+        - street
+        - number
+        - city
+        - state
+
+    GeneratePixRequest:
+      type: object
+      properties:
+        client:
+          $ref: "#/components/schemas/ClientInfo"
+        products:
+          type: array
+          items:
+            $ref: "#/components/schemas/CartItem"
+        amount:
+          type: number
+        shippingType:
+          type: string
+          enum: [normal, express]
+        includeInsurance:
+          type: boolean
+        orderId:
+          type: string
+      required:
+        - client
+        - products
+        - amount
+        - shippingType
+        - includeInsurance
+        - orderId
+
+    PixResponse:
+      type: object
+      properties:
+        transactionId:
+          type: string
+        status:
+          type: string
+        pixCode:
+          type: string
+        pixBase64:
+          type: string
+        pixImage:
+          type: string
+        expiresAt:
+          type: string
+        orderId:
+          type: string
+        receiptUrl:
+          type: string
+          nullable: true
+      required:
+        - transactionId
+        - status
+        - pixCode
+        - pixBase64
+        - expiresAt
+        - orderId
+
+    PixStatusResponse:
+      type: object
+      properties:
+        transactionId:
+          type: string
+        status:
+          type: string
+        paidAt:
+          type: string
+          nullable: true
+      required:
+        - transactionId
+        - status
+
+    PixCallbackBody:
+      type: object
+      properties:
+        transactionId:
+          type: string
+        status:
+          type: string
+      additionalProperties: true
+
+    CreateOrderRequest:
+      type: object
+      properties:
+        client:
+          $ref: "#/components/schemas/ClientInfo"
+        address:
+          $ref: "#/components/schemas/AddressInfo"
+        products:
+          type: array
+          items:
+            $ref: "#/components/schemas/CartItem"
+        shippingType:
+          type: string
+          enum: [normal, express]
+        includeInsurance:
+          type: boolean
+        subtotal:
+          type: number
+        shippingCost:
+          type: number
+        insuranceAmount:
+          type: number
+        total:
+          type: number
+      required:
+        - client
+        - products
+        - shippingType
+        - includeInsurance
+        - subtotal
+        - shippingCost
+        - insuranceAmount
+        - total
+
+    Order:
+      type: object
+      properties:
+        id:
+          type: string
+        client:
+          $ref: "#/components/schemas/ClientInfo"
+        address:
+          $ref: "#/components/schemas/AddressInfo"
+        products:
+          type: array
+          items:
+            $ref: "#/components/schemas/CartItem"
+        shippingType:
+          type: string
+        includeInsurance:
+          type: boolean
+        subtotal:
+          type: number
+        shippingCost:
+          type: number
+        insuranceAmount:
+          type: number
+        total:
+          type: number
+        status:
+          type: string
+        createdAt:
+          type: string
+      required:
+        - id
+        - client
+        - products
+        - shippingType
+        - includeInsurance
+        - subtotal
+        - shippingCost
+        - insuranceAmount
+        - total
+        - status
+        - createdAt
+
+    AdminOrder:
+      type: object
+      properties:
+        id:
+          type: string
+        clientName:
+          type: string
+        clientEmail:
+          type: string
+        clientPhone:
+          type: string
+        clientDocument:
+          type: string
+        addressCep:
+          type: string
+          nullable: true
+        addressStreet:
+          type: string
+          nullable: true
+        addressNumber:
+          type: string
+          nullable: true
+        addressComplement:
+          type: string
+          nullable: true
+        addressNeighborhood:
+          type: string
+          nullable: true
+        addressCity:
+          type: string
+          nullable: true
+        addressState:
+          type: string
+          nullable: true
+        products:
+          type: array
+          items:
+            $ref: "#/components/schemas/CartItem"
+        shippingType:
+          type: string
+        includeInsurance:
+          type: boolean
+        subtotal:
+          type: number
+        shippingCost:
+          type: number
+        insuranceAmount:
+          type: number
+        total:
+          type: number
+        status:
+          type: string
+        transactionId:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+      required:
+        - id
+        - clientName
+        - clientEmail
+        - clientPhone
+        - clientDocument
+        - products
+        - shippingType
+        - includeInsurance
+        - subtotal
+        - shippingCost
+        - insuranceAmount
+        - total
+        - status
+        - createdAt
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      required:
+        - error
+        - message

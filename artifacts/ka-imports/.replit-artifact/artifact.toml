@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "KA Imports"
+version = "1.0.0"
+id = "artifacts/ka-imports"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+localPort = 25761
+name = "web"
+paths = ["/"]
+
+[services.development]
+run = "pnpm --filter @workspace/ka-imports run dev"
+
+[services.env]
+PORT = "25761"
+BASE_PATH = "/"
+
+[services.production]
+build = ["pnpm", "--filter", "@workspace/ka-imports", "run", "build"]
+publicDir = "artifacts/ka-imports/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"

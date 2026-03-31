@@ -1,0 +1,38 @@
+import { Router, type IRouter } from "express";
+import healthRouter from "./health";
+import productsRouter from "./products";
+import pixRouter from "./pix";
+import ordersRouter from "./orders";
+import adminAuthRouter from "./admin-auth";
+import notificationsRouter from "./notifications";
+import customChargesRouter from "./custom-charges";
+import webhooksRouter from "./webhooks";
+import couponsRouter from "./coupons";
+import settingsRouter from "./settings";
+import sellersRouter from "./sellers";
+import shippingOptionsRouter from "./shipping-options";
+import orderBumpsRouter from "./order-bumps";
+import checkoutRouter from "./checkout";
+import kycRouter from "./kyc";
+import socialProofRouter from "./social-proof";
+
+const router: IRouter = Router();
+
+router.use(healthRouter);
+router.use(productsRouter);
+router.use(pixRouter);
+router.use(ordersRouter);
+router.use(adminAuthRouter);
+router.use(notificationsRouter);
+router.use(customChargesRouter);
+router.use(webhooksRouter);
+router.use(couponsRouter);
+router.use(settingsRouter);
+router.use(sellersRouter);
+router.use(shippingOptionsRouter);
+router.use(orderBumpsRouter);
+router.use(checkoutRouter);
+router.use(kycRouter);
+router.use(socialProofRouter);
+
+export default router;

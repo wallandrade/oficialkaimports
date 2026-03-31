@@ -1,0 +1,144 @@
+# Integração com API - Receber pix
+
+## Descrição
+Endpoint para receber pagamentos via Pix.
+
+## Endpoint
+- **Método:** POST
+- **URL:** https://painel.appcnpay.com/api/v1/gateway/pix/receive
+- **Autenticação:** Requerida
+
+## Autenticação
+Para autenticar suas requisições, inclua os seguintes headers:
+- `x-public-key`: Sua chave pública
+- `x-secret-key`: Sua chave secreta
+
+## Body (application/json)
+- identifier (string, obrigatório): Identificador único da transação. Deve ser criado pela sua aplicação, e deve ser único para cada transação.
+- amount (number, obrigatório): Valor da transação, em reais. Para mais informações sobre como calcular corretamente o valor total da transação, clique aqui.
+- shippingFee (number, opcional): Frete da transação, em reais. Para mais informações sobre como calcular corretamente o valor total da transação, clique aqui.
+- extraFee (number, opcional): Outras taxas, em reais. Para mais informações sobre como calcular corretamente o valor total da transação, clique aqui.
+- discount (number, opcional): Desconto da transação, em reais. Para mais informações sobre como calcular corretamente o valor total da transação, clique aqui.
+- client (object, obrigatório): Dados do cliente
+  Campos do objeto:
+    - name (string, obrigatório): Nome do cliente
+    - email (string, obrigatório): E-mail do cliente
+    - phone (string, obrigatório): Vendas nacionais: No formato brasileiro (11) 99999-9999 (pode ser com ou sem formatação).Vendas internacionais: No formato internacional (Exemplo: +1 555 555 5555).
+    - document (string, obrigatório): Vendas nacionais: CPF ou CNPJ do cliente, pode ser com ou sem formatação.Vendas internacionais: Documento de identificação do cliente de acordo com o país. É possível também omitir, porém é recomendado enviar para evitar problemas futuros.
+- products (array, opcional): Lista de produtos da transação
+  Campos do objeto:
+    - id (string, obrigatório): ID único do produto na sua aplicação
+    - name (string, obrigatório): Nome do produto
+    - quantity (number, opcional): Quantidade do produto, padrão: 1
+    - price (number, obrigatório): Preço unitário do produto, em reais. Para mais informações sobre como calcular corretamente o valor total da transação, clique aqui.
+    - physical (boolean, opcional): Se o produto é físico ou não
+- splits (array, opcional): Lista de splits da transação. Para mais informações sobre como gerar splits para outras contas, clique aqui.
+  Campos do objeto:
+    - producerId (string, obrigatório): ID da conta que receberá o split
+    - amount (number, obrigatório): Valor (em reais) a ser repassado para a conta que receberá o split
+- dueDate (string, opcional): Data de vencimento da cobrança, no formato: YYYY-MM-DD
+- metadata (object, opcional): Metadados da transação. Pode ser enviado como objeto (chave-valor) ou string. Exemplo:{ "provider": "Checkout", "orderId": "1234" }
+- callbackUrl (string, opcional): URL para notificação de alteração de status da transação. Saiba mais sobre esse recurso aqui.
+
+## Respostas
+### 201 OK
+- transactionId (string, sempre retornado): ID único da transação, criado por nós. Guarde esse ID para futuras consultas.
+- status (enum, sempre retornado): Status atual da transação.
+  Valores possíveis: OK, FAILED, PENDING, REJECTED, CANCELED
+- fee (number, sempre retornado): Valor da taxa cobrada pela transação
+- order (object, sempre retornado): Dados do pedido
+  Campos do objeto:
+    - id (string, sempre retornado): ID do pedido para consulta interna
+    - url (string, opcional): URL do pedido no checkout interno
+- pix (object, sempre retornado): Dados do pagamento PIX
+  Campos do objeto:
+    - code (string, sempre retornado): Código copia e cola gerado para a transação
+    - base64 (string, opcional): Imagem em base64 do QR Code
+    - image (string, opcional): URL da imagem do QR Code
+- details (string, opcional): Detalhes adicionais sobre a transação
+- errorDescription (string, opcional): Descrição do erro, caso a transação tenha falhado
+
+### 400 Bad Request
+- statusCode (number, sempre retornado): Código HTTP do erro
+- errorCode (string, sempre retornado): Código do erro, saiba mais sobre os tipos de erro aqui
+- message (string, sempre retornado): Mensagem de erro
+- details (object, opcional): Detalhes do erro
+  Campos do objeto:
+    - field (string, sempre retornado): Campo que gerou o erro
+    - value (any, sempre retornado): Valor que gerou o erro
+    - issue (string, sempre retornado): Descrição do erro
+
+## Exemplo de Requisição
+### Requisição válida
+```json
+{
+  "identifier": "b5daszxrjd",
+  "amount": 100.5,
+  "client": {
+    "name": "João da Silva",
+    "email": "joao@gmail.com",
+    "phone": "(11) 99999-9999",
+    "document": "123.456.789-00"
+  },
+  "products": [
+    {
+      "id": "1duq6ao3y9gl",
+      "name": "Produto 1",
+      "quantity": 1,
+      "price": 80
+    },
+    {
+      "id": "blld0d9zb4hr",
+      "name": "Produto 2",
+      "quantity": 2,
+      "price": 10.25
+    }
+  ],
+  "dueDate": "2026-03-19",
+  "metadata": {
+    "key1": "value1",
+    "key2": "value2"
+  },
+  "callbackUrl": "https://minha.api.com/pix/callback/a24gx9z1ww"
+}
+```
+
+## Exemplo de Resposta
+### 201 OK
+```json
+{
+  "transactionId": "clwuwmn4i0007emp9lgn66u1h",
+  "status": "OK",
+  "order": {
+    "id": "cm92389asdaskdjkasjdka",
+    "url": "https://api-de-pagamentos.com/order/cm92389asdaskdjkasjdka",
+    "receiptUrl": "https://api-de-pagamentos.com/order/cm92389asdaskdjkasjdka/receipt"
+  },
+  "pix": {
+    "code": "00020101021126530014BR.GOV.BCB.PIX0136254e-7f7b-4f4a-8e4b-2b5b3d3b3d3d52040000530398654041.005802BR5923Nome do Beneficiário6008Brasília62070503***6304A8E3",
+    "base64": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAABjElEQVR42mNk",
+    "image": "https://api.gateway.com/pix/qr/00020101021126530014BR.GOV.BCB.PIX0136254e-7f7b-4f4a-8e4b-2b5b3d3b3d3d52040000530398654041.005802BR5923Nome do Beneficiário6008Brasília62070503***6304A8E3"
+  }
+}
+```
+
+### 400 Bad Request
+```json
+{
+  "statusCode": 400,
+  "errorCode": "INVALID_INPUT",
+  "message": "O valor fornecido para o campo 'amount' é inválido.",
+  "details": {
+    "field": "amount",
+    "value": -20,
+    "issue": "O valor deve ser positivo e maior que zero."
+  }
+}
+```
+
+## Instruções para Implementação
+1. Configure os headers de autenticação com suas credenciais
+2. Construa o body da requisição seguindo o schema acima
+3. Envie a requisição para a URL especificada usando o método POST
+4. Trate os possíveis códigos de resposta (sucesso e erro)
+5. Implemente tratamento de erros adequado para garantir robustez

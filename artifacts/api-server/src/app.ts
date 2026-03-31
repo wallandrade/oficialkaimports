@@ -1,0 +1,28 @@
+import express, { type Express } from "express";
+import cors from "cors";
+import router from "./routes";
+import { exec } from "child_process";
+
+const app: Express = express();
+
+app.use(cors());
+app.use(express.json({ limit: "15mb" }));
+app.use(express.urlencoded({ extended: true, limit: "15mb" }));
+
+app.get("/force-migrate", (req, res) => {
+  exec(
+    "npx --yes drizzle-kit push --force --config ../../lib/db/drizzle.config.ts",
+    { cwd: process.cwd() },
+    (error, stdout, stderr) => {
+      res.json({ error: error?.message, stdout, stderr, cwd: process.cwd(), date: new Date().toISOString() });
+    }
+  );
+});
+
+app.get("/health", (req, res) => {
+  res.send("OK");
+});
+
+app.use("/api", router);
+
+export default app;
