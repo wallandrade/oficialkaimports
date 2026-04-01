@@ -266,10 +266,6 @@ function CameraOnlyUpload({
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-      }
       setIsActive(true);
     } catch (err) {
       toast.error("Não foi possível acessar a câmera. Verifique as permissões de câmera do seu navegador.");
@@ -285,6 +281,12 @@ function CameraOnlyUpload({
     }
     setIsActive(false);
   };
+
+  useEffect(() => {
+    if (isActive && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+    }
+  }, [isActive]);
 
   useEffect(() => {
     return () => stopCamera(); 
@@ -337,7 +339,7 @@ function CameraOnlyUpload({
       ) : isActive ? (
         <div className="space-y-2">
           <div className="relative rounded-2xl overflow-hidden bg-black aspect-[3/4] sm:aspect-video flex items-center justify-center">
-            <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+            <video ref={videoRef} className="w-full h-full object-cover" playsInline autoPlay muted />
           </div>
           <div className="flex gap-2">
             <Button variant="outline" className="flex-1" onClick={stopCamera}>Cancelar</Button>
