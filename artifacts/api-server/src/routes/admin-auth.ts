@@ -44,6 +44,9 @@ async function seedFromEnvIfEmpty() {
   }
 
   for (const u of usersToSeed) {
+    const existingUser = await db.select({ id: adminUsersTable.id }).from(adminUsersTable).where(eq(adminUsersTable.username, u.username.trim())).limit(1);
+    if (existingUser.length > 0) continue;
+
     const salt = generateSalt();
     await db.insert(adminUsersTable).values({
       id:           crypto.randomBytes(8).toString("hex"),
@@ -51,7 +54,7 @@ async function seedFromEnvIfEmpty() {
       passwordHash: hashPassword(u.password, salt),
       salt,
       isPrimary:    u.isPrimary,
-    }).onConflictDoNothing();
+    });
   }
 
   if (usersToSeed.length > 0) {

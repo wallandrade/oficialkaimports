@@ -25,7 +25,7 @@ router.get("/settings", async (_req, res) => {
 /** PUT /api/admin/settings/:key — admin only, upsert a setting value */
 router.put("/admin/settings/:key", requireAdminAuth, async (req, res) => {
   try {
-    const { key } = req.params;
+    const key = String(req.params.key);
     if (!ALLOWED_KEYS.includes(key)) {
       res.status(400).json({ error: "INVALID_KEY" });
       return;
@@ -37,8 +37,7 @@ router.put("/admin/settings/:key", requireAdminAuth, async (req, res) => {
       await db
         .insert(siteSettingsTable)
         .values({ key, value, updatedAt: new Date() })
-        .onConflictDoUpdate({
-          target: siteSettingsTable.key,
+        .onDuplicateKeyUpdate({
           set: { value, updatedAt: new Date() },
         });
     }
@@ -79,7 +78,7 @@ router.get("/is-protected", async (_req, res) => {
 /** DELETE /api/admin/settings/:key — remove a setting (restore default) */
 router.delete("/admin/settings/:key", requireAdminAuth, async (req, res) => {
   try {
-    const { key } = req.params;
+    const key = String(req.params.key);
     if (!ALLOWED_KEYS.includes(key)) {
       res.status(400).json({ error: "INVALID_KEY" });
       return;

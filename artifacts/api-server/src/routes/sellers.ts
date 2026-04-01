@@ -21,7 +21,7 @@ router.get("/sellers", async (_req, res) => {
 /** GET /api/sellers/:slug — public, returns single seller or 404 */
 router.get("/sellers/:slug", async (req, res) => {
   try {
-    const { slug } = req.params;
+    const slug = String(req.params.slug);
     const rows = await db.select({
       slug:     sellersTable.slug,
       whatsapp: sellersTable.whatsapp,
@@ -44,8 +44,7 @@ router.post("/admin/sellers", requireAdminAuth, async (req, res) => {
     await db
       .insert(sellersTable)
       .values({ slug: clean, whatsapp: wNum, updatedAt: new Date() })
-      .onConflictDoUpdate({
-        target: sellersTable.slug,
+      .onDuplicateKeyUpdate({
         set: { whatsapp: wNum, updatedAt: new Date() },
       });
     res.json({ ok: true, seller: { slug: clean, whatsapp: wNum } });
@@ -58,7 +57,7 @@ router.post("/admin/sellers", requireAdminAuth, async (req, res) => {
 /** DELETE /api/admin/sellers/:slug — admin only */
 router.delete("/admin/sellers/:slug", requireAdminAuth, async (req, res) => {
   try {
-    const { slug } = req.params;
+    const slug = String(req.params.slug);
     await db.delete(sellersTable).where(eq(sellersTable.slug, slug.toLowerCase()));
     res.json({ ok: true });
   } catch (err) {

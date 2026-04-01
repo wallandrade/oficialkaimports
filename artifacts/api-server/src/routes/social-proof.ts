@@ -203,8 +203,7 @@ router.patch("/admin/social-proof/settings", requireAdminAuth, async (req, res) 
     await db
       .insert(socialProofSettingsTable)
       .values({ id: 1, ...body, updatedAt: new Date() })
-      .onConflictDoUpdate({
-        target: socialProofSettingsTable.id,
+      .onDuplicateKeyUpdate({
         set: { ...body, updatedAt: new Date() },
       });
     res.json(await getSettings());
@@ -281,7 +280,8 @@ router.post("/admin/social-proof/fake-entries", requireAdminAuth, async (req, re
   try {
     const { firstName, city, state, productName } = req.body as { firstName?: string; city?: string; state?: string; productName?: string };
     if (!firstName || !city || !state || !productName) { res.status(400).json({ error: "MISSING_FIELDS" }); return; }
-    const [row] = await db.insert(socialProofFakeEntriesTable).values({ firstName, city, state, productName }).returning();
+    const [result] = await db.insert(socialProofFakeEntriesTable).values({ firstName, city, state, productName });
+    const [row] = await db.select().from(socialProofFakeEntriesTable).where(eq(socialProofFakeEntriesTable.id, result.insertId));
     res.json(row);
   } catch (err) {
     console.error("[SocialProof] create fake entry error:", err);
@@ -292,10 +292,11 @@ router.post("/admin/social-proof/fake-entries", requireAdminAuth, async (req, re
 /** PUT /api/admin/social-proof/fake-entries/:id */
 router.put("/admin/social-proof/fake-entries/:id", requireAdminAuth, async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(String(req.params.id), 10);
     const { firstName, city, state, productName } = req.body as { firstName?: string; city?: string; state?: string; productName?: string };
     if (!firstName || !city || !state || !productName) { res.status(400).json({ error: "MISSING_FIELDS" }); return; }
-    const [row] = await db.update(socialProofFakeEntriesTable).set({ firstName, city, state, productName }).where(eq(socialProofFakeEntriesTable.id, id)).returning();
+    await db.update(socialProofFakeEntriesTable).set({ firstName, city, state, productName }).where(eq(socialProofFakeEntriesTable.id, id));
+    const [row] = await db.select().from(socialProofFakeEntriesTable).where(eq(socialProofFakeEntriesTable.id, id));
     if (!row) { res.status(404).json({ error: "NOT_FOUND" }); return; }
     res.json(row);
   } catch (err) {
@@ -307,7 +308,7 @@ router.put("/admin/social-proof/fake-entries/:id", requireAdminAuth, async (req,
 /** DELETE /api/admin/social-proof/fake-entries/:id */
 router.delete("/admin/social-proof/fake-entries/:id", requireAdminAuth, async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(String(req.params.id), 10);
     await db.delete(socialProofFakeEntriesTable).where(eq(socialProofFakeEntriesTable.id, id));
     res.json({ ok: true });
   } catch (err) {

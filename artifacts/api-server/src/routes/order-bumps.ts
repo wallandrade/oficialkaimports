@@ -93,7 +93,7 @@ router.post("/admin/order-bumps", requireAdminAuth, async (req, res) => {
     if (!discountType)      return res.status(400).json({ error: "Tipo de desconto obrigatório." });
 
     const id = crypto.randomBytes(10).toString("hex");
-    const [row] = await db.insert(orderBumpsTable).values({
+    await db.insert(orderBumpsTable).values({
       id,
       productId:    productId.trim(),
       title:        title.trim(),
@@ -110,7 +110,8 @@ router.post("/admin/order-bumps", requireAdminAuth, async (req, res) => {
       isActive:     isActive !== false,
       sortOrder:    sortOrder ?? 0,
       updatedAt:    new Date(),
-    }).returning();
+    });
+    const [row] = await db.select().from(orderBumpsTable).where(eq(orderBumpsTable.id, id));
 
     res.status(201).json({ bump: mapBump(row) });
   } catch (err) {
@@ -124,7 +125,7 @@ router.post("/admin/order-bumps", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.patch("/admin/order-bumps/:id", requireAdminAuth, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const body = req.body as {
       productId?: string;
       title?: string;
@@ -157,11 +158,11 @@ router.patch("/admin/order-bumps/:id", requireAdminAuth, async (req, res) => {
     if (body.isActive    !== undefined) updates.isActive     = body.isActive;
     if (body.sortOrder   !== undefined) updates.sortOrder    = body.sortOrder;
 
-    const [row] = await db
+    await db
       .update(orderBumpsTable)
       .set(updates)
-      .where(eq(orderBumpsTable.id, id))
-      .returning();
+      .where(eq(orderBumpsTable.id, id));
+    const [row] = await db.select().from(orderBumpsTable).where(eq(orderBumpsTable.id, id));
 
     if (!row) return res.status(404).json({ error: "Order bump não encontrado." });
     res.json({ bump: mapBump(row) });
@@ -176,7 +177,7 @@ router.patch("/admin/order-bumps/:id", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.delete("/admin/order-bumps/:id", requireAdminAuth, async (req, res) => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id);
     await db.delete(orderBumpsTable).where(eq(orderBumpsTable.id, id));
     res.json({ ok: true });
   } catch (err) {
