@@ -24,9 +24,8 @@ export default function AdminLogin() {
 
     setLoading(true);
     try {
-      const API_URL = typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_API_URL
-        ? (import.meta.env.VITE_API_URL as string).replace(/\/$/, "")
-        : BASE;
+      const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "")
+        || "https://oficialkaimports-production.up.railway.app";
 
       const res = await fetch(`${API_URL}/api/admin/login`, {
         method: "POST",
