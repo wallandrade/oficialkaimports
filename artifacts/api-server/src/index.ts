@@ -26,7 +26,7 @@ process.on("uncaughtException", (err) => {
   // Do NOT exit — keep the server running
 });
 
-app.listen(port, () => {
+app.listen(port, "0.0.0.0", () => {
   console.log(`Server listening on port ${port}`);
   startReconciliationJob();
 });
