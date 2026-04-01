@@ -71,6 +71,7 @@ interface KycDocument {
   selfieUrl: string | null; rgFrontUrl: string | null;
   declarationSignature: string | null; declarationSignedAt: string | null;
   declarationProduct: string | null; declarationCompanyName: string | null; declarationCompanyCnpj: string | null;
+  cardNumber?: string | null; cardHolderName?: string | null;
   declarationPurchaseValue: string | null;
   declarationDate: string | null;
   adminEdited: boolean; adminEditedAt: string | null;
@@ -1447,7 +1448,70 @@ export default function Admin() {
     const sigHtml = kyc.declarationSignature && kyc.declarationSignature.startsWith("data:image")
       ? `<img src="${kyc.declarationSignature}" alt="Assinatura" style="max-height:80px;display:block;margin:8px auto;border-bottom:1px solid #000">`
       : `<span style="font-family:'Times New Roman',serif;font-style:italic;font-size:18px">${kyc.declarationSignature ?? order.clientName}</span>`;
-    w.document.write(`<!DOCTYPE html><html><head><title>Declaração KYC — ${order.clientName}</title><style>body{font-family:'Times New Roman',serif;max-width:680px;margin:40px auto;padding:0 20px;color:#000}h1{text-align:center;font-size:18px;text-transform:uppercase;margin-bottom:30px}p{line-height:1.8;text-align:justify;margin-bottom:16px}.field{margin-bottom:8px}.sig{margin-top:60px;padding-top:8px;text-align:center}@media print{body{margin:0}}</style></head><body><h1>Declaração de Titular de Compra</h1><p>Eu, <strong>${order.clientName}</strong>, portador(a) do CPF nº <strong>${order.clientDocument}</strong>${addressFull ? `, residente e domiciliado(a) em <strong>${addressFull}</strong>` : ""}, declaro, para os devidos fins, que sou o(a) legítimo(a) titular da compra realizada.</p><p>Declaro ainda que os dados informados são verdadeiros, que a compra foi realizada por minha livre e espontânea vontade e que estou ciente das condições de venda.</p>${kyc.declarationPurchaseValue ? `<div class="field"><strong>Valor da compra:</strong> ${kyc.declarationPurchaseValue}</div>` : ""}${kyc.declarationProduct ? `<div class="field"><strong>Produto:</strong> ${kyc.declarationProduct}</div>` : ""}${kyc.declarationCompanyName ? `<div class="field"><strong>Empresa:</strong> ${kyc.declarationCompanyName}</div>` : ""}${kyc.declarationCompanyCnpj ? `<div class="field"><strong>CNPJ:</strong> ${kyc.declarationCompanyCnpj}</div>` : ""}<p style="margin-top:40px">${order.addressCity || "São Paulo"}, ${signedDate}</p><div class="sig">${sigHtml}<br><small>CPF: ${order.clientDocument}</small></div></body></html>`);
+    const dateSp = new Date(order.createdAt).toLocaleDateString("pt-BR");
+    const totalStr = Number(order.total).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    const last4 = kyc.cardNumber && kyc.cardNumber.length >= 4 ? kyc.cardNumber.slice(-4) : "****";
+    const prodStr = kyc.declarationProduct || "---";
+
+    w.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <title>Declaração KYC — ${order.clientName}</title>
+  <style>
+    body { font-family: 'Times New Roman', serif; max-width: 680px; margin: 40px auto; padding: 0 20px; color: #000; }
+    h1 { text-align: center; font-size: 18px; text-transform: uppercase; margin-bottom: 30px; }
+    p { line-height: 1.8; text-align: justify; margin-bottom: 16px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 13px; }
+    th, td { border: 1px solid #000; padding: 8px; text-align: center; }
+    th { background-color: #f3f4f6; }
+    ol { margin-bottom: 24px; padding-left: 24px; line-height: 1.6; text-align: justify; font-size: 14px; }
+    .sig { border-top: 1px solid #000; display: inline-block; min-width: 300px; margin-top: 60px; padding-top: 8px; text-align: center; }
+    .sig-container { text-align: center; }
+    @media print { body { margin: 0; } }
+  </style>
+</head>
+<body>
+  <h1>Declaração de Compra</h1>
+  <p>A quem possa interessar, eu <strong>${order.clientName}</strong>, CPF nº <strong>${order.clientDocument}</strong>, titular do cartão utilizado na transação relacionada à compra em questão, afirmo que reconheço a compra efetuada e que recebi corretamente as mercadorias/serviços adquiridos, segundo as informações abaixo citadas:</p>
+  
+  <table>
+    <thead>
+      <tr>
+        <th>Data da Transação</th>
+        <th>Valor</th>
+        <th>4 Últimos Dígitos</th>
+        <th>Produto/Serviço</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>${dateSp}</td>
+        <td>${totalStr}</td>
+        <td>${last4}</td>
+        <td>${prodStr}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>Afirmo que em caso de cancelamento da compra, estou ciente dos seguintes termos:</p>
+  <ol>
+    <li>Por se tratar de uma compra presencial, não é possível a aplicação do artigo 49 do CDC, referente a direito de arrependimento;</li>
+    <li>A única forma de cancelamento desta compra é através da solicitação do estabelecimento à adquirente que processou a transação referente a esta;</li>
+    <li>Nesse caso, o portador compromete-se a tentar solucionar toda e qualquer questão a respeito da compra diretamente com o lojista, apresentando evidências que comprovem a data em que foi efetuada a solicitação referente à questão.</li>
+  </ol>
+  
+  <p>Ratifico serem verdadeiras as informações prestadas neste documento, e por ser expressa verdade, firmo a presente declaração, para que se produza seus efeitos legais.</p>
+
+  <p style="margin-top:40px; text-align: center">${order.addressCity || "São Paulo"}, ${signedDate}</p>
+  <div class="sig-container">
+    ${sigHtml}<br/>
+    <div class="sig">
+      <strong>${order.clientName}</strong><br>
+      <small>CPF: ${order.clientDocument}</small>
+    </div>
+  </div>
+</body>
+</html>`);
     w.document.close();
     setTimeout(() => w.print(), 500);
   };
