@@ -1,4 +1,4 @@
-import { mysqlTable, varchar, text, decimal, int, boolean, timestamp } from "drizzle-orm/mysql-core";
+import { mysqlTable, varchar, text, mediumtext, decimal, int, boolean, timestamp } from "drizzle-orm/mysql-core";
 
 export const orderBumpsTable = mysqlTable("order_bumps", {
   id: varchar("id", { length: 255 }).primaryKey(),
@@ -6,7 +6,7 @@ export const orderBumpsTable = mysqlTable("order_bumps", {
   title: varchar("title", { length: 255 }).notNull(),
   cardTitle: varchar("card_title", { length: 255 }),
   description: text("description"),
-  image: text("image"),
+  image: mediumtext("image"),
   discountType: varchar("discount_type", { length: 50 }).notNull(),
   discountValue: decimal("discount_value", { precision: 10, scale: 2 }),
   buyQuantity: int("buy_quantity"),

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "cross-env NODE_ENV=development tsx --env-file=../../.env ./src/index.ts",
     "build": "tsx ./build.ts",
-    "start": "drizzle-kit push --force --config ../../lib/db/drizzle.config.ts && node dist/index.cjs",
+    "start": "cd ../../lib/db && drizzle-kit push --force --config ./drizzle.config.ts && cd ../../artifacts/api-server && node dist/index.cjs",
     "start-only": "node dist/index.cjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

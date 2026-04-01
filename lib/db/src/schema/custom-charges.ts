@@ -1,4 +1,4 @@
-import { mysqlTable, varchar, text, decimal, timestamp } from "drizzle-orm/mysql-core";
+import { mysqlTable, varchar, text, mediumtext, decimal, timestamp } from "drizzle-orm/mysql-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -21,8 +21,8 @@ export const customChargesTable = mysqlTable("custom_charges", {
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   status: varchar("status", { length: 50 }).notNull().default("pending"),
   transactionId: varchar("transaction_id", { length: 255 }),
-  proofUrl: text("proof_url"),
-  proofUrls: text("proof_urls"),
+  proofUrl: mediumtext("proof_url"),
+  proofUrls: mediumtext("proof_urls"),
   observation: text("observation"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

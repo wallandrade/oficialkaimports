@@ -1,4 +1,4 @@
-import { mysqlTable, varchar, text, decimal, int, boolean, timestamp, datetime } from "drizzle-orm/mysql-core";
+import { mysqlTable, varchar, text, mediumtext, decimal, int, boolean, timestamp, datetime } from "drizzle-orm/mysql-core";
 
 export const productsTable = mysqlTable("products", {
   id: varchar("id", { length: 255 }).primaryKey(),
@@ -9,7 +9,7 @@ export const productsTable = mysqlTable("products", {
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
   promoPrice: decimal("promo_price", { precision: 10, scale: 2 }),
   promoEndsAt: datetime("promo_ends_at", { mode: 'date' }),
-  image: text("image"),          // base64 data URI or null
+  image: mediumtext("image"),          // base64 data URI or null
   isActive: boolean("is_active").notNull().default(true),
   sortOrder: int("sort_order").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),

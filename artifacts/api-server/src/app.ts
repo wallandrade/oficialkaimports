@@ -16,7 +16,7 @@ app.use(express.urlencoded({ extended: true, limit: "15mb" }));
 
 app.get("/force-migrate", (req, res) => {
   exec(
-    "npx --yes drizzle-kit push --force --config ../../lib/db/drizzle.config.ts",
+    "cd ../../lib/db && npx --yes drizzle-kit push --force --config ./drizzle.config.ts",
     { cwd: process.cwd() },
     (error, stdout, stderr) => {
       res.json({ error: error?.message, stdout, stderr, cwd: process.cwd(), date: new Date().toISOString() });

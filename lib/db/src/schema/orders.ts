@@ -1,4 +1,4 @@
-import { mysqlTable, varchar, text, decimal, boolean, timestamp, json, int } from "drizzle-orm/mysql-core";
+import { mysqlTable, varchar, text, mediumtext, decimal, boolean, timestamp, json, int } from "drizzle-orm/mysql-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -25,8 +25,8 @@ export const ordersTable = mysqlTable("orders", {
   status: varchar("status", { length: 50 }).notNull().default("pending"),
   paymentMethod: varchar("payment_method", { length: 50 }).default("pix"),
   cardInstallments: int("card_installments"),
-  proofUrl: text("proof_url"),
-  proofUrls: text("proof_urls"),
+  proofUrl: mediumtext("proof_url"),
+  proofUrls: mediumtext("proof_urls"),
   transactionId: varchar("transaction_id", { length: 255 }),
   sellerCode: varchar("seller_code", { length: 255 }),
   couponCode: varchar("coupon_code", { length: 255 }),
@@ -36,8 +36,8 @@ export const ordersTable = mysqlTable("orders", {
   cardInstallmentValue: decimal("card_installment_value", { precision: 10, scale: 2 }),
   cardTotalActual: decimal("card_total_actual", { precision: 10, scale: 2 }),
   paidAmount: decimal("paid_amount", { precision: 10, scale: 2 }),
-  pixCode: text("pix_code"),
-  pixBase64: text("pix_base64"),
+  pixCode: mediumtext("pix_code"),
+  pixBase64: mediumtext("pix_base64"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

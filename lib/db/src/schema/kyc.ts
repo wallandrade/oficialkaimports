@@ -1,4 +1,4 @@
-import { mysqlTable, varchar, text, boolean, timestamp, datetime } from "drizzle-orm/mysql-core";
+import { mysqlTable, varchar, text, mediumtext, boolean, timestamp, datetime } from "drizzle-orm/mysql-core";
 
 export const kycDocumentsTable = mysqlTable("kyc_documents", {
   id: varchar("id", { length: 255 }).primaryKey(),
@@ -6,9 +6,9 @@ export const kycDocumentsTable = mysqlTable("kyc_documents", {
   clientDocument: varchar("client_document", { length: 255 }),
   clientName: varchar("client_name", { length: 255 }),
   clientPhone: varchar("client_phone", { length: 255 }),
-  selfieUrl: text("selfie_url"),
-  rgFrontUrl: text("rg_front_url"),
-  declarationSignature: text("declaration_signature"),
+  selfieUrl: mediumtext("selfie_url"),
+  rgFrontUrl: mediumtext("rg_front_url"),
+  declarationSignature: mediumtext("declaration_signature"),
   declarationSignedAt: datetime("declaration_signed_at", { mode: 'date' }),
   declarationProduct: varchar("declaration_product", { length: 255 }),
   declarationCompanyName: varchar("declaration_company_name", { length: 255 }),
