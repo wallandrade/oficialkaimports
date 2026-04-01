@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { CheckoutLayout } from "@/components/layout/CheckoutLayout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { useLiveTracking } from "@/hooks/useLiveTracking";
 import { useCart } from "@/store/use-cart";
 import { formatCurrency, getActiveWhatsApp } from "@/lib/utils";
 import { useCreateOrder } from "@workspace/api-client-react";
@@ -81,6 +82,9 @@ export default function Checkout() {
 
   // Garante que o carrinho lateral não abre no checkout
   useEffect(() => { setIsOpen(false); }, [setIsOpen]);
+
+  useLiveTracking("checkout");
+
   const [pendingCheck, setPendingCheck] = useState(() => !!sessionStorage.getItem("ka_pending_product"));
   const [shippingOptions, setShippingOptions] = useState<ShippingOption[]>([]);
   const [shippingLoading, setShippingLoading] = useState(true);

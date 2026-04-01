@@ -703,6 +703,26 @@ export default function Admin() {
   const sseRef = useRef<EventSource | null>(null);
   const swRef  = useRef<ServiceWorkerRegistration | null>(null);
 
+  // Live Visitors Tracking
+  const [liveStats, setLiveStats] = useState({ catalog: 0, checkout: 0 });
+  
+  useEffect(() => {
+    if (!authChecked || !getToken()) return;
+    const fetchLive = () => {
+      fetch(`${BASE}/api/admin/tracking/live`, { headers: authHeaders() })
+        .then((r) => r.json())
+        .then((data) => {
+          if (typeof data.catalog === "number" && typeof data.checkout === "number") {
+            setLiveStats(data);
+          }
+        })
+        .catch(() => {});
+    };
+    fetchLive();
+    const intv = setInterval(fetchLive, 5000);
+    return () => clearInterval(intv);
+  }, [authChecked]);
+
   const unreadCount = notifications.filter((n) => !n.read).length;
   const webhookUrl  = `${window.location.origin}${BASE}/api/webhook/pix`;
 
@@ -1800,7 +1820,30 @@ export default function Admin() {
             <h1 className="text-2xl font-bold text-foreground">Painel Administrativo</h1>
             <p className="text-muted-foreground text-sm mt-0.5">Gerencie pedidos, vendas e configurações</p>
           </div>
-          <div className="flex gap-2 flex-wrap self-start sm:self-auto">
+          <div className="flex gap-2 flex-wrap self-start sm:self-auto items-center">
+            {/* Live Stats */}
+            <div className="hidden sm:flex gap-3 mr-2 bg-orange-50 border border-orange-200 px-3 py-1.5 rounded-lg text-sm font-semibold text-orange-800">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                👁️ {liveStats.catalog} visitantes ao vivo catálogo
+              </span>
+              <span className="w-px h-5 bg-orange-200 mx-1"></span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                🛒 {liveStats.checkout} visitantes ao vivo checkout
+              </span>
+            </div>
+            
+            <div className="flex sm:hidden w-full gap-2 mb-2 bg-orange-50 border border-orange-200 p-2 rounded-lg text-xs font-semibold text-orange-800 justify-between items-center">
+              <span className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                👁️ {liveStats.catalog} no catálogo
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                🛒 {liveStats.checkout} no checkout
+              </span>
+            </div>
             {/* Notification bell */}
             <div className="relative">
               <Button variant="outline" size="sm" onClick={() => { setShowNotif((v) => !v); setNotifications((n) => n.map((x) => ({ ...x, read: true }))); }} className="gap-2 relative h-9">

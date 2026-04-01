@@ -6,6 +6,7 @@ import { ProductCard } from "@/components/product/ProductCard";
 import { Loader2, X } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
+import { useLiveTracking } from "@/hooks/useLiveTracking";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -32,6 +33,8 @@ export default function Home() {
   const searchString = useSearch();
   const searchQuery = new URLSearchParams(searchString).get("q") || "";
   const banners = useSiteBanners();
+
+  useLiveTracking("catalog");
 
   const filteredProducts = useMemo(() => {
     if (!data?.products) return [];

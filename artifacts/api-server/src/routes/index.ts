@@ -15,6 +15,7 @@ import orderBumpsRouter from "./order-bumps";
 import checkoutRouter from "./checkout";
 import kycRouter from "./kyc";
 import socialProofRouter from "./social-proof";
+import trackingRouter from "./tracking";
 
 const router: IRouter = Router();
 
@@ -34,5 +35,6 @@ router.use(orderBumpsRouter);
 router.use(checkoutRouter);
 router.use(kycRouter);
 router.use(socialProofRouter);
+router.use(trackingRouter);
 
 export default router;
