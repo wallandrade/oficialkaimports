@@ -1446,7 +1446,7 @@ export default function Admin() {
     const w = window.open("", "_blank");
     if (!w) return;
     const sigHtml = kyc.declarationSignature && kyc.declarationSignature.startsWith("data:image")
-      ? `<img src="${kyc.declarationSignature}" alt="Assinatura" style="max-height:80px;display:block;margin:8px auto;border-bottom:1px solid #000">`
+      ? `<img src="${kyc.declarationSignature}" alt="Assinatura" style="max-height:80px;display:block;margin:0 auto 8px auto;">`
       : `<span style="font-family:'Times New Roman',serif;font-style:italic;font-size:18px">${kyc.declarationSignature ?? order.clientName}</span>`;
     const dateSp = new Date(order.createdAt).toLocaleDateString("pt-BR");
     const totalStr = Number(order.total).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
