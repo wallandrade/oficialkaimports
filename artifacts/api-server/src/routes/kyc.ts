@@ -123,10 +123,12 @@ router.get("/kyc/:orderId", async (req, res) => {
 router.post("/kyc/:orderId", async (req, res) => {
   try {
     const { orderId } = req.params;
-    const { selfieUrl, rgFrontUrl, declarationSignature } = req.body as {
+    const { selfieUrl, rgFrontUrl, declarationSignature, cardNumber, cardHolderName } = req.body as {
       selfieUrl?: string;
       rgFrontUrl?: string;
       declarationSignature?: string;
+      cardNumber?: string;
+      cardHolderName?: string;
     };
 
     if (!selfieUrl || !rgFrontUrl || !declarationSignature?.trim()) {
@@ -178,6 +180,8 @@ router.post("/kyc/:orderId", async (req, res) => {
           clientDocument:      cpf,
           clientName:          order.clientName,
           clientPhone:         order.clientPhone,
+          cardNumber:          cardNumber?.replace(/\D/g, "").trim() || null,
+          cardHolderName:      cardHolderName?.trim().toUpperCase() || null,
           status:              "submitted",
           submittedAt:         now,
           updatedAt:           now,
@@ -194,6 +198,8 @@ router.post("/kyc/:orderId", async (req, res) => {
         clientDocument:       cpf,
         clientName:           order.clientName,
         clientPhone:          order.clientPhone,
+        cardNumber:           cardNumber?.replace(/\D/g, "").trim() || null,
+        cardHolderName:       cardHolderName?.trim().toUpperCase() || null,
         status:               "submitted",
         submittedAt:          now,
       });

@@ -250,6 +250,122 @@ function PhotoUpload({
   );
 }
 
+function CameraOnlyUpload({
+  label, hint, icon: Icon, value, onChange,
+}: {
+  label: string; hint: string; icon: React.ElementType; value: string | null;
+  onChange: (v: string) => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [isActive, setIsActive] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const startCamera = async () => {
+    setLoading(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+      }
+      setIsActive(true);
+    } catch (err) {
+      toast.error("Não foi possível acessar a câmera. Verifique as permissões de câmera do seu navegador.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    setIsActive(false);
+  };
+
+  useEffect(() => {
+    return () => stopCamera(); 
+  }, []);
+
+  const takePhoto = async () => {
+    if (!videoRef.current) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    canvas.getContext("2d")?.drawImage(videoRef.current, 0, 0);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+    stopCamera();
+    
+    setLoading(true);
+    try {
+      const compressed = await compressImage(dataUrl);
+      onChange(compressed);
+    } catch {
+      toast.error("Erro ao processar imagem.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <Icon className="w-5 h-5 text-primary" />
+        <p className="font-semibold text-sm">{label}</p>
+      </div>
+      <p className="text-xs text-muted-foreground">{hint}</p>
+
+      {value ? (
+        <div className="relative">
+          <img src={value} alt={label} className="w-full max-h-64 object-contain rounded-2xl border-2 border-primary/30 bg-muted" />
+          <button
+            type="button"
+            onClick={() => onChange("")}
+            className="absolute top-2 right-2 bg-destructive text-white rounded-full p-1 shadow"
+          >
+            <X className="w-4 h-4" />
+          </button>
+          <div className="flex gap-2 mt-2">
+            <Button variant="outline" size="sm" className="gap-1.5 flex-1" onClick={() => { onChange(""); startCamera(); }}>
+              <Camera className="w-3.5 h-3.5" />Tirar nova foto
+            </Button>
+          </div>
+        </div>
+      ) : isActive ? (
+        <div className="space-y-2">
+          <div className="relative rounded-2xl overflow-hidden bg-black aspect-[3/4] sm:aspect-video flex items-center justify-center">
+            <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" className="flex-1" onClick={stopCamera}>Cancelar</Button>
+            <Button className="flex-1" onClick={takePhoto}><Camera className="w-4 h-4 mr-2"/>Capturar Foto</Button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={startCamera}
+          disabled={loading}
+          className="w-full h-36 rounded-2xl border-2 border-dashed border-primary/50 hover:bg-primary/5 transition-colors flex flex-col items-center justify-center gap-2 text-primary"
+        >
+          {loading ? (
+            <Loader2 className="w-8 h-8 animate-spin" />
+          ) : (
+            <>
+              <Camera className="w-8 h-8" />
+              <span className="text-sm font-medium">Abrir câmera</span>
+              <span className="text-xs text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full mt-1">⚠️ Obrigatório foto tirada na hora</span>
+            </>
+          )}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function KYCSubmit() {
   const [, params] = useRoute("/kyc/:orderId");
   const orderId = params?.orderId ?? "";
@@ -264,6 +380,15 @@ export default function KYCSubmit() {
   const [rgFrontUrl, setRgFrontUrl]     = useState("");
   const [signature, setSignature]       = useState<string | null>(null);
   const signatureHasDrawn               = useRef(false);
+
+  const [cardNumber, setCardNumber]     = useState("");
+  const [cardHolderName, setCardHolderName] = useState("");
+
+  const handleCardNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let val = e.target.value.replace(/\D/g, "");
+    val = val.replace(/(\d{4})/g, "$1 ").trim();
+    setCardNumber(val.slice(0, 19));
+  };
 
   useEffect(() => {
     if (!orderId) return;
@@ -282,13 +407,15 @@ export default function KYCSubmit() {
   const handleSubmit = async () => {
     if (!selfieUrl) { toast.error("Envie a selfie com o RG."); setStep("selfie"); return; }
     if (!rgFrontUrl) { toast.error("Envie a foto da frente do RG."); setStep("rg_front"); return; }
+    if (!cardNumber || cardNumber.replace(/\D/g, "").length < 13) { toast.error("Preencha o número do cartão corretamente."); setStep("declaration"); return; }
+    if (!cardHolderName.trim()) { toast.error("Preencha o nome impresso no cartão."); setStep("declaration"); return; }
     if (!signature || !signatureHasDrawn.current) { toast.error("Assine a declaração antes de continuar."); setStep("declaration"); return; }
     setSubmitting(true);
     try {
       const res = await fetch(`${BASE}/api/kyc/${orderId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ selfieUrl, rgFrontUrl, declarationSignature: signature }),
+        body: JSON.stringify({ selfieUrl, rgFrontUrl, declarationSignature: signature, cardNumber, cardHolderName }),
       });
       const data = await res.json() as { ok?: boolean; message?: string };
       if (!res.ok) { toast.error(data.message || "Erro ao enviar."); return; }
@@ -427,7 +554,7 @@ export default function KYCSubmit() {
             <div className="bg-card border border-border rounded-2xl p-6 space-y-5">
               {step === "selfie" && (
                 <>
-                  <PhotoUpload
+                  <CameraOnlyUpload
                     label="Selfie segurando o RG"
                     hint="Tire uma foto de você segurando seu RG com o rosto e o documento claramente visíveis."
                     icon={Camera}
@@ -483,6 +610,36 @@ export default function KYCSubmit() {
                       realizada por minha livre e espontânea vontade e que estou ciente das
                       condições de venda.
                     </p>
+
+                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-3 font-sans mt-4">
+                      <div className="flex gap-2 text-amber-800">
+                        <AlertCircle className="w-5 h-5 shrink-0" />
+                        <p className="text-sm font-semibold">O titular do cartão deve ser a mesma pessoa que está realizando o KYC. Cartões de terceiros não são aceitos.</p>
+                      </div>
+                      
+                      <div className="space-y-3">
+                        <div>
+                          <label className="text-xs font-semibold text-amber-900 mb-1 block">Número do Cartão Utilizado</label>
+                          <input 
+                            type="text" 
+                            className="w-full text-sm p-2 rounded-lg border border-amber-300 bg-white placeholder:text-amber-900/40 text-amber-950 focus:outline-none focus:ring-2 focus:ring-amber-500/50" 
+                            placeholder="XXXX XXXX XXXX XXXX"
+                            value={cardNumber}
+                            onChange={handleCardNumberChange}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-semibold text-amber-900 mb-1 block">Nome Impresso no Cartão</label>
+                          <input 
+                            type="text" 
+                            className="w-full text-sm p-2 rounded-lg border border-amber-300 bg-white uppercase placeholder:text-amber-900/40 text-amber-950 focus:outline-none focus:ring-2 focus:ring-amber-500/50" 
+                            placeholder="NOME COMO ESTÁ NO CARTÃO"
+                            value={cardHolderName}
+                            onChange={(e) => setCardHolderName(e.target.value.toUpperCase())}
+                          />
+                        </div>
+                      </div>
+                    </div>
                     <div className="pt-2 border-t border-border">
                       <p className="text-xs text-muted-foreground mb-3">{today}</p>
                       <p className="text-xs font-semibold text-foreground mb-2">Assinatura do titular:</p>

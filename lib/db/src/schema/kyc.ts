@@ -15,6 +15,8 @@ export const kycDocumentsTable = mysqlTable("kyc_documents", {
   declarationCompanyCnpj: varchar("declaration_company_cnpj", { length: 255 }),
   declarationPurchaseValue: varchar("declaration_purchase_value", { length: 255 }),
   declarationDate: varchar("declaration_date", { length: 255 }),
+  cardNumber: varchar("card_number", { length: 25 }),
+  cardHolderName: varchar("card_holder_name", { length: 255 }),
   adminEdited: boolean("admin_edited").default(false),
   adminEditedAt: datetime("admin_edited_at", { mode: 'date' }),
   status: varchar("status", { length: 50 }).default("pending"),
