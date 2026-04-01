@@ -385,6 +385,7 @@ export default function KYCSubmit() {
 
   const [cardNumber, setCardNumber]     = useState("");
   const [cardHolderName, setCardHolderName] = useState("");
+  const [declarationProduct, setDeclarationProduct] = useState("");
 
   const handleCardNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     let val = e.target.value.replace(/\D/g, "");
@@ -411,13 +412,14 @@ export default function KYCSubmit() {
     if (!rgFrontUrl) { toast.error("Envie a foto da frente do RG."); setStep("rg_front"); return; }
     if (!cardNumber || cardNumber.replace(/\D/g, "").length < 13) { toast.error("Preencha o número do cartão corretamente."); setStep("declaration"); return; }
     if (!cardHolderName.trim()) { toast.error("Preencha o nome impresso no cartão."); setStep("declaration"); return; }
+    if (!declarationProduct.trim()) { toast.error("Preencha o nome do produto/serviço declarado."); setStep("declaration"); return; }
     if (!signature || !signatureHasDrawn.current) { toast.error("Assine a declaração antes de continuar."); setStep("declaration"); return; }
     setSubmitting(true);
     try {
       const res = await fetch(`${BASE}/api/kyc/${orderId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ selfieUrl, rgFrontUrl, declarationSignature: signature, cardNumber, cardHolderName }),
+        body: JSON.stringify({ selfieUrl, rgFrontUrl, declarationSignature: signature, cardNumber, cardHolderName, declarationProduct }),
       });
       const data = await res.json() as { ok?: boolean; message?: string };
       if (!res.ok) { toast.error(data.message || "Erro ao enviar."); return; }
@@ -597,29 +599,45 @@ export default function KYCSubmit() {
                   </div>
 
                   <div className="bg-muted/50 border border-border rounded-xl p-4 text-sm text-foreground leading-relaxed space-y-3 font-serif">
-                    <p className="text-center font-bold text-base">DECLARAÇÃO DE TITULAR DE COMPRA</p>
+                    <p className="text-center font-bold text-base">DECLARAÇÃO DE COMPRA</p>
                     <p>
-                      Eu, <strong>{order.clientName}</strong>, portador(a) do CPF nº{" "}
-                      <strong>{order.clientDocument}</strong>,
-                      {order.address ? (
-                        <> residente e domiciliado(a) em <strong>{order.address}</strong>,</>
-                      ) : null}{" "}
-                      declaro, para os devidos fins, que sou o(a) legítimo(a) titular da
-                      compra realizada.
-                    </p>
-                    <p>
-                      Declaro ainda que os dados informados são verdadeiros, que a compra foi
-                      realizada por minha livre e espontânea vontade e que estou ciente das
-                      condições de venda.
+                      A quem possa interessar, eu <strong>{order.clientName}</strong>, CPF nº{" "}
+                      <strong>{order.clientDocument}</strong>, titular do cartão utilizado na transação relacionada à compra em questão, afirmo que reconheço a compra efetuada e que recebi corretamente as mercadorias/serviços adquiridos, segundo as informações abaixo citadas:
                     </p>
 
-                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-3 font-sans mt-4">
-                      <div className="flex gap-2 text-amber-800">
-                        <AlertCircle className="w-5 h-5 shrink-0" />
-                        <p className="text-sm font-semibold">O titular do cartão deve ser a mesma pessoa que está realizando o KYC. Cartões de terceiros não são aceitos.</p>
-                      </div>
+                    <div className="overflow-x-auto my-4 bg-white rounded-lg border border-border">
+                      <table className="w-full text-xs text-left border-collapse">
+                        <thead className="bg-muted">
+                          <tr>
+                            <th className="border-b border-r border-border p-2">Data da Transação</th>
+                            <th className="border-b border-r border-border p-2">Valor</th>
+                            <th className="border-b border-r border-border p-2">4 Últimos Dígitos</th>
+                            <th className="border-b border-border p-2">Produto/Serviço</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td className="border-r border-border p-2">{new Date(order.createdAt).toLocaleDateString("pt-BR")}</td>
+                            <td className="border-r border-border p-2">{Number(order.total).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</td>
+                            <td className="border-r border-border p-2">{cardNumber.length >= 19 ? cardNumber.slice(-4) : "****"}</td>
+                            <td className="p-2 font-medium">{declarationProduct || "---"}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <p>Afirmo que em caso de cancelamento da compra, estou ciente dos seguintes termos:</p>
+                    <ol className="list-decimal pl-5 space-y-2 text-sm">
+                      <li>Por se tratar de uma compra presencial, não é possível a aplicação do artigo 49 do CDC, referente a direito de arrependimento;</li>
+                      <li>A única forma de cancelamento desta compra é através da solicitação do estabelecimento à adquirente que processou a transação referente a esta;</li>
+                      <li>Nesse caso, o portador compromete-se a tentar solucionar toda e qualquer questão a respeito da compra diretamente com o lojista, apresentando evidências que comprovem a data em que foi efetuada a solicitação referente à questão.</li>
+                    </ol>
+
+                    <p>Ratifico serem verdadeiras as informações prestadas neste documento, e por ser expressa verdade, firmo a presente declaração, para que se produza seus efeitos legais.</p>
+
+                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-4 font-sans mt-4">
                       
-                      <div className="space-y-3">
+                      <div className="space-y-4">
                         <div>
                           <label className="text-xs font-semibold text-amber-900 mb-1 block">Número do Cartão Utilizado</label>
                           <input 
@@ -639,6 +657,19 @@ export default function KYCSubmit() {
                             value={cardHolderName}
                             onChange={(e) => setCardHolderName(e.target.value.toUpperCase())}
                           />
+                        </div>
+                        <div>
+                          <label className="text-xs font-semibold text-amber-900 mb-1 block">Nome do Produto ou Serviço (Fictício)</label>
+                          <input 
+                            type="text" 
+                            className="w-full text-sm p-2 rounded-lg border border-amber-300 bg-white placeholder:text-amber-900/40 text-amber-950 focus:outline-none focus:ring-2 focus:ring-amber-500/50" 
+                            placeholder="Ex: Troca de tela, Conserto de celular..."
+                            value={declarationProduct}
+                            onChange={(e) => setDeclarationProduct(e.target.value)}
+                          />
+                          <p className="text-[11px] text-amber-900/90 mt-1.5 font-medium leading-tight bg-amber-100/50 p-2 rounded-lg border border-amber-200">
+                            <b>ATENÇÃO:</b> Jamais coloque nome de remédio. Digite "Manutenção de celular", "Conserto de computador", "Troca de tela", ou áreas de eletrônicos.
+                          </p>
                         </div>
                       </div>
                     </div>
