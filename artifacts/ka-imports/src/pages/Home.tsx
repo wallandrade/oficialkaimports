@@ -38,7 +38,7 @@ export default function Home() {
 
   const filteredProducts = useMemo(() => {
     if (!data?.products) return [];
-    return data.products.filter((product) => {
+    const filtered = data.products.filter((product) => {
       const matchesSearch =
         !searchQuery ||
         product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -46,6 +46,14 @@ export default function Home() {
       const matchesCategory =
         activeCategory === "all" || product.category === activeCategory;
       return matchesSearch && matchesCategory;
+    });
+
+    return filtered.sort((a, b) => {
+      const aHasPromo = a.promoPrice != null && a.promoPrice < a.price;
+      const bHasPromo = b.promoPrice != null && b.promoPrice < b.price;
+      if (aHasPromo && !bHasPromo) return -1;
+      if (!aHasPromo && bHasPromo) return 1;
+      return 0;
     });
   }, [data, searchQuery, activeCategory]);
 
