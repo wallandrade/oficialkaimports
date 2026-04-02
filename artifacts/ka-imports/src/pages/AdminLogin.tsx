@@ -24,10 +24,10 @@ export default function AdminLogin() {
 
     setLoading(true);
     try {
-      const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "")
-        || "https://oficialkaimports-production.up.railway.app";
+      const API_URL = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "");
+      const loginUrl = API_URL ? `${API_URL}/api/admin/login` : `${BASE}/api/admin/login`;
 
-      const res = await fetch(`${API_URL}/api/admin/login`, {
+      const res = await fetch(loginUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: username.trim(), password }),
