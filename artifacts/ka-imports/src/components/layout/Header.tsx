@@ -137,7 +137,7 @@ function SearchBar({
 
 export function Header({ minimal = false }: { minimal?: boolean }) {
   const { items, setIsOpen } = useCart();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const [searchValue, setSearchValue]         = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
@@ -151,6 +151,14 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
   const itemCount = items.reduce((acc, item) => acc + item.quantity, 0);
   const logo = useSiteLogo();
   const allProducts = useProducts();
+  const currentPath = typeof window !== "undefined"
+    ? window.location.pathname
+    : location.split("?")[0];
+  const normalizedBase = BASE || "/";
+  const isHomePage =
+    currentPath === "/" ||
+    currentPath === normalizedBase ||
+    currentPath === `${normalizedBase}/`;
 
   const suggestions = searchValue.trim().length >= 1
     ? allProducts.filter((p) =>
@@ -237,7 +245,7 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
             </div>
 
             {/* Center: desktop search bar */}
-            {!minimal && (
+            {!minimal && !isHomePage && (
               <SearchBar
                 searchValue={searchValue}
                 setSearchValue={setSearchValue}
@@ -254,7 +262,7 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
 
             {/* Right: mobile search icon + cart */}
             <div className="flex items-center gap-2">
-              {!minimal && (
+              {!minimal && !isHomePage && (
                 <button
                   className="md:hidden p-2 rounded-xl hover:bg-muted transition-colors"
                   onClick={openMobileSearch}
@@ -282,7 +290,7 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
           </div>
 
           {/* Mobile search row — slides open below the header bar */}
-          {!minimal && mobileSearchOpen && (
+          {!minimal && !isHomePage && mobileSearchOpen && (
             <div className="md:hidden pb-3">
               <SearchBar
                 searchValue={searchValue}
