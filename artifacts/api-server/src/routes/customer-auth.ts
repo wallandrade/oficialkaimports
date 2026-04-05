@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import crypto from "crypto";
-import { db, customerUsersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, customerUsersTable, ordersTable, affiliatesTable } from "@workspace/db";
+import { eq, sql, desc } from "drizzle-orm";
 import {
   createCustomerSession,
   generateSalt,
@@ -10,6 +10,7 @@ import {
   removeCustomerSession,
   requireCustomerAuth,
 } from "../middlewares/customer-auth";
+import { requireAdminAuth } from "./admin-auth";
 
 const router: IRouter = Router();
 
@@ -152,6 +153,58 @@ router.get("/auth/me", requireCustomerAuth, async (req, res) => {
   }
 
   res.json({ user });
+});
+
+// --------------------------------------------------------------------------
+// GET /api/admin/customers  — list all registered customers (admin only)
+// --------------------------------------------------------------------------
+router.get("/admin/customers", requireAdminAuth, async (req, res) => {
+  try {
+    const customers = await db
+      .select({
+        id: customerUsersTable.id,
+        name: customerUsersTable.name,
+        email: customerUsersTable.email,
+        createdAt: customerUsersTable.createdAt,
+      })
+      .from(customerUsersTable)
+      .orderBy(desc(customerUsersTable.createdAt));
+
+    // Count orders per customer
+    const orderCounts = await db
+      .select({
+        userId: ordersTable.userId,
+        orderCount: sql<number>`count(*)`.as("order_count"),
+      })
+      .from(ordersTable)
+      .groupBy(ordersTable.userId);
+
+    const orderCountMap = new Map<string, number>();
+    for (const row of orderCounts) {
+      if (row.userId) orderCountMap.set(row.userId, Number(row.orderCount));
+    }
+
+    // Fetch affiliate codes
+    const affiliateRows = await db
+      .select({ userId: affiliatesTable.userId, affiliateCode: affiliatesTable.affiliateCode })
+      .from(affiliatesTable);
+
+    const affiliateCodeMap = new Map<string, string>();
+    for (const row of affiliateRows) {
+      affiliateCodeMap.set(row.userId, row.affiliateCode);
+    }
+
+    const enriched = customers.map((c) => ({
+      ...c,
+      orderCount: orderCountMap.get(c.id) ?? 0,
+      affiliateCode: affiliateCodeMap.get(c.id) ?? null,
+    }));
+
+    res.json({ customers: enriched });
+  } catch (err) {
+    console.error("[Admin] list customers error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao listar clientes." });
+  }
 });
 
 export default router;

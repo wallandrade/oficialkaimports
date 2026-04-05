@@ -531,7 +531,12 @@ function OrderBumpsPanel({ bumps, products, form, setForm, creating, toggling, d
   );
 }
 
-type TabType = "orders" | "charges" | "sellers" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "webhook" | "configuracoes" | "socialProof";
+type TabType = "orders" | "charges" | "sellers" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "webhook" | "configuracoes" | "socialProof";
+
+interface CustomerUserRecord {
+  id: string; name: string; email: string; createdAt: string;
+  orderCount: number; affiliateCode: string | null;
+}
 
 interface SocialProofSettings {
   id: number;
@@ -569,6 +574,9 @@ export default function Admin() {
   const [sellerAllOrders, setSellerAllOrders] = useState<AdminOrder[]>([]);
   const [sellerAllCharges, setSellerAllCharges] = useState<CustomCharge[]>([]);
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
+  const [customerUsers, setCustomerUsers] = useState<CustomerUserRecord[]>([]);
+  const [customersLoading, setCustomersLoading] = useState(false);
+  const [customerSearch, setCustomerSearch] = useState("");
   const [loading, setLoading] = useState(true);
   // Once set to true, the spinner never appears again for orders/charges —
   // background refreshes and filter changes update data silently in-place.
@@ -848,6 +856,17 @@ export default function Admin() {
     } catch { /* ignore */ }
   }, [isPrimary]);
 
+  const fetchCustomers = useCallback(async () => {
+    setCustomersLoading(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/customers`, { headers: authHeaders() });
+      if (!res.ok) return;
+      const data = await res.json() as { customers: CustomerUserRecord[] };
+      setCustomerUsers(data.customers || []);
+    } catch { /* ignore */ }
+    finally { setCustomersLoading(false); }
+  }, []);
+
   const fetchCoupons = useCallback(async () => {
     setLoading(true);
     try {
@@ -1079,6 +1098,7 @@ export default function Admin() {
     if (tab === "orders")          fetchOrders();
     else if (tab === "charges")    fetchCharges();
     else if (tab === "users")      fetchUsers();
+    else if (tab === "customers")  fetchCustomers();
     else if (tab === "coupons")    fetchCoupons();
     else if (tab === "products")   fetchProducts();
     else if (tab === "configuracoes") fetchSettings();
@@ -1088,7 +1108,7 @@ export default function Admin() {
     else if (tab === "kyc")        fetchKycList();
     else if (tab === "socialProof") { fetchSocialProof(); fetchProducts(); }
     else setLoading(false);
-  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCoupons, fetchProducts, fetchSettings, fetchSellers, fetchSellerData, fetchShippingOptions, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchSocialProof]);
+  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchCoupons, fetchProducts, fetchSettings, fetchSellers, fetchSellerData, fetchShippingOptions, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchSocialProof]);
 
   // -------------------------------------------------------------------------
   // SSE
@@ -1214,7 +1234,8 @@ export default function Admin() {
 
   useEffect(() => {
     if (authChecked && tab === "users") fetchUsers();
-  }, [tab, authChecked, fetchUsers]);
+    if (authChecked && tab === "customers") fetchCustomers();
+  }, [tab, authChecked, fetchUsers, fetchCustomers]);
 
   // -------------------------------------------------------------------------
   // Handlers
@@ -1990,6 +2011,7 @@ export default function Admin() {
             { key: "fretes",        label: "Fretes",           Icon: Truck,       count: shippingOptions.length },
             { key: "orderBumps",    label: "Order Bumps",      Icon: Zap,         count: orderBumps.length },
             { key: "kyc",           label: "KYC",              Icon: ShieldCheck, count: kycList.length > 0 ? kycList.filter((k) => k.status === "submitted").length : undefined },
+            { key: "customers",     label: "Clientes",         Icon: UserPlus,    count: customerUsers.length || undefined },
             ...(isPrimary ? [{ key: "users", label: "Usuários", Icon: Users }] : []),
             { key: "socialProof",   label: "Prova Social",     Icon: ShoppingBag },
             { key: "webhook",       label: "Webhook",          Icon: Webhook },
@@ -2141,6 +2163,14 @@ export default function Admin() {
             charges={sellerAllCharges}
             isPrimary={isPrimary}
             currentUsername={currentUsername}
+          />
+        ) : tab === "customers" ? (
+          <CustomersPanel
+            customers={customerUsers}
+            loading={customersLoading}
+            search={customerSearch}
+            setSearch={setCustomerSearch}
+            onRefresh={fetchCustomers}
           />
         ) : tab === "users" && isPrimary ? (
           <UsersPanel
@@ -4376,6 +4406,108 @@ function SellersPanel({ siteOrigin, savedSellersList, sellerInput, setSellerInpu
               ))}
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CustomersPanel
+// ---------------------------------------------------------------------------
+function CustomersPanel({
+  customers, loading, search, setSearch, onRefresh,
+}: {
+  customers: CustomerUserRecord[];
+  loading: boolean;
+  search: string;
+  setSearch: (v: string) => void;
+  onRefresh: () => void;
+}) {
+  const filtered = customers.filter((c) => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return (
+      c.name.toLowerCase().includes(q) ||
+      c.email.toLowerCase().includes(q) ||
+      (c.affiliateCode || "").toLowerCase().includes(q)
+    );
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold text-foreground">Clientes cadastrados</h2>
+          <p className="text-sm text-muted-foreground">{customers.length} cliente{customers.length !== 1 ? "s" : ""} no total</p>
+        </div>
+        <div className="flex gap-2">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar por nome, e-mail ou cód. afiliado..."
+              className="h-10 pl-9 pr-4 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm w-72"
+            />
+          </div>
+          <button
+            onClick={onRefresh}
+            className="h-10 px-3 rounded-xl border-2 border-border bg-white hover:bg-muted text-sm flex items-center gap-1.5"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="py-16 text-center border border-dashed border-border rounded-2xl">
+          <UserPlus className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+          <p className="font-semibold text-foreground">{search ? "Nenhum cliente encontrado." : "Nenhum cliente cadastrado ainda."}</p>
+          {search && (
+            <button onClick={() => setSearch("")} className="mt-2 text-sm text-primary hover:underline">Limpar busca</button>
+          )}
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-2xl border border-border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-muted/60 border-b border-border">
+                <th className="text-left px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">Nome</th>
+                <th className="text-left px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">E-mail</th>
+                <th className="text-left px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">Pedidos</th>
+                <th className="text-left px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">Cód. afiliado</th>
+                <th className="text-left px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">Cadastro em</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((c, idx) => (
+                <tr key={c.id} className={`border-b border-border last:border-0 ${idx % 2 === 0 ? "bg-white" : "bg-slate-50/60"}`}>
+                  <td className="px-4 py-3 font-medium text-foreground">{c.name}</td>
+                  <td className="px-4 py-3 text-muted-foreground">{c.email}</td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${c.orderCount > 0 ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground"}`}>
+                      <Package className="w-3 h-3" />
+                      {c.orderCount}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    {c.affiliateCode ? (
+                      <span className="inline-block px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs font-mono font-semibold">{c.affiliateCode}</span>
+                    ) : (
+                      <span className="text-muted-foreground text-xs">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{formatDateBR(c.createdAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
