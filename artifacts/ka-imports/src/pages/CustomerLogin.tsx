@@ -48,7 +48,15 @@ export default function CustomerLogin() {
         body: JSON.stringify(payload),
       });
 
-      const data = (await res.json()) as AuthResponse;
+      let data: AuthResponse = {};
+      try {
+        data = (await res.json()) as AuthResponse;
+      } catch {
+        // Response was not JSON (e.g. server still deploying)
+        toast.error("Serviço indisponível no momento. Tente novamente em segundos.");
+        return;
+      }
+
       if (!res.ok || !data.token) {
         toast.error(data.message || "Não foi possível autenticar.");
         return;
@@ -58,7 +66,7 @@ export default function CustomerLogin() {
       toast.success(mode === "login" ? "Login realizado com sucesso!" : "Conta criada com sucesso!");
       setLocation("/minha-conta/pedidos");
     } catch {
-      toast.error("Erro ao conectar. Tente novamente.");
+      toast.error("Erro de conexão. Verifique sua internet e tente novamente.");
     } finally {
       setLoading(false);
     }
