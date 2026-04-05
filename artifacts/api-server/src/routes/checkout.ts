@@ -10,6 +10,8 @@ import {
   genIdentifier,
   PIX_DURATION_MS,
 } from "../gateway";
+import { getCustomerSession } from "../middlewares/customer-auth";
+import { normalizeAffiliateCode, registerAffiliateLead, resolveAffiliateByCode } from "../lib/affiliates";
 
 const router: IRouter = Router();
 
@@ -38,6 +40,9 @@ router.post("/checkout/pix", async (req, res) => {
   }));
 
   try {
+    const customerSession = getCustomerSession(req);
+    const guestAccessToken = customerSession ? null : crypto.randomBytes(24).toString("hex");
+
     const {
       client, address, products, shippingType, includeInsurance,
       subtotal, shippingCost, insuranceAmount, total,
@@ -59,6 +64,14 @@ router.post("/checkout/pix", async (req, res) => {
       couponCode?: string;
       discountAmount?: number;
     };
+
+    const normalizedAffiliateCode = normalizeAffiliateCode(req.body?.affiliateCode);
+    const affiliate = normalizedAffiliateCode
+      ? await resolveAffiliateByCode(normalizedAffiliateCode)
+      : null;
+    const affiliateUserId = affiliate?.userId && affiliate.userId !== customerSession?.userId
+      ? affiliate.userId
+      : null;
 
     // ── Validate client fields ────────────────────────────────────────────
     if (!client?.name || !client?.email || !client?.phone || !client?.document) {
@@ -88,6 +101,10 @@ router.post("/checkout/pix", async (req, res) => {
 
     await db.insert(ordersTable).values({
       id:                  orderId,
+      userId:              customerSession?.userId ?? null,
+      guestAccessToken,
+      affiliateUserId,
+      affiliateCode:       affiliateUserId ? normalizedAffiliateCode : null,
       clientName:          client.name,
       clientEmail:         client.email,
       clientPhone:         client.phone,
@@ -112,6 +129,14 @@ router.post("/checkout/pix", async (req, res) => {
       couponCode:          couponCode  ? String(couponCode).toUpperCase() : null,
       discountAmount:      discountAmount ? String(discountAmount) : null,
     });
+
+    if (affiliateUserId) {
+      await registerAffiliateLead({
+        affiliateUserId,
+        referredUserId: customerSession?.userId ?? null,
+        referredEmail: client?.email ?? null,
+      });
+    }
 
     console.log(`[CHECKOUT/PIX:${requestId}] Order created: ${orderId}`);
 
@@ -182,6 +207,9 @@ router.post("/checkout/pix", async (req, res) => {
 
     res.json({
       orderId,
+      affiliateCode: affiliateUserId ? normalizedAffiliateCode : null,
+      guestAccessToken,
+      isGuestOrder: !customerSession,
       transactionId: gatewayData.transactionId,
       status:        gatewayData.status,
       pixCode:       gatewayData.pix?.code   || "",

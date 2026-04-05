@@ -16,6 +16,8 @@ import checkoutRouter from "./checkout";
 import kycRouter from "./kyc";
 import socialProofRouter from "./social-proof";
 import trackingRouter from "./tracking";
+import customerAuthRouter from "./customer-auth";
+import affiliateRouter from "./affiliate";
 
 const router: IRouter = Router();
 
@@ -36,5 +38,7 @@ router.use(checkoutRouter);
 router.use(kycRouter);
 router.use(socialProofRouter);
 router.use(trackingRouter);
+router.use(customerAuthRouter);
+router.use(affiliateRouter);
 
 export default router;

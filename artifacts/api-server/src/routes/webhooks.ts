@@ -16,6 +16,7 @@ import { eq, or } from "drizzle-orm";
 import { broadcastNotification } from "./notifications";
 import { isPaymentConfirmed } from "../gateway";
 import { incrementCouponUse } from "./coupons";
+import { ensureOrderCommission } from "../lib/affiliates";
 
 const router: IRouter = Router();
 
@@ -67,6 +68,10 @@ async function handleCallback(body: GatewayCallback) {
 
           if (confirmed && row.couponCode) {
             await incrementCouponUse(row.couponCode);
+          }
+
+          if (confirmed && newStatus === "paid") {
+            await ensureOrderCommission(row.id);
           }
 
           broadcastNotification({
@@ -147,6 +152,10 @@ async function handleCallback(body: GatewayCallback) {
                 type: "order_paid",
                 data: { id: row.orderId, status: newOrderStatus },
               });
+
+              if (newOrderStatus === "paid") {
+                await ensureOrderCommission(row.orderId);
+              }
 
               console.log(`[WEBHOOK] Order ${row.orderId} auto-updated to ${newOrderStatus} after diff charge paid (paid=${totalPaid}, total=${orderTotal})`);
             }
@@ -272,6 +281,7 @@ router.post("/webhook", async (req, res) => {
         if (isConfirmed && !rows[0]!.paidAmount && rows[0]!.total) setFields.paidAmount = rows[0]!.total;
         await db.update(ordersTable).set(setFields).where(eq(ordersTable.id, rawOrderId));
         if (isConfirmed && rows[0]!.couponCode) await incrementCouponUse(rows[0]!.couponCode);
+        if (isConfirmed && newStatus === "paid") await ensureOrderCommission(rawOrderId);
         broadcastNotification({ type: isConfirmed ? "order_paid" : "order_status_updated", data: { id: rawOrderId, status: newStatus } });
         console.log(`[WEBHOOK/universal] Order ${rawOrderId} → ${newStatus}`);
         res.json({ ok: true, matched: true, updated: "order", id: rawOrderId, status: newStatus });
@@ -309,6 +319,8 @@ router.post("/webhook/pix/order/:token/:orderId", async (req, res) => {
           .where(eq(ordersTable.id, orderId));
 
         if (rows[0]!.couponCode) await incrementCouponUse(rows[0]!.couponCode);
+
+        await ensureOrderCommission(orderId);
 
         broadcastNotification({ type: "order_paid", data: { id: orderId, status: "paid" } });
         console.log(`[WEBHOOK] Order ${orderId} paid via direct URL`);
@@ -366,6 +378,10 @@ router.post("/webhook/pix/charge/:token/:chargeId", async (req, res) => {
 
             broadcastNotification({ type: "order_paid", data: { id: rows[0]!.orderId, status: newOrderStatus } });
             console.log(`[WEBHOOK] Order ${rows[0]!.orderId} auto-updated to ${newOrderStatus} after diff charge (direct URL)`);
+
+            if (newOrderStatus === "paid") {
+              await ensureOrderCommission(rows[0]!.orderId);
+            }
           }
         }
       }

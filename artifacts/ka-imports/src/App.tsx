@@ -7,6 +7,7 @@ import { useEffect } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 import { SitePasswordGate } from "@/components/SitePasswordGate";
 import SocialProofWidget from "@/components/SocialProofWidget";
+import { captureReferralFromCurrentUrl } from "@/lib/affiliate";
 
 // ---------------------------------------------------------------------------
 // React Error Boundary — prevents blank white page on uncaught render errors
@@ -57,6 +58,8 @@ const PixPayment          = lazy(() => import("@/pages/PixPayment"));
 const Success             = lazy(() => import("@/pages/Success"));
 const Admin               = lazy(() => import("@/pages/Admin"));
 const AdminLogin          = lazy(() => import("@/pages/AdminLogin"));
+const CustomerLogin       = lazy(() => import("@/pages/CustomerLogin"));
+const CustomerOrders      = lazy(() => import("@/pages/CustomerOrders"));
 const PaymentLink         = lazy(() => import("@/pages/PaymentLink"));
 const SellerPage          = lazy(() => import("@/pages/SellerPage"));
 const SellerCheckoutPage  = lazy(() => import("@/pages/SellerCheckoutPage"));
@@ -112,6 +115,8 @@ function Router() {
         <Route path="/success"          component={Success} />
         <Route path="/admin/login"      component={AdminLogin} />
         <Route path="/admin"            component={Admin} />
+        <Route path="/login"            component={CustomerLogin} />
+        <Route path="/minha-conta/pedidos" component={CustomerOrders} />
         <Route path="/pagamento"        component={PaymentLink} />
         <Route path="/payment-link"     component={PaymentLink} />
         <Route path="/kyc"              component={KYCPolicy} />
@@ -127,6 +132,11 @@ function Router() {
 function AppInner() {
   const [location] = useLocation();
   const isAdmin = location.startsWith("/admin");
+
+  useEffect(() => {
+    captureReferralFromCurrentUrl();
+  }, [location]);
+
   return (
     <>
       <SitePasswordGate>

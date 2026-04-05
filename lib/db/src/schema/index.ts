@@ -9,3 +9,5 @@ export * from "./shipping-options";
 export * from "./order-bumps";
 export * from "./kyc";
 export * from "./social-proof";
+export * from "./customer-users";
+export * from "./affiliates";

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { ShoppingBag, Search, Menu, X, MessageCircle, Home } from "lucide-react";
+import { ShoppingBag, Search, Menu, X, MessageCircle, Home, UserCircle2 } from "lucide-react";
+import { getCustomerToken } from "@/lib/customer-auth";
 import { useCart } from "@/store/use-cart";
 import { Button } from "@/components/ui/button";
 import { formatCurrency, getActiveWhatsApp } from "@/lib/utils";
@@ -149,6 +150,7 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
   const mobileWrapperRef  = useRef<HTMLDivElement>(null);
 
   const itemCount = items.reduce((acc, item) => acc + item.quantity, 0);
+  const isLoggedIn = Boolean(getCustomerToken());
   const logo = useSiteLogo();
   const allProducts = useProducts();
   const currentPath = typeof window !== "undefined"
@@ -262,6 +264,15 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
 
             {/* Right: mobile search icon + cart */}
             <div className="flex items-center gap-2">
+              {!minimal && (
+                <Link
+                  href={isLoggedIn ? "/minha-conta/pedidos" : "/login"}
+                  className="hidden md:inline-flex items-center gap-2 h-10 md:h-11 px-3 md:px-4 rounded-full border border-primary/20 hover:border-primary text-primary font-semibold text-sm transition-colors"
+                >
+                  <UserCircle2 className="w-5 h-5" />
+                  {isLoggedIn ? "Minha Conta" : "Entrar"}
+                </Link>
+              )}
               {!minimal && !isHomePage && (
                 <button
                   className="md:hidden p-2 rounded-xl hover:bg-muted transition-colors"
@@ -337,6 +348,15 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
               >
                 <Home className="w-5 h-5 text-primary" />
                 Produtos
+              </Link>
+
+              <Link
+                href={isLoggedIn ? "/minha-conta/pedidos" : "/login"}
+                className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-primary/5 text-foreground font-medium transition-colors"
+                onClick={() => setMenuOpen(false)}
+              >
+                <UserCircle2 className="w-5 h-5 text-primary" />
+                {isLoggedIn ? "Minha Conta" : "Entrar / Criar conta"}
               </Link>
 
               <button

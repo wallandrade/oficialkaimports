@@ -11,8 +11,19 @@ import {
   genIdentifier,
   PIX_DURATION_MS,
 } from "../gateway";
+import { getCustomerSession, requireCustomerAuth } from "../middlewares/customer-auth";
+import {
+  ensureOrderCommission,
+  normalizeAffiliateCode,
+  registerAffiliateLead,
+  resolveAffiliateByCode,
+} from "../lib/affiliates";
 
 const router: IRouter = Router();
+
+function buildGuestAccessToken(): string {
+  return crypto.randomBytes(24).toString("hex");
+}
 
 // ---------------------------------------------------------------------------
 // CSV field escaper — wraps in quotes, escapes internal quotes, strips newlines
@@ -30,11 +41,22 @@ function csvField(value: unknown): string {
 // ---------------------------------------------------------------------------
 router.post("/orders", async (req, res) => {
   try {
+    const customerSession = getCustomerSession(req);
+    const guestAccessToken = customerSession ? null : buildGuestAccessToken();
+
     const {
       client, address, products, shippingType, includeInsurance,
       subtotal, shippingCost, insuranceAmount, total,
       paymentMethod, cardInstallments, sellerCode,
     } = req.body;
+
+    const normalizedAffiliateCode = normalizeAffiliateCode(req.body?.affiliateCode);
+    const affiliate = normalizedAffiliateCode
+      ? await resolveAffiliateByCode(normalizedAffiliateCode)
+      : null;
+    const affiliateUserId = affiliate?.userId && affiliate.userId !== customerSession?.userId
+      ? affiliate.userId
+      : null;
 
     if (!client || !products || !shippingType || total == null) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Campos obrigatórios ausentes." });
@@ -46,6 +68,10 @@ router.post("/orders", async (req, res) => {
 
     await db.insert(ordersTable).values({
       id,
+      userId: customerSession?.userId ?? null,
+      guestAccessToken,
+      affiliateUserId,
+      affiliateCode: affiliateUserId ? normalizedAffiliateCode : null,
       clientName:          client.name,
       clientEmail:         client.email,
       clientPhone:         client.phone,
@@ -72,6 +98,14 @@ router.post("/orders", async (req, res) => {
       discountAmount:    req.body.discountAmount ? String(req.body.discountAmount) : null,
     });
 
+    if (affiliateUserId) {
+      await registerAffiliateLead({
+        affiliateUserId,
+        referredUserId: customerSession?.userId ?? null,
+        referredEmail: client?.email ?? null,
+      });
+    }
+
     broadcastNotification({
       type: "new_order",
       data: {
@@ -91,11 +125,99 @@ router.post("/orders", async (req, res) => {
       status:        method === "card_simulation" ? "awaiting_payment" : "pending",
       paymentMethod: method,
       sellerCode:    sellerCode || null,
+      affiliateCode: affiliateUserId ? normalizedAffiliateCode : null,
+      guestAccessToken,
+      isGuestOrder: !customerSession,
       createdAt:     new Date().toISOString(),
     });
   } catch (err) {
     console.error("Create order error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao criar pedido. Tente novamente." });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/me/orders  (protected customer route)
+// ---------------------------------------------------------------------------
+router.get("/me/orders", requireCustomerAuth, async (req, res) => {
+  try {
+    const customerSession = getCustomerSession(req);
+    if (!customerSession) {
+      res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
+      return;
+    }
+
+    const orders = await db
+      .select()
+      .from(ordersTable)
+      .where(eq(ordersTable.userId, customerSession.userId))
+      .orderBy(desc(ordersTable.createdAt));
+
+    res.json({ orders: orders.map(mapOrder) });
+  } catch (err) {
+    console.error("Customer orders error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao buscar pedidos." });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/me/orders/:id  (protected customer route)
+// ---------------------------------------------------------------------------
+router.get("/me/orders/:id", requireCustomerAuth, async (req, res) => {
+  try {
+    const customerSession = getCustomerSession(req);
+    if (!customerSession) {
+      res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
+      return;
+    }
+
+    const { id } = req.params;
+    const rows = await db
+      .select()
+      .from(ordersTable)
+      .where(and(eq(ordersTable.id, id), eq(ordersTable.userId, customerSession.userId)))
+      .limit(1);
+
+    if (!rows[0]) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
+
+    res.json({ order: mapOrder(rows[0]) });
+  } catch (err) {
+    console.error("Customer order detail error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao buscar pedido." });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/orders/guest/:id?token=...  (public guest route)
+// ---------------------------------------------------------------------------
+router.get("/orders/guest/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const token = String((req.query as Record<string, string>).token || "").trim();
+
+    if (!token) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Token de acesso é obrigatório." });
+      return;
+    }
+
+    const rows = await db
+      .select()
+      .from(ordersTable)
+      .where(and(eq(ordersTable.id, id), eq(ordersTable.guestAccessToken, token)))
+      .limit(1);
+
+    if (!rows[0]) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
+
+    res.json({ order: mapOrder(rows[0]) });
+  } catch (err) {
+    console.error("Guest order access error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao buscar pedido." });
   }
 });
 
@@ -188,6 +310,10 @@ router.patch("/admin/orders/:id/status", requireAdminAuth, async (req, res) => {
       await incrementCouponUse(couponCodeToIncrement);
     }
 
+    if (isBeingPaid) {
+      await ensureOrderCommission(id);
+    }
+
     broadcastNotification({ type: "order_status_updated", data: { id, status } });
     res.json({ ok: true, id, status });
   } catch (err) {
@@ -247,6 +373,8 @@ router.patch("/admin/orders/:id/proof", requireAdminAuth, async (req, res) => {
     await db.update(ordersTable)
       .set({ proofUrl: proofData, proofUrls: JSON.stringify(urls), status: "completed", paidAmount: proofPaidAmount, updatedAt: new Date() })
       .where(eq(ordersTable.id, id));
+
+    await ensureOrderCommission(id);
 
     broadcastNotification({ type: "order_status_updated", data: { id, status: "completed" } });
     res.json({ ok: true, proofUrls: urls });

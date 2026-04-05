@@ -4,6 +4,10 @@ import { z } from "zod/v4";
 
 export const ordersTable = mysqlTable("orders", {
   id: varchar("id", { length: 255 }).primaryKey(),
+  userId: varchar("user_id", { length: 255 }),
+  guestAccessToken: varchar("guest_access_token", { length: 255 }).unique(),
+  affiliateUserId: varchar("affiliate_user_id", { length: 255 }),
+  affiliateCode: varchar("affiliate_code", { length: 32 }),
   clientName: varchar("client_name", { length: 255 }).notNull(),
   clientEmail: varchar("client_email", { length: 255 }).notNull(),
   clientPhone: varchar("client_phone", { length: 255 }).notNull(),

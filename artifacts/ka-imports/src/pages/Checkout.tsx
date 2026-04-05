@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useLiveTracking } from "@/hooks/useLiveTracking";
 import { useCart } from "@/store/use-cart";
+import { getStoredReferralCode } from "@/lib/affiliate";
 import { formatCurrency, getActiveWhatsApp } from "@/lib/utils";
 import { useCreateOrder } from "@workspace/api-client-react";
 
@@ -433,6 +434,8 @@ export default function Checkout() {
         price: item.price,
       }));
 
+      const affiliateCode = getStoredReferralCode();
+
       const resp = await fetch(`${BASE}/api/checkout/pix`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -447,6 +450,7 @@ export default function Checkout() {
           insuranceAmount,
           total,
           sellerCode,
+          affiliateCode:   affiliateCode || undefined,
           couponCode:      appliedCoupon?.code,
           discountAmount:  discountAmount > 0 ? discountAmount : undefined,
         }),
@@ -569,6 +573,7 @@ export default function Checkout() {
       quantity: i.quantity,
       price: (i as { regularPrice?: number }).regularPrice ?? i.price,
     }));
+    const affiliateCode = getStoredReferralCode();
 
     // Save card simulation order in DB for admin tracking
     createOrder(
@@ -590,6 +595,7 @@ export default function Checkout() {
           paymentMethod: "card_simulation",
           cardInstallments: installments,
           sellerCode,
+          affiliateCode: affiliateCode || undefined,
           couponCode:     appliedCoupon?.code,
           discountAmount: cardDiscountAmount > 0 ? cardDiscountAmount : undefined,
         },
