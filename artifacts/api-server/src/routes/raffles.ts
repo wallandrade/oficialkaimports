@@ -104,7 +104,7 @@ router.post("/raffles/:id/reserve", async (req, res) => {
   const { id: reserveRaffleId } = req.params as { id: string };
   const { numbers, client } = req.body as {
     numbers: number[];
-    client: { name: string; email: string; phone: string };
+    client: { name: string; email: string; phone: string; cpf?: string };
   };
 
   if (!Array.isArray(numbers) || numbers.length === 0) {
@@ -112,8 +112,8 @@ router.post("/raffles/:id/reserve", async (req, res) => {
     return;
   }
 
-  if (!client?.name || !client?.email || !client?.phone) {
-    res.status(400).json({ error: "INVALID_INPUT", message: "Nome, e-mail e telefone são obrigatórios." });
+  if (!client?.name || !client?.email || !client?.phone || !client?.cpf) {
+    res.status(400).json({ error: "INVALID_INPUT", message: "Nome, e-mail, telefone e CPF são obrigatórios." });
     return;
   }
 
@@ -174,7 +174,7 @@ router.post("/raffles/:id/reserve", async (req, res) => {
         name: client.name,
         email: client.email,
         phone: client.phone,
-        document: "00000000000", // CPF not required for raffle
+        document: client.cpf.replace(/\D/g, ""),
       },
       metadata: {
         reservationId,

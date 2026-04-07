@@ -85,6 +85,7 @@ export default function RaffleDetail() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [cpf, setCpf] = useState("");
 
   useEffect(() => {
     if (!raffleId) return;
@@ -110,7 +111,12 @@ export default function RaffleDetail() {
 
   async function handleReserve() {
     if (!name.trim() || !email.trim() || !phone.trim()) {
-      toast.error("Preencha nome, e-mail e telefone.");
+      toast.error("Preencha nome, e-mail, telefone e CPF.");
+      return;
+    }
+    const rawCpf = cpf.replace(/\D/g, "");
+    if (rawCpf.length !== 11) {
+      toast.error("CPF inválido. Preencha os 11 dígitos.");
       return;
     }
     if (selected.size === 0) {
@@ -125,7 +131,7 @@ export default function RaffleDetail() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           numbers: Array.from(selected).sort((a, b) => a - b),
-          client: { name: name.trim(), email: email.trim(), phone: phone.trim() },
+          client: { name: name.trim(), email: email.trim(), phone: phone.trim(), cpf: rawCpf },
         }),
       });
 
@@ -312,6 +318,25 @@ export default function RaffleDetail() {
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                 />
+                  <div>
+                    <Label htmlFor="rf-cpf">CPF</Label>
+                    <Input
+                      id="rf-cpf"
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="000.000.000-00"
+                      maxLength={14}
+                      value={cpf}
+                      onChange={(e) => {
+                        const digits = e.target.value.replace(/\D/g, "").slice(0, 11);
+                        const masked = digits
+                          .replace(/^(\d{3})(\d)/, "$1.$2")
+                          .replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
+                          .replace(/^(\d{3})\.(\d{3})\.(\d{3})(\d)/, "$1.$2.$3-$4");
+                        setCpf(masked);
+                      }}
+                    />
+                  </div>
               </div>
             </div>
 
