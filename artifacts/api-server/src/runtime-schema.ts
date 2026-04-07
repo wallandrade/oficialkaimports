@@ -156,6 +156,50 @@ async function ensureAffiliatesTables(databaseName: string): Promise<void> {
   }
 }
 
+async function ensureRaffleTables(databaseName: string): Promise<void> {
+  if (!(await tableExists("raffles", databaseName))) {
+    await pool.query(`
+      CREATE TABLE raffles (
+        id VARCHAR(255) NOT NULL PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        description TEXT NULL,
+        image_url MEDIUMTEXT NULL,
+        total_numbers INT NOT NULL,
+        price_per_number DECIMAL(10,2) NOT NULL,
+        reservation_hours INT NOT NULL DEFAULT 24,
+        status VARCHAR(32) NOT NULL DEFAULT 'active',
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+  }
+
+  if (!(await tableExists("raffle_reservations", databaseName))) {
+    await pool.query(`
+      CREATE TABLE raffle_reservations (
+        id VARCHAR(255) NOT NULL PRIMARY KEY,
+        raffle_id VARCHAR(255) NOT NULL,
+        numbers TEXT NOT NULL,
+        client_name VARCHAR(255) NOT NULL,
+        client_email VARCHAR(255) NOT NULL,
+        client_phone VARCHAR(255) NOT NULL,
+        total_amount DECIMAL(10,2) NOT NULL,
+        status VARCHAR(32) NOT NULL DEFAULT 'reserved',
+        transaction_id VARCHAR(255) NULL,
+        pix_code MEDIUMTEXT NULL,
+        pix_base64 MEDIUMTEXT NULL,
+        expires_at TIMESTAMP NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY raffle_reservations_raffle_id_idx (raffle_id),
+        KEY raffle_reservations_client_phone_idx (client_phone),
+        KEY raffle_reservations_status_idx (status),
+        KEY raffle_reservations_transaction_id_idx (transaction_id)
+      )
+    `);
+  }
+}
+
 export async function ensureRuntimeSchema(): Promise<void> {
   try {
     const databaseName = getDatabaseName();
@@ -167,6 +211,7 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureOrdersColumns(databaseName);
     await ensureCustomerUsersTable(databaseName);
     await ensureAffiliatesTables(databaseName);
+    await ensureRaffleTables(databaseName);
 
     console.log("[RuntimeSchema] Schema sync completed.");
   } catch (error) {

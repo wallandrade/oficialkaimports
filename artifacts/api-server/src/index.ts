@@ -1,6 +1,7 @@
 import app from "./app";
 import { startReconciliationJob } from "./reconciliation";
 import { ensureRuntimeSchema } from "./runtime-schema";
+import { startRaffleExpiryJob } from "./raffle-expiry";
 
 const rawPort = process.env["PORT"];
 
@@ -30,6 +31,7 @@ process.on("uncaughtException", (err) => {
 app.listen(port, "0.0.0.0", () => {
   console.log(`Server listening on port ${port}`);
   startReconciliationJob();
+  startRaffleExpiryJob();
   setTimeout(() => {
     void ensureRuntimeSchema();
   }, 1_000);

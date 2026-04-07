@@ -18,6 +18,7 @@ import socialProofRouter from "./social-proof";
 import trackingRouter from "./tracking";
 import customerAuthRouter from "./customer-auth";
 import affiliateRouter from "./affiliate";
+import rafflesRouter from "./raffles";
 
 const router: IRouter = Router();
 
@@ -40,5 +41,6 @@ router.use(socialProofRouter);
 router.use(trackingRouter);
 router.use(customerAuthRouter);
 router.use(affiliateRouter);
+router.use(rafflesRouter);
 
 export default router;

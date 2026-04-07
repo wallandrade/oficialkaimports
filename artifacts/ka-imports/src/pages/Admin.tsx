@@ -531,7 +531,19 @@ function OrderBumpsPanel({ bumps, products, form, setForm, creating, toggling, d
   );
 }
 
-type TabType = "orders" | "charges" | "sellers" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "webhook" | "configuracoes" | "socialProof";
+type TabType = "orders" | "charges" | "sellers" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "webhook" | "configuracoes" | "socialProof" | "raffles";
+
+interface AdminRaffle {
+  id: string; title: string; description: string | null; imageUrl: string | null;
+  totalNumbers: number; pricePerNumber: string; reservationHours: number;
+  status: string; createdAt: string;
+}
+interface AdminRaffleReservation {
+  id: string; raffleId: string; numbers: number[]; clientName: string;
+  clientEmail: string; clientPhone: string; totalAmount: string;
+  status: string; isExpired: boolean; expiresAt: string; createdAt: string;
+  transactionId: string | null;
+}
 
 interface CustomerUserRecord {
   id: string; name: string; email: string; createdAt: string;
@@ -680,6 +692,15 @@ export default function Admin() {
   const [spFakeDeleting, setSpFakeDeleting] = useState<number | null>(null);
   const [spRealEntries, setSpRealEntries] = useState<Array<{ firstName: string; city: string; state: string; productName: string }>>([]);
   const [spFakeProductIds, setSpFakeProductIds] = useState<string[]>([]);
+  // Raffles (rifas)
+  const [rafflesList, setRafflesList] = useState<AdminRaffle[]>([]);
+  const [rafflesLoading, setRafflesLoading] = useState(false);
+  const [raffleForm, setRaffleForm] = useState({ title: "", description: "", imageUrl: "", totalNumbers: "100", pricePerNumber: "10", reservationHours: "24", status: "active" });
+  const [raffleCreating, setRaffleCreating] = useState(false);
+  const [raffleEditingId, setRaffleEditingId] = useState<string | null>(null);
+  const [raffleViewId, setRaffleViewId] = useState<string | null>(null);
+  const [raffleReservations, setRaffleReservations] = useState<AdminRaffleReservation[]>([]);
+  const [raffleReservationsLoading, setRaffleReservationsLoading] = useState(false);
   // Shipping options (fretes)
   const [shippingOptions, setShippingOptions] = useState<ShippingOption[]>([]);
   const [shippingForm, setShippingForm] = useState({ name: "", description: "", price: "", sortOrder: "0" });
@@ -1010,6 +1031,26 @@ export default function Admin() {
     finally { setSpSettingsLoading(false); setSpFakeEntriesLoading(false); setLoading(false); }
   }, []);
 
+  const fetchRaffles = useCallback(async () => {
+    setRafflesLoading(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/raffles`, { headers: authHeaders() });
+      if (!res.ok) { toast.error("Erro ao carregar rifas."); return; }
+      setRafflesList(await res.json() as AdminRaffle[]);
+    } catch { toast.error("Erro ao carregar rifas."); }
+    finally { setRafflesLoading(false); setLoading(false); }
+  }, []);
+
+  const fetchRaffleReservations = useCallback(async (raffleId: string) => {
+    setRaffleReservationsLoading(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/raffles/${raffleId}/reservations`, { headers: authHeaders() });
+      if (!res.ok) { toast.error("Erro ao carregar reservas."); return; }
+      setRaffleReservations(await res.json() as AdminRaffleReservation[]);
+    } catch { toast.error("Erro ao carregar reservas."); }
+    finally { setRaffleReservationsLoading(false); }
+  }, []);
+
   const generateAutoEntries = useCallback(async () => {
     setSpAutoGenerating(true);
     try {
@@ -1107,8 +1148,9 @@ export default function Admin() {
     else if (tab === "orderBumps") { fetchProducts(); fetchOrderBumpsData(); }
     else if (tab === "kyc")        fetchKycList();
     else if (tab === "socialProof") { fetchSocialProof(); fetchProducts(); }
+    else if (tab === "raffles")    fetchRaffles();
     else setLoading(false);
-  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchCoupons, fetchProducts, fetchSettings, fetchSellers, fetchSellerData, fetchShippingOptions, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchSocialProof]);
+  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchCoupons, fetchProducts, fetchSettings, fetchSellers, fetchSellerData, fetchShippingOptions, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchSocialProof, fetchRaffles]);
 
   // -------------------------------------------------------------------------
   // SSE
@@ -2014,6 +2056,7 @@ export default function Admin() {
             { key: "customers",     label: "Clientes",         Icon: UserPlus,    count: customerUsers.length || undefined },
             ...(isPrimary ? [{ key: "users", label: "Usuários", Icon: Users }] : []),
             { key: "socialProof",   label: "Prova Social",     Icon: ShoppingBag },
+            { key: "raffles",       label: "Rifas",            Icon: Ticket,      count: rafflesList.length || undefined },
             { key: "webhook",       label: "Webhook",          Icon: Webhook },
             { key: "configuracoes", label: "Configurações",    Icon: Package2 },
           ] as Array<{ key: TabType; label: string; Icon: typeof QrCode; count?: number }>).map(({ key, label, Icon, count }) => (
@@ -3009,6 +3052,241 @@ export default function Admin() {
                     )}
                   </div>
                 </div>
+              </>
+            )}
+          </div>
+        ) : tab === "raffles" ? (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold text-foreground flex items-center gap-2">
+                <Ticket className="w-5 h-5 text-primary" /> Rifas
+              </h2>
+              <Button variant="outline" size="sm" onClick={fetchRaffles} className="gap-1.5">
+                <RefreshCw className="w-3.5 h-3.5" /> Atualizar
+              </Button>
+            </div>
+
+            {/* View Reservations panel */}
+            {raffleViewId ? (
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <Button variant="ghost" size="sm" onClick={() => { setRaffleViewId(null); setRaffleReservations([]); }}>
+                    ← Voltar às rifas
+                  </Button>
+                  <span className="text-sm text-muted-foreground">
+                    Reservas da: <strong>{rafflesList.find((r) => r.id === raffleViewId)?.title}</strong>
+                  </span>
+                  <Button variant="outline" size="sm" onClick={() => fetchRaffleReservations(raffleViewId)} className="ml-auto gap-1.5">
+                    <RefreshCw className="w-3 h-3" /> Atualizar
+                  </Button>
+                </div>
+                {raffleReservationsLoading ? (
+                  <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+                ) : raffleReservations.length === 0 ? (
+                  <div className="text-center py-10 text-muted-foreground">Nenhuma reserva encontrada.</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border text-left text-muted-foreground">
+                          <th className="pb-2 pr-4">Cliente</th>
+                          <th className="pb-2 pr-4">Telefone</th>
+                          <th className="pb-2 pr-4">Números</th>
+                          <th className="pb-2 pr-4">Valor</th>
+                          <th className="pb-2 pr-4">Status</th>
+                          <th className="pb-2">Data</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {raffleReservations.map((rv) => (
+                          <tr key={rv.id} className="hover:bg-muted/30">
+                            <td className="py-2 pr-4 font-medium">{rv.clientName}</td>
+                            <td className="py-2 pr-4">{rv.clientPhone}</td>
+                            <td className="py-2 pr-4 font-mono text-xs max-w-[160px] truncate" title={rv.numbers.join(", ")}>{rv.numbers.join(", ")}</td>
+                            <td className="py-2 pr-4">{formatCurrency(Number(rv.totalAmount))}</td>
+                            <td className="py-2 pr-4">
+                              {rv.status === "paid" ? (
+                                <span className="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded-full font-semibold">Pago</span>
+                              ) : rv.status === "expired" || rv.isExpired ? (
+                                <span className="bg-red-100 text-red-700 text-xs px-2 py-0.5 rounded-full font-semibold">Expirado</span>
+                              ) : (
+                                <span className="bg-yellow-100 text-yellow-700 text-xs px-2 py-0.5 rounded-full font-semibold">Reservado</span>
+                              )}
+                            </td>
+                            <td className="py-2 text-muted-foreground text-xs">{new Date(rv.createdAt).toLocaleDateString("pt-BR")}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <>
+                {/* Create / Edit form */}
+                <div className="bg-muted/30 border border-border rounded-2xl p-5 space-y-4">
+                  <h3 className="font-semibold text-foreground flex items-center gap-2">
+                    <Plus className="w-4 h-4 text-primary" />
+                    {raffleEditingId ? "Editar Rifa" : "Nova Rifa"}
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="sm:col-span-2">
+                      <label className="text-xs font-medium text-muted-foreground block mb-1">Título *</label>
+                      <input type="text" className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-white"
+                        placeholder="Ex: Rifa do iPhone 15"
+                        value={raffleForm.title}
+                        onChange={(e) => setRaffleForm((f) => ({ ...f, title: e.target.value }))} />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="text-xs font-medium text-muted-foreground block mb-1">Descrição</label>
+                      <textarea className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-white resize-none" rows={2}
+                        placeholder="Descreva o prêmio e as regras"
+                        value={raffleForm.description}
+                        onChange={(e) => setRaffleForm((f) => ({ ...f, description: e.target.value }))} />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="text-xs font-medium text-muted-foreground block mb-1">URL da foto</label>
+                      <input type="url" className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-white"
+                        placeholder="https://exemplo.com/imagem.jpg"
+                        value={raffleForm.imageUrl}
+                        onChange={(e) => setRaffleForm((f) => ({ ...f, imageUrl: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground block mb-1">Qtd. de números *</label>
+                      <input type="number" min="1" max="100000" className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-white"
+                        value={raffleForm.totalNumbers}
+                        onChange={(e) => setRaffleForm((f) => ({ ...f, totalNumbers: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground block mb-1">Preço por número (R$) *</label>
+                      <input type="number" min="0.01" step="0.01" className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-white"
+                        value={raffleForm.pricePerNumber}
+                        onChange={(e) => setRaffleForm((f) => ({ ...f, pricePerNumber: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground block mb-1">Tempo de reserva (horas)</label>
+                      <input type="number" min="1" max="720" className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-white"
+                        value={raffleForm.reservationHours}
+                        onChange={(e) => setRaffleForm((f) => ({ ...f, reservationHours: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted-foreground block mb-1">Status</label>
+                      <select className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-white"
+                        value={raffleForm.status}
+                        onChange={(e) => setRaffleForm((f) => ({ ...f, status: e.target.value }))}>
+                        <option value="active">Ativa</option>
+                        <option value="closed">Encerrada</option>
+                        <option value="drawn">Sorteada</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    {raffleEditingId && (
+                      <Button variant="outline" size="sm" className="flex-1"
+                        onClick={() => { setRaffleEditingId(null); setRaffleForm({ title: "", description: "", imageUrl: "", totalNumbers: "100", pricePerNumber: "10", reservationHours: "24", status: "active" }); }}>
+                        Cancelar
+                      </Button>
+                    )}
+                    <Button size="sm" className="flex-1" disabled={raffleCreating}
+                      onClick={async () => {
+                        if (!raffleForm.title.trim()) { toast.error("Informe o título."); return; }
+                        setRaffleCreating(true);
+                        try {
+                          const url = raffleEditingId ? `${BASE}/api/admin/raffles/${raffleEditingId}` : `${BASE}/api/admin/raffles`;
+                          const method = raffleEditingId ? "PATCH" : "POST";
+                          const res = await fetch(url, {
+                            method,
+                            headers: { ...authHeaders(), "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              title: raffleForm.title.trim(),
+                              description: raffleForm.description.trim() || null,
+                              imageUrl: raffleForm.imageUrl.trim() || null,
+                              totalNumbers: Number(raffleForm.totalNumbers),
+                              pricePerNumber: Number(raffleForm.pricePerNumber),
+                              reservationHours: Number(raffleForm.reservationHours),
+                              status: raffleForm.status,
+                            }),
+                          });
+                          if (!res.ok) { const d = await res.json() as { message?: string }; toast.error(d.message ?? "Erro ao salvar."); return; }
+                          toast.success(raffleEditingId ? "Rifa atualizada!" : "Rifa criada com sucesso!");
+                          setRaffleEditingId(null);
+                          setRaffleForm({ title: "", description: "", imageUrl: "", totalNumbers: "100", pricePerNumber: "10", reservationHours: "24", status: "active" });
+                          fetchRaffles();
+                        } catch { toast.error("Erro de conexão."); }
+                        finally { setRaffleCreating(false); }
+                      }}>
+                      {raffleCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : raffleEditingId ? <Save className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                      {raffleEditingId ? "Salvar" : "Criar Rifa"}
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Raffles list */}
+                {rafflesLoading ? (
+                  <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+                ) : rafflesList.length === 0 ? (
+                  <div className="text-center py-10 text-muted-foreground">Nenhuma rifa criada ainda.</div>
+                ) : (
+                  <div className="space-y-3">
+                    {rafflesList.map((raffle) => (
+                      <div key={raffle.id} className="border border-border rounded-2xl p-4 bg-card">
+                        <div className="flex items-start gap-3">
+                          {raffle.imageUrl && (
+                            <img src={raffle.imageUrl} alt={raffle.title} className="w-16 h-16 object-cover rounded-xl shrink-0" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-semibold text-foreground truncate">{raffle.title}</p>
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${raffle.status === "active" ? "bg-green-100 text-green-700" : raffle.status === "drawn" ? "bg-purple-100 text-purple-700" : "bg-gray-100 text-gray-600"}`}>
+                                {raffle.status === "active" ? "Ativa" : raffle.status === "drawn" ? "Sorteada" : "Encerrada"}
+                              </span>
+                            </div>
+                            {raffle.description && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{raffle.description}</p>}
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {raffle.totalNumbers} números · {formatCurrency(Number(raffle.pricePerNumber))}/número · Reserva {raffle.reservationHours}h
+                            </p>
+                          </div>
+                          <div className="flex gap-1 shrink-0">
+                            <Button size="icon" variant="outline" className="w-8 h-8"
+                              title="Ver reservas"
+                              onClick={() => { setRaffleViewId(raffle.id); fetchRaffleReservations(raffle.id); }}>
+                              <Eye className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button size="icon" variant="outline" className="w-8 h-8"
+                              title="Editar"
+                              onClick={() => {
+                                setRaffleEditingId(raffle.id);
+                                setRaffleForm({
+                                  title: raffle.title,
+                                  description: raffle.description ?? "",
+                                  imageUrl: raffle.imageUrl ?? "",
+                                  totalNumbers: String(raffle.totalNumbers),
+                                  pricePerNumber: raffle.pricePerNumber,
+                                  reservationHours: String(raffle.reservationHours),
+                                  status: raffle.status,
+                                });
+                                window.scrollTo({ top: 0, behavior: "smooth" });
+                              }}>
+                              <Pencil className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button size="icon" variant="outline" className="w-8 h-8 border-red-200 hover:bg-red-50 text-red-500"
+                              title="Excluir"
+                              onClick={async () => {
+                                if (!confirm(`Excluir a rifa "${raffle.title}" e todas as suas reservas?`)) return;
+                                try {
+                                  await fetch(`${BASE}/api/admin/raffles/${raffle.id}`, { method: "DELETE", headers: authHeaders() });
+                                  toast.success("Rifa excluída.");
+                                  fetchRaffles();
+                                } catch { toast.error("Erro ao excluir."); }
+                              }}>
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </>
             )}
           </div>

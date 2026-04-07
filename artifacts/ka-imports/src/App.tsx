@@ -65,6 +65,10 @@ const SellerPage          = lazy(() => import("@/pages/SellerPage"));
 const SellerCheckoutPage  = lazy(() => import("@/pages/SellerCheckoutPage"));
 const KYCPolicy           = lazy(() => import("@/pages/KYCPolicy"));
 const KYCSubmit           = lazy(() => import("@/pages/KYCSubmit"));
+const RaffleList          = lazy(() => import("@/pages/RaffleList"));
+const RaffleDetail        = lazy(() => import("@/pages/RaffleDetail"));
+const RafflePix           = lazy(() => import("@/pages/RafflePix"));
+const RaffleConsulta      = lazy(() => import("@/pages/RaffleConsulta"));
 const NotFound            = lazy(() => import("@/pages/not-found"));
 
 const queryClient = new QueryClient({
@@ -133,6 +137,10 @@ function Router() {
         <Route path="/payment-link"     component={PaymentLink} />
         <Route path="/kyc"              component={KYCPolicy} />
         <Route path="/kyc/:orderId"     component={KYCSubmit} />
+        <Route path="/rifas/consulta"   component={RaffleConsulta} />
+        <Route path="/rifas/pix/:id"    component={RafflePix} />
+        <Route path="/rifas/:id"        component={RaffleDetail} />
+        <Route path="/rifas"            component={RaffleList} />
         <Route path="/:seller/checkout" component={SellerCheckoutPage} />
         <Route path="/:seller"          component={SellerPage} />
         <Route component={NotFound} />
