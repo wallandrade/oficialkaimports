@@ -43,7 +43,7 @@ async function getTakenNumbers(raffleId: string): Promise<Set<number>> {
 // ---------------------------------------------------------------------------
 // PUBLIC: GET /api/raffles — list active raffles
 // ---------------------------------------------------------------------------
-router.get("/api/raffles", async (_req, res) => {
+router.get("/raffles", async (_req, res) => {
   const raffles = await db
     .select()
     .from(rafflesTable)
@@ -55,7 +55,7 @@ router.get("/api/raffles", async (_req, res) => {
 // ---------------------------------------------------------------------------
 // PUBLIC: GET /api/raffles/:id — raffle detail + number map
 // ---------------------------------------------------------------------------
-router.get("/api/raffles/:id", async (req, res) => {
+router.get("/raffles/:id", async (req, res) => {
   const { id: raffleIdParam } = req.params as { id: string };
   const [raffle] = await db
     .select()
@@ -100,7 +100,7 @@ router.get("/api/raffles/:id", async (req, res) => {
 // ---------------------------------------------------------------------------
 // PUBLIC: POST /api/raffles/:id/reserve — create reservation + PIX
 // ---------------------------------------------------------------------------
-router.post("/api/raffles/:id/reserve", async (req, res) => {
+router.post("/raffles/:id/reserve", async (req, res) => {
   const { id: reserveRaffleId } = req.params as { id: string };
   const { numbers, client } = req.body as {
     numbers: number[];
@@ -219,7 +219,7 @@ router.post("/api/raffles/:id/reserve", async (req, res) => {
 // ---------------------------------------------------------------------------
 // PUBLIC: GET /api/raffles/reservations/lookup?phone=XX — consulta por tel.
 // ---------------------------------------------------------------------------
-router.get("/api/raffles/reservations/lookup", async (req, res) => {
+router.get("/raffles/reservations/lookup", async (req, res) => {
   const phone = String(req.query.phone || "").replace(/\D/g, "");
   if (phone.length < 8) {
     res.status(400).json({ error: "INVALID_INPUT", message: "Informe um telefone válido." });
@@ -276,7 +276,7 @@ router.get("/api/raffles/reservations/lookup", async (req, res) => {
 // ---------------------------------------------------------------------------
 // ADMIN: GET /api/admin/raffles — list all raffles
 // ---------------------------------------------------------------------------
-router.get("/api/admin/raffles", requireAdminAuth, async (_req, res) => {
+router.get("/admin/raffles", requireAdminAuth, async (_req, res) => {
   try {
     const raffles = await db
       .select()
@@ -292,7 +292,7 @@ router.get("/api/admin/raffles", requireAdminAuth, async (_req, res) => {
 // ---------------------------------------------------------------------------
 // ADMIN: POST /api/admin/raffles — create raffle
 // ---------------------------------------------------------------------------
-router.post("/api/admin/raffles", requireAdminAuth, async (req, res) => {
+router.post("/admin/raffles", requireAdminAuth, async (req, res) => {
   try {
     const { title, description, imageUrl, totalNumbers, pricePerNumber, reservationHours, status } = req.body as {
       title: string;
@@ -336,7 +336,7 @@ router.post("/api/admin/raffles", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // ADMIN: PATCH /api/admin/raffles/:id — update raffle
 // ---------------------------------------------------------------------------
-router.patch("/api/admin/raffles/:id", requireAdminAuth, async (req, res) => {
+router.patch("/admin/raffles/:id", requireAdminAuth, async (req, res) => {
   const { id: raffleId } = req.params as { id: string };
   const { title, description, imageUrl, totalNumbers, pricePerNumber, reservationHours, status } = req.body as {
     title?: string;
@@ -365,7 +365,7 @@ router.patch("/api/admin/raffles/:id", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // ADMIN: DELETE /api/admin/raffles/:id — delete raffle (and reservations)
 // ---------------------------------------------------------------------------
-router.delete("/api/admin/raffles/:id", requireAdminAuth, async (req, res) => {
+router.delete("/admin/raffles/:id", requireAdminAuth, async (req, res) => {
   const { id: delId } = req.params as { id: string };
   await db.delete(raffleReservationsTable).where(eq(raffleReservationsTable.raffleId, delId));
   await db.delete(rafflesTable).where(eq(rafflesTable.id, delId));
@@ -375,7 +375,7 @@ router.delete("/api/admin/raffles/:id", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // ADMIN: GET /api/admin/raffles/:id/reservations — list all reservations
 // ---------------------------------------------------------------------------
-router.get("/api/admin/raffles/:id/reservations", requireAdminAuth, async (req, res) => {
+router.get("/admin/raffles/:id/reservations", requireAdminAuth, async (req, res) => {
   const { id: resRaffleId } = req.params as { id: string };
   const rows = await db
     .select()
