@@ -62,6 +62,7 @@ const CustomerLogin       = lazy(() => import("@/pages/CustomerLogin"));
 const CustomerOrders      = lazy(() => import("@/pages/CustomerOrders"));
 const PaymentLink         = lazy(() => import("@/pages/PaymentLink"));
 const SellerPage          = lazy(() => import("@/pages/SellerPage"));
+const ProductDetail       = lazy(() => import("@/pages/ProductDetail"));
 const SellerCheckoutPage  = lazy(() => import("@/pages/SellerCheckoutPage"));
 const KYCPolicy           = lazy(() => import("@/pages/KYCPolicy"));
 const KYCSubmit           = lazy(() => import("@/pages/KYCSubmit"));
@@ -141,6 +142,8 @@ function Router() {
         <Route path="/rifas/pix/:id"    component={RafflePix} />
         <Route path="/rifas/:id"        component={RaffleDetail} />
         <Route path="/rifas"            component={RaffleList} />
+        <Route path="/:seller/produto/:id" component={ProductDetail} />
+        <Route path="/produto/:id"      component={ProductDetail} />
         <Route path="/:seller/checkout" component={SellerCheckoutPage} />
         <Route path="/:seller"          component={SellerPage} />
         <Route component={NotFound} />

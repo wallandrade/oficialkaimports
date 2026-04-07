@@ -55,13 +55,13 @@ export default function SellerPage() {
     if (seller) preloadSellerWhatsApp(seller);
   }, [seller]);
 
-  // --- Handle ?product= deep-link — navigate to /{seller}/checkout to keep slug in URL ---
+  // --- Handle ?product= deep-link — navigate to product detail page ---
   useEffect(() => {
     if (!seller) return;
     const sp = new URLSearchParams(searchString);
     const productId = sp.get("product");
     if (productId) {
-      setLocation(`/${seller}/checkout?product=${productId}`);
+      setLocation(`/${seller}/produto/${productId}`);
     }
   }, [seller, searchString, setLocation]);
 

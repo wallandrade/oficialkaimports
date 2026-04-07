@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { useSearch } from "wouter";
+import { useSearch, useRoute } from "wouter";
 import { useGetProducts } from "@workspace/api-client-react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ProductCard } from "@/components/product/ProductCard";
@@ -107,6 +107,8 @@ function useSiteBanners() {
 
 export default function Home() {
   const { data, isLoading, isError } = useGetProducts();
+  const [, sellerParams] = useRoute("/:seller");
+  const sellerSlug = sellerParams?.seller?.toLowerCase();
   const [activeCategories, setActiveCategories] = useState<string[]>([]);
   const [nameFilter, setNameFilter] = useState("");
   const searchString = useSearch();
@@ -295,7 +297,7 @@ export default function Home() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: Math.min(i * 0.03, 0.3) }}
                   >
-                    <ProductCard product={product} />
+                    <ProductCard product={product} sellerSlug={sellerSlug} />
                   </motion.div>
                 ))}
               </motion.div>

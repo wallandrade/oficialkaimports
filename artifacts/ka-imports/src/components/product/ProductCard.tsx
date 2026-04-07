@@ -1,16 +1,17 @@
-import { ShoppingCart } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
-import { useCart } from "@/store/use-cart";
 import { Button } from "@/components/ui/button";
 import type { Product } from "@workspace/api-client-react";
+import { Link } from "wouter";
 
 interface ProductCardProps {
   product: Product;
+  sellerSlug?: string;
 }
 
-export function ProductCard({ product }: ProductCardProps) {
-  const { addItem } = useCart();
+export function ProductCard({ product, sellerSlug }: ProductCardProps) {
   const hasPromo = product.promoPrice != null && product.promoPrice < product.price;
+  const href = sellerSlug ? `/${sellerSlug}/produto/${product.id}` : `/produto/${product.id}`;
 
   return (
     <div className="group flex flex-col w-full h-full bg-card rounded-2xl border border-border/50 shadow-sm hover:shadow-xl hover:border-primary/20 transition-all duration-300 overflow-hidden">
@@ -59,11 +60,13 @@ export function ProductCard({ product }: ProductCardProps) {
           </div>
 
           <Button
+            asChild
             className="w-full rounded-xl text-sm"
-            onClick={() => addItem(product)}
           >
-            <ShoppingCart className="w-4 h-4 mr-1.5" />
-            Adicionar
+            <Link href={href}>
+              Ver produto
+              <ArrowRight className="w-4 h-4 ml-1.5" />
+            </Link>
           </Button>
         </div>
       </div>
