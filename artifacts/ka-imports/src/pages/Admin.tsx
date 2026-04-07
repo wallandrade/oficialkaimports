@@ -3145,11 +3145,62 @@ export default function Admin() {
                         onChange={(e) => setRaffleForm((f) => ({ ...f, description: e.target.value }))} />
                     </div>
                     <div className="sm:col-span-2">
-                      <label className="text-xs font-medium text-muted-foreground block mb-1">URL da foto</label>
-                      <input type="url" className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-white"
-                        placeholder="https://exemplo.com/imagem.jpg"
-                        value={raffleForm.imageUrl}
-                        onChange={(e) => setRaffleForm((f) => ({ ...f, imageUrl: e.target.value }))} />
+                      <label className="text-xs font-medium text-muted-foreground block mb-1">Foto da rifa</label>
+                      <div
+                        className="relative border-2 border-dashed border-border rounded-xl overflow-hidden bg-white cursor-pointer hover:border-primary transition-colors"
+                        style={{ minHeight: 96 }}
+                        onClick={() => document.getElementById("raffle-img-upload")?.click()}
+                      >
+                        {raffleForm.imageUrl ? (
+                          <div className="relative">
+                            <img src={raffleForm.imageUrl} alt="Prévia" className="w-full max-h-48 object-cover" />
+                            <button
+                              type="button"
+                              className="absolute top-2 right-2 bg-black/60 hover:bg-black/80 text-white rounded-full w-7 h-7 flex items-center justify-center"
+                              onClick={(e) => { e.stopPropagation(); setRaffleForm((f) => ({ ...f, imageUrl: "" })); }}
+                              title="Remover foto"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center py-6 text-muted-foreground gap-2 select-none">
+                            <Camera className="w-8 h-8 opacity-40" />
+                            <span className="text-sm">Clique para escolher uma foto</span>
+                            <span className="text-xs opacity-60">JPG, PNG ou WebP · máx 5 MB</span>
+                          </div>
+                        )}
+                        <input
+                          id="raffle-img-upload"
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            if (file.size > 5 * 1024 * 1024) { toast.error("Imagem maior que 5 MB."); return; }
+                            const reader = new FileReader();
+                            reader.onload = (ev) => {
+                              const result = ev.target?.result as string;
+                              // Resize to max 800px wide via canvas to keep base64 small
+                              const img = new Image();
+                              img.onload = () => {
+                                const MAX = 800;
+                                const scale = img.width > MAX ? MAX / img.width : 1;
+                                const canvas = document.createElement("canvas");
+                                canvas.width = Math.round(img.width * scale);
+                                canvas.height = Math.round(img.height * scale);
+                                canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+                                const compressed = canvas.toDataURL("image/jpeg", 0.82);
+                                setRaffleForm((f) => ({ ...f, imageUrl: compressed }));
+                              };
+                              img.src = result;
+                            };
+                            reader.readAsDataURL(file);
+                            e.target.value = "";
+                          }}
+                        />
+                      </div>
                     </div>
                     <div>
                       <label className="text-xs font-medium text-muted-foreground block mb-1">Qtd. de números *</label>
