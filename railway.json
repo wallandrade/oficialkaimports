@@ -4,6 +4,6 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "pnpm --filter @workspace/db push-force && pnpm --filter @workspace/api-server start-only"
+    "startCommand": "pnpm --filter @workspace/api-server start-only"
   }
 }
