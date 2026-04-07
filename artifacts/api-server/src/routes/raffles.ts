@@ -277,50 +277,60 @@ router.get("/api/raffles/reservations/lookup", async (req, res) => {
 // ADMIN: GET /api/admin/raffles — list all raffles
 // ---------------------------------------------------------------------------
 router.get("/api/admin/raffles", requireAdminAuth, async (_req, res) => {
-  const raffles = await db
-    .select()
-    .from(rafflesTable)
-    .orderBy(sql`created_at DESC`);
-  res.json(raffles);
+  try {
+    const raffles = await db
+      .select()
+      .from(rafflesTable)
+      .orderBy(sql`created_at DESC`);
+    res.json(raffles);
+  } catch (err) {
+    console.error("[Raffles] GET admin list error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao listar rifas." });
+  }
 });
 
 // ---------------------------------------------------------------------------
 // ADMIN: POST /api/admin/raffles — create raffle
 // ---------------------------------------------------------------------------
 router.post("/api/admin/raffles", requireAdminAuth, async (req, res) => {
-  const { title, description, imageUrl, totalNumbers, pricePerNumber, reservationHours, status } = req.body as {
-    title: string;
-    description?: string;
-    imageUrl?: string;
-    totalNumbers: number;
-    pricePerNumber: number;
-    reservationHours?: number;
-    status?: string;
-  };
+  try {
+    const { title, description, imageUrl, totalNumbers, pricePerNumber, reservationHours, status } = req.body as {
+      title: string;
+      description?: string;
+      imageUrl?: string;
+      totalNumbers: number;
+      pricePerNumber: number;
+      reservationHours?: number;
+      status?: string;
+    };
 
-  if (!title || !totalNumbers || !pricePerNumber) {
-    res.status(400).json({ error: "INVALID_INPUT", message: "título, totalNumbers e pricePerNumber são obrigatórios." });
-    return;
+    if (!title || !totalNumbers || !pricePerNumber) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Título, quantidade de números e preço são obrigatórios." });
+      return;
+    }
+    if (Number(totalNumbers) < 1 || Number(totalNumbers) > 100000) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Quantidade de números deve ser entre 1 e 100.000." });
+      return;
+    }
+
+    const id = crypto.randomBytes(8).toString("hex");
+    await db.insert(rafflesTable).values({
+      id,
+      title: String(title),
+      description: description ? String(description) : null,
+      imageUrl: imageUrl ? String(imageUrl) : null,
+      totalNumbers: Number(totalNumbers),
+      pricePerNumber: String(pricePerNumber),
+      reservationHours: Number(reservationHours ?? 24),
+      status: status ?? "active",
+    });
+
+    const [created] = await db.select().from(rafflesTable).where(eq(rafflesTable.id, id)).limit(1);
+    res.json(created);
+  } catch (err) {
+    console.error("[Raffles] POST create error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao criar rifa: " + (err instanceof Error ? err.message : String(err)) });
   }
-  if (totalNumbers < 1 || totalNumbers > 100000) {
-    res.status(400).json({ error: "INVALID_INPUT", message: "totalNumbers deve ser entre 1 e 100.000." });
-    return;
-  }
-
-  const id = crypto.randomBytes(8).toString("hex");
-  await db.insert(rafflesTable).values({
-    id,
-    title: String(title),
-    description: description ? String(description) : null,
-    imageUrl: imageUrl ? String(imageUrl) : null,
-    totalNumbers: Number(totalNumbers),
-    pricePerNumber: String(pricePerNumber),
-    reservationHours: Number(reservationHours ?? 24),
-    status: status ?? "active",
-  });
-
-  const [created] = await db.select().from(rafflesTable).where(eq(rafflesTable.id, id)).limit(1);
-  res.json(created);
 });
 
 // ---------------------------------------------------------------------------

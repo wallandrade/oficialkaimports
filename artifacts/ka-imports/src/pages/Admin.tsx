@@ -3258,7 +3258,14 @@ export default function Admin() {
                               status: raffleForm.status,
                             }),
                           });
-                          if (!res.ok) { const d = await res.json() as { message?: string }; toast.error(d.message ?? "Erro ao salvar."); return; }
+                          if (!res.ok) {
+                            const text = await res.text();
+                            let msg = "Erro ao salvar.";
+                            try { msg = (JSON.parse(text) as { message?: string }).message ?? msg; } catch { msg = text.slice(0, 120) || msg; }
+                            if (res.status === 401) msg = "Sessão expirada. Faça login novamente.";
+                            toast.error(msg);
+                            return;
+                          }
                           toast.success(raffleEditingId ? "Rifa atualizada!" : "Rifa criada com sucesso!");
                           setRaffleEditingId(null);
                           setRaffleForm({ title: "", description: "", imageUrl: "", totalNumbers: "100", pricePerNumber: "10", reservationHours: "24", status: "active" });
