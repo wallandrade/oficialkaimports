@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import { Loader2, Lock, Mail, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { saveCustomerToken } from "@/lib/customer-auth";
+import { getStoredReferralCode } from "@/lib/affiliate";
 import { toast } from "sonner";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -38,9 +39,10 @@ export default function CustomerLogin() {
     setLoading(true);
     try {
       const endpoint = mode === "login" ? "/api/auth/login" : "/api/auth/register";
+      const affiliateCode = getStoredReferralCode();
       const payload = mode === "login"
         ? { email: email.trim(), password }
-        : { name: name.trim(), email: email.trim(), password };
+        : { name: name.trim(), email: email.trim(), password, affiliateCode: affiliateCode || undefined };
 
       const res = await fetch(`${BASE}${endpoint}`, {
         method: "POST",

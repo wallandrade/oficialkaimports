@@ -11,14 +11,16 @@ import {
   requireCustomerAuth,
 } from "../middlewares/customer-auth";
 import { requireAdminAuth } from "./admin-auth";
+import { normalizeAffiliateCode, registerAffiliateLead, resolveAffiliateByCode } from "../lib/affiliates";
 
 const router: IRouter = Router();
 
 router.post("/auth/register", async (req, res) => {
-  const { name, email, password } = req.body as {
+  const { name, email, password, affiliateCode } = req.body as {
     name?: string;
     email?: string;
     password?: string;
+    affiliateCode?: string;
   };
 
   if (!name || !email || !password) {
@@ -56,6 +58,18 @@ router.post("/auth/register", async (req, res) => {
       salt,
       updatedAt: new Date(),
     });
+
+    const normalizedAffiliateCode = normalizeAffiliateCode(affiliateCode);
+    if (normalizedAffiliateCode) {
+      const affiliate = await resolveAffiliateByCode(normalizedAffiliateCode);
+      if (affiliate && affiliate.userId !== id) {
+        await registerAffiliateLead({
+          affiliateUserId: affiliate.userId,
+          referredUserId: id,
+          referredEmail: normalizedEmail,
+        });
+      }
+    }
 
     const session = createCustomerSession({ userId: id, email: normalizedEmail, name: name.trim() });
 
