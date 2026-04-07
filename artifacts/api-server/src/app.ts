@@ -14,6 +14,10 @@ app.use(cors({
 app.use(express.json({ limit: "15mb" }));
 app.use(express.urlencoded({ extended: true, limit: "15mb" }));
 
+app.get("/", (_req, res) => {
+  res.status(200).send("OK");
+});
+
 app.get("/force-migrate", (req, res) => {
   exec(
     "cd ../../lib/db && npx --yes drizzle-kit push --force --config ./drizzle.config.ts",
