@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatCurrency, cn } from "@/lib/utils";
-import { Loader2, Ticket, Info } from "lucide-react";
+import { Loader2, Ticket, Info, Share2 } from "lucide-react";
 import { toast } from "sonner";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -218,6 +218,20 @@ export default function RaffleDetail() {
             <span>·</span>
             <span>Reserva válida por {raffle.reservationHours}h</span>
           </div>
+          <button
+            className="mt-2 inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+            onClick={() => {
+              const link = window.location.href;
+              if (navigator.share) {
+                navigator.share({ title: raffle.title, url: link }).catch(() => {});
+              } else {
+                navigator.clipboard.writeText(link);
+                toast.success("Link copiado!");
+              }
+            }}
+          >
+            <Share2 className="w-3.5 h-3.5" /> Compartilhar rifa
+          </button>
         </div>
 
         {/* Legend */}

@@ -3248,6 +3248,15 @@ export default function Admin() {
                           </div>
                           <div className="flex gap-1 shrink-0">
                             <Button size="icon" variant="outline" className="w-8 h-8"
+                              title="Copiar link da rifa"
+                              onClick={() => {
+                                const link = `${window.location.origin}/rifas/${raffle.id}`;
+                                navigator.clipboard.writeText(link);
+                                toast.success("Link copiado!");
+                              }}>
+                              <Copy className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button size="icon" variant="outline" className="w-8 h-8"
                               title="Ver reservas"
                               onClick={() => { setRaffleViewId(raffle.id); fetchRaffleReservations(raffle.id); }}>
                               <Eye className="w-3.5 h-3.5" />
