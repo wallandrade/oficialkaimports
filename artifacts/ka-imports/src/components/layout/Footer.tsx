@@ -2,8 +2,52 @@ import { MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getActiveWhatsApp } from "@/lib/utils";
 
-function openWhatsApp(text: string) {
-  const number = getActiveWhatsApp();
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+const RESERVED_FIRST_SEGMENTS = new Set([
+  "",
+  "admin",
+  "login",
+  "checkout",
+  "pix",
+  "success",
+  "r",
+  "pagamento",
+  "payment-link",
+  "kyc",
+  "rifas",
+  "produto",
+]);
+
+function getSellerSlugFromPathname(pathname: string): string | null {
+  const seg = pathname.replace(/^\/+/, "").split("/")[0]?.toLowerCase() ?? "";
+  if (!seg || RESERVED_FIRST_SEGMENTS.has(seg)) return null;
+  return seg;
+}
+
+async function resolveSupportWhatsApp(): Promise<string> {
+  const slug = getSellerSlugFromPathname(window.location.pathname);
+  if (!slug) return getActiveWhatsApp();
+
+  try {
+    const res = await fetch(`${BASE}/api/sellers/${encodeURIComponent(slug)}`);
+    if (res.ok) {
+      const data = (await res.json()) as { whatsapp?: string };
+      const whatsapp = (data?.whatsapp ?? "").replace(/\D/g, "");
+      if (whatsapp) {
+        try { sessionStorage.setItem("sellerWhatsapp", whatsapp); } catch {}
+        return whatsapp;
+      }
+    }
+  } catch {
+    // ignore and fallback below
+  }
+
+  return getActiveWhatsApp();
+}
+
+async function openWhatsApp(text: string) {
+  const number = await resolveSupportWhatsApp();
   const url = `https://wa.me/${number}?text=${encodeURIComponent(text)}`;
   window.open(url, "_blank", "noopener,noreferrer");
 }
