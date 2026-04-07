@@ -8,6 +8,7 @@ import {
   buildCallbackUrl,
   genIdentifier,
   PIX_DURATION_MS,
+  isPaymentConfirmed,
 } from "../gateway";
 
 const router: IRouter = Router();
@@ -396,36 +397,58 @@ router.get("/admin/raffles/:id/reservations", requireAdminAuth, async (req, res)
 // WEBHOOK: POST /webhook/raffle-pix — payment confirmation
 // ---------------------------------------------------------------------------
 router.post("/webhook/raffle-pix", async (req, res) => {
-  // Accept any body shape — just check for transactionId
-  const transactionId = req.body?.transactionId || req.body?.transaction_id || req.body?.id;
-  const status = req.body?.status || req.body?.payment_status;
+  const raw = (req.body ?? {}) as Record<string, unknown>;
+  const tx = ((raw.transaction as Record<string, unknown>) ?? raw) as Record<string, unknown>;
+  const txMeta = ((tx.metadata as Record<string, unknown>) ?? {}) as Record<string, unknown>;
+  const rawMeta = ((raw.metadata as Record<string, unknown>) ?? {}) as Record<string, unknown>;
 
-  if (!transactionId) {
-    res.status(400).json({ error: "MISSING_TRANSACTION_ID" });
+  const transactionId = String(
+    tx.id || tx.transactionId || (tx as { transaction_id?: unknown }).transaction_id || raw.transactionId || raw.transaction_id || raw.id || "",
+  ).trim();
+
+  let status = String(tx.status || raw.status || raw.payment_status || raw.event || "").trim();
+  if (!status && raw.event) {
+    const ev = String(raw.event).toUpperCase();
+    if (ev.includes("PAID") || ev.includes("APPROVED") || ev.includes("COMPLETED")) status = "COMPLETED";
+    else if (ev.includes("CANCEL") || ev.includes("REJECT") || ev.includes("FAILED")) status = "CANCELED";
+  }
+
+  const reservationId = String(txMeta.reservationId || rawMeta.reservationId || "").trim();
+
+  if (!transactionId && !reservationId) {
+    console.log("[RaffleWebhook] Missing transactionId/reservationId", JSON.stringify(raw));
+    res.status(400).json({ error: "MISSING_REFERENCE" });
     return;
   }
 
-  // Find reservation
-  const [reservation] = await db
-    .select()
-    .from(raffleReservationsTable)
-    .where(eq(raffleReservationsTable.transactionId, String(transactionId)))
-    .limit(1);
+  const [reservation] = transactionId
+    ? await db
+      .select()
+      .from(raffleReservationsTable)
+      .where(eq(raffleReservationsTable.transactionId, transactionId))
+      .limit(1)
+    : await db
+      .select()
+      .from(raffleReservationsTable)
+      .where(eq(raffleReservationsTable.id, reservationId))
+      .limit(1);
 
   if (!reservation) {
+    console.log("[RaffleWebhook] Reservation not found", JSON.stringify({ transactionId, reservationId, status }));
     res.status(404).json({ error: "RESERVATION_NOT_FOUND" });
     return;
   }
 
-  const isPaid = ["PAID", "OK", "APPROVED", "paid", "ok", "approved", "confirmed"].includes(String(status));
-  if (isPaid && reservation.status !== "paid") {
+  const confirmed = status ? isPaymentConfirmed(status) : false;
+  if (confirmed && reservation.status !== "paid") {
     await db
       .update(raffleReservationsTable)
       .set({ status: "paid", updatedAt: new Date() })
       .where(eq(raffleReservationsTable.id, reservation.id));
+    console.log("[RaffleWebhook] Reservation paid", JSON.stringify({ id: reservation.id, transactionId, status }));
   }
 
-  res.json({ ok: true });
+  res.json({ ok: true, confirmed, reservationId: reservation.id });
 });
 
 export default router;
