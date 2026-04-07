@@ -215,17 +215,23 @@ export default function RaffleDetail() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">{raffle.title}</h1>
           {raffle.description && (
-            <p className="text-muted-foreground mt-1 text-sm">{raffle.description}</p>
+            <p className="text-muted-foreground mt-2 text-sm leading-relaxed whitespace-pre-line break-words">
+              {raffle.description}
+            </p>
           )}
-          <div className="flex gap-3 mt-2 text-sm text-muted-foreground">
-            <span>{raffle.totalNumbers} números</span>
-            <span>·</span>
-            <span>{formatCurrency(Number(raffle.pricePerNumber))} por número</span>
-            <span>·</span>
-            <span>Reserva válida por {raffle.reservationHours}h</span>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs sm:text-sm">
+            <span className="inline-flex items-center rounded-full bg-muted px-3 py-1 text-muted-foreground">
+              {raffle.totalNumbers} números
+            </span>
+            <span className="inline-flex items-center rounded-full bg-muted px-3 py-1 text-muted-foreground">
+              {formatCurrency(Number(raffle.pricePerNumber))} por número
+            </span>
+            <span className="inline-flex items-center rounded-full bg-muted px-3 py-1 text-muted-foreground">
+              Reserva válida por {raffle.reservationHours}h
+            </span>
           </div>
           <button
-            className="mt-2 inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
+            className="mt-3 inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
             onClick={() => {
               const link = window.location.href;
               if (navigator.share) {
