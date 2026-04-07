@@ -31,6 +31,14 @@ function genId() {
   return Math.random().toString(36).slice(2, 12);
 }
 
+function safeReadStorage(key: string): string | null {
+  try {
+    return localStorage.getItem(key) ?? sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
 function formatCPF(value: string) {
   const d = value.replace(/\D/g, "").slice(0, 11);
   if (d.length <= 3) return d;
@@ -247,7 +255,7 @@ export default function Checkout() {
   }, [checkoutBumps, items]);
 
   // Capture seller from localStorage (set by SellerPage redirect)
-  const sellerCode = localStorage.getItem("sellerCode") || undefined;
+  const sellerCode = safeReadStorage("sellerCode") || undefined;
 
   // Load shipping options from API
   useEffect(() => {

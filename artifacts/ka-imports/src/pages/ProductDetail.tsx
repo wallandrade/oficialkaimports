@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Link, useLocation, useRoute } from "wouter";
 import { useGetProducts } from "@workspace/api-client-react";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -7,6 +7,23 @@ import { useCart } from "@/store/use-cart";
 import { formatCurrency } from "@/lib/utils";
 import { ArrowLeft, Loader2, ShoppingCart } from "lucide-react";
 import { toast } from "sonner";
+
+function safeGetStorage(key: string): string {
+  try {
+    return localStorage.getItem(key) || sessionStorage.getItem(key) || "";
+  } catch {
+    return "";
+  }
+}
+
+function safeSetStorage(key: string, value: string) {
+  try {
+    sessionStorage.setItem(key, value);
+    localStorage.setItem(key, value);
+  } catch {
+    // ignore storage errors
+  }
+}
 
 export default function ProductDetail() {
   const [, paramsSeller] = useRoute("/:seller/produto/:id");
@@ -17,9 +34,16 @@ export default function ProductDetail() {
   const productId = paramsSeller?.id ?? paramsGlobal?.id ?? "";
   const sellerSlug = paramsSeller?.seller?.toLowerCase();
 
+  useEffect(() => {
+    if (sellerSlug || !productId) return;
+    const storedSeller = safeGetStorage("sellerCode").toLowerCase();
+    if (storedSeller) {
+      setLocation(`/${storedSeller}/produto/${productId}`);
+    }
+  }, [sellerSlug, productId, setLocation]);
+
   if (sellerSlug) {
-    sessionStorage.setItem("sellerCode", sellerSlug);
-    localStorage.setItem("sellerCode", sellerSlug);
+    safeSetStorage("sellerCode", sellerSlug);
   }
 
   const { data, isLoading, isError } = useGetProducts();

@@ -35,6 +35,7 @@ router.post("/checkout/pix", async (req, res) => {
       document: req.body?.client?.document ? `present(${String(req.body.client.document).length} chars)` : "(missing)",
     },
     shippingType: req.body?.shippingType,
+    sellerCode: req.body?.sellerCode || null,
     hasAddress:   !!req.body?.address,
     hasProducts:  Array.isArray(req.body?.products) ? req.body.products.length : 0,
   }));
@@ -163,7 +164,7 @@ router.post("/checkout/pix", async (req, res) => {
       });
     }
 
-    console.log(`[CHECKOUT/PIX:${requestId}] Order created: ${orderId}`);
+    console.log(`[CHECKOUT/PIX:${requestId}] Order created: ${orderId} (sellerCode=${sellerCode || "none"})`);
 
     broadcastNotification({
       type: "new_order",
