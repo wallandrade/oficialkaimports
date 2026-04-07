@@ -18,6 +18,13 @@ export function getStoredReferralCode(): string {
 export function captureReferralFromCurrentUrl(): string {
   if (typeof window === "undefined") return "";
 
+  const pathMatch = window.location.pathname.match(/^\/r\/([^/?#]+)/i);
+  const pathRef = normalizeRefCode(pathMatch?.[1] || "");
+  if (pathRef) {
+    storeReferralCode(pathRef);
+    return pathRef;
+  }
+
   const params = new URLSearchParams(window.location.search);
   const ref = normalizeRefCode(params.get("ref") || "");
   if (ref) {

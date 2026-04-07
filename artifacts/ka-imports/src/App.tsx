@@ -84,6 +84,17 @@ function PageLoader() {
   );
 }
 
+function ReferralShortLink() {
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    captureReferralFromCurrentUrl();
+    setLocation("/");
+  }, [setLocation]);
+
+  return <PageLoader />;
+}
+
 function useSiteProtection() {
   useEffect(() => {
     const preventDefault = (e: Event) => e.preventDefault();
@@ -117,6 +128,7 @@ function Router() {
         <Route path="/admin"            component={Admin} />
         <Route path="/login"            component={CustomerLogin} />
         <Route path="/minha-conta/pedidos" component={CustomerOrders} />
+        <Route path="/r/:code"          component={ReferralShortLink} />
         <Route path="/pagamento"        component={PaymentLink} />
         <Route path="/payment-link"     component={PaymentLink} />
         <Route path="/kyc"              component={KYCPolicy} />

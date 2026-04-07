@@ -20,7 +20,7 @@ function getStorefrontOrigin(req: Request): string {
     process.env.STOREFRONT_URL ||
     process.env.FRONTEND_URL ||
     process.env.PUBLIC_SITE_URL ||
-    "";
+    "https://www.ka-imports.com";
 
   if (explicitOrigin) {
     return normalizeOrigin(String(explicitOrigin));
@@ -100,7 +100,7 @@ router.get("/me/affiliate/dashboard", requireCustomerAuth, async (req, res) => {
       },
       affiliate: {
         code: affiliate.affiliateCode,
-        referralLink: `${origin}/?ref=${affiliate.affiliateCode}`,
+        referralLink: `${origin}/r/${affiliate.affiliateCode}`,
         facebookPixelId: affiliate.facebookPixelId || "",
       },
     });
