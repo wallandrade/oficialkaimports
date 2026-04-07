@@ -54,6 +54,7 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
     { name: "guest_access_token", sql: "ALTER TABLE orders ADD COLUMN guest_access_token VARCHAR(255) NULL" },
     { name: "affiliate_user_id", sql: "ALTER TABLE orders ADD COLUMN affiliate_user_id VARCHAR(255) NULL" },
     { name: "affiliate_code", sql: "ALTER TABLE orders ADD COLUMN affiliate_code VARCHAR(32) NULL" },
+    { name: "affiliate_credit_used", sql: "ALTER TABLE orders ADD COLUMN affiliate_credit_used DECIMAL(10,2) NULL" },
   ];
 
   for (const definition of definitions) {
@@ -136,6 +137,20 @@ async function ensureAffiliatesTables(databaseName: string): Promise<void> {
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY affiliate_commissions_order_id_unique (order_id)
+      )
+    `);
+  }
+
+  if (!(await tableExists("affiliate_credit_uses", databaseName))) {
+    await pool.query(`
+      CREATE TABLE affiliate_credit_uses (
+        id VARCHAR(255) NOT NULL PRIMARY KEY,
+        affiliate_user_id VARCHAR(255) NOT NULL,
+        order_id VARCHAR(255) NOT NULL,
+        amount DECIMAL(10,2) NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY affiliate_credit_uses_order_id_unique (order_id)
       )
     `);
   }

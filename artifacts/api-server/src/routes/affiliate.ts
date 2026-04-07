@@ -7,7 +7,7 @@ import {
 } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { getCustomerSession, requireCustomerAuth } from "../middlewares/customer-auth";
-import { getOrCreateAffiliateByUserId } from "../lib/affiliates";
+import { getAffiliateAvailableCreditByUserId, getOrCreateAffiliateByUserId } from "../lib/affiliates";
 
 const router: IRouter = Router();
 
@@ -131,6 +131,22 @@ router.patch("/me/affiliate/facebook-pixel", requireCustomerAuth, async (req, re
   } catch (err) {
     console.error("[Affiliate] update pixel error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao salvar pixel." });
+  }
+});
+
+router.get("/me/affiliate/credit-balance", requireCustomerAuth, async (req, res) => {
+  try {
+    const session = getCustomerSession(req);
+    if (!session) {
+      res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
+      return;
+    }
+
+    const availableCredit = await getAffiliateAvailableCreditByUserId(session.userId);
+    res.json({ availableCredit });
+  } catch (err) {
+    console.error("[Affiliate] credit balance error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao carregar saldo disponível." });
   }
 });
 

@@ -634,6 +634,7 @@ function mapOrder(o: typeof ordersTable.$inferSelect) {
     sellerCode:             o.sellerCode,
     couponCode:             o.couponCode,
     discountAmount:         o.discountAmount ? Number(o.discountAmount) : null,
+    affiliateCreditUsed:    o.affiliateCreditUsed ? Number(o.affiliateCreditUsed) : null,
     observation:            o.observation,
     cardInstallmentsActual: o.cardInstallmentsActual,
     cardInstallmentValue:   o.cardInstallmentValue ? Number(o.cardInstallmentValue) : null,

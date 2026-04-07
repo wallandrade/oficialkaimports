@@ -33,3 +33,12 @@ export const affiliateCommissionsTable = mysqlTable("affiliate_commissions", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+export const affiliateCreditUsesTable = mysqlTable("affiliate_credit_uses", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  affiliateUserId: varchar("affiliate_user_id", { length: 255 }).notNull(),
+  orderId: varchar("order_id", { length: 255 }).notNull().unique(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});

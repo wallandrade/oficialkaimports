@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { useLiveTracking } from "@/hooks/useLiveTracking";
 import { useCart } from "@/store/use-cart";
 import { getStoredReferralCode } from "@/lib/affiliate";
+import { getCustomerAuthHeaders, getCustomerToken } from "@/lib/customer-auth";
 import { formatCurrency, getActiveWhatsApp } from "@/lib/utils";
 import { useCreateOrder } from "@workspace/api-client-react";
 
@@ -106,6 +107,9 @@ export default function Checkout() {
   const [appliedCoupon, setAppliedCoupon] = useState<{
     code: string; discountType: string; discountValue: number;
   } | null>(null);
+  const [affiliateCreditAvailable, setAffiliateCreditAvailable] = useState(0);
+  const [affiliateCreditLoading, setAffiliateCreditLoading] = useState(false);
+  const [useAffiliateCredit, setUseAffiliateCredit] = useState(false);
 
   // Order bumps for checkout
   interface CheckoutBump {
@@ -288,6 +292,8 @@ export default function Checkout() {
       : Math.min(appliedCoupon.discountValue, baseTotal)
     : 0;
   const total = Math.max(0, baseTotal - discountAmount);
+  const affiliateCreditToApply = useAffiliateCredit ? Math.min(affiliateCreditAvailable, total) : 0;
+  const payableTotal = Math.max(0, total - affiliateCreditToApply);
 
   // Card payment uses regular (non-promo) prices
   const cardSubtotal = getCardSubtotal();
@@ -299,6 +305,40 @@ export default function Checkout() {
       : Math.min(appliedCoupon.discountValue, cardBaseTotal)
     : 0;
   const cardNetTotal = Math.max(0, cardBaseTotal - cardDiscountAmount);
+
+  useEffect(() => {
+    const token = getCustomerToken();
+    if (!token) {
+      setAffiliateCreditAvailable(0);
+      setUseAffiliateCredit(false);
+      return;
+    }
+
+    let active = true;
+    setAffiliateCreditLoading(true);
+    fetch(`${BASE}/api/me/affiliate/credit-balance`, {
+      headers: getCustomerAuthHeaders(),
+    })
+      .then(async (res) => {
+        if (!res.ok) return null;
+        return (await res.json()) as { availableCredit?: number };
+      })
+      .then((data) => {
+        if (!active) return;
+        const available = Number(data?.availableCredit || 0);
+        setAffiliateCreditAvailable(Number.isFinite(available) ? available : 0);
+      })
+      .catch(() => {
+        if (active) setAffiliateCreditAvailable(0);
+      })
+      .finally(() => {
+        if (active) setAffiliateCreditLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const applyCoupon = async () => {
     if (!couponInput.trim()) return;
@@ -451,6 +491,7 @@ export default function Checkout() {
           total,
           sellerCode,
           affiliateCode:   affiliateCode || undefined,
+          useAffiliateCredit,
           couponCode:      appliedCoupon?.code,
           discountAmount:  discountAmount > 0 ? discountAmount : undefined,
         }),
@@ -464,11 +505,50 @@ export default function Checkout() {
         pixBase64?: string;
         pixImage?: string;
         expiresAt?: string;
+        coveredByAffiliateCredit?: boolean;
+        affiliateCreditUsed?: number;
+        remainingToPay?: number;
         message?: string;
       };
 
       if (!resp.ok) {
         toast.error(result.message || "Erro ao gerar pagamento PIX. Verifique os dados e tente novamente.");
+        return;
+      }
+
+      if (result.coveredByAffiliateCredit) {
+        const coveredOrderId = result.orderId || genId();
+        localStorage.setItem(
+          "successOrder",
+          JSON.stringify({
+            orderId: coveredOrderId,
+            clientName:     data.name,
+            clientPhone:    data.phone,
+            clientEmail:    data.email,
+            clientDocument: data.document,
+            address: {
+              street:       data.street,
+              number:       data.number,
+              complement:   data.complement || "",
+              neighborhood: data.neighborhood,
+              city:         data.city,
+              state:        data.state,
+              cep:          data.cep,
+            },
+            products:        items.map((i) => ({ name: i.name, quantity: i.quantity, price: i.price })),
+            shippingType:    selectedShipping?.name ?? "Frete",
+            shippingCost,
+            includeInsurance,
+            insuranceAmount,
+            subtotal,
+            discountAmount:  discountAmount > 0 ? discountAmount : 0,
+            couponCode:      appliedCoupon?.code || "",
+            total:           0,
+          })
+        );
+        clearCart();
+        setIsOpen(false);
+        setLocation("/success");
         return;
       }
 
@@ -490,7 +570,7 @@ export default function Checkout() {
         JSON.stringify({
           client:       clientPayload,
           products:     productsPayload,
-          amount:       total,
+          amount:       Number(result.remainingToPay ?? payableTotal),
           shippingType: selectedShipping?.name ?? "Frete",
           includeInsurance,
           orderId,
@@ -1175,6 +1255,12 @@ export default function Checkout() {
                     <span>− {formatCurrency(discountAmount)}</span>
                   </div>
                 )}
+                {useAffiliateCredit && affiliateCreditToApply > 0 && (
+                  <div className="flex justify-between text-blue-700 font-semibold">
+                    <span>Saldo de comissão aplicado</span>
+                    <span>− {formatCurrency(affiliateCreditToApply)}</span>
+                  </div>
+                )}
               </div>
 
               {/* Coupon field */}
@@ -1222,13 +1308,36 @@ export default function Checkout() {
                 )}
               </div>
 
+              {getCustomerToken() && (
+                <div className="mb-4 pb-4 border-b border-border">
+                  <label className="flex items-center justify-between gap-3 cursor-pointer">
+                    <span className="text-sm font-medium text-foreground">Usar saldo de comissão</span>
+                    <input
+                      type="checkbox"
+                      checked={useAffiliateCredit}
+                      onChange={(e) => setUseAffiliateCredit(e.target.checked)}
+                      disabled={affiliateCreditLoading || affiliateCreditAvailable <= 0}
+                      className="w-4 h-4"
+                    />
+                  </label>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Saldo disponível: {affiliateCreditLoading ? "carregando..." : formatCurrency(affiliateCreditAvailable)}
+                  </p>
+                  {useAffiliateCredit && affiliateCreditToApply > 0 && (
+                    <p className="text-xs text-blue-700 mt-1">
+                      Será aplicado {formatCurrency(affiliateCreditToApply)} neste pedido.
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="flex items-end justify-between mb-2">
                 <span className="text-lg font-medium">Total</span>
                 <div className="text-right">
                   {appliedCoupon && (
                     <p className="text-sm text-muted-foreground line-through">{formatCurrency(baseTotal)}</p>
                   )}
-                  <span className="text-3xl font-bold text-primary">{formatCurrency(total)}</span>
+                  <span className="text-3xl font-bold text-primary">{formatCurrency(payableTotal)}</span>
                 </div>
               </div>
               {(() => {

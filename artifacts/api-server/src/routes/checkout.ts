@@ -11,7 +11,7 @@ import {
   PIX_DURATION_MS,
 } from "../gateway";
 import { getCustomerSession } from "../middlewares/customer-auth";
-import { normalizeAffiliateCode, registerAffiliateLead, resolveAffiliateByCode } from "../lib/affiliates";
+import { applyAffiliateCreditToOrder, normalizeAffiliateCode, registerAffiliateLead, resolveAffiliateByCode } from "../lib/affiliates";
 
 const router: IRouter = Router();
 
@@ -47,6 +47,7 @@ router.post("/checkout/pix", async (req, res) => {
       client, address, products, shippingType, includeInsurance,
       subtotal, shippingCost, insuranceAmount, total,
       sellerCode, couponCode, discountAmount,
+      useAffiliateCredit,
     } = req.body as {
       client: { name: string; email: string; phone: string; document: string };
       address?: {
@@ -63,6 +64,7 @@ router.post("/checkout/pix", async (req, res) => {
       sellerCode?: string;
       couponCode?: string;
       discountAmount?: number;
+      useAffiliateCredit?: boolean;
     };
 
     const normalizedAffiliateCode = normalizeAffiliateCode(req.body?.affiliateCode);
@@ -130,6 +132,29 @@ router.post("/checkout/pix", async (req, res) => {
       discountAmount:      discountAmount ? String(discountAmount) : null,
     });
 
+    let affiliateCreditUsed = 0;
+    if (useAffiliateCredit === true && customerSession?.userId) {
+      affiliateCreditUsed = await applyAffiliateCreditToOrder({
+        userId: customerSession.userId,
+        orderId,
+        requestedAmount: amount,
+      });
+
+      if (affiliateCreditUsed > 0) {
+        const payableAmount = Math.max(0, amount - affiliateCreditUsed);
+        await db
+          .update(ordersTable)
+          .set({
+            total: String(payableAmount),
+            affiliateCreditUsed: String(affiliateCreditUsed),
+            paymentMethod: payableAmount <= 0 ? "affiliate_credit" : "pix",
+            status: payableAmount <= 0 ? "paid" : "pending",
+            updatedAt: new Date(),
+          })
+          .where(eq(ordersTable.id, orderId));
+      }
+    }
+
     if (affiliateUserId) {
       await registerAffiliateLead({
         affiliateUserId,
@@ -157,16 +182,32 @@ router.post("/checkout/pix", async (req, res) => {
       try { await incrementCouponUse(couponCode); } catch { /* non-fatal */ }
     }
 
+    const payableAmount = Math.max(0, amount - affiliateCreditUsed);
+    if (payableAmount <= 0) {
+      broadcastNotification({ type: "order_paid", data: { id: orderId, status: "paid" } });
+      res.json({
+        orderId,
+        affiliateCode: affiliateUserId ? normalizedAffiliateCode : null,
+        guestAccessToken,
+        isGuestOrder: !customerSession,
+        status: "paid",
+        coveredByAffiliateCredit: true,
+        affiliateCreditUsed,
+        remainingToPay: 0,
+      });
+      return;
+    }
+
     // ── Generate PIX charge ───────────────────────────────────────────────
     const identifier  = genIdentifier();
     const callbackUrl = buildCallbackUrl(req as never, "/webhook/pix");
-    console.log(`[CHECKOUT/PIX:${requestId}] Generating PIX for order ${orderId} — amount: ${amount} — callback: ${callbackUrl}`);
+    console.log(`[CHECKOUT/PIX:${requestId}] Generating PIX for order ${orderId} — amount: ${payableAmount} — callback: ${callbackUrl}`);
 
     let gatewayData;
     try {
       gatewayData = await createPixCharge({
         identifier,
-        amount,
+        amount: payableAmount,
         client: {
           name:     client.name,
           email:    client.email,
@@ -212,6 +253,8 @@ router.post("/checkout/pix", async (req, res) => {
       isGuestOrder: !customerSession,
       transactionId: gatewayData.transactionId,
       status:        gatewayData.status,
+      affiliateCreditUsed,
+      remainingToPay: payableAmount,
       pixCode:       gatewayData.pix?.code   || "",
       pixBase64:     gatewayData.pix?.base64 || "",
       pixImage:      gatewayData.pix?.image  || "",

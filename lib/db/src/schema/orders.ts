@@ -35,6 +35,7 @@ export const ordersTable = mysqlTable("orders", {
   sellerCode: varchar("seller_code", { length: 255 }),
   couponCode: varchar("coupon_code", { length: 255 }),
   discountAmount: decimal("discount_amount", { precision: 10, scale: 2 }),
+  affiliateCreditUsed: decimal("affiliate_credit_used", { precision: 10, scale: 2 }),
   observation: text("observation"),
   cardInstallmentsActual: int("card_installments_actual"),
   cardInstallmentValue: decimal("card_installment_value", { precision: 10, scale: 2 }),

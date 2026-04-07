@@ -1,12 +1,13 @@
 import crypto from "crypto";
 import {
+  affiliateCreditUsesTable,
   affiliateCommissionsTable,
   affiliateReferralsTable,
   affiliatesTable,
   db,
   ordersTable,
 } from "@workspace/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 const COMMISSION_RATE = 0.01;
 
@@ -278,4 +279,107 @@ export async function ensureOrderCommission(orderId: string): Promise<boolean> {
   }
 
   return true;
+}
+
+export async function getAffiliateAvailableCreditByUserId(userId: string): Promise<number> {
+  const affiliateRows = await db
+    .select({ userId: affiliatesTable.userId })
+    .from(affiliatesTable)
+    .where(eq(affiliatesTable.userId, userId))
+    .limit(1);
+
+  if (!affiliateRows[0]) {
+    return 0;
+  }
+
+  const releasedRows = await db
+    .select({
+      total: sql<string>`COALESCE(SUM(${affiliateCommissionsTable.commissionAmount}), 0)`,
+    })
+    .from(affiliateCommissionsTable)
+    .where(
+      and(
+        eq(affiliateCommissionsTable.affiliateUserId, userId),
+        eq(affiliateCommissionsTable.status, "released"),
+      )
+    );
+
+  const usedRows = await db
+    .select({
+      total: sql<string>`COALESCE(SUM(${affiliateCreditUsesTable.amount}), 0)`,
+    })
+    .from(affiliateCreditUsesTable)
+    .where(eq(affiliateCreditUsesTable.affiliateUserId, userId));
+
+  const released = Number(releasedRows[0]?.total || 0);
+  const used = Number(usedRows[0]?.total || 0);
+  const available = released - used;
+
+  if (!Number.isFinite(available) || available <= 0) {
+    return 0;
+  }
+
+  return Math.round(available * 100) / 100;
+}
+
+export async function applyAffiliateCreditToOrder(input: {
+  userId: string;
+  orderId: string;
+  requestedAmount: number;
+}): Promise<number> {
+  if (!input.userId) return 0;
+  if (!Number.isFinite(input.requestedAmount) || input.requestedAmount <= 0) return 0;
+
+  return db.transaction(async (tx) => {
+    const affiliateRows = await tx
+      .select({ userId: affiliatesTable.userId })
+      .from(affiliatesTable)
+      .where(eq(affiliatesTable.userId, input.userId))
+      .limit(1);
+
+    if (!affiliateRows[0]) {
+      return 0;
+    }
+
+    await tx.execute(sql`SELECT user_id FROM affiliates WHERE user_id = ${input.userId} FOR UPDATE`);
+
+    const releasedRows = await tx
+      .select({
+        total: sql<string>`COALESCE(SUM(${affiliateCommissionsTable.commissionAmount}), 0)`,
+      })
+      .from(affiliateCommissionsTable)
+      .where(
+        and(
+          eq(affiliateCommissionsTable.affiliateUserId, input.userId),
+          eq(affiliateCommissionsTable.status, "released"),
+        )
+      );
+
+    const usedRows = await tx
+      .select({
+        total: sql<string>`COALESCE(SUM(${affiliateCreditUsesTable.amount}), 0)`,
+      })
+      .from(affiliateCreditUsesTable)
+      .where(eq(affiliateCreditUsesTable.affiliateUserId, input.userId));
+
+    const released = Number(releasedRows[0]?.total || 0);
+    const used = Number(usedRows[0]?.total || 0);
+    const available = Math.max(0, released - used);
+    const toApply = Math.min(available, input.requestedAmount);
+    const rounded = Math.round(toApply * 100) / 100;
+
+    if (rounded <= 0) {
+      return 0;
+    }
+
+    await tx.insert(affiliateCreditUsesTable).values({
+      id: randomId(),
+      affiliateUserId: input.userId,
+      orderId: input.orderId,
+      amount: rounded.toFixed(2),
+      updatedAt: new Date(),
+    });
+
+    return rounded;
+  });
 }
