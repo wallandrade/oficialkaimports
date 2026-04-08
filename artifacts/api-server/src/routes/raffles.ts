@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, rafflesTable, raffleReservationsTable } from "@workspace/db";
+import { db, rafflesTable, raffleReservationsTable, raffleResultsTable } from "@workspace/db";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { requireAdminAuth } from "./admin-auth";
@@ -19,6 +19,66 @@ const router: IRouter = Router();
 function parseNumbers(raw: string | null | undefined): number[] {
   if (!raw) return [];
   try { return JSON.parse(raw) as number[]; } catch { return []; }
+}
+
+function normalizePhone(raw: string | null | undefined): string {
+  return String(raw ?? "").replace(/\D/g, "");
+}
+
+type RaffleRankingEntry = {
+  clientName: string;
+  clientPhone: string;
+  totalNumbers: number;
+  totalSpent: number;
+  reservationCount: number;
+};
+
+async function getRaffleRanking(raffleId: string, limit = 3): Promise<RaffleRankingEntry[]> {
+  const rows = await db
+    .select({
+      clientName: raffleReservationsTable.clientName,
+      clientPhone: raffleReservationsTable.clientPhone,
+      numbers: raffleReservationsTable.numbers,
+      totalAmount: raffleReservationsTable.totalAmount,
+    })
+    .from(raffleReservationsTable)
+    .where(and(
+      eq(raffleReservationsTable.raffleId, raffleId),
+      eq(raffleReservationsTable.status, "paid"),
+    ));
+
+  const grouped = new Map<string, RaffleRankingEntry>();
+  for (const row of rows) {
+    const key = normalizePhone(row.clientPhone) || row.clientName.toLowerCase();
+    const current = grouped.get(key) ?? {
+      clientName: row.clientName,
+      clientPhone: row.clientPhone,
+      totalNumbers: 0,
+      totalSpent: 0,
+      reservationCount: 0,
+    };
+    current.totalNumbers += parseNumbers(row.numbers).length;
+    current.totalSpent += Number(row.totalAmount || 0);
+    current.reservationCount += 1;
+    grouped.set(key, current);
+  }
+
+  return Array.from(grouped.values())
+    .sort((a, b) => {
+      if (b.totalNumbers !== a.totalNumbers) return b.totalNumbers - a.totalNumbers;
+      if (b.totalSpent !== a.totalSpent) return b.totalSpent - a.totalSpent;
+      return a.clientName.localeCompare(b.clientName);
+    })
+    .slice(0, limit);
+}
+
+async function getRaffleResult(raffleId: string) {
+  const [result] = await db
+    .select()
+    .from(raffleResultsTable)
+    .where(eq(raffleResultsTable.raffleId, raffleId))
+    .limit(1);
+  return result ?? null;
 }
 
 /** Return set of numbers already taken (reserved/paid) for a raffle */
@@ -69,8 +129,6 @@ router.get("/raffles/:id", async (req, res) => {
     return;
   }
 
-  const taken = await getTakenNumbers(raffle.id);
-
   // Build a flat status array indexed by number (1-based)
   // "available" | "reserved" | "paid"
   const now = new Date();
@@ -95,7 +153,12 @@ router.get("/raffles/:id", async (req, res) => {
     }
   }
 
-  res.json({ raffle, numberStatus });
+  const [result, ranking] = await Promise.all([
+    getRaffleResult(raffle.id),
+    getRaffleRanking(raffle.id, 3),
+  ]);
+
+  res.json({ raffle, numberStatus, result, ranking });
 });
 
 // ---------------------------------------------------------------------------
@@ -270,6 +333,24 @@ router.get("/raffles/reservations/lookup", async (req, res) => {
   res.json(result);
 });
 
+// ---------------------------------------------------------------------------
+// PUBLIC: GET /api/raffles/:id/ranking — top buyers (paid numbers)
+// ---------------------------------------------------------------------------
+router.get("/raffles/:id/ranking", async (req, res) => {
+  const { id: raffleId } = req.params as { id: string };
+  const ranking = await getRaffleRanking(raffleId, 3);
+  res.json({ ranking });
+});
+
+// ---------------------------------------------------------------------------
+// PUBLIC: GET /api/raffles/:id/result — winner data
+// ---------------------------------------------------------------------------
+router.get("/raffles/:id/result", async (req, res) => {
+  const { id: raffleId } = req.params as { id: string };
+  const result = await getRaffleResult(raffleId);
+  res.json({ result });
+});
+
 // ===========================================================================
 // ADMIN ROUTES
 // ===========================================================================
@@ -391,6 +472,105 @@ router.get("/admin/raffles/:id/reservations", requireAdminAuth, async (req, res)
     isExpired: r.status === "reserved" && r.expiresAt < now,
   }));
   res.json(result);
+});
+
+// ---------------------------------------------------------------------------
+// ADMIN: GET /api/admin/raffles/:id/ranking — ranking for admin panel
+// ---------------------------------------------------------------------------
+router.get("/admin/raffles/:id/ranking", requireAdminAuth, async (req, res) => {
+  const { id: raffleId } = req.params as { id: string };
+  const ranking = await getRaffleRanking(raffleId, 3);
+  res.json({ ranking });
+});
+
+// ---------------------------------------------------------------------------
+// ADMIN: GET /api/admin/raffles/:id/result — current winner/result
+// ---------------------------------------------------------------------------
+router.get("/admin/raffles/:id/result", requireAdminAuth, async (req, res) => {
+  const { id: raffleId } = req.params as { id: string };
+  const result = await getRaffleResult(raffleId);
+  res.json({ result });
+});
+
+// ---------------------------------------------------------------------------
+// ADMIN: PUT /api/admin/raffles/:id/result — register winner number/result
+// ---------------------------------------------------------------------------
+router.put("/admin/raffles/:id/result", requireAdminAuth, async (req, res) => {
+  const { id: raffleId } = req.params as { id: string };
+  const { winnerNumber, notes, drawMethod } = req.body as {
+    winnerNumber: number;
+    notes?: string;
+    drawMethod?: string;
+  };
+
+  const [raffle] = await db.select().from(rafflesTable).where(eq(rafflesTable.id, raffleId)).limit(1);
+  if (!raffle) {
+    res.status(404).json({ error: "NOT_FOUND", message: "Rifa não encontrada." });
+    return;
+  }
+
+  const parsedWinner = Number(winnerNumber);
+  if (!Number.isInteger(parsedWinner) || parsedWinner < 1 || parsedWinner > raffle.totalNumbers) {
+    res.status(400).json({ error: "INVALID_INPUT", message: "Número vencedor inválido para esta rifa." });
+    return;
+  }
+
+  const paidRows = await db
+    .select({
+      id: raffleReservationsTable.id,
+      clientName: raffleReservationsTable.clientName,
+      clientPhone: raffleReservationsTable.clientPhone,
+      numbers: raffleReservationsTable.numbers,
+    })
+    .from(raffleReservationsTable)
+    .where(and(
+      eq(raffleReservationsTable.raffleId, raffleId),
+      eq(raffleReservationsTable.status, "paid"),
+    ));
+
+  const winnerReservation = paidRows.find((r) => parseNumbers(r.numbers).includes(parsedWinner)) ?? null;
+
+  const [existing] = await db
+    .select({ id: raffleResultsTable.id })
+    .from(raffleResultsTable)
+    .where(eq(raffleResultsTable.raffleId, raffleId))
+    .limit(1);
+
+  if (existing) {
+    await db
+      .update(raffleResultsTable)
+      .set({
+        winnerNumber: parsedWinner,
+        winnerReservationId: winnerReservation?.id ?? null,
+        winnerClientName: winnerReservation?.clientName ?? null,
+        winnerClientPhone: winnerReservation?.clientPhone ?? null,
+        notes: notes ?? null,
+        drawMethod: drawMethod?.trim() || "manual",
+        drawnAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(raffleResultsTable.id, existing.id));
+  } else {
+    await db.insert(raffleResultsTable).values({
+      id: crypto.randomBytes(8).toString("hex"),
+      raffleId,
+      winnerNumber: parsedWinner,
+      winnerReservationId: winnerReservation?.id ?? null,
+      winnerClientName: winnerReservation?.clientName ?? null,
+      winnerClientPhone: winnerReservation?.clientPhone ?? null,
+      notes: notes ?? null,
+      drawMethod: drawMethod?.trim() || "manual",
+      drawnAt: new Date(),
+    });
+  }
+
+  await db
+    .update(rafflesTable)
+    .set({ status: "drawn", updatedAt: new Date() })
+    .where(eq(rafflesTable.id, raffleId));
+
+  const result = await getRaffleResult(raffleId);
+  res.json({ result });
 });
 
 // ---------------------------------------------------------------------------

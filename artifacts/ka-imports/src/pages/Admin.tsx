@@ -545,6 +545,22 @@ interface AdminRaffleReservation {
   transactionId: string | null;
 }
 
+interface AdminRaffleRankingEntry {
+  clientName: string;
+  clientPhone: string;
+  totalNumbers: number;
+  totalSpent: number;
+  reservationCount: number;
+}
+
+interface AdminRaffleResult {
+  winnerNumber: number;
+  winnerClientName: string | null;
+  winnerClientPhone: string | null;
+  notes: string | null;
+  drawnAt: string;
+}
+
 interface CustomerUserRecord {
   id: string; name: string; email: string; createdAt: string;
   orderCount: number; affiliateCode: string | null;
@@ -701,6 +717,11 @@ export default function Admin() {
   const [raffleViewId, setRaffleViewId] = useState<string | null>(null);
   const [raffleReservations, setRaffleReservations] = useState<AdminRaffleReservation[]>([]);
   const [raffleReservationsLoading, setRaffleReservationsLoading] = useState(false);
+  const [raffleRanking, setRaffleRanking] = useState<AdminRaffleRankingEntry[]>([]);
+  const [raffleResult, setRaffleResult] = useState<AdminRaffleResult | null>(null);
+  const [raffleResultLoading, setRaffleResultLoading] = useState(false);
+  const [raffleSavingResult, setRaffleSavingResult] = useState(false);
+  const [raffleDrawForm, setRaffleDrawForm] = useState({ winnerNumber: "", notes: "" });
   // Shipping options (fretes)
   const [shippingOptions, setShippingOptions] = useState<ShippingOption[]>([]);
   const [shippingForm, setShippingForm] = useState({ name: "", description: "", price: "", sortOrder: "0" });
@@ -1049,6 +1070,34 @@ export default function Admin() {
       setRaffleReservations(await res.json() as AdminRaffleReservation[]);
     } catch { toast.error("Erro ao carregar reservas."); }
     finally { setRaffleReservationsLoading(false); }
+  }, []);
+
+  const fetchRaffleRanking = useCallback(async (raffleId: string) => {
+    try {
+      const res = await fetch(`${BASE}/api/admin/raffles/${raffleId}/ranking`, { headers: authHeaders() });
+      if (!res.ok) { toast.error("Erro ao carregar ranking da rifa."); return; }
+      const data = await res.json() as { ranking?: AdminRaffleRankingEntry[] };
+      setRaffleRanking(data.ranking ?? []);
+    } catch {
+      toast.error("Erro ao carregar ranking da rifa.");
+    }
+  }, []);
+
+  const fetchRaffleResult = useCallback(async (raffleId: string) => {
+    setRaffleResultLoading(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/raffles/${raffleId}/result`, { headers: authHeaders() });
+      if (!res.ok) { toast.error("Erro ao carregar resultado da rifa."); return; }
+      const data = await res.json() as { result?: AdminRaffleResult | null };
+      setRaffleResult(data.result ?? null);
+      if (data.result?.winnerNumber) {
+        setRaffleDrawForm((f) => ({ ...f, winnerNumber: String(data.result?.winnerNumber ?? "") }));
+      }
+    } catch {
+      toast.error("Erro ao carregar resultado da rifa.");
+    } finally {
+      setRaffleResultLoading(false);
+    }
   }, []);
 
   const generateAutoEntries = useCallback(async () => {
@@ -3070,16 +3119,107 @@ export default function Admin() {
             {raffleViewId ? (
               <div className="space-y-4">
                 <div className="flex items-center gap-3">
-                  <Button variant="ghost" size="sm" onClick={() => { setRaffleViewId(null); setRaffleReservations([]); }}>
+                  <Button variant="ghost" size="sm" onClick={() => { setRaffleViewId(null); setRaffleReservations([]); setRaffleRanking([]); setRaffleResult(null); }}>
                     ← Voltar às rifas
                   </Button>
                   <span className="text-sm text-muted-foreground">
                     Reservas da: <strong>{rafflesList.find((r) => r.id === raffleViewId)?.title}</strong>
                   </span>
-                  <Button variant="outline" size="sm" onClick={() => fetchRaffleReservations(raffleViewId)} className="ml-auto gap-1.5">
+                  <Button variant="outline" size="sm" onClick={() => { fetchRaffleReservations(raffleViewId); fetchRaffleRanking(raffleViewId); fetchRaffleResult(raffleViewId); }} className="ml-auto gap-1.5">
                     <RefreshCw className="w-3 h-3" /> Atualizar
                   </Button>
                 </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                  <div className="lg:col-span-2 border border-border rounded-xl p-3 bg-card space-y-3">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Top 3 compradores (pagos)</p>
+                    {raffleRanking.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">Ainda não há ranking com pagamentos confirmados.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {raffleRanking.map((rk, idx) => (
+                          <div key={`${rk.clientPhone}-${idx}`} className="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2">
+                            <div>
+                              <p className="text-sm font-semibold text-foreground">{idx + 1}º {rk.clientName}</p>
+                              <p className="text-xs text-muted-foreground">{rk.clientPhone}</p>
+                            </div>
+                            <p className="text-sm font-bold text-primary">{rk.totalNumbers} cotas</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="border border-border rounded-xl p-3 bg-card space-y-3">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Resultado da rifa</p>
+                    {raffleResultLoading ? (
+                      <div className="flex justify-center py-3"><Loader2 className="w-4 h-4 animate-spin text-muted-foreground" /></div>
+                    ) : raffleResult ? (
+                      <div className="rounded-lg bg-muted/40 p-2">
+                        <p className="text-sm text-muted-foreground">Número vencedor</p>
+                        <p className="text-xl font-bold text-primary">{raffleResult.winnerNumber}</p>
+                        <p className="text-sm font-semibold text-foreground mt-1">{raffleResult.winnerClientName || "Sem comprador pago"}</p>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Sem resultado publicado.</p>
+                    )}
+
+                    <div className="space-y-2">
+                      <input
+                        type="number"
+                        min="1"
+                        className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-white"
+                        placeholder="Número vencedor"
+                        value={raffleDrawForm.winnerNumber}
+                        onChange={(e) => setRaffleDrawForm((f) => ({ ...f, winnerNumber: e.target.value }))}
+                      />
+                      <textarea
+                        className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-white resize-none"
+                        rows={2}
+                        placeholder="Observação do sorteio (opcional)"
+                        value={raffleDrawForm.notes}
+                        onChange={(e) => setRaffleDrawForm((f) => ({ ...f, notes: e.target.value }))}
+                      />
+                      <Button
+                        size="sm"
+                        className="w-full"
+                        disabled={raffleSavingResult}
+                        onClick={async () => {
+                          if (!raffleViewId) return;
+                          const winnerNumber = Number(raffleDrawForm.winnerNumber);
+                          if (!Number.isInteger(winnerNumber) || winnerNumber < 1) {
+                            toast.error("Informe um número vencedor válido.");
+                            return;
+                          }
+                          setRaffleSavingResult(true);
+                          try {
+                            const res = await fetch(`${BASE}/api/admin/raffles/${raffleViewId}/result`, {
+                              method: "PUT",
+                              headers: { ...authHeaders(), "Content-Type": "application/json" },
+                              body: JSON.stringify({ winnerNumber, notes: raffleDrawForm.notes.trim() || null, drawMethod: "manual" }),
+                            });
+                            const data = await res.json() as { result?: AdminRaffleResult; message?: string };
+                            if (!res.ok) {
+                              toast.error(data.message || "Erro ao registrar resultado.");
+                              return;
+                            }
+                            setRaffleResult(data.result ?? null);
+                            toast.success("Resultado da rifa publicado!");
+                            fetchRaffles();
+                            fetchRaffleRanking(raffleViewId);
+                          } catch {
+                            toast.error("Erro ao registrar resultado.");
+                          } finally {
+                            setRaffleSavingResult(false);
+                          }
+                        }}
+                      >
+                        {raffleSavingResult ? <Loader2 className="w-4 h-4 animate-spin" /> : "Publicar resultado"}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
                 {raffleReservationsLoading ? (
                   <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
                 ) : raffleReservations.length === 0 ? (
@@ -3316,7 +3456,7 @@ export default function Admin() {
                             </Button>
                             <Button size="icon" variant="outline" className="w-8 h-8"
                               title="Ver reservas"
-                              onClick={() => { setRaffleViewId(raffle.id); fetchRaffleReservations(raffle.id); }}>
+                              onClick={() => { setRaffleViewId(raffle.id); fetchRaffleReservations(raffle.id); fetchRaffleRanking(raffle.id); fetchRaffleResult(raffle.id); }}>
                               <Eye className="w-3.5 h-3.5" />
                             </Button>
                             <Button size="icon" variant="outline" className="w-8 h-8"

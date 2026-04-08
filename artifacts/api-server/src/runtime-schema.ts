@@ -198,6 +198,26 @@ async function ensureRaffleTables(databaseName: string): Promise<void> {
       )
     `);
   }
+
+  if (!(await tableExists("raffle_results", databaseName))) {
+    await pool.query(`
+      CREATE TABLE raffle_results (
+        id VARCHAR(255) NOT NULL PRIMARY KEY,
+        raffle_id VARCHAR(255) NOT NULL,
+        winner_number INT NOT NULL,
+        winner_reservation_id VARCHAR(255) NULL,
+        winner_client_name VARCHAR(255) NULL,
+        winner_client_phone VARCHAR(255) NULL,
+        draw_method VARCHAR(64) NOT NULL DEFAULT 'manual',
+        notes TEXT NULL,
+        drawn_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY raffle_results_raffle_id_unique (raffle_id),
+        KEY raffle_results_winner_reservation_id_idx (winner_reservation_id)
+      )
+    `);
+  }
 }
 
 export async function ensureRuntimeSchema(): Promise<void> {

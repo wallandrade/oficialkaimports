@@ -29,3 +29,17 @@ export const raffleReservationsTable = mysqlTable("raffle_reservations", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+export const raffleResultsTable = mysqlTable("raffle_results", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  raffleId: varchar("raffle_id", { length: 255 }).notNull(),
+  winnerNumber: int("winner_number").notNull(),
+  winnerReservationId: varchar("winner_reservation_id", { length: 255 }),
+  winnerClientName: varchar("winner_client_name", { length: 255 }),
+  winnerClientPhone: varchar("winner_client_phone", { length: 255 }),
+  drawMethod: varchar("draw_method", { length: 64 }).notNull().default("manual"),
+  notes: text("notes"),
+  drawnAt: timestamp("drawn_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});

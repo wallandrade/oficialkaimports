@@ -26,7 +26,27 @@ type Raffle = {
 type RaffleDetailResponse = {
   raffle: Raffle;
   numberStatus: Record<number, NumberStatus>;
+  result?: {
+    winnerNumber: number;
+    winnerClientName: string | null;
+    winnerClientPhone: string | null;
+    drawnAt: string;
+    notes: string | null;
+  } | null;
+  ranking?: Array<{
+    clientName: string;
+    clientPhone: string;
+    totalNumbers: number;
+    totalSpent: number;
+    reservationCount: number;
+  }>;
 };
+
+function maskPhone(raw: string | null | undefined): string {
+  const d = String(raw ?? "").replace(/\D/g, "");
+  if (d.length < 4) return "";
+  return `${d.slice(0, 2)}*****${d.slice(-2)}`;
+}
 
 function RaffleNumberGrid({
   total,
@@ -245,6 +265,45 @@ export default function RaffleDetail() {
             <Share2 className="w-3.5 h-3.5" /> Compartilhar rifa
           </button>
         </div>
+
+        {(data.result || (data.ranking && data.ranking.length > 0)) && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="border border-border rounded-2xl p-4 bg-card">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Resultado</p>
+              {data.result ? (
+                <div className="mt-2 space-y-1">
+                  <p className="text-sm text-muted-foreground">Número vencedor</p>
+                  <p className="text-2xl font-bold text-primary">{data.result.winnerNumber}</p>
+                  <p className="text-sm text-foreground font-medium">{data.result.winnerClientName || "Aguardando identificação"}</p>
+                  {data.result.winnerClientPhone && (
+                    <p className="text-xs text-muted-foreground">Telefone: {maskPhone(data.result.winnerClientPhone)}</p>
+                  )}
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-muted-foreground">Resultado ainda não publicado.</p>
+              )}
+            </div>
+
+            <div className="border border-border rounded-2xl p-4 bg-card">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Top 3 compradores</p>
+              {!data.ranking || data.ranking.length === 0 ? (
+                <p className="mt-2 text-sm text-muted-foreground">Sem compras pagas para ranking.</p>
+              ) : (
+                <div className="mt-2 space-y-2">
+                  {data.ranking.map((r, i) => (
+                    <div key={`${r.clientName}-${i}`} className="flex items-center justify-between rounded-lg bg-muted/40 px-2 py-1.5">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">{i + 1}º {r.clientName}</p>
+                        <p className="text-[11px] text-muted-foreground">{maskPhone(r.clientPhone)}</p>
+                      </div>
+                      <p className="text-sm font-bold text-primary">{r.totalNumbers} cotas</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Legend */}
         <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
