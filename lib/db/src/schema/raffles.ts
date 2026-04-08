@@ -20,6 +20,7 @@ export const raffleReservationsTable = mysqlTable("raffle_reservations", {
   clientName: varchar("client_name", { length: 255 }).notNull(),
   clientEmail: varchar("client_email", { length: 255 }).notNull(),
   clientPhone: varchar("client_phone", { length: 255 }).notNull(),
+  clientDocument: varchar("client_document", { length: 32 }),
   totalAmount: decimal("total_amount", { precision: 10, scale: 2 }).notNull(),
   status: varchar("status", { length: 32 }).notNull().default("reserved"), // reserved | paid | expired
   transactionId: varchar("transaction_id", { length: 255 }),

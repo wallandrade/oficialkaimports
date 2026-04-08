@@ -196,14 +196,14 @@ export default function RaffleDetail() {
   async function handleLookup() {
     const digits = lookupPhone.replace(/\D/g, "");
     if (digits.length < 8) {
-      setLookupError("Informe um telefone válido (mínimo 8 dígitos).");
+      setLookupError("Informe um telefone ou CPF válido.");
       return;
     }
     setLookupLoading(true);
     setLookupError(null);
     setLookupResults(null);
     try {
-      const res = await fetch(`${BASE}/api/raffles/reservations/lookup?phone=${encodeURIComponent(digits)}`);
+      const res = await fetch(`${BASE}/api/raffles/reservations/lookup?query=${encodeURIComponent(digits)}`);
       if (!res.ok) {
         setLookupError("Erro ao consultar. Tente novamente.");
         return;
@@ -213,7 +213,7 @@ export default function RaffleDetail() {
       const forThisRaffle = all.filter((r) => r.raffleId === raffleId);
       setLookupResults(forThisRaffle);
       if (forThisRaffle.length === 0) {
-        setLookupError("Nenhuma reserva encontrada para este telefone nesta rifa.");
+        setLookupError("Nenhuma reserva encontrada para este telefone/CPF nesta rifa.");
       }
     } catch {
       setLookupError("Erro de conexão. Tente novamente.");
@@ -369,11 +369,11 @@ export default function RaffleDetail() {
             <Search className="w-4 h-4 text-primary" />
             <p className="text-sm font-semibold text-foreground">Consulte seus números</p>
           </div>
-          <p className="text-xs text-muted-foreground">Digite seu telefone para ver os números que você reservou ou comprou nesta rifa.</p>
+          <p className="text-xs text-muted-foreground">Digite seu telefone ou CPF para ver os números que você reservou ou comprou nesta rifa.</p>
           <div className="flex gap-2">
             <Input
               type="tel"
-              placeholder="(11) 99999-9999"
+              placeholder="Telefone ou CPF"
               value={lookupPhone}
               onChange={(e) => {
                 setLookupPhone(e.target.value);

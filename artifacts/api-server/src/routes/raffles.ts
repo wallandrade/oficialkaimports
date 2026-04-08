@@ -244,6 +244,7 @@ router.post("/raffles/:id/reserve", async (req, res) => {
     clientName: client.name,
     clientEmail: client.email,
     clientPhone: client.phone,
+    clientDocument: client.cpf.replace(/\D/g, ""),
     totalAmount: String(totalAmount),
     status: "reserved",
     expiresAt,
@@ -308,16 +309,35 @@ router.post("/raffles/:id/reserve", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// PUBLIC: GET /api/raffles/reservations/lookup?phone=XX — consulta por tel.
+// PUBLIC: GET /api/raffles/reservations/lookup?phone=XX|cpf=YYY|query=ZZZ — consulta por tel/CPF.
 // ---------------------------------------------------------------------------
 router.get("/raffles/reservations/lookup", async (req, res) => {
+  const rawQuery = String(req.query.query || "").trim();
+  const queryDigits = rawQuery.replace(/\D/g, "");
   const phone = String(req.query.phone || "").replace(/\D/g, "");
-  if (phone.length < 8) {
-    res.status(400).json({ error: "INVALID_INPUT", message: "Informe um telefone válido." });
+  const cpf = String(req.query.cpf || "").replace(/\D/g, "");
+
+  const lookupPhone = phone || (queryDigits.length >= 8 ? queryDigits : "");
+  const lookupCpf = cpf || (queryDigits.length === 11 ? queryDigits : "");
+
+  if (lookupPhone.length < 8 && lookupCpf.length !== 11) {
+    res.status(400).json({ error: "INVALID_INPUT", message: "Informe um telefone ou CPF válido." });
     return;
   }
 
-  // Match any reservation where phone contains the digits (stripped)
+  let whereClause;
+  if (lookupPhone.length >= 8 && lookupCpf.length === 11) {
+    whereClause = sql`(
+      REPLACE(REPLACE(REPLACE(REPLACE(client_phone,' ',''),'-',''),'(',''),')','') LIKE ${"%" + lookupPhone + "%"}
+      OR client_document LIKE ${"%" + lookupCpf + "%"}
+    )`;
+  } else if (lookupCpf.length === 11) {
+    whereClause = sql`client_document LIKE ${"%" + lookupCpf + "%"}`;
+  } else {
+    whereClause = sql`REPLACE(REPLACE(REPLACE(REPLACE(client_phone,' ',''),'-',''),'(',''),')','') LIKE ${"%" + lookupPhone + "%"}`;
+  }
+
+  // Match any reservation where phone/CPF contains the typed digits.
   const rows = await db
     .select({
       id: raffleReservationsTable.id,
@@ -325,6 +345,7 @@ router.get("/raffles/reservations/lookup", async (req, res) => {
       numbers: raffleReservationsTable.numbers,
       clientName: raffleReservationsTable.clientName,
       clientPhone: raffleReservationsTable.clientPhone,
+      clientDocument: raffleReservationsTable.clientDocument,
       totalAmount: raffleReservationsTable.totalAmount,
       status: raffleReservationsTable.status,
       expiresAt: raffleReservationsTable.expiresAt,
@@ -334,7 +355,7 @@ router.get("/raffles/reservations/lookup", async (req, res) => {
       transactionId: raffleReservationsTable.transactionId,
     })
     .from(raffleReservationsTable)
-    .where(sql`REPLACE(REPLACE(REPLACE(REPLACE(client_phone,' ',''),'-',''),'(',''),')','') LIKE ${'%' + phone + '%'}`)
+    .where(whereClause)
     .orderBy(sql`created_at DESC`)
     .limit(20);
 

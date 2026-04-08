@@ -183,6 +183,7 @@ async function ensureRaffleTables(databaseName: string): Promise<void> {
         client_name VARCHAR(255) NOT NULL,
         client_email VARCHAR(255) NOT NULL,
         client_phone VARCHAR(255) NOT NULL,
+        client_document VARCHAR(32) NULL,
         total_amount DECIMAL(10,2) NOT NULL,
         status VARCHAR(32) NOT NULL DEFAULT 'reserved',
         transaction_id VARCHAR(255) NULL,
@@ -193,10 +194,19 @@ async function ensureRaffleTables(databaseName: string): Promise<void> {
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         KEY raffle_reservations_raffle_id_idx (raffle_id),
         KEY raffle_reservations_client_phone_idx (client_phone),
+        KEY raffle_reservations_client_document_idx (client_document),
         KEY raffle_reservations_status_idx (status),
         KEY raffle_reservations_transaction_id_idx (transaction_id)
       )
     `);
+  }
+
+  if (!(await columnExists("raffle_reservations", "client_document", databaseName))) {
+    await pool.query("ALTER TABLE raffle_reservations ADD COLUMN client_document VARCHAR(32) NULL AFTER client_phone");
+  }
+
+  if (!(await indexExists("raffle_reservations", "raffle_reservations_client_document_idx", databaseName))) {
+    await pool.query("ALTER TABLE raffle_reservations ADD KEY raffle_reservations_client_document_idx (client_document)");
   }
 
   if (!(await tableExists("raffle_results", databaseName))) {
