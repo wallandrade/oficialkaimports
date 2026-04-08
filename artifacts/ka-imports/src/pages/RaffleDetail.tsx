@@ -55,6 +55,14 @@ function maskPhone(raw: string | null | undefined): string {
   return `${d.slice(0, 2)}*****${d.slice(-2)}`;
 }
 
+function formatRaffleDescription(raw: string): string {
+  return raw
+    .replace(/\r\n/g, "\n")
+    .replace(/\s+(?=(🔥|🎯|🏆|✈️|🎲|🔢|🏦|📌|⚠️|⚠|\*))/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function pickRandomAvailableNumbers(numberStatus: Record<number, NumberStatus>, total: number, quantity: number): number[] {
   const available: number[] = [];
   for (let i = 1; i <= total; i++) {
@@ -145,6 +153,10 @@ export default function RaffleDetail() {
   }
 
   const pricePerNumber = data ? Number(data.raffle.pricePerNumber) : 0;
+  const formattedDescription = useMemo(
+    () => (data?.raffle.description ? formatRaffleDescription(data.raffle.description) : ""),
+    [data?.raffle.description],
+  );
   const selectedPromotion = useMemo(() => {
     if (!data?.promotions || selected.size === 0) return null;
     const candidates = data.promotions
@@ -255,18 +267,20 @@ export default function RaffleDetail() {
       <div className="max-w-2xl mx-auto px-4 py-8 space-y-6">
         {/* Header */}
         {raffle.imageUrl && (
-          <img
-            src={raffle.imageUrl}
-            alt={raffle.title}
-            className="w-full max-h-72 object-cover rounded-2xl"
-          />
+          <div className="w-full max-w-[360px] mx-auto aspect-[1149/1369] bg-muted/30 rounded-2xl overflow-hidden border border-border">
+            <img
+              src={raffle.imageUrl}
+              alt={raffle.title}
+              className="w-full h-full object-contain"
+            />
+          </div>
         )}
         <div>
           <h1 className="text-2xl font-bold text-foreground">{raffle.title}</h1>
-          {raffle.description && (
+          {formattedDescription && (
             <div className="mt-3 rounded-xl border border-border bg-muted/30 p-3">
-              <p className="max-w-prose text-sm leading-7 text-foreground/90 whitespace-pre-wrap break-words text-left">
-                {raffle.description}
+              <p className="max-w-prose text-sm leading-7 text-foreground/90 whitespace-pre-line break-words text-left">
+                {formattedDescription}
               </p>
             </div>
           )}
