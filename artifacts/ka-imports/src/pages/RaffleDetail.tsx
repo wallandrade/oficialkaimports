@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatCurrency, cn } from "@/lib/utils";
-import { Loader2, Ticket, Info, Share2, Search } from "lucide-react";
+import { Loader2, Ticket, Info, Share2, Search, Copy, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -40,6 +40,7 @@ type LookupResult = {
   createdAt: string;
   isExpired: boolean;
   isPixExpired: boolean;
+  clientDocument: string | null;
 };
 
 type RaffleDetailResponse = {
@@ -158,6 +159,7 @@ export default function RaffleDetail() {
   const [lookupResults, setLookupResults] = useState<LookupResult[] | null>(null);
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [refreshingPix, setRefreshingPix] = useState<string | null>(null);
+  const [pendingCpf, setPendingCpf] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!raffleId) return;
@@ -225,10 +227,15 @@ export default function RaffleDetail() {
     }
   }
 
-  async function handleRefreshPix(reservationId: string) {
+  async function handleRefreshPix(reservationId: string, cpf?: string) {
     setRefreshingPix(reservationId);
     try {
-      const res = await fetch(`${BASE}/api/raffles/reservations/${reservationId}/refresh-pix`, { method: "POST" });
+      const body = cpf ? JSON.stringify({ document: cpf }) : undefined;
+      const res = await fetch(`${BASE}/api/raffles/reservations/${reservationId}/refresh-pix`, {
+        method: "POST",
+        headers: cpf ? { "Content-Type": "application/json" } : undefined,
+        body,
+      });
       const json = await res.json() as { pixCode?: string; pixBase64?: string; pixExpiresAt?: string; message?: string };
       if (!res.ok) {
         toast.error(json.message || "Erro ao renovar PIX.");
@@ -238,11 +245,12 @@ export default function RaffleDetail() {
         prev
           ? prev.map((r) =>
               r.id === reservationId
-                ? { ...r, pixCode: json.pixCode ?? r.pixCode, pixBase64: json.pixBase64 ?? r.pixBase64, pixExpiresAt: json.pixExpiresAt ?? r.pixExpiresAt, isPixExpired: false }
+                ? { ...r, pixCode: json.pixCode ?? r.pixCode, pixBase64: json.pixBase64 ?? r.pixBase64, pixExpiresAt: json.pixExpiresAt ?? r.pixExpiresAt, isPixExpired: false, clientDocument: cpf ?? r.clientDocument }
                 : r,
             )
           : prev,
       );
+      setPendingCpf((prev) => { const next = { ...prev }; delete next[reservationId]; return next; });
       toast.success("Novo PIX gerado! Copie o código abaixo.");
     } catch {
       toast.error("Erro de conexão. Tente novamente.");
@@ -475,15 +483,37 @@ export default function RaffleDetail() {
                     </p>
                     {r.status === "reserved" && !r.isExpired && (
                       r.isPixExpired || !r.pixCode ? (
-                        <Button
-                          size="sm"
-                          className="w-full text-xs"
-                          disabled={refreshingPix === r.id}
-                          onClick={() => handleRefreshPix(r.id)}
-                        >
-                          {refreshingPix === r.id ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : null}
-                          Gerar novo PIX para pagar
-                        </Button>
+                        r.clientDocument ? (
+                          <Button
+                            size="sm"
+                            className="w-full text-xs"
+                            disabled={refreshingPix === r.id}
+                            onClick={() => handleRefreshPix(r.id)}
+                          >
+                            {refreshingPix === r.id ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <RefreshCw className="w-3.5 h-3.5 mr-1.5" />}
+                            Gerar novo PIX para pagar
+                          </Button>
+                        ) : (
+                          <div className="space-y-2">
+                            <p className="text-xs text-muted-foreground">Digite seu CPF para gerar o PIX:</p>
+                            <Input
+                              placeholder="Somente números (11 dígitos)"
+                              inputMode="numeric"
+                              maxLength={14}
+                              value={pendingCpf[r.id] ?? ""}
+                              onChange={(e) => setPendingCpf((prev) => ({ ...prev, [r.id]: e.target.value }))}
+                            />
+                            <Button
+                              size="sm"
+                              className="w-full text-xs"
+                              disabled={refreshingPix === r.id || (pendingCpf[r.id] ?? "").replace(/\D/g, "").length !== 11}
+                              onClick={() => handleRefreshPix(r.id, (pendingCpf[r.id] ?? "").replace(/\D/g, ""))}
+                            >
+                              {refreshingPix === r.id ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <RefreshCw className="w-3.5 h-3.5 mr-1.5" />}
+                              Confirmar e gerar PIX
+                            </Button>
+                          </div>
+                        )
                       ) : (
                         <Button
                           size="sm"
@@ -494,6 +524,7 @@ export default function RaffleDetail() {
                             toast.success("Código PIX copiado!");
                           }}
                         >
+                          <Copy className="w-3.5 h-3.5 mr-1.5" />
                           Copiar código PIX
                         </Button>
                       )

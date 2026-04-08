@@ -26,6 +26,7 @@ type ReservationRow = {
   pixBase64: string | null;
   pixExpiresAt: string | null;
   transactionId: string | null;
+  clientDocument: string | null;
   createdAt: string;
 };
 
@@ -58,6 +59,7 @@ export default function RaffleConsulta() {
   const [results, setResults] = useState<ReservationRow[] | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [refreshingPix, setRefreshingPix] = useState<string | null>(null);
+  const [pendingCpf, setPendingCpf] = useState<Record<string, string>>({});
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -81,10 +83,15 @@ export default function RaffleConsulta() {
     }
   }
 
-  async function handleRefreshPix(reservationId: string) {
+  async function handleRefreshPix(reservationId: string, cpf?: string) {
     setRefreshingPix(reservationId);
     try {
-      const res = await fetch(`${BASE}/api/raffles/reservations/${reservationId}/refresh-pix`, { method: "POST" });
+      const body = cpf ? JSON.stringify({ document: cpf }) : undefined;
+      const res = await fetch(`${BASE}/api/raffles/reservations/${reservationId}/refresh-pix`, {
+        method: "POST",
+        headers: cpf ? { "Content-Type": "application/json" } : undefined,
+        body,
+      });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error((err as { message?: string }).message || "Erro ao gerar novo PIX.");
@@ -94,11 +101,12 @@ export default function RaffleConsulta() {
         prev
           ? prev.map((r) =>
               r.id === reservationId
-                ? { ...r, pixCode: data.pixCode ?? r.pixCode, pixBase64: data.pixBase64 ?? r.pixBase64, pixExpiresAt: data.pixExpiresAt ?? r.pixExpiresAt, isPixExpired: false }
+                ? { ...r, pixCode: data.pixCode ?? r.pixCode, pixBase64: data.pixBase64 ?? r.pixBase64, pixExpiresAt: data.pixExpiresAt ?? r.pixExpiresAt, isPixExpired: false, clientDocument: cpf ?? r.clientDocument }
                 : r
             )
           : prev
       );
+      setPendingCpf((prev) => { const next = { ...prev }; delete next[reservationId]; return next; });
       toast.success("Novo PIX gerado! Copie o código abaixo.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao renovar PIX.");
@@ -190,19 +198,45 @@ export default function RaffleConsulta() {
                   {canRefresh && (
                     <div className="space-y-2">
                       {pixExpired ? (
-                        <Button
-                          size="sm"
-                          className="w-full"
-                          onClick={() => handleRefreshPix(r.id)}
-                          disabled={refreshingPix === r.id}
-                        >
-                          {refreshingPix === r.id ? (
-                            <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                          ) : (
-                            <RefreshCw className="w-4 h-4 mr-2" />
-                          )}
-                          Gerar novo PIX para pagar
-                        </Button>
+                        r.clientDocument ? (
+                          <Button
+                            size="sm"
+                            className="w-full"
+                            onClick={() => handleRefreshPix(r.id)}
+                            disabled={refreshingPix === r.id}
+                          >
+                            {refreshingPix === r.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                            ) : (
+                              <RefreshCw className="w-4 h-4 mr-2" />
+                            )}
+                            Gerar novo PIX para pagar
+                          </Button>
+                        ) : (
+                          <div className="space-y-2">
+                            <p className="text-xs text-muted-foreground">Digite seu CPF para gerar o PIX:</p>
+                            <Input
+                              placeholder="Somente números (11 dígitos)"
+                              inputMode="numeric"
+                              maxLength={14}
+                              value={pendingCpf[r.id] ?? ""}
+                              onChange={(e) => setPendingCpf((prev) => ({ ...prev, [r.id]: e.target.value }))}
+                            />
+                            <Button
+                              size="sm"
+                              className="w-full"
+                              disabled={refreshingPix === r.id || (pendingCpf[r.id] ?? "").replace(/\D/g, "").length !== 11}
+                              onClick={() => handleRefreshPix(r.id, (pendingCpf[r.id] ?? "").replace(/\D/g, ""))}
+                            >
+                              {refreshingPix === r.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                              ) : (
+                                <RefreshCw className="w-4 h-4 mr-2" />
+                              )}
+                              Confirmar e gerar PIX
+                            </Button>
+                          </div>
+                        )
                       ) : (
                         <Button
                           size="sm"

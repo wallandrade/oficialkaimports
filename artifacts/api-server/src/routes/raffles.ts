@@ -438,6 +438,23 @@ router.post("/raffles/reservations/:reservationId/refresh-pix", async (req, res)
     return;
   }
 
+  // Resolve document: use saved one, or a new one from the request body
+  const bodyDoc = String((req.body as Record<string, unknown>)?.document || "").replace(/\D/g, "");
+  const resolvedDocument = reservation.clientDocument || (bodyDoc.length === 11 ? bodyDoc : "");
+
+  if (!resolvedDocument) {
+    res.status(400).json({ error: "MISSING_DOCUMENT", message: "CPF obrigatório para gerar PIX. Informe seu CPF." });
+    return;
+  }
+
+  // Persist CPF if it wasn't saved yet
+  if (!reservation.clientDocument && bodyDoc.length === 11) {
+    await db
+      .update(raffleReservationsTable)
+      .set({ clientDocument: bodyDoc })
+      .where(eq(raffleReservationsTable.id, reservation.id));
+  }
+
   const identifier = genIdentifier();
   const callbackUrl = buildCallbackUrl(req as never, "/webhook/raffle-pix");
   const totalAmount = Number(reservation.totalAmount);
@@ -451,7 +468,7 @@ router.post("/raffles/reservations/:reservationId/refresh-pix", async (req, res)
         name: reservation.clientName,
         email: reservation.clientEmail,
         phone: reservation.clientPhone,
-        document: reservation.clientDocument || "00000000000",
+        document: resolvedDocument,
       },
       metadata: {
         reservationId: reservation.id,
