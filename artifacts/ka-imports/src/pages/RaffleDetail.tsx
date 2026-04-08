@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatCurrency, cn } from "@/lib/utils";
-import { Loader2, Ticket, Info, Share2 } from "lucide-react";
+import { Loader2, Ticket, Info, Share2, Search } from "lucide-react";
 import { toast } from "sonner";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -21,6 +21,23 @@ type Raffle = {
   pricePerNumber: string;
   reservationHours: number;
   status: string;
+};
+
+type LookupResult = {
+  id: string;
+  raffleId: string;
+  raffleTitle: string;
+  numbers: number[];
+  clientName: string;
+  clientPhone: string;
+  totalAmount: string;
+  status: string;
+  pixCode: string | null;
+  pixBase64: string | null;
+  transactionId: string | null;
+  expiresAt: string;
+  createdAt: string;
+  isExpired: boolean;
 };
 
 type RaffleDetailResponse = {
@@ -133,6 +150,12 @@ export default function RaffleDetail() {
   const [submitting, setSubmitting] = useState(false);
   const [cpf, setCpf] = useState("");
 
+  // Lookup state
+  const [lookupPhone, setLookupPhone] = useState("");
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupResults, setLookupResults] = useState<LookupResult[] | null>(null);
+  const [lookupError, setLookupError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!raffleId) return;
     setLoading(true);
@@ -169,6 +192,35 @@ export default function RaffleDetail() {
     if (selectedPromotion) return Number(selectedPromotion.promoPrice);
     return selected.size * pricePerNumber;
   }, [selected.size, pricePerNumber, selectedPromotion]);
+
+  async function handleLookup() {
+    const digits = lookupPhone.replace(/\D/g, "");
+    if (digits.length < 8) {
+      setLookupError("Informe um telefone válido (mínimo 8 dígitos).");
+      return;
+    }
+    setLookupLoading(true);
+    setLookupError(null);
+    setLookupResults(null);
+    try {
+      const res = await fetch(`${BASE}/api/raffles/reservations/lookup?phone=${encodeURIComponent(digits)}`);
+      if (!res.ok) {
+        setLookupError("Erro ao consultar. Tente novamente.");
+        return;
+      }
+      const all = (await res.json()) as LookupResult[];
+      // Filter to only reservations for this raffle
+      const forThisRaffle = all.filter((r) => r.raffleId === raffleId);
+      setLookupResults(forThisRaffle);
+      if (forThisRaffle.length === 0) {
+        setLookupError("Nenhuma reserva encontrada para este telefone nesta rifa.");
+      }
+    } catch {
+      setLookupError("Erro de conexão. Tente novamente.");
+    } finally {
+      setLookupLoading(false);
+    }
+  }
 
   async function handleReserve() {
     if (!name.trim() || !email.trim() || !phone.trim()) {
@@ -309,6 +361,106 @@ export default function RaffleDetail() {
           >
             <Share2 className="w-3.5 h-3.5" /> Compartilhar rifa
           </button>
+        </div>
+
+        {/* Lookup section */}
+        <div className="border border-border rounded-2xl p-4 bg-card space-y-3">
+          <div className="flex items-center gap-2">
+            <Search className="w-4 h-4 text-primary" />
+            <p className="text-sm font-semibold text-foreground">Consulte seus números</p>
+          </div>
+          <p className="text-xs text-muted-foreground">Digite seu telefone para ver os números que você reservou ou comprou nesta rifa.</p>
+          <div className="flex gap-2">
+            <Input
+              type="tel"
+              placeholder="(11) 99999-9999"
+              value={lookupPhone}
+              onChange={(e) => {
+                setLookupPhone(e.target.value);
+                setLookupResults(null);
+                setLookupError(null);
+              }}
+              onKeyDown={(e) => e.key === "Enter" && handleLookup()}
+              className="flex-1"
+            />
+            <Button
+              type="button"
+              onClick={handleLookup}
+              disabled={lookupLoading}
+              variant="outline"
+              className="shrink-0"
+            >
+              {lookupLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+              <span className="ml-1.5 hidden sm:inline">Buscar</span>
+            </Button>
+          </div>
+
+          {lookupError && (
+            <p className="text-sm text-muted-foreground">{lookupError}</p>
+          )}
+
+          {lookupResults && lookupResults.length > 0 && (
+            <div className="space-y-3 pt-1">
+              {lookupResults.map((r) => {
+                const statusLabel =
+                  r.status === "paid"
+                    ? "Pago ✅"
+                    : r.isExpired
+                    ? "Expirado ❌"
+                    : "Reservado ⏳";
+                const statusColor =
+                  r.status === "paid"
+                    ? "text-green-600"
+                    : r.isExpired
+                    ? "text-red-500"
+                    : "text-yellow-600";
+                return (
+                  <div key={r.id} className="rounded-xl border border-border bg-muted/40 p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold text-foreground">{r.clientName}</p>
+                      <span className={`text-xs font-semibold ${statusColor}`}>{statusLabel}</span>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Números reservados ({r.numbers.length}):</p>
+                      <div className="flex flex-wrap gap-1">
+                        {r.numbers.sort((a, b) => a - b).map((n) => (
+                          <span
+                            key={n}
+                            className={cn(
+                              "inline-flex items-center justify-center rounded text-xs font-bold px-1.5 py-0.5 min-w-[28px]",
+                              r.status === "paid"
+                                ? "bg-gray-400 text-white"
+                                : r.isExpired
+                                ? "bg-red-100 text-red-600 border border-red-300"
+                                : "bg-yellow-400 text-yellow-900",
+                            )}
+                          >
+                            {n}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Total: <span className="font-semibold text-foreground">{formatCurrency(Number(r.totalAmount))}</span>
+                    </p>
+                    {r.status === "reserved" && !r.isExpired && r.pixCode && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full text-xs"
+                        onClick={() => {
+                          navigator.clipboard.writeText(r.pixCode!);
+                          toast.success("Código PIX copiado!");
+                        }}
+                      >
+                        Copiar código PIX
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {(data.result || (data.ranking && data.ranking.length > 0)) && (
