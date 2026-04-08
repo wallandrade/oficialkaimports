@@ -101,6 +101,14 @@ function spDateStr(date = new Date()): string {
 function todayStr() { return spDateStr(); }
 function isoToSPDate(iso: string): string { return spDateStr(new Date(iso)); }
 
+function formatRaffleDescriptionPreview(raw: string): string {
+  return raw
+    .replace(/\r\n/g, "\n")
+    .replace(/\s+(?=(🔥|🎯|🏆|✈️|🎲|🔢|🏦|📌|⚠️|⚠|\*))/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function statusLabel(status: string): string {
   const m: Record<string, string> = { paid: "Pago", completed: "Concluído", pending: "Pendente", awaiting_payment: "Aguardando Pagamento", cancelled: "Cancelado" };
   return m[status] ?? status;
@@ -733,6 +741,9 @@ export default function Admin() {
   const [raffleResultLoading, setRaffleResultLoading] = useState(false);
   const [raffleSavingResult, setRaffleSavingResult] = useState(false);
   const [raffleDrawForm, setRaffleDrawForm] = useState({ winnerNumber: "", notes: "" });
+  const [raffleDeleteConfirm, setRaffleDeleteConfirm] = useState<{ id: string; title: string } | null>(null);
+  const [raffleDeleteInput, setRaffleDeleteInput] = useState("");
+  const [raffleDeleting, setRaffleDeleting] = useState(false);
   // Shipping options (fretes)
   const [shippingOptions, setShippingOptions] = useState<ShippingOption[]>([]);
   const [shippingForm, setShippingForm] = useState({ name: "", description: "", price: "", sortOrder: "0" });
@@ -3435,10 +3446,19 @@ export default function Admin() {
                     </div>
                     <div className="sm:col-span-2">
                       <label className="text-xs font-medium text-muted-foreground block mb-1">Descrição</label>
-                      <textarea className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-white resize-none" rows={2}
+                      <textarea className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-white resize-y min-h-[140px]" rows={7}
                         placeholder="Descreva o prêmio e as regras"
                         value={raffleForm.description}
                         onChange={(e) => setRaffleForm((f) => ({ ...f, description: e.target.value }))} />
+                      <p className="mt-1 text-[11px] text-muted-foreground">Use Enter para quebra de linha. A prévia abaixo mostra como ficará para o cliente.</p>
+                      {!!raffleForm.description.trim() && (
+                        <div className="mt-2 rounded-lg border border-border bg-muted/30 p-3">
+                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Prévia</p>
+                          <p className="text-sm leading-7 text-foreground/90 whitespace-pre-line break-words text-left">
+                            {formatRaffleDescriptionPreview(raffleForm.description)}
+                          </p>
+                        </div>
+                      )}
                     </div>
                     <div className="sm:col-span-2">
                       <label className="text-xs font-medium text-muted-foreground block mb-1">Foto da rifa</label>
@@ -3449,7 +3469,9 @@ export default function Admin() {
                       >
                         {raffleForm.imageUrl ? (
                           <div className="relative">
-                            <img src={raffleForm.imageUrl} alt="Prévia" className="w-full max-h-48 object-cover" />
+                            <div className="w-full max-w-[220px] aspect-[1149/1369] bg-muted/30 rounded-lg overflow-hidden">
+                              <img src={raffleForm.imageUrl} alt="Prévia" className="w-full h-full object-contain" />
+                            </div>
                             <button
                               type="button"
                               className="absolute top-2 right-2 bg-black/60 hover:bg-black/80 text-white rounded-full w-7 h-7 flex items-center justify-center"
@@ -3463,7 +3485,7 @@ export default function Admin() {
                           <div className="flex flex-col items-center justify-center py-6 text-muted-foreground gap-2 select-none">
                             <Camera className="w-8 h-8 opacity-40" />
                             <span className="text-sm">Clique para escolher uma foto</span>
-                            <span className="text-xs opacity-60">JPG, PNG ou WebP · máx 5 MB</span>
+                            <span className="text-xs opacity-60">JPG, PNG ou WebP · 1149x1369 · máx 5 MB</span>
                           </div>
                         )}
                         <input
@@ -3478,15 +3500,23 @@ export default function Admin() {
                             const reader = new FileReader();
                             reader.onload = (ev) => {
                               const result = ev.target?.result as string;
-                              // Resize to max 800px wide via canvas to keep base64 small
+                              // Normalize raffle image to a fixed 1149x1369 canvas.
                               const img = new Image();
                               img.onload = () => {
-                                const MAX = 800;
-                                const scale = img.width > MAX ? MAX / img.width : 1;
+                                const TARGET_W = 1149;
+                                const TARGET_H = 1369;
+                                const scale = Math.min(TARGET_W / img.width, TARGET_H / img.height);
+                                const drawW = Math.round(img.width * scale);
+                                const drawH = Math.round(img.height * scale);
+                                const offsetX = Math.round((TARGET_W - drawW) / 2);
+                                const offsetY = Math.round((TARGET_H - drawH) / 2);
                                 const canvas = document.createElement("canvas");
-                                canvas.width = Math.round(img.width * scale);
-                                canvas.height = Math.round(img.height * scale);
-                                canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+                                canvas.width = TARGET_W;
+                                canvas.height = TARGET_H;
+                                const ctx = canvas.getContext("2d")!;
+                                ctx.fillStyle = "#ffffff";
+                                ctx.fillRect(0, 0, TARGET_W, TARGET_H);
+                                ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
                                 const compressed = canvas.toDataURL("image/jpeg", 0.82);
                                 setRaffleForm((f) => ({ ...f, imageUrl: compressed }));
                               };
@@ -3634,14 +3664,7 @@ export default function Admin() {
                             </Button>
                             <Button size="icon" variant="outline" className="w-8 h-8 border-red-200 hover:bg-red-50 text-red-500"
                               title="Excluir"
-                              onClick={async () => {
-                                if (!confirm(`Excluir a rifa "${raffle.title}" e todas as suas reservas?`)) return;
-                                try {
-                                  await fetch(`${BASE}/api/admin/raffles/${raffle.id}`, { method: "DELETE", headers: authHeaders() });
-                                  toast.success("Rifa excluída.");
-                                  fetchRaffles();
-                                } catch { toast.error("Erro ao excluir."); }
-                              }}>
+                              onClick={() => { setRaffleDeleteConfirm({ id: raffle.id, title: raffle.title }); setRaffleDeleteInput(""); }}>
                               <Trash2 className="w-3.5 h-3.5" />
                             </Button>
                           </div>
@@ -3672,6 +3695,85 @@ export default function Admin() {
             onDelete={deleteSetting}
           />
         ) : null}
+
+        {/* Raffle delete confirmation modal */}
+        <AnimatePresence>
+          {raffleDeleteConfirm && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4"
+              onClick={(e) => { if (e.target === e.currentTarget && !raffleDeleting) { setRaffleDeleteConfirm(null); setRaffleDeleteInput(""); } }}>
+              <motion.div initial={{ scale: 0.92, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.92, opacity: 0 }}
+                className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+                    <Trash2 className="w-5 h-5 text-red-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-foreground">Excluir rifa</h3>
+                    <p className="text-sm text-muted-foreground mt-0.5">Esta ação é permanente e não pode ser desfeita.</p>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 space-y-1">
+                  <p className="font-semibold">{raffleDeleteConfirm.title}</p>
+                  <p>Todas as reservas vinculadas a esta rifa também serão excluídas permanentemente.</p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm text-muted-foreground">
+                    Para confirmar, digite o nome exato da rifa abaixo:
+                  </label>
+                  <code className="block text-xs bg-muted rounded px-2 py-1 text-foreground font-mono break-all">
+                    {raffleDeleteConfirm.title}
+                  </code>
+                  <input
+                    type="text"
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+                    placeholder="Digite o nome da rifa..."
+                    value={raffleDeleteInput}
+                    onChange={(e) => setRaffleDeleteInput(e.target.value)}
+                    disabled={raffleDeleting}
+                    autoFocus
+                  />
+                </div>
+
+                <div className="flex gap-2 pt-1">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    disabled={raffleDeleting}
+                    onClick={() => { setRaffleDeleteConfirm(null); setRaffleDeleteInput(""); }}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    className="flex-1"
+                    disabled={raffleDeleteInput !== raffleDeleteConfirm.title || raffleDeleting}
+                    onClick={async () => {
+                      if (!raffleDeleteConfirm) return;
+                      setRaffleDeleting(true);
+                      try {
+                        await fetch(`${BASE}/api/admin/raffles/${raffleDeleteConfirm.id}`, { method: "DELETE", headers: authHeaders() });
+                        toast.success("Rifa excluída.");
+                        setRaffleDeleteConfirm(null);
+                        setRaffleDeleteInput("");
+                        fetchRaffles();
+                      } catch {
+                        toast.error("Erro ao excluir.");
+                      } finally {
+                        setRaffleDeleting(false);
+                      }
+                    }}
+                  >
+                    {raffleDeleting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Trash2 className="w-4 h-4 mr-2" />}
+                    Excluir rifa
+                  </Button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Proof viewer modal */}
         <AnimatePresence>
