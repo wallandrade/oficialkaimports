@@ -437,89 +437,98 @@ export default function RaffleDetail() {
           </div>
         )}
 
-        {/* Checkout form */}
+        {/* Checkout form modal */}
         {showForm && (
-          <div className="border border-border rounded-2xl p-5 bg-card space-y-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Info className="w-4 h-4 text-primary" />
-              <span className="text-sm font-semibold text-foreground">Seus dados para a reserva</span>
-            </div>
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <button
+              type="button"
+              aria-label="Fechar"
+              className="absolute inset-0 bg-black/50 backdrop-blur-[1px]"
+              onClick={() => !submitting && setShowForm(false)}
+            />
 
-            <div className="space-y-3">
-              <div>
-                <Label htmlFor="rf-name">Nome completo</Label>
-                <Input
-                  id="rf-name"
-                  placeholder="Seu nome completo"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
+            <div className="relative z-10 w-full max-w-2xl max-h-[90vh] overflow-y-auto border border-border rounded-2xl p-5 bg-card space-y-4 shadow-2xl">
+              <div className="flex items-center gap-2 mb-2">
+                <Info className="w-4 h-4 text-primary" />
+                <span className="text-sm font-semibold text-foreground">Seus dados para a reserva</span>
               </div>
-              <div>
-                <Label htmlFor="rf-email">E-mail</Label>
-                <Input
-                  id="rf-email"
-                  type="email"
-                  placeholder="seu@email.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-              </div>
-              <div>
-                <Label htmlFor="rf-phone">Telefone (WhatsApp)</Label>
-                <Input
-                  id="rf-phone"
-                  type="tel"
-                  placeholder="(11) 99999-9999"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                />
-                  <div>
-                    <Label htmlFor="rf-cpf">CPF</Label>
-                    <Input
-                      id="rf-cpf"
-                      type="text"
-                      inputMode="numeric"
-                      placeholder="000.000.000-00"
-                      maxLength={14}
-                      value={cpf}
-                      onChange={(e) => {
-                        const digits = e.target.value.replace(/\D/g, "").slice(0, 11);
-                        const masked = digits
-                          .replace(/^(\d{3})(\d)/, "$1.$2")
-                          .replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
-                          .replace(/^(\d{3})\.(\d{3})\.(\d{3})(\d)/, "$1.$2.$3-$4");
-                        setCpf(masked);
-                      }}
-                    />
-                  </div>
-              </div>
-            </div>
 
-            <div className="bg-muted rounded-xl p-3 text-sm text-muted-foreground">
-              <p>
-                Números selecionados:{" "}
-                <span className="font-semibold text-foreground">
-                  {Array.from(selected).sort((a, b) => a - b).join(", ")}
-                </span>
-              </p>
-              <p className="mt-1">
-                Total:{" "}
-                <span className="font-bold text-foreground">{formatCurrency(total)}</span>
-              </p>
-              <p className="mt-1 text-xs">
-                Reserva válida por {raffle.reservationHours}h após o pagamento PIX.
-              </p>
-            </div>
+              <div className="space-y-3">
+                <div>
+                  <Label htmlFor="rf-name">Nome completo</Label>
+                  <Input
+                    id="rf-name"
+                    placeholder="Seu nome completo"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="rf-email">E-mail</Label>
+                  <Input
+                    id="rf-email"
+                    type="email"
+                    placeholder="seu@email.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="rf-phone">Telefone (WhatsApp)</Label>
+                  <Input
+                    id="rf-phone"
+                    type="tel"
+                    placeholder="(11) 99999-9999"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="rf-cpf">CPF</Label>
+                  <Input
+                    id="rf-cpf"
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="000.000.000-00"
+                    maxLength={14}
+                    value={cpf}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, "").slice(0, 11);
+                      const masked = digits
+                        .replace(/^(\d{3})(\d)/, "$1.$2")
+                        .replace(/^(\d{3})\.(\d{3})(\d)/, "$1.$2.$3")
+                        .replace(/^(\d{3})\.(\d{3})\.(\d{3})(\d)/, "$1.$2.$3-$4");
+                      setCpf(masked);
+                    }}
+                  />
+                </div>
+              </div>
 
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setShowForm(false)} className="flex-1" disabled={submitting}>
-                Voltar
-              </Button>
-              <Button onClick={handleReserve} className="flex-1" disabled={submitting}>
-                {submitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-                Gerar PIX
-              </Button>
+              <div className="bg-muted rounded-xl p-3 text-sm text-muted-foreground">
+                <p>
+                  Números selecionados:{" "}
+                  <span className="font-semibold text-foreground">
+                    {Array.from(selected).sort((a, b) => a - b).join(", ")}
+                  </span>
+                </p>
+                <p className="mt-1">
+                  Total:{" "}
+                  <span className="font-bold text-foreground">{formatCurrency(total)}</span>
+                </p>
+                <p className="mt-1 text-xs">
+                  Reserva válida por {raffle.reservationHours}h após o pagamento PIX.
+                </p>
+              </div>
+
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setShowForm(false)} className="flex-1" disabled={submitting}>
+                  Voltar
+                </Button>
+                <Button onClick={handleReserve} className="flex-1" disabled={submitting}>
+                  {submitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                  Gerar PIX
+                </Button>
+              </div>
             </div>
           </div>
         )}
