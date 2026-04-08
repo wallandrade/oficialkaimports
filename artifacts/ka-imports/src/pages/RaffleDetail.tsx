@@ -264,9 +264,11 @@ export default function RaffleDetail() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">{raffle.title}</h1>
           {raffle.description && (
-            <p className="text-muted-foreground mt-2 text-sm leading-relaxed whitespace-pre-line break-words">
-              {raffle.description}
-            </p>
+            <div className="mt-3 rounded-xl border border-border bg-muted/30 p-3">
+              <p className="max-w-prose text-sm leading-7 text-foreground/90 whitespace-pre-wrap break-words text-left">
+                {raffle.description}
+              </p>
+            </div>
           )}
           <div className="mt-3 flex flex-wrap gap-2 text-xs sm:text-sm">
             <span className="inline-flex items-center rounded-full bg-muted px-3 py-1 text-muted-foreground">
