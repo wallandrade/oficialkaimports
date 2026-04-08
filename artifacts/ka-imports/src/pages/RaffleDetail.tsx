@@ -26,6 +26,13 @@ type Raffle = {
 type RaffleDetailResponse = {
   raffle: Raffle;
   numberStatus: Record<number, NumberStatus>;
+  promotions?: Array<{
+    id: string;
+    quantity: number;
+    promoPrice: string;
+    isActive: number;
+    sortOrder: number;
+  }>;
   result?: {
     winnerNumber: number;
     winnerClientName: string | null;
@@ -46,6 +53,17 @@ function maskPhone(raw: string | null | undefined): string {
   const d = String(raw ?? "").replace(/\D/g, "");
   if (d.length < 4) return "";
   return `${d.slice(0, 2)}*****${d.slice(-2)}`;
+}
+
+function pickRandomAvailableNumbers(numberStatus: Record<number, NumberStatus>, total: number, quantity: number): number[] {
+  const available: number[] = [];
+  for (let i = 1; i <= total; i++) {
+    if ((numberStatus[i] ?? "available") === "available") available.push(i);
+  }
+  if (available.length < quantity) return [];
+
+  const shuffled = [...available].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, quantity).sort((a, b) => a - b);
 }
 
 function RaffleNumberGrid({
@@ -127,7 +145,18 @@ export default function RaffleDetail() {
   }
 
   const pricePerNumber = data ? Number(data.raffle.pricePerNumber) : 0;
-  const total = useMemo(() => selected.size * pricePerNumber, [selected.size, pricePerNumber]);
+  const selectedPromotion = useMemo(() => {
+    if (!data?.promotions || selected.size === 0) return null;
+    const candidates = data.promotions
+      .filter((p) => Number(p.isActive) === 1 && p.quantity === selected.size)
+      .sort((a, b) => Number(a.promoPrice) - Number(b.promoPrice));
+    return candidates[0] ?? null;
+  }, [data?.promotions, selected.size]);
+
+  const total = useMemo(() => {
+    if (selectedPromotion) return Number(selectedPromotion.promoPrice);
+    return selected.size * pricePerNumber;
+  }, [selected.size, pricePerNumber, selectedPromotion]);
 
   async function handleReserve() {
     if (!name.trim() || !email.trim() || !phone.trim()) {
@@ -305,6 +334,47 @@ export default function RaffleDetail() {
           </div>
         )}
 
+        {data.promotions && data.promotions.filter((p) => Number(p.isActive) === 1).length > 0 && (
+          <div className="border border-border rounded-2xl p-4 bg-card space-y-3">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Promoções de cotas</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {data.promotions
+                .filter((p) => Number(p.isActive) === 1)
+                .sort((a, b) => a.quantity - b.quantity)
+                .map((promo) => {
+                  const normalTotal = promo.quantity * pricePerNumber;
+                  const promoTotal = Number(promo.promoPrice);
+                  const savings = Math.max(0, normalTotal - promoTotal);
+                  const selectedThisPromo = selected.size === promo.quantity;
+                  return (
+                    <button
+                      key={promo.id}
+                      type="button"
+                      className={cn(
+                        "text-left border rounded-xl p-3 transition-colors",
+                        selectedThisPromo ? "border-primary bg-primary/5" : "border-border hover:border-primary/40",
+                      )}
+                      onClick={() => {
+                        const picks = pickRandomAvailableNumbers(numberStatus, raffle.totalNumbers, promo.quantity);
+                        if (picks.length !== promo.quantity) {
+                          toast.error("Não há números disponíveis suficientes para esta promoção.");
+                          return;
+                        }
+                        setSelected(new Set(picks));
+                        toast.success(`Promoção aplicada: ${promo.quantity} cotas.`);
+                      }}
+                    >
+                      <p className="text-sm font-bold text-foreground">{promo.quantity} cotas por {formatCurrency(promoTotal)}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Economia de {formatCurrency(savings)}
+                      </p>
+                    </button>
+                  );
+                })}
+            </div>
+          </div>
+        )}
+
         {/* Legend */}
         <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
           <span className="flex items-center gap-1">
@@ -338,6 +408,11 @@ export default function RaffleDetail() {
                   {selected.size} número{selected.size > 1 ? "s" : ""} selecionado{selected.size > 1 ? "s" : ""}
                 </p>
                 <p className="text-xl font-bold text-foreground">{formatCurrency(total)}</p>
+                {selectedPromotion && (
+                  <p className="text-xs text-green-600 font-semibold">
+                    Promoção aplicada: {selectedPromotion.quantity} cotas
+                  </p>
+                )}
               </div>
               <Button onClick={() => setShowForm(true)} size="lg" className="shrink-0">
                 Reservar

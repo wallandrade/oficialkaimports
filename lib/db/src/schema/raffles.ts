@@ -43,3 +43,14 @@ export const raffleResultsTable = mysqlTable("raffle_results", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+export const rafflePromotionsTable = mysqlTable("raffle_promotions", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  raffleId: varchar("raffle_id", { length: 255 }).notNull(),
+  quantity: int("quantity").notNull(),
+  promoPrice: decimal("promo_price", { precision: 10, scale: 2 }).notNull(),
+  isActive: int("is_active").notNull().default(1),
+  sortOrder: int("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});

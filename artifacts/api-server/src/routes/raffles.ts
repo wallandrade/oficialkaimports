@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, rafflesTable, raffleReservationsTable, raffleResultsTable } from "@workspace/db";
+import { db, rafflesTable, raffleReservationsTable, raffleResultsTable, rafflePromotionsTable } from "@workspace/db";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { requireAdminAuth } from "./admin-auth";
@@ -32,6 +32,25 @@ type RaffleRankingEntry = {
   totalSpent: number;
   reservationCount: number;
 };
+
+type RafflePromotion = {
+  id: string;
+  raffleId: string;
+  quantity: number;
+  promoPrice: string;
+  isActive: number;
+  sortOrder: number;
+};
+
+async function getRafflePromotions(raffleId: string, onlyActive = true): Promise<RafflePromotion[]> {
+  const conditions = [eq(rafflePromotionsTable.raffleId, raffleId)];
+  if (onlyActive) conditions.push(eq(rafflePromotionsTable.isActive, 1));
+  return db
+    .select()
+    .from(rafflePromotionsTable)
+    .where(and(...conditions))
+    .orderBy(sql`sort_order ASC`, sql`quantity ASC`, sql`created_at ASC`);
+}
 
 async function getRaffleRanking(raffleId: string, limit = 3): Promise<RaffleRankingEntry[]> {
   const rows = await db
@@ -153,12 +172,13 @@ router.get("/raffles/:id", async (req, res) => {
     }
   }
 
-  const [result, ranking] = await Promise.all([
+  const [result, ranking, promotions] = await Promise.all([
     getRaffleResult(raffle.id),
     getRaffleRanking(raffle.id, 3),
+    getRafflePromotions(raffle.id, true),
   ]);
 
-  res.json({ raffle, numberStatus, result, ranking });
+  res.json({ raffle, numberStatus, result, ranking, promotions });
 });
 
 // ---------------------------------------------------------------------------
@@ -209,7 +229,11 @@ router.post("/raffles/:id/reserve", async (req, res) => {
     return;
   }
 
-  const totalAmount = price * numbers.length;
+  const promotions = await getRafflePromotions(raffle.id, true);
+  const matchingPromotions = promotions.filter((p) => p.quantity === numbers.length);
+  const bestPromotion = matchingPromotions.sort((a, b) => Number(a.promoPrice) - Number(b.promoPrice))[0] ?? null;
+
+  const totalAmount = bestPromotion ? Number(bestPromotion.promoPrice) : price * numbers.length;
   const reservationId = crypto.randomBytes(8).toString("hex");
   const expiresAt = new Date(Date.now() + raffle.reservationHours * 60 * 60 * 1000);
 
@@ -275,6 +299,9 @@ router.post("/raffles/:id/reserve", async (req, res) => {
     pixCode: gatewayData.pix?.code,
     pixBase64: gatewayData.pix?.base64,
     totalAmount,
+    appliedPromotion: bestPromotion
+      ? { id: bestPromotion.id, quantity: bestPromotion.quantity, promoPrice: bestPromotion.promoPrice }
+      : null,
     expiresAt: expiresAt.toISOString(),
     pixExpiresAt: new Date(Date.now() + PIX_DURATION_MS).toISOString(),
   });
@@ -571,6 +598,110 @@ router.put("/admin/raffles/:id/result", requireAdminAuth, async (req, res) => {
 
   const result = await getRaffleResult(raffleId);
   res.json({ result });
+});
+
+// ---------------------------------------------------------------------------
+// ADMIN: GET /api/admin/raffles/:id/promotions — list promotions
+// ---------------------------------------------------------------------------
+router.get("/admin/raffles/:id/promotions", requireAdminAuth, async (req, res) => {
+  const { id: raffleId } = req.params as { id: string };
+  const promotions = await getRafflePromotions(raffleId, false);
+  res.json({ promotions });
+});
+
+// ---------------------------------------------------------------------------
+// ADMIN: POST /api/admin/raffles/:id/promotions — create promotion
+// ---------------------------------------------------------------------------
+router.post("/admin/raffles/:id/promotions", requireAdminAuth, async (req, res) => {
+  const { id: raffleId } = req.params as { id: string };
+  const { quantity, promoPrice, isActive, sortOrder } = req.body as {
+    quantity: number;
+    promoPrice: number;
+    isActive?: boolean;
+    sortOrder?: number;
+  };
+
+  const q = Number(quantity);
+  const p = Number(promoPrice);
+  if (!Number.isInteger(q) || q < 2) {
+    res.status(400).json({ error: "INVALID_INPUT", message: "Quantidade deve ser um inteiro maior que 1." });
+    return;
+  }
+  if (!Number.isFinite(p) || p <= 0) {
+    res.status(400).json({ error: "INVALID_INPUT", message: "Preço promocional inválido." });
+    return;
+  }
+
+  const id = crypto.randomBytes(8).toString("hex");
+  await db.insert(rafflePromotionsTable).values({
+    id,
+    raffleId,
+    quantity: q,
+    promoPrice: String(p),
+    isActive: isActive === false ? 0 : 1,
+    sortOrder: Number(sortOrder ?? 0),
+  });
+
+  const [created] = await db
+    .select()
+    .from(rafflePromotionsTable)
+    .where(eq(rafflePromotionsTable.id, id))
+    .limit(1);
+  res.json(created);
+});
+
+// ---------------------------------------------------------------------------
+// ADMIN: PATCH /api/admin/raffles/:id/promotions/:promotionId — update
+// ---------------------------------------------------------------------------
+router.patch("/admin/raffles/:id/promotions/:promotionId", requireAdminAuth, async (req, res) => {
+  const { promotionId } = req.params as { id: string; promotionId: string };
+  const { quantity, promoPrice, isActive, sortOrder } = req.body as {
+    quantity?: number;
+    promoPrice?: number;
+    isActive?: boolean;
+    sortOrder?: number;
+  };
+
+  const updates: Record<string, unknown> = { updatedAt: new Date() };
+  if (quantity !== undefined) {
+    const q = Number(quantity);
+    if (!Number.isInteger(q) || q < 2) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Quantidade deve ser um inteiro maior que 1." });
+      return;
+    }
+    updates.quantity = q;
+  }
+  if (promoPrice !== undefined) {
+    const p = Number(promoPrice);
+    if (!Number.isFinite(p) || p <= 0) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Preço promocional inválido." });
+      return;
+    }
+    updates.promoPrice = String(p);
+  }
+  if (isActive !== undefined) updates.isActive = isActive ? 1 : 0;
+  if (sortOrder !== undefined) updates.sortOrder = Number(sortOrder);
+
+  await db
+    .update(rafflePromotionsTable)
+    .set(updates as never)
+    .where(eq(rafflePromotionsTable.id, promotionId));
+
+  const [updated] = await db
+    .select()
+    .from(rafflePromotionsTable)
+    .where(eq(rafflePromotionsTable.id, promotionId))
+    .limit(1);
+  res.json(updated);
+});
+
+// ---------------------------------------------------------------------------
+// ADMIN: DELETE /api/admin/raffles/:id/promotions/:promotionId — delete
+// ---------------------------------------------------------------------------
+router.delete("/admin/raffles/:id/promotions/:promotionId", requireAdminAuth, async (req, res) => {
+  const { promotionId } = req.params as { id: string; promotionId: string };
+  await db.delete(rafflePromotionsTable).where(eq(rafflePromotionsTable.id, promotionId));
+  res.json({ ok: true });
 });
 
 // ---------------------------------------------------------------------------

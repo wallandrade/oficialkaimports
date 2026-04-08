@@ -544,6 +544,14 @@ interface AdminRaffleReservation {
   status: string; isExpired: boolean; expiresAt: string; createdAt: string;
   transactionId: string | null;
 }
+interface AdminRafflePromotion {
+  id: string;
+  raffleId: string;
+  quantity: number;
+  promoPrice: string;
+  isActive: number;
+  sortOrder: number;
+}
 
 interface AdminRaffleRankingEntry {
   clientName: string;
@@ -717,6 +725,9 @@ export default function Admin() {
   const [raffleViewId, setRaffleViewId] = useState<string | null>(null);
   const [raffleReservations, setRaffleReservations] = useState<AdminRaffleReservation[]>([]);
   const [raffleReservationsLoading, setRaffleReservationsLoading] = useState(false);
+  const [rafflePromotions, setRafflePromotions] = useState<AdminRafflePromotion[]>([]);
+  const [rafflePromotionForm, setRafflePromotionForm] = useState({ quantity: "", promoPrice: "", sortOrder: "0", isActive: true });
+  const [rafflePromotionSaving, setRafflePromotionSaving] = useState(false);
   const [raffleRanking, setRaffleRanking] = useState<AdminRaffleRankingEntry[]>([]);
   const [raffleResult, setRaffleResult] = useState<AdminRaffleResult | null>(null);
   const [raffleResultLoading, setRaffleResultLoading] = useState(false);
@@ -1070,6 +1081,17 @@ export default function Admin() {
       setRaffleReservations(await res.json() as AdminRaffleReservation[]);
     } catch { toast.error("Erro ao carregar reservas."); }
     finally { setRaffleReservationsLoading(false); }
+  }, []);
+
+  const fetchRafflePromotions = useCallback(async (raffleId: string) => {
+    try {
+      const res = await fetch(`${BASE}/api/admin/raffles/${raffleId}/promotions`, { headers: authHeaders() });
+      if (!res.ok) { toast.error("Erro ao carregar promoções da rifa."); return; }
+      const data = await res.json() as { promotions?: AdminRafflePromotion[] };
+      setRafflePromotions(data.promotions ?? []);
+    } catch {
+      toast.error("Erro ao carregar promoções da rifa.");
+    }
   }, []);
 
   const fetchRaffleRanking = useCallback(async (raffleId: string) => {
@@ -3119,13 +3141,13 @@ export default function Admin() {
             {raffleViewId ? (
               <div className="space-y-4">
                 <div className="flex items-center gap-3">
-                  <Button variant="ghost" size="sm" onClick={() => { setRaffleViewId(null); setRaffleReservations([]); setRaffleRanking([]); setRaffleResult(null); }}>
+                  <Button variant="ghost" size="sm" onClick={() => { setRaffleViewId(null); setRaffleReservations([]); setRaffleRanking([]); setRaffleResult(null); setRafflePromotions([]); }}>
                     ← Voltar às rifas
                   </Button>
                   <span className="text-sm text-muted-foreground">
                     Reservas da: <strong>{rafflesList.find((r) => r.id === raffleViewId)?.title}</strong>
                   </span>
-                  <Button variant="outline" size="sm" onClick={() => { fetchRaffleReservations(raffleViewId); fetchRaffleRanking(raffleViewId); fetchRaffleResult(raffleViewId); }} className="ml-auto gap-1.5">
+                  <Button variant="outline" size="sm" onClick={() => { fetchRaffleReservations(raffleViewId); fetchRaffleRanking(raffleViewId); fetchRaffleResult(raffleViewId); fetchRafflePromotions(raffleViewId); }} className="ml-auto gap-1.5">
                     <RefreshCw className="w-3 h-3" /> Atualizar
                   </Button>
                 </div>
@@ -3218,6 +3240,140 @@ export default function Admin() {
                       </Button>
                     </div>
                   </div>
+                </div>
+
+                <div className="border border-border rounded-xl p-3 bg-card space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Promoções de cotas</p>
+                    <span className="text-xs text-muted-foreground">{rafflePromotions.length} promoções</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                    <input
+                      type="number"
+                      min="2"
+                      className="border border-border rounded-lg px-3 py-2 text-sm bg-white"
+                      placeholder="Qtd. cotas"
+                      value={rafflePromotionForm.quantity}
+                      onChange={(e) => setRafflePromotionForm((f) => ({ ...f, quantity: e.target.value }))}
+                    />
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      className="border border-border rounded-lg px-3 py-2 text-sm bg-white"
+                      placeholder="Preço promocional"
+                      value={rafflePromotionForm.promoPrice}
+                      onChange={(e) => setRafflePromotionForm((f) => ({ ...f, promoPrice: e.target.value }))}
+                    />
+                    <input
+                      type="number"
+                      className="border border-border rounded-lg px-3 py-2 text-sm bg-white"
+                      placeholder="Ordem"
+                      value={rafflePromotionForm.sortOrder}
+                      onChange={(e) => setRafflePromotionForm((f) => ({ ...f, sortOrder: e.target.value }))}
+                    />
+                    <Button
+                      size="sm"
+                      disabled={rafflePromotionSaving}
+                      onClick={async () => {
+                        if (!raffleViewId) return;
+                        const quantity = Number(rafflePromotionForm.quantity);
+                        const promoPrice = Number(rafflePromotionForm.promoPrice);
+                        if (!Number.isInteger(quantity) || quantity < 2) {
+                          toast.error("Quantidade inválida para promoção.");
+                          return;
+                        }
+                        if (!Number.isFinite(promoPrice) || promoPrice <= 0) {
+                          toast.error("Preço promocional inválido.");
+                          return;
+                        }
+                        setRafflePromotionSaving(true);
+                        try {
+                          const res = await fetch(`${BASE}/api/admin/raffles/${raffleViewId}/promotions`, {
+                            method: "POST",
+                            headers: { ...authHeaders(), "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              quantity,
+                              promoPrice,
+                              sortOrder: Number(rafflePromotionForm.sortOrder || 0),
+                              isActive: rafflePromotionForm.isActive,
+                            }),
+                          });
+                          const data = await res.json() as { message?: string };
+                          if (!res.ok) {
+                            toast.error(data.message || "Erro ao criar promoção.");
+                            return;
+                          }
+                          toast.success("Promoção criada!");
+                          setRafflePromotionForm({ quantity: "", promoPrice: "", sortOrder: "0", isActive: true });
+                          fetchRafflePromotions(raffleViewId);
+                        } catch {
+                          toast.error("Erro ao criar promoção.");
+                        } finally {
+                          setRafflePromotionSaving(false);
+                        }
+                      }}
+                    >
+                      {rafflePromotionSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : "Adicionar"}
+                    </Button>
+                  </div>
+
+                  {rafflePromotions.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Nenhuma promoção cadastrada para esta rifa.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {rafflePromotions.map((promo) => (
+                        <div key={promo.id} className="flex items-center justify-between rounded-lg border border-border p-2">
+                          <div>
+                            <p className="text-sm font-semibold text-foreground">{promo.quantity} cotas por {formatCurrency(Number(promo.promoPrice))}</p>
+                            <p className="text-xs text-muted-foreground">Ordem: {promo.sortOrder} · {promo.isActive ? "Ativa" : "Inativa"}</p>
+                          </div>
+                          <div className="flex gap-1">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={async () => {
+                                if (!raffleViewId) return;
+                                try {
+                                  await fetch(`${BASE}/api/admin/raffles/${raffleViewId}/promotions/${promo.id}`, {
+                                    method: "PATCH",
+                                    headers: { ...authHeaders(), "Content-Type": "application/json" },
+                                    body: JSON.stringify({ isActive: !promo.isActive }),
+                                  });
+                                  fetchRafflePromotions(raffleViewId);
+                                } catch {
+                                  toast.error("Erro ao atualizar promoção.");
+                                }
+                              }}
+                            >
+                              {promo.isActive ? "Desativar" : "Ativar"}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="border-red-200 text-red-600 hover:bg-red-50"
+                              onClick={async () => {
+                                if (!raffleViewId) return;
+                                if (!confirm("Excluir esta promoção?")) return;
+                                try {
+                                  await fetch(`${BASE}/api/admin/raffles/${raffleViewId}/promotions/${promo.id}`, {
+                                    method: "DELETE",
+                                    headers: authHeaders(),
+                                  });
+                                  fetchRafflePromotions(raffleViewId);
+                                } catch {
+                                  toast.error("Erro ao excluir promoção.");
+                                }
+                              }}
+                            >
+                              Excluir
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {raffleReservationsLoading ? (
@@ -3456,7 +3612,7 @@ export default function Admin() {
                             </Button>
                             <Button size="icon" variant="outline" className="w-8 h-8"
                               title="Ver reservas"
-                              onClick={() => { setRaffleViewId(raffle.id); fetchRaffleReservations(raffle.id); fetchRaffleRanking(raffle.id); fetchRaffleResult(raffle.id); }}>
+                              onClick={() => { setRaffleViewId(raffle.id); fetchRaffleReservations(raffle.id); fetchRaffleRanking(raffle.id); fetchRaffleResult(raffle.id); fetchRafflePromotions(raffle.id); }}>
                               <Eye className="w-3.5 h-3.5" />
                             </Button>
                             <Button size="icon" variant="outline" className="w-8 h-8"

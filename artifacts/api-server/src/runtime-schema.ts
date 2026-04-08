@@ -218,6 +218,23 @@ async function ensureRaffleTables(databaseName: string): Promise<void> {
       )
     `);
   }
+
+  if (!(await tableExists("raffle_promotions", databaseName))) {
+    await pool.query(`
+      CREATE TABLE raffle_promotions (
+        id VARCHAR(255) NOT NULL PRIMARY KEY,
+        raffle_id VARCHAR(255) NOT NULL,
+        quantity INT NOT NULL,
+        promo_price DECIMAL(10,2) NOT NULL,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        sort_order INT NOT NULL DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY raffle_promotions_raffle_id_idx (raffle_id),
+        KEY raffle_promotions_active_idx (is_active)
+      )
+    `);
+  }
 }
 
 export async function ensureRuntimeSchema(): Promise<void> {
