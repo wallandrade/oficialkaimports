@@ -28,6 +28,8 @@ function normalizePhone(raw: string | null | undefined): string {
 type RaffleRankingEntry = {
   clientName: string;
   clientPhone: string;
+  clientEmail?: string;
+  clientDocument?: string | null;
   totalNumbers: number;
   totalSpent: number;
   reservationCount: number;
@@ -57,6 +59,8 @@ async function getRaffleRanking(raffleId: string, limit = 3): Promise<RaffleRank
     .select({
       clientName: raffleReservationsTable.clientName,
       clientPhone: raffleReservationsTable.clientPhone,
+      clientEmail: raffleReservationsTable.clientEmail,
+      clientDocument: raffleReservationsTable.clientDocument,
       numbers: raffleReservationsTable.numbers,
       totalAmount: raffleReservationsTable.totalAmount,
     })
@@ -68,10 +72,16 @@ async function getRaffleRanking(raffleId: string, limit = 3): Promise<RaffleRank
 
   const grouped = new Map<string, RaffleRankingEntry>();
   for (const row of rows) {
-    const key = normalizePhone(row.clientPhone) || row.clientName.toLowerCase();
+    const documentKey = String(row.clientDocument ?? "").replace(/\D/g, "");
+    const emailKey = String(row.clientEmail ?? "").trim().toLowerCase();
+    const phoneKey = normalizePhone(row.clientPhone);
+    // Prefer CPF, then e-mail, then phone, then name to avoid splitting the same buyer.
+    const key = documentKey || emailKey || phoneKey || row.clientName.toLowerCase();
     const current = grouped.get(key) ?? {
       clientName: row.clientName,
       clientPhone: row.clientPhone,
+      clientEmail: row.clientEmail,
+      clientDocument: row.clientDocument,
       totalNumbers: 0,
       totalSpent: 0,
       reservationCount: 0,
@@ -327,13 +337,22 @@ router.get("/raffles/reservations/lookup", async (req, res) => {
   }
 
   let whereClause;
+  const cpfLike = "%" + lookupCpf + "%";
+  const cpfByEmailSubquery = raffleId
+    ? sql`SELECT rr2.client_email FROM raffle_reservations rr2 WHERE rr2.client_document LIKE ${cpfLike} AND rr2.raffle_id = ${raffleId}`
+    : sql`SELECT rr2.client_email FROM raffle_reservations rr2 WHERE rr2.client_document LIKE ${cpfLike}`;
+
   if (lookupPhone.length >= 8 && lookupCpf.length === 11) {
     whereClause = sql`(
       REPLACE(REPLACE(REPLACE(REPLACE(client_phone,' ',''),'-',''),'(',''),')','') LIKE ${"%" + lookupPhone + "%"}
-      OR client_document LIKE ${"%" + lookupCpf + "%"}
+      OR client_document LIKE ${cpfLike}
+      OR client_email IN (${cpfByEmailSubquery})
     )`;
   } else if (lookupCpf.length === 11) {
-    whereClause = sql`client_document LIKE ${"%" + lookupCpf + "%"}`;
+    whereClause = sql`(
+      client_document LIKE ${cpfLike}
+      OR client_email IN (${cpfByEmailSubquery})
+    )`;
   } else {
     whereClause = sql`REPLACE(REPLACE(REPLACE(REPLACE(client_phone,' ',''),'-',''),'(',''),')','') LIKE ${"%" + lookupPhone + "%"}`;
   }
@@ -351,6 +370,7 @@ router.get("/raffles/reservations/lookup", async (req, res) => {
       numbers: raffleReservationsTable.numbers,
       clientName: raffleReservationsTable.clientName,
       clientPhone: raffleReservationsTable.clientPhone,
+      clientEmail: raffleReservationsTable.clientEmail,
       clientDocument: raffleReservationsTable.clientDocument,
       totalAmount: raffleReservationsTable.totalAmount,
       status: raffleReservationsTable.status,
