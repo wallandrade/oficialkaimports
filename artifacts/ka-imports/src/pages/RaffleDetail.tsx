@@ -373,7 +373,7 @@ export default function RaffleDetail() {
           <div className="flex gap-2">
             <Input
               type="tel"
-              placeholder="Telefone ou CPF"
+              placeholder="Ex.: (11) 99999-9999 ou 123.456.789-00"
               value={lookupPhone}
               onChange={(e) => {
                 setLookupPhone(e.target.value);
@@ -394,6 +394,7 @@ export default function RaffleDetail() {
               <span className="ml-1.5 hidden sm:inline">Buscar</span>
             </Button>
           </div>
+          <p className="text-[11px] text-muted-foreground">Você pode consultar com telefone ou CPF.</p>
 
           {lookupError && (
             <p className="text-sm text-muted-foreground">{lookupError}</p>
