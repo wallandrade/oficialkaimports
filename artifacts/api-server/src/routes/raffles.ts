@@ -309,7 +309,7 @@ router.post("/raffles/:id/reserve", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// PUBLIC: GET /api/raffles/reservations/lookup?phone=XX|cpf=YYY|query=ZZZ — consulta por tel/CPF.
+// PUBLIC: GET /api/raffles/reservations/lookup?phone=XX|cpf=YYY|query=ZZZ&raffleId=ID — consulta por tel/CPF.
 // ---------------------------------------------------------------------------
 router.get("/raffles/reservations/lookup", async (req, res) => {
   const rawQuery = String(req.query.query || "").trim();
@@ -319,6 +319,7 @@ router.get("/raffles/reservations/lookup", async (req, res) => {
 
   const lookupPhone = phone || (queryDigits.length >= 8 ? queryDigits : "");
   const lookupCpf = cpf || (queryDigits.length === 11 ? queryDigits : "");
+  const raffleId = String(req.query.raffleId || "").trim();
 
   if (lookupPhone.length < 8 && lookupCpf.length !== 11) {
     res.status(400).json({ error: "INVALID_INPUT", message: "Informe um telefone ou CPF válido." });
@@ -337,7 +338,12 @@ router.get("/raffles/reservations/lookup", async (req, res) => {
     whereClause = sql`REPLACE(REPLACE(REPLACE(REPLACE(client_phone,' ',''),'-',''),'(',''),')','') LIKE ${"%" + lookupPhone + "%"}`;
   }
 
-  // Match any reservation where phone/CPF contains the typed digits.
+  // Match reservation where phone/CPF contains the typed digits.
+  const conditions = [whereClause];
+  if (raffleId) {
+    conditions.push(eq(raffleReservationsTable.raffleId, raffleId));
+  }
+
   const rows = await db
     .select({
       id: raffleReservationsTable.id,
@@ -355,9 +361,9 @@ router.get("/raffles/reservations/lookup", async (req, res) => {
       transactionId: raffleReservationsTable.transactionId,
     })
     .from(raffleReservationsTable)
-    .where(whereClause)
+    .where(and(...conditions))
     .orderBy(sql`created_at DESC`)
-    .limit(20);
+    .limit(200);
 
   // Enrich with raffle title
   const raffleIds = [...new Set(rows.map((r) => r.raffleId))];

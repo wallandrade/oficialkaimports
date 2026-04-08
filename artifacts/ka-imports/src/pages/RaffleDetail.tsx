@@ -203,16 +203,16 @@ export default function RaffleDetail() {
     setLookupError(null);
     setLookupResults(null);
     try {
-      const res = await fetch(`${BASE}/api/raffles/reservations/lookup?query=${encodeURIComponent(digits)}`);
+      const res = await fetch(
+        `${BASE}/api/raffles/reservations/lookup?query=${encodeURIComponent(digits)}&raffleId=${encodeURIComponent(raffleId)}`,
+      );
       if (!res.ok) {
         setLookupError("Erro ao consultar. Tente novamente.");
         return;
       }
-      const all = (await res.json()) as LookupResult[];
-      // Filter to only reservations for this raffle
-      const forThisRaffle = all.filter((r) => r.raffleId === raffleId);
-      setLookupResults(forThisRaffle);
-      if (forThisRaffle.length === 0) {
+      const rows = (await res.json()) as LookupResult[];
+      setLookupResults(rows);
+      if (rows.length === 0) {
         setLookupError("Nenhuma reserva encontrada para este telefone/CPF nesta rifa.");
       }
     } catch {
