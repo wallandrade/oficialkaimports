@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatCurrency, cn } from "@/lib/utils";
-import { Loader2, Search, Ticket, CheckCircle2, Clock, AlertCircle, Copy } from "lucide-react";
+import { Loader2, Search, Ticket, CheckCircle2, Clock, AlertCircle, Copy, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -20,9 +20,11 @@ type ReservationRow = {
   totalAmount: string;
   status: "reserved" | "paid" | "expired";
   isExpired: boolean;
+  isPixExpired: boolean;
   expiresAt: string;
   pixCode: string | null;
   pixBase64: string | null;
+  pixExpiresAt: string | null;
   transactionId: string | null;
   createdAt: string;
 };
@@ -51,136 +53,176 @@ function StatusBadge({ status, isExpired }: { status: string; isExpired: boolean
 
 export default function RaffleConsulta() {
   const [, setLocation] = useLocation();
-  const [phone, setPhone] = useState("");
+  const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<ReservationRow[] | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [refreshingPix, setRefreshingPix] = useState<string | null>(null);
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
-    const digits = phone.replace(/\D/g, "");
-    if (digits.length < 8) {
-      toast.error("Digite ao menos 8 dígitos do telefone.");
+    const val = query.replace(/\D/g, "");
+    if (val.length < 8) {
+      toast.error("Digite ao menos 8 dígitos.");
       return;
     }
     setLoading(true);
     try {
-      const res = await fetch(`${BASE}/api/raffles/reservations/lookup?phone=${encodeURIComponent(digits)}`);
+      const res = await fetch(`${BASE}/api/raffles/reservations/lookup?query=${encodeURIComponent(val)}`);
       const data = await res.json() as ReservationRow[];
       setResults(Array.isArray(data) ? data : []);
+      if (Array.isArray(data) && data.length === 0) {
+        toast.info("Nenhuma reserva encontrada.");
+      }
     } catch {
-      toast.error("Erro de conexão. Tente novamente.");
+      toast.error("Erro ao buscar reservas.");
     } finally {
       setLoading(false);
     }
   }
 
-  function copyCode(code: string, id: string) {
-    navigator.clipboard.writeText(code).then(() => {
-      setCopiedId(id);
-      toast.success("Código PIX copiado!");
-      setTimeout(() => setCopiedId(null), 3000);
-    });
+  async function handleRefreshPix(reservationId: string) {
+    setRefreshingPix(reservationId);
+    try {
+      const res = await fetch(`${BASE}/api/raffles/reservations/${reservationId}/refresh-pix`, { method: "POST" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as { message?: string }).message || "Erro ao gerar novo PIX.");
+      }
+      const data = await res.json() as { pixCode?: string; pixBase64?: string; pixExpiresAt?: string };
+      setResults((prev) =>
+        prev
+          ? prev.map((r) =>
+              r.id === reservationId
+                ? { ...r, pixCode: data.pixCode ?? r.pixCode, pixBase64: data.pixBase64 ?? r.pixBase64, pixExpiresAt: data.pixExpiresAt ?? r.pixExpiresAt, isPixExpired: false }
+                : r
+            )
+          : prev
+      );
+      toast.success("Novo PIX gerado! Copie o código abaixo.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao renovar PIX.");
+    } finally {
+      setRefreshingPix(null);
+    }
+  }
+
+  async function handleCopy(code: string, id: string) {
+    await navigator.clipboard.writeText(code);
+    setCopiedId(id);
+    toast.success("Código PIX copiado!");
+    setTimeout(() => setCopiedId((prev) => (prev === id ? null : prev)), 3000);
   }
 
   return (
     <AppLayout>
-      <div className="max-w-lg mx-auto px-4 py-8 space-y-6">
-        <div className="flex items-center gap-3">
-          <Search className="w-6 h-6 text-primary" />
-          <h1 className="text-2xl font-bold text-foreground">Consultar Reserva</h1>
+      <div className="max-w-2xl mx-auto py-8 px-4 space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold">Consultar minhas cotas</h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            Digite seu telefone ou CPF para ver suas reservas.
+          </p>
         </div>
-
-        <p className="text-sm text-muted-foreground">
-          Informe seu número de telefone para ver suas reservas e pagamentos.
-        </p>
 
         <form onSubmit={handleSearch} className="flex gap-2">
           <div className="flex-1">
-            <Label htmlFor="lookup-phone" className="sr-only">Telefone</Label>
+            <Label htmlFor="query" className="sr-only">Telefone ou CPF</Label>
             <Input
-              id="lookup-phone"
-              type="tel"
-              placeholder="(11) 99999-9999"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              id="query"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Ex: 11999998888 ou 12345678900"
+              inputMode="numeric"
             />
           </div>
           <Button type="submit" disabled={loading}>
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Buscar"}
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
           </Button>
         </form>
 
         {results !== null && results.length === 0 && (
           <div className="text-center py-10 text-muted-foreground">
             <Ticket className="w-10 h-10 mx-auto mb-2 opacity-40" />
-            <p>Nenhuma reserva encontrada para este telefone.</p>
+            <p>Nenhuma reserva encontrada.</p>
           </div>
         )}
 
         {results && results.length > 0 && (
           <div className="space-y-4">
-            {results.map((row) => (
-              <div key={row.id} className="border border-border rounded-2xl p-4 bg-card space-y-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="font-semibold text-foreground">{row.raffleTitle}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(row.createdAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
-                    </p>
+            {results.map((r) => {
+              const reservationExpired = r.status === "expired" || r.isExpired;
+              const canRefresh = r.status === "reserved" && !reservationExpired;
+              const pixExpired = r.isPixExpired || !r.pixCode;
+              return (
+                <div key={r.id} className="border rounded-xl p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-semibold">{r.raffleTitle}</p>
+                      <p className="text-xs text-muted-foreground">{r.clientName}</p>
+                    </div>
+                    <StatusBadge status={r.status} isExpired={r.isExpired} />
                   </div>
-                  <StatusBadge status={row.status} isExpired={row.isExpired} />
-                </div>
 
-                <div className="bg-muted rounded-lg p-2 text-sm space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Números</span>
-                    <span className="font-semibold text-foreground">{row.numbers.join(", ")}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Total</span>
-                    <span className="font-semibold text-foreground">{formatCurrency(Number(row.totalAmount))}</span>
-                  </div>
-                  {row.status === "reserved" && !row.isExpired && (
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Expira em</span>
-                      <span className="text-amber-600 font-semibold">
-                        {new Date(row.expiresAt).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                  <div className="flex flex-wrap gap-1">
+                    {r.numbers.map((n) => (
+                      <span
+                        key={n}
+                        className="inline-block px-2 py-0.5 bg-primary/10 text-primary rounded text-xs font-mono font-semibold"
+                      >
+                        {String(n).padStart(4, "0")}
                       </span>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">
+                      {r.numbers.length} cota{r.numbers.length !== 1 ? "s" : ""} · {formatCurrency(Number(r.totalAmount))}
+                    </span>
+                  </div>
+
+                  {r.status === "paid" && (
+                    <div className="flex items-center gap-1 text-green-700 text-sm font-medium">
+                      <CheckCircle2 className="w-4 h-4" />
+                      Pagamento confirmado!
+                    </div>
+                  )}
+
+                  {canRefresh && (
+                    <div className="space-y-2">
+                      {pixExpired ? (
+                        <Button
+                          size="sm"
+                          className="w-full"
+                          onClick={() => handleRefreshPix(r.id)}
+                          disabled={refreshingPix === r.id}
+                        >
+                          {refreshingPix === r.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                          ) : (
+                            <RefreshCw className="w-4 h-4 mr-2" />
+                          )}
+                          Gerar novo PIX para pagar
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full"
+                          onClick={() => handleCopy(r.pixCode!, r.id)}
+                        >
+                          <Copy className="w-4 h-4 mr-2" />
+                          {copiedId === r.id ? "Copiado!" : "Copiar código PIX"}
+                        </Button>
+                      )}
                     </div>
                   )}
                 </div>
-
-                {/* Show PIX code if reserved and not expired */}
-                {row.status === "reserved" && !row.isExpired && row.pixCode && (
-                  <div className="space-y-2">
-                    {row.pixBase64 && (
-                      <div className="flex justify-center">
-                        <img
-                          src={`data:image/png;base64,${row.pixBase64}`}
-                          alt="QR Code"
-                          className="w-36 h-36 rounded-lg border border-border"
-                        />
-                      </div>
-                    )}
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className={cn("w-full gap-2", copiedId === row.id && "border-green-500 text-green-600")}
-                      onClick={() => copyCode(row.pixCode!, row.id)}
-                    >
-                      {copiedId === row.id ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                      {copiedId === row.id ? "Copiado!" : "Copiar código PIX"}
-                    </Button>
-                    <p className="text-xs text-muted-foreground break-all font-mono">{row.pixCode}</p>
-                  </div>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
-        <div className="text-center">
+        <div className="text-center pt-4">
           <Button variant="ghost" className="text-sm text-muted-foreground" onClick={() => setLocation("/rifas")}>
             Ver rifas disponíveis
           </Button>
@@ -189,3 +231,4 @@ export default function RaffleConsulta() {
     </AppLayout>
   );
 }
+

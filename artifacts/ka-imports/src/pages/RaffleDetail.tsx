@@ -34,10 +34,12 @@ type LookupResult = {
   status: string;
   pixCode: string | null;
   pixBase64: string | null;
+  pixExpiresAt: string | null;
   transactionId: string | null;
   expiresAt: string;
   createdAt: string;
   isExpired: boolean;
+  isPixExpired: boolean;
 };
 
 type RaffleDetailResponse = {
@@ -155,6 +157,7 @@ export default function RaffleDetail() {
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupResults, setLookupResults] = useState<LookupResult[] | null>(null);
   const [lookupError, setLookupError] = useState<string | null>(null);
+  const [refreshingPix, setRefreshingPix] = useState<string | null>(null);
 
   useEffect(() => {
     if (!raffleId) return;
@@ -219,6 +222,32 @@ export default function RaffleDetail() {
       setLookupError("Erro de conexão. Tente novamente.");
     } finally {
       setLookupLoading(false);
+    }
+  }
+
+  async function handleRefreshPix(reservationId: string) {
+    setRefreshingPix(reservationId);
+    try {
+      const res = await fetch(`${BASE}/api/raffles/reservations/${reservationId}/refresh-pix`, { method: "POST" });
+      const json = await res.json() as { pixCode?: string; pixBase64?: string; pixExpiresAt?: string; message?: string };
+      if (!res.ok) {
+        toast.error(json.message || "Erro ao renovar PIX.");
+        return;
+      }
+      setLookupResults((prev) =>
+        prev
+          ? prev.map((r) =>
+              r.id === reservationId
+                ? { ...r, pixCode: json.pixCode ?? r.pixCode, pixBase64: json.pixBase64 ?? r.pixBase64, pixExpiresAt: json.pixExpiresAt ?? r.pixExpiresAt, isPixExpired: false }
+                : r,
+            )
+          : prev,
+      );
+      toast.success("Novo PIX gerado! Copie o código abaixo.");
+    } catch {
+      toast.error("Erro de conexão. Tente novamente.");
+    } finally {
+      setRefreshingPix(null);
     }
   }
 
@@ -444,18 +473,30 @@ export default function RaffleDetail() {
                     <p className="text-xs text-muted-foreground">
                       Total: <span className="font-semibold text-foreground">{formatCurrency(Number(r.totalAmount))}</span>
                     </p>
-                    {r.status === "reserved" && !r.isExpired && r.pixCode && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="w-full text-xs"
-                        onClick={() => {
-                          navigator.clipboard.writeText(r.pixCode!);
-                          toast.success("Código PIX copiado!");
-                        }}
-                      >
-                        Copiar código PIX
-                      </Button>
+                    {r.status === "reserved" && !r.isExpired && (
+                      r.isPixExpired || !r.pixCode ? (
+                        <Button
+                          size="sm"
+                          className="w-full text-xs"
+                          disabled={refreshingPix === r.id}
+                          onClick={() => handleRefreshPix(r.id)}
+                        >
+                          {refreshingPix === r.id ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : null}
+                          Gerar novo PIX para pagar
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full text-xs"
+                          onClick={() => {
+                            navigator.clipboard.writeText(r.pixCode!);
+                            toast.success("Código PIX copiado!");
+                          }}
+                        >
+                          Copiar código PIX
+                        </Button>
+                      )
                     )}
                   </div>
                 );

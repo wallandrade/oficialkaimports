@@ -26,6 +26,7 @@ export const raffleReservationsTable = mysqlTable("raffle_reservations", {
   transactionId: varchar("transaction_id", { length: 255 }),
   pixCode: mediumtext("pix_code"),
   pixBase64: mediumtext("pix_base64"),
+  pixExpiresAt: timestamp("pix_expires_at"),
   expiresAt: timestamp("expires_at").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

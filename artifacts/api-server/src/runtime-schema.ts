@@ -189,6 +189,7 @@ async function ensureRaffleTables(databaseName: string): Promise<void> {
         transaction_id VARCHAR(255) NULL,
         pix_code MEDIUMTEXT NULL,
         pix_base64 MEDIUMTEXT NULL,
+        pix_expires_at TIMESTAMP NULL,
         expires_at TIMESTAMP NOT NULL,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -207,6 +208,10 @@ async function ensureRaffleTables(databaseName: string): Promise<void> {
 
   if (!(await indexExists("raffle_reservations", "raffle_reservations_client_document_idx", databaseName))) {
     await pool.query("ALTER TABLE raffle_reservations ADD KEY raffle_reservations_client_document_idx (client_document)");
+  }
+
+  if (!(await columnExists("raffle_reservations", "pix_expires_at", databaseName))) {
+    await pool.query("ALTER TABLE raffle_reservations ADD COLUMN pix_expires_at TIMESTAMP NULL AFTER pix_base64");
   }
 
   if (!(await tableExists("raffle_results", databaseName))) {

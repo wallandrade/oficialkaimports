@@ -300,6 +300,7 @@ router.post("/raffles/:id/reserve", async (req, res) => {
       transactionId: gatewayData.transactionId,
       pixCode: gatewayData.pix?.code ?? null,
       pixBase64: gatewayData.pix?.base64 ?? null,
+      pixExpiresAt: new Date(Date.now() + PIX_DURATION_MS),
       updatedAt: new Date(),
     })
     .where(eq(raffleReservationsTable.id, reservationId));
@@ -378,6 +379,7 @@ router.get("/raffles/reservations/lookup", async (req, res) => {
       createdAt: raffleReservationsTable.createdAt,
       pixCode: raffleReservationsTable.pixCode,
       pixBase64: raffleReservationsTable.pixBase64,
+      pixExpiresAt: raffleReservationsTable.pixExpiresAt,
       transactionId: raffleReservationsTable.transactionId,
     })
     .from(raffleReservationsTable)
@@ -402,9 +404,88 @@ router.get("/raffles/reservations/lookup", async (req, res) => {
     numbers: parseNumbers(r.numbers),
     raffleTitle: raffleMap[r.raffleId] ?? "Rifa",
     isExpired: r.status === "reserved" && r.expiresAt < now,
+    isPixExpired: r.pixExpiresAt ? r.pixExpiresAt < now : true,
   }));
 
   res.json(result);
+});
+
+// ---------------------------------------------------------------------------
+// PUBLIC: POST /api/raffles/reservations/:reservationId/refresh-pix — renew expired PIX
+// ---------------------------------------------------------------------------
+router.post("/raffles/reservations/:reservationId/refresh-pix", async (req, res) => {
+  const { reservationId } = req.params as { reservationId: string };
+
+  const [reservation] = await db
+    .select()
+    .from(raffleReservationsTable)
+    .where(eq(raffleReservationsTable.id, reservationId))
+    .limit(1);
+
+  if (!reservation) {
+    res.status(404).json({ error: "NOT_FOUND", message: "Reserva não encontrada." });
+    return;
+  }
+
+  if (reservation.status !== "reserved") {
+    res.status(400).json({ error: "INVALID_STATUS", message: "Esta reserva já foi paga ou expirou." });
+    return;
+  }
+
+  const now = new Date();
+  if (reservation.expiresAt < now) {
+    res.status(400).json({ error: "RESERVATION_EXPIRED", message: "A reserva expirou. Selecione os números novamente." });
+    return;
+  }
+
+  const identifier = genIdentifier();
+  const callbackUrl = buildCallbackUrl(req as never, "/webhook/raffle-pix");
+  const totalAmount = Number(reservation.totalAmount);
+
+  let gatewayData;
+  try {
+    gatewayData = await createPixCharge({
+      identifier,
+      amount: totalAmount,
+      client: {
+        name: reservation.clientName,
+        email: reservation.clientEmail,
+        phone: reservation.clientPhone,
+        document: reservation.clientDocument || "00000000000",
+      },
+      metadata: {
+        reservationId: reservation.id,
+        raffleId: reservation.raffleId,
+        numbers: reservation.numbers,
+      },
+      callbackUrl,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Erro ao gerar PIX.";
+    res.status(400).json({ error: "GATEWAY_ERROR", message: msg });
+    return;
+  }
+
+  const pixExpiresAt = new Date(Date.now() + PIX_DURATION_MS);
+
+  await db
+    .update(raffleReservationsTable)
+    .set({
+      transactionId: gatewayData.transactionId,
+      pixCode: gatewayData.pix?.code ?? null,
+      pixBase64: gatewayData.pix?.base64 ?? null,
+      pixExpiresAt,
+      updatedAt: new Date(),
+    })
+    .where(eq(raffleReservationsTable.id, reservation.id));
+
+  res.json({
+    reservationId: reservation.id,
+    transactionId: gatewayData.transactionId,
+    pixCode: gatewayData.pix?.code,
+    pixBase64: gatewayData.pix?.base64,
+    pixExpiresAt: pixExpiresAt.toISOString(),
+  });
 });
 
 // ---------------------------------------------------------------------------
