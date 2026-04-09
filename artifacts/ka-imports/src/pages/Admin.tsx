@@ -544,7 +544,7 @@ type TabType = "orders" | "charges" | "sellers" | "coupons" | "products" | "fret
 interface AdminRaffle {
   id: string; title: string; description: string | null; imageUrl: string | null;
   totalNumbers: number; pricePerNumber: string; reservationHours: number;
-  status: string; createdAt: string;
+  status: string; createdAt: string; totalPaidAmount: string;
 }
 interface AdminRaffleReservation {
   id: string; raffleId: string; numbers: number[]; clientName: string;
@@ -758,6 +758,12 @@ export default function Admin() {
   const [bumpToggling, setBumpToggling] = useState<string | null>(null);
   const [bumpDeleting, setBumpDeleting] = useState<string | null>(null);
   const [bumpEditingId, setBumpEditingId] = useState<string | null>(null);
+
+  const selectedRaffle = raffleViewId ? rafflesList.find((r) => r.id === raffleViewId) ?? null : null;
+  const raffleViewPaidAmount = raffleReservations
+    .filter((reservation) => reservation.status === "paid")
+    .reduce((sum, reservation) => sum + Number(reservation.totalAmount), 0);
+  const raffleViewPaidCount = raffleReservations.filter((reservation) => reservation.status === "paid").length;
   const [bumpUpdating, setBumpUpdating] = useState(false);
   // Proof viewer modal
   const [proofViewer, setProofViewer] = useState<string | null>(null);
@@ -3156,11 +3162,26 @@ export default function Admin() {
                     ← Voltar às rifas
                   </Button>
                   <span className="text-sm text-muted-foreground">
-                    Reservas da: <strong>{rafflesList.find((r) => r.id === raffleViewId)?.title}</strong>
+                    Reservas da: <strong>{selectedRaffle?.title}</strong>
                   </span>
                   <Button variant="outline" size="sm" onClick={() => { fetchRaffleReservations(raffleViewId); fetchRaffleRanking(raffleViewId); fetchRaffleResult(raffleViewId); fetchRafflePromotions(raffleViewId); }} className="ml-auto gap-1.5">
                     <RefreshCw className="w-3 h-3" /> Atualizar
                   </Button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="border border-border rounded-xl p-3 bg-card">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Total pago</p>
+                    <p className="mt-1 text-2xl font-bold text-green-700">{formatCurrency(raffleViewPaidAmount)}</p>
+                  </div>
+                  <div className="border border-border rounded-xl p-3 bg-card">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Reservas pagas</p>
+                    <p className="mt-1 text-2xl font-bold text-foreground">{raffleViewPaidCount}</p>
+                  </div>
+                  <div className="border border-border rounded-xl p-3 bg-card">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Preço por cota</p>
+                    <p className="mt-1 text-2xl font-bold text-foreground">{selectedRaffle ? formatCurrency(Number(selectedRaffle.pricePerNumber)) : "-"}</p>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
@@ -3628,6 +3649,9 @@ export default function Admin() {
                             {raffle.description && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{raffle.description}</p>}
                             <p className="text-xs text-muted-foreground mt-1">
                               {raffle.totalNumbers} números · {formatCurrency(Number(raffle.pricePerNumber))}/número · Reserva {raffle.reservationHours}h
+                            </p>
+                            <p className="text-sm font-semibold text-green-700 mt-2">
+                              Total pago: {formatCurrency(Number(raffle.totalPaidAmount))}
                             </p>
                           </div>
                           <div className="flex gap-1 shrink-0">

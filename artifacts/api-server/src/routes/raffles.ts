@@ -533,7 +533,24 @@ router.get("/raffles/:id/result", async (req, res) => {
 router.get("/admin/raffles", requireAdminAuth, async (_req, res) => {
   try {
     const raffles = await db
-      .select()
+      .select({
+        id: rafflesTable.id,
+        title: rafflesTable.title,
+        description: rafflesTable.description,
+        imageUrl: rafflesTable.imageUrl,
+        totalNumbers: rafflesTable.totalNumbers,
+        pricePerNumber: rafflesTable.pricePerNumber,
+        reservationHours: rafflesTable.reservationHours,
+        status: rafflesTable.status,
+        createdAt: rafflesTable.createdAt,
+        updatedAt: rafflesTable.updatedAt,
+        totalPaidAmount: sql<string>`COALESCE((
+          SELECT SUM(CAST(rr.total_amount AS DECIMAL(12,2)))
+          FROM raffle_reservations rr
+          WHERE rr.raffle_id = ${rafflesTable.id}
+            AND rr.status = 'paid'
+        ), 0)`,
+      })
       .from(rafflesTable)
       .orderBy(sql`created_at DESC`);
     res.json(raffles);
