@@ -328,8 +328,17 @@ router.get("/raffles/reservations/lookup", async (req, res) => {
   const phone = String(req.query.phone || "").replace(/\D/g, "");
   const cpf = String(req.query.cpf || "").replace(/\D/g, "");
 
-  const lookupPhone = phone || (queryDigits.length >= 8 ? queryDigits : "");
-  const lookupCpf = cpf || (queryDigits.length === 11 ? queryDigits : "");
+  // Avoid ambiguity for 11-digit query: default to phone unless CPF is explicit.
+  const hasExplicitPhone = phone.length > 0;
+  const hasExplicitCpf = cpf.length > 0;
+  const queryLooksCpf = /[.-]/.test(rawQuery) && queryDigits.length === 11;
+
+  const lookupPhone = hasExplicitPhone
+    ? phone
+    : (!hasExplicitCpf && queryDigits.length >= 8 ? queryDigits : "");
+  const lookupCpf = hasExplicitCpf
+    ? cpf
+    : (!hasExplicitPhone && queryLooksCpf ? queryDigits : "");
   const raffleId = String(req.query.raffleId || "").trim();
 
   if (lookupPhone.length < 8 && lookupCpf.length !== 11) {
@@ -343,9 +352,11 @@ router.get("/raffles/reservations/lookup", async (req, res) => {
     ? sql`SELECT rr2.client_email FROM raffle_reservations rr2 WHERE rr2.client_document LIKE ${cpfLike} AND rr2.raffle_id = ${raffleId}`
     : sql`SELECT rr2.client_email FROM raffle_reservations rr2 WHERE rr2.client_document LIKE ${cpfLike}`;
 
+  const normalizedPhoneExpr = sql`REPLACE(REPLACE(REPLACE(REPLACE(client_phone,' ',''),'-',''),'(',''),')','')`;
+
   if (lookupPhone.length >= 8 && lookupCpf.length === 11) {
     whereClause = sql`(
-      REPLACE(REPLACE(REPLACE(REPLACE(client_phone,' ',''),'-',''),'(',''),')','') LIKE ${"%" + lookupPhone + "%"}
+      ${normalizedPhoneExpr} LIKE ${"%" + lookupPhone}
       OR client_document LIKE ${cpfLike}
       OR client_email IN (${cpfByEmailSubquery})
     )`;
@@ -355,7 +366,7 @@ router.get("/raffles/reservations/lookup", async (req, res) => {
       OR client_email IN (${cpfByEmailSubquery})
     )`;
   } else {
-    whereClause = sql`REPLACE(REPLACE(REPLACE(REPLACE(client_phone,' ',''),'-',''),'(',''),')','') LIKE ${"%" + lookupPhone + "%"}`;
+    whereClause = sql`${normalizedPhoneExpr} LIKE ${"%" + lookupPhone}`;
   }
 
   // Match reservation where phone/CPF contains the typed digits.
@@ -914,6 +925,58 @@ router.post("/webhook/raffle-pix", async (req, res) => {
 
   const confirmed = status ? isPaymentConfirmed(status) : false;
   if (confirmed && reservation.status !== "paid") {
+    const now = new Date();
+    const reservationNumbers = parseNumbers(reservation.numbers);
+    const reservationExpired = reservation.status === "expired" || (reservation.status === "reserved" && reservation.expiresAt < now);
+
+    // Safety check: never mark as paid if those numbers are already assigned to another active/paid reservation.
+    const competingRows = reservationNumbers.length > 0
+      ? await db
+        .select({
+          id: raffleReservationsTable.id,
+          numbers: raffleReservationsTable.numbers,
+          status: raffleReservationsTable.status,
+          expiresAt: raffleReservationsTable.expiresAt,
+        })
+        .from(raffleReservationsTable)
+        .where(and(
+          eq(raffleReservationsTable.raffleId, reservation.raffleId),
+          inArray(raffleReservationsTable.status, ["reserved", "paid"]),
+        ))
+      : [];
+
+    const conflict = competingRows.find((row) => {
+      if (row.id === reservation.id) return false;
+      const rowExpired = row.status === "reserved" && row.expiresAt < now;
+      if (rowExpired) return false;
+      const rowNumbers = parseNumbers(row.numbers);
+      return rowNumbers.some((n) => reservationNumbers.includes(n));
+    });
+
+    if (reservationExpired || conflict) {
+      await db
+        .update(raffleReservationsTable)
+        .set({ status: "expired", updatedAt: new Date() })
+        .where(eq(raffleReservationsTable.id, reservation.id));
+
+      console.log("[RaffleWebhook] Ignored late/conflicting payment", JSON.stringify({
+        reservationId: reservation.id,
+        transactionId,
+        status,
+        reason: conflict ? "NUMBER_ALREADY_ASSIGNED" : "RESERVATION_EXPIRED",
+        conflictReservationId: conflict?.id,
+      }));
+
+      res.json({
+        ok: true,
+        confirmed: false,
+        ignored: true,
+        reason: conflict ? "NUMBER_ALREADY_ASSIGNED" : "RESERVATION_EXPIRED",
+        reservationId: reservation.id,
+      });
+      return;
+    }
+
     await db
       .update(raffleReservationsTable)
       .set({ status: "paid", updatedAt: new Date() })
