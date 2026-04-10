@@ -157,7 +157,7 @@ export default function RaffleConsulta() {
 
         {results && results.length > 0 && (
           <div className="space-y-4">
-            {results.map((r) => {
+            {results.filter (r => !r.isExpired).map((r) => {
               const reservationExpired = r.status === "expired" || r.isExpired;
               const canRefresh = r.status === "reserved" && !reservationExpired;
               const pixExpired = r.isPixExpired || !r.pixCode;
@@ -265,4 +265,5 @@ export default function RaffleConsulta() {
     </AppLayout>
   );
 }
+
 
