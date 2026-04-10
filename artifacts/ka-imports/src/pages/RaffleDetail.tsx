@@ -160,6 +160,7 @@ export default function RaffleDetail() {
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [refreshingPix, setRefreshingPix] = useState<string | null>(null);
   const [pendingCpf, setPendingCpf] = useState<Record<string, string>>({});
+  const visibleLookupResults = (lookupResults ?? []).filter((r) => r.status !== "expired" && !r.isExpired);
 
   useEffect(() => {
     if (!raffleId) return;
@@ -437,9 +438,9 @@ export default function RaffleDetail() {
             <p className="text-sm text-muted-foreground">{lookupError}</p>
           )}
 
-          {lookupResults && lookupResults.length > 0 && (
+          {lookupResults && visibleLookupResults.length > 0 && (
             <div className="space-y-3 pt-1">
-              {lookupResults.map((r) => {
+              {visibleLookupResults.map((r) => {
                 const statusLabel =
                   r.status === "paid"
                     ? "Pago ✅"
@@ -533,6 +534,10 @@ export default function RaffleDetail() {
                 );
               })}
             </div>
+          )}
+
+          {lookupResults && visibleLookupResults.length === 0 && !lookupError && (
+            <p className="text-sm text-muted-foreground">Nenhuma reserva ativa encontrada para este telefone/CPF.</p>
           )}
         </div>
 
