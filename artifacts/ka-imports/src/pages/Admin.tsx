@@ -4997,6 +4997,7 @@ function SellerAnalyticsCard({ seller, orders, charges }: { seller: SavedSellerI
   const linkRevenue     = paidCharges.reduce((s, c) => s + Number(c.amount), 0);
   const totalRevenue    = pixRevenue + cardRevenue + linkRevenue;
   const totalPaid       = pixPaid.length + cardPaid.length + paidCharges.length;
+  const commission      = totalRevenue * 0.05; // 5% comissão
 
   const generatedRevenue = generatedOrders.reduce((s, o) => s + Number(o.total), 0)
     + generatedCharges.reduce((s, c) => s + Number(c.amount), 0);
@@ -5047,6 +5048,12 @@ function SellerAnalyticsCard({ seller, orders, charges }: { seller: SavedSellerI
           <p className="text-xl font-bold text-blue-700">{formatCurrency(generatedRevenue)}</p>
           <p className="text-xs text-blue-600 mt-0.5">{generatedOrders.length + generatedCharges.length} pedidos</p>
         </div>
+      </div>
+
+      {/* Commission */}
+      <div className="bg-amber-50 rounded-xl px-4 py-3 border border-amber-200">
+        <p className="text-[10px] text-amber-600 font-semibold uppercase tracking-wide mb-0.5">Comissão (5%)</p>
+        <p className="text-xl font-bold text-amber-700">{formatCurrency(commission)}</p>
       </div>
 
       {/* Stats grid */}
