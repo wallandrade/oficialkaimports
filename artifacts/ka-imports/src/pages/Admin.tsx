@@ -5784,7 +5784,11 @@ function ProductsPanel({
   const fileRef = useRef<HTMLInputElement>(null);
   const [expandedLinks, setExpandedLinks] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
+  const [productSearch, setProductSearch] = useState("");
   const siteOrigin = window.location.origin;
+
+  const normalizedProductSearch = productSearch.trim().toLowerCase();
+  const visibleProducts = products.filter((p) => p.name.toLowerCase().includes(normalizedProductSearch));
 
   const copyLink = (link: string, key: string) => {
     navigator.clipboard.writeText(link).then(() => {
@@ -5835,9 +5839,22 @@ function ProductsPanel({
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-bold flex items-center gap-2"><ShoppingBag className="w-5 h-5 text-primary" />Catálogo de Produtos</h2>
-          <p className="text-sm text-muted-foreground mt-0.5">{products.length} produto{products.length !== 1 ? "s" : ""} cadastrado{products.length !== 1 ? "s" : ""}</p>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {visibleProducts.length} de {products.length} produto{products.length !== 1 ? "s" : ""}
+          </p>
         </div>
         <Button onClick={openCreate} className="gap-2"><Plus className="w-4 h-4" />Novo Produto</Button>
+      </div>
+
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <input
+          type="text"
+          value={productSearch}
+          onChange={(e) => setProductSearch(e.target.value)}
+          placeholder="Pesquisar produto por nome..."
+          className="w-full h-11 pl-10 pr-4 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+        />
       </div>
 
       {/* Product form modal */}
@@ -5987,9 +6004,15 @@ function ProductsPanel({
           <p className="text-sm text-muted-foreground mb-6">Clique em "Novo Produto" para começar.</p>
           <Button onClick={openCreate} className="gap-2"><Plus className="w-4 h-4" />Novo Produto</Button>
         </div>
+      ) : visibleProducts.length === 0 ? (
+        <div className="text-center py-16 bg-muted/30 rounded-2xl border border-dashed">
+          <Search className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+          <p className="font-semibold text-lg">Nenhum produto encontrado</p>
+          <p className="text-sm text-muted-foreground mb-6">Tente outro nome na busca.</p>
+        </div>
       ) : (
         <div className="space-y-3">
-          {products.map((p) => {
+          {visibleProducts.map((p) => {
             const effectivePrice = (p.promoPrice && (!p.promoEndsAt || new Date() < new Date(p.promoEndsAt))) ? p.promoPrice : p.price;
             return (
               <div key={p.id} className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${!p.isActive ? "opacity-60" : ""}`}>
