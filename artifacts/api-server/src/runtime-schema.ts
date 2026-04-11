@@ -55,6 +55,10 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
     { name: "affiliate_user_id", sql: "ALTER TABLE orders ADD COLUMN affiliate_user_id VARCHAR(255) NULL" },
     { name: "affiliate_code", sql: "ALTER TABLE orders ADD COLUMN affiliate_code VARCHAR(32) NULL" },
     { name: "affiliate_credit_used", sql: "ALTER TABLE orders ADD COLUMN affiliate_credit_used DECIMAL(10,2) NULL" },
+    {
+      name: "seller_commission_rate_snapshot",
+      sql: "ALTER TABLE orders ADD COLUMN seller_commission_rate_snapshot DECIMAL(5,2) NULL",
+    },
   ];
 
   for (const definition of definitions) {
@@ -68,6 +72,44 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
       await pool.query("ALTER TABLE orders ADD UNIQUE KEY orders_guest_access_token_unique (guest_access_token)");
     } catch {
       // Ignore duplicate or unsupported index creation issues.
+    }
+  }
+}
+
+async function ensureProductsColumns(databaseName: string): Promise<void> {
+  if (!(await tableExists("products", databaseName))) return;
+
+  const definitions = [
+    {
+      name: "cost_price",
+      sql: "ALTER TABLE products ADD COLUMN cost_price DECIMAL(10,2) NOT NULL DEFAULT 0.00",
+    },
+  ];
+
+  for (const definition of definitions) {
+    if (!(await columnExists("products", definition.name, databaseName))) {
+      await pool.query(definition.sql);
+    }
+  }
+}
+
+async function ensureSellersColumns(databaseName: string): Promise<void> {
+  if (!(await tableExists("sellers", databaseName))) return;
+
+  const definitions = [
+    {
+      name: "has_commission",
+      sql: "ALTER TABLE sellers ADD COLUMN has_commission TINYINT(1) NOT NULL DEFAULT 1",
+    },
+    {
+      name: "commission_rate",
+      sql: "ALTER TABLE sellers ADD COLUMN commission_rate DECIMAL(5,2) NOT NULL DEFAULT 5.00",
+    },
+  ];
+
+  for (const definition of definitions) {
+    if (!(await columnExists("sellers", definition.name, databaseName))) {
+      await pool.query(definition.sql);
     }
   }
 }
@@ -261,6 +303,8 @@ export async function ensureRuntimeSchema(): Promise<void> {
     }
 
     await ensureOrdersColumns(databaseName);
+    await ensureProductsColumns(databaseName);
+    await ensureSellersColumns(databaseName);
     await ensureCustomerUsersTable(databaseName);
     await ensureAffiliatesTables(databaseName);
     await ensureRaffleTables(databaseName);

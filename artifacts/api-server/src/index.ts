@@ -28,11 +28,14 @@ process.on("uncaughtException", (err) => {
   // Do NOT exit — keep the server running
 });
 
-app.listen(port, "0.0.0.0", () => {
-  console.log(`Server listening on port ${port}`);
-  startReconciliationJob();
-  startRaffleExpiryJob();
-  setTimeout(() => {
-    void ensureRuntimeSchema();
-  }, 1_000);
-});
+async function bootstrap(): Promise<void> {
+  await ensureRuntimeSchema();
+
+  app.listen(port, "0.0.0.0", () => {
+    console.log(`Server listening on port ${port}`);
+    startReconciliationJob();
+    startRaffleExpiryJob();
+  });
+}
+
+void bootstrap();
