@@ -7,6 +7,7 @@ export const productsTable = mysqlTable("products", {
   category: varchar("category", { length: 255 }).notNull().default("Geral"),
   unit: varchar("unit", { length: 50 }).notNull().default("unidade"), // unidade | caixa | caneta | frasco
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
+  costPrice: decimal("cost_price", { precision: 10, scale: 2 }).notNull().default("0.00"),
   promoPrice: decimal("promo_price", { precision: 10, scale: 2 }),
   promoEndsAt: datetime("promo_ends_at", { mode: 'date' }),
   image: mediumtext("image"),          // base64 data URI or null

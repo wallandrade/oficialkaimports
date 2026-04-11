@@ -14,7 +14,12 @@ export function formatCurrency(value: number): string {
 
 export const DEFAULT_WHATSAPP = "5511917082244";
 
-export type SavedSellerItem = { slug: string; whatsapp: string };
+export type SavedSellerItem = {
+  slug: string;
+  whatsapp: string;
+  hasCommission?: boolean;
+  commissionRate?: number;
+};
 
 const _BASE = () => (import.meta.env?.BASE_URL ?? "/").replace(/\/$/, "");
 

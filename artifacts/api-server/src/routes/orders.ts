@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, ordersTable, customChargesTable } from "@workspace/db";
+import { db, ordersTable, customChargesTable, sellersTable, productsTable } from "@workspace/db";
 import { desc, and, gte, lte, eq, inArray } from "drizzle-orm";
 import crypto from "crypto";
 import { requireAdminAuth } from "./admin-auth";
@@ -58,6 +58,21 @@ router.post("/orders", async (req, res) => {
       ? affiliate.userId
       : null;
 
+    let sellerCommissionRateSnapshot = 0;
+    if (sellerCode) {
+      const slug = String(sellerCode).toLowerCase();
+      const [seller] = await db
+        .select({
+          hasCommission: sellersTable.hasCommission,
+          commissionRate: sellersTable.commissionRate,
+        })
+        .from(sellersTable)
+        .where(eq(sellersTable.slug, slug));
+      if (seller?.hasCommission) {
+        sellerCommissionRateSnapshot = Number(seller.commissionRate ?? 0);
+      }
+    }
+
     if (!client || !products || !shippingType || total == null) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Campos obrigatórios ausentes." });
       return;
@@ -65,6 +80,21 @@ router.post("/orders", async (req, res) => {
 
     const id     = crypto.randomBytes(8).toString("hex");
     const method = paymentMethod || "pix";
+
+    const productItems = Array.isArray(products) ? products : [];
+    const productIds = Array.from(new Set(productItems.map((p: { id?: string }) => String(p?.id || "")).filter(Boolean)));
+    let productCostMap = new Map<string, number>();
+    if (productIds.length > 0) {
+      const costRows = await db
+        .select({ id: productsTable.id, costPrice: productsTable.costPrice })
+        .from(productsTable)
+        .where(inArray(productsTable.id, productIds));
+      productCostMap = new Map(costRows.map((row) => [row.id, Number(row.costPrice || 0)]));
+    }
+    const orderProducts = productItems.map((p: { id: string }) => ({
+      ...p,
+      costPrice: productCostMap.get(String(p.id)) ?? 0,
+    }));
 
     await db.insert(ordersTable).values({
       id,
@@ -83,7 +113,7 @@ router.post("/orders", async (req, res) => {
       addressNeighborhood: address?.neighborhood || null,
       addressCity:         address?.city         || null,
       addressState:        address?.state        || null,
-      products,
+      products: orderProducts,
       shippingType,
       includeInsurance:  Boolean(includeInsurance),
       subtotal:          String(subtotal),
@@ -94,6 +124,7 @@ router.post("/orders", async (req, res) => {
       paymentMethod:     method,
       cardInstallments:  cardInstallments ? Number(cardInstallments) : null,
       sellerCode:        sellerCode ? String(sellerCode) : null,
+      sellerCommissionRateSnapshot: String(sellerCommissionRateSnapshot),
       couponCode:        req.body.couponCode ? String(req.body.couponCode).toUpperCase() : null,
       discountAmount:    req.body.discountAmount ? String(req.body.discountAmount) : null,
     });
@@ -119,7 +150,7 @@ router.post("/orders", async (req, res) => {
     });
 
     res.status(201).json({
-      id, client, address: address || null, products, shippingType,
+      id, client, address: address || null, products: orderProducts, shippingType,
       includeInsurance: Boolean(includeInsurance),
       subtotal, shippingCost, insuranceAmount, total,
       status:        method === "card_simulation" ? "awaiting_payment" : "pending",
@@ -618,7 +649,7 @@ function mapOrder(o: typeof ordersTable.$inferSelect) {
     addressNeighborhood: o.addressNeighborhood,
     addressCity:         o.addressCity,
     addressState:        o.addressState,
-    products:            o.products as Array<{ id: string; name: string; quantity: number; price: number }>,
+    products:            o.products as Array<{ id: string; name: string; quantity: number; price: number; costPrice?: number }>,
     shippingType:        o.shippingType,
     includeInsurance:    o.includeInsurance,
     subtotal:            Number(o.subtotal),
@@ -632,6 +663,7 @@ function mapOrder(o: typeof ordersTable.$inferSelect) {
     proofUrls,
     transactionId:       o.transactionId,
     sellerCode:             o.sellerCode,
+    sellerCommissionRateSnapshot: o.sellerCommissionRateSnapshot ? Number(o.sellerCommissionRateSnapshot) : null,
     couponCode:             o.couponCode,
     discountAmount:         o.discountAmount ? Number(o.discountAmount) : null,
     affiliateCreditUsed:    o.affiliateCreditUsed ? Number(o.affiliateCreditUsed) : null,

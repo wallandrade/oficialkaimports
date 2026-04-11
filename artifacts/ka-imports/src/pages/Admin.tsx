@@ -26,11 +26,12 @@ interface AdminOrder {
   clientDocument: string; addressCep?: string | null; addressStreet?: string | null;
   addressNumber?: string | null; addressComplement?: string | null;
   addressNeighborhood?: string | null; addressCity?: string | null; addressState?: string | null;
-  products: Array<{ id: string; name: string; quantity: number; price: number }>;
+  products: Array<{ id: string; name: string; quantity: number; price: number; costPrice?: number }>;
   shippingType: string; includeInsurance: boolean; subtotal: number; shippingCost: number;
   insuranceAmount: number; total: number; status: string; paymentMethod?: string;
   cardInstallments?: number | null; proofUrl?: string | null; proofUrls?: string[]; transactionId?: string | null;
   sellerCode?: string | null; observation?: string | null;
+  sellerCommissionRateSnapshot?: number | null;
   cardInstallmentsActual?: number | null; cardInstallmentValue?: number | null; cardTotalActual?: number | null;
   couponCode?: string | null; discountAmount?: number | null;
   paidAmount?: number | null;
@@ -56,8 +57,14 @@ interface Coupon {
 }
 interface AdminProduct {
   id: string; name: string; description: string; category: string; unit: string;
-  price: number; promoPrice: number | null; promoEndsAt: string | null;
+  price: number; costPrice: number; promoPrice: number | null; promoEndsAt: string | null;
   image: string | null; isActive: boolean; sortOrder: number; createdAt: string;
+}
+interface SavedSellerItem {
+  slug: string;
+  whatsapp: string;
+  hasCommission: boolean;
+  commissionRate: number;
 }
 interface ShippingOption {
   id: string; name: string; description: string | null; price: number;
@@ -671,7 +678,9 @@ export default function Admin() {
   // Seller links
   const [sellerInput, setSellerInput] = useState("");
   const [sellerWhatsappInput, setSellerWhatsappInput] = useState("");
-  const [sellers, setSellers] = useState<SavedSeller[]>([]);
+  const [sellerHasCommissionInput, setSellerHasCommissionInput] = useState(true);
+  const [sellerCommissionRateInput, setSellerCommissionRateInput] = useState("5");
+  const [sellers, setSellers] = useState<SavedSellerItem[]>([]);
   const [sellersLoading, setSellersLoading] = useState(false);
   const [copiedSeller, setCopiedSeller] = useState<string | null>(null);
   // Admin create charge modal
@@ -774,6 +783,7 @@ export default function Admin() {
   // Stats data fetched independently from the API
   const [statsOrdersData, setStatsOrdersData] = useState<AdminOrder[]>([]);
   const [statsChargesData, setStatsChargesData] = useState<CustomCharge[]>([]);
+  const [statsProductsData, setStatsProductsData] = useState<AdminProduct[]>([]);
   const [statsLoading, setStatsLoading] = useState(false);
   // Site settings (logo, banners)
   const [settings, setSettings]         = useState<Record<string, string>>({});
@@ -901,17 +911,20 @@ export default function Admin() {
       if (statsSeller !== "all") ordParams.set("sellerCode", statsSeller);
       const chgParams = new URLSearchParams({ dateFrom: statsDateFrom, dateTo: statsDateTo });
       if (statsSeller !== "all") chgParams.set("sellerCode", statsSeller);
-      const [ordRes, chgRes] = await Promise.all([
+      const [ordRes, chgRes, prodRes] = await Promise.all([
         fetch(`${BASE}/api/admin/orders?${ordParams}`, { headers: authHeaders() }),
         fetch(`${BASE}/api/admin/custom-charges?${chgParams}`, { headers: authHeaders() }),
+        fetch(`${BASE}/api/admin/products`, { headers: authHeaders() }),
       ]);
-      if (ordRes.status === 401) { handleUnauthorized(); return; }
-      const [ordData, chgData] = await Promise.all([
+      if (ordRes.status === 401 || chgRes.status === 401 || prodRes.status === 401) { handleUnauthorized(); return; }
+      const [ordData, chgData, prodData] = await Promise.all([
         ordRes.json() as Promise<{ orders: AdminOrder[] }>,
         chgRes.json() as Promise<{ charges: CustomCharge[] }>,
+        prodRes.json() as Promise<{ products: AdminProduct[] }>,
       ]);
       setStatsOrdersData(ordData.orders || []);
       setStatsChargesData(chgData.charges || []);
+      setStatsProductsData(prodData.products || []);
     } catch { /* silent */ }
     finally { setStatsLoading(false); }
   }, [statsDateFrom, statsDateTo, statsSeller, handleUnauthorized]);
@@ -995,28 +1008,29 @@ export default function Admin() {
   const fetchSellers = useCallback(async () => {
     setSellersLoading(true);
     try {
-      const res = await fetch(`${BASE}/api/sellers`);
-      const data = await res.json() as { sellers: SavedSeller[] };
+      const res = await fetch(`${BASE}/api/admin/sellers`, { headers: authHeaders() });
+      if (res.status === 401) { handleUnauthorized(); return; }
+      const data = await res.json() as { sellers: SavedSellerItem[] };
       let list = data.sellers || [];
 
       // One-time migration: if DB is empty but localStorage has sellers, migrate them
       if (list.length === 0) {
         try {
           const raw = localStorage.getItem("savedSellersList");
-          const localSellers: SavedSeller[] = raw ? JSON.parse(raw) : [];
+          const localSellers: Array<{ slug: string; whatsapp: string }> = raw ? JSON.parse(raw) : [];
           if (localSellers.length > 0) {
             await Promise.all(
               localSellers.map((s) =>
                 fetch(`${BASE}/api/admin/sellers`, {
                   method: "POST",
                   headers: authHeaders(),
-                  body: JSON.stringify({ slug: s.slug, whatsapp: s.whatsapp }),
+                  body: JSON.stringify({ slug: s.slug, whatsapp: s.whatsapp, hasCommission: true, commissionRate: 5 }),
                 }).catch(() => null)
               )
             );
             // Re-fetch after migration
-            const res2 = await fetch(`${BASE}/api/sellers`);
-            const data2 = await res2.json() as { sellers: SavedSeller[] };
+            const res2 = await fetch(`${BASE}/api/admin/sellers`, { headers: authHeaders() });
+            const data2 = await res2.json() as { sellers: SavedSellerItem[] };
             list = data2.sellers || [];
             localStorage.removeItem("savedSellersList");
             localStorage.removeItem("savedSellers");
@@ -1027,7 +1041,7 @@ export default function Admin() {
       setSellers(list);
     } catch { /* ignore */ }
     finally { setSellersLoading(false); setLoading(false); }
-  }, []);
+  }, [handleUnauthorized]);
 
   const fetchShippingOptions = useCallback(async () => {
     try {
@@ -1874,23 +1888,27 @@ export default function Admin() {
   // Seller links — use root domain only (no path prefix) so links work on any custom domain
   const siteOrigin = window.location.origin;
 
-  type SavedSeller = { slug: string; whatsapp: string };
-
-  const saveSeller = async (slug: string, whatsapp: string) => {
+  const saveSeller = async (slug: string, whatsapp: string, hasCommission: boolean, commissionRate: number) => {
     if (!slug.trim()) return;
     const clean = slug.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
     if (!clean) return;
-    if (sellers.find((s) => s.slug === clean)) { toast.error("Vendedor já existe."); return; }
     try {
       const res = await fetch(`${BASE}/api/admin/sellers`, {
-        method: "POST", headers: authHeaders(), body: JSON.stringify({ slug: clean, whatsapp }),
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ slug: clean, whatsapp, hasCommission, commissionRate }),
       });
       if (!res.ok) { toast.error("Erro ao salvar vendedor."); return; }
-      const data = await res.json() as { seller: SavedSeller };
-      setSellers((prev) => [...prev, data.seller]);
+      const data = await res.json() as { seller: SavedSellerItem };
+      setSellers((prev) => {
+        const exists = prev.some((s) => s.slug === data.seller.slug);
+        return exists ? prev.map((s) => (s.slug === data.seller.slug ? data.seller : s)) : [...prev, data.seller];
+      });
       setSellerInput("");
       setSellerWhatsappInput("");
-      toast.success(`Link criado: ${siteOrigin}/${clean}`);
+      setSellerHasCommissionInput(true);
+      setSellerCommissionRateInput("5");
+      toast.success(`Vendedor salvo: ${siteOrigin}/${clean}`);
     } catch { toast.error("Erro ao salvar vendedor."); }
   };
 
@@ -1949,6 +1967,40 @@ export default function Admin() {
   const statsLinkRevenue     = statsLinkPaid.reduce((s, c) => s + Number(c.amount), 0);
   const statsTotalRevenue    = statsPixRevenue + statsCardRevenue + statsLinkRevenue;
   const statsTotalPaid       = statsPixPaid.length + statsCardPaid.length + statsLinkPaid.length;
+
+  const sellerCommissionMap = new Map(
+    sellers.map((s) => [s.slug.toLowerCase(), s.hasCommission ? Number(s.commissionRate || 0) : 0] as const),
+  );
+  const getCommissionRate = (sellerCode?: string | null, snapshot?: number | null) => {
+    if (snapshot != null && !Number.isNaN(Number(snapshot))) {
+      return Number(snapshot);
+    }
+    if (!sellerCode) return 0;
+    const mapped = sellerCommissionMap.get(String(sellerCode).toLowerCase());
+    if (mapped == null) return 5;
+    return mapped;
+  };
+
+  const statsOrderCommission = statsPaidOrders.reduce((sum, order) => {
+    const rate = getCommissionRate(order.sellerCode, order.sellerCommissionRateSnapshot);
+    return sum + (Number(order.total) * rate) / 100;
+  }, 0);
+  const statsLinkCommission = statsLinkPaid.reduce((sum, charge) => {
+    const rate = getCommissionRate(charge.sellerCode);
+    return sum + (Number(charge.amount) * rate) / 100;
+  }, 0);
+  const statsTotalCommission = statsOrderCommission + statsLinkCommission;
+
+  const productCostMap = new Map(statsProductsData.map((p) => [p.id, Number(p.costPrice || 0)] as const));
+  const statsTotalCost = statsPaidOrders.reduce((sum, order) => {
+    const orderCost = (order.products || []).reduce((lineSum, item) => {
+      const qty = Number(item.quantity) || 0;
+      const lineCost = item.costPrice != null ? Number(item.costPrice) : Number(productCostMap.get(item.id) || 0);
+      return lineSum + qty * lineCost;
+    }, 0);
+    return sum + orderCost;
+  }, 0);
+  const statsNetRevenue = statsTotalRevenue - statsTotalCost - statsTotalCommission;
 
   const statsGeneratedOrders  = statsOrdersData.filter((o) => o.status !== "cancelled");
   const statsGeneratedCharges = statsChargesData.filter((c) => c.status !== "cancelled");
@@ -2086,8 +2138,8 @@ export default function Admin() {
             </div>
           </div>
 
-          {/* Row 1 — Total Pago + Total Gerado (hero cards) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+          {/* Row 1 — Total Pago + Total Gerado + Faturamento Líquido */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
             <div className="rounded-xl border bg-gradient-to-br from-emerald-50 to-emerald-100/60 border-emerald-200 p-5 flex flex-col gap-1">
               <p className="text-xs font-semibold text-emerald-600 uppercase tracking-wide">Total Pago</p>
               <p className="text-3xl font-bold text-emerald-700">{formatCurrency(statsTotalRevenue)}</p>
@@ -2104,6 +2156,15 @@ export default function Admin() {
               <div className="flex gap-4 mt-1 text-xs text-muted-foreground">
                 <span>Pendentes: <strong className="text-yellow-700">{statsPendingCount}</strong></span>
                 <span>Conversão: <strong className="text-blue-700">{statsTotalGenerated > 0 ? ((statsTotalRevenue / statsTotalGenerated) * 100).toFixed(0) : "0"}%</strong></span>
+              </div>
+            </div>
+            <div className="rounded-xl border bg-gradient-to-br from-teal-50 to-teal-100/60 border-teal-200 p-5 flex flex-col gap-1">
+              <p className="text-xs font-semibold text-teal-600 uppercase tracking-wide">Faturamento Líquido</p>
+              <p className="text-3xl font-bold text-teal-700">{formatCurrency(statsNetRevenue)}</p>
+              <p className="text-xs text-teal-700">Total pago - custo dos produtos - comissão</p>
+              <div className="flex gap-4 mt-1 text-xs text-muted-foreground">
+                <span>Custo: <strong className="text-red-700">-{formatCurrency(statsTotalCost)}</strong></span>
+                <span>Comissão: <strong className="text-amber-700">-{formatCurrency(statsTotalCommission)}</strong></span>
               </div>
             </div>
           </div>
@@ -2331,6 +2392,10 @@ export default function Admin() {
             setSellerInput={setSellerInput}
             sellerWhatsappInput={sellerWhatsappInput}
             setSellerWhatsappInput={setSellerWhatsappInput}
+            sellerHasCommissionInput={sellerHasCommissionInput}
+            setSellerHasCommissionInput={setSellerHasCommissionInput}
+            sellerCommissionRateInput={sellerCommissionRateInput}
+            setSellerCommissionRateInput={setSellerCommissionRateInput}
             saveSeller={saveSeller}
             removeSeller={removeSeller}
             copySeller={copySeller}
@@ -4967,8 +5032,6 @@ function ChargesPanel({ charges, openWhatsApp, chargeStatusUpdating, onUpdateCha
   );
 }
 
-type SavedSellerItem = { slug: string; whatsapp: string };
-
 function SellerAnalyticsCard({ seller, orders, charges }: { seller: SavedSellerItem; orders: AdminOrder[]; charges: CustomCharge[] }) {
   const [dateFrom, setDateFrom] = useState(todayStr);
   const [dateTo, setDateTo] = useState(todayStr);
@@ -4997,7 +5060,8 @@ function SellerAnalyticsCard({ seller, orders, charges }: { seller: SavedSellerI
   const linkRevenue     = paidCharges.reduce((s, c) => s + Number(c.amount), 0);
   const totalRevenue    = pixRevenue + cardRevenue + linkRevenue;
   const totalPaid       = pixPaid.length + cardPaid.length + paidCharges.length;
-  const commission      = totalRevenue * 0.05; // 5% comissão
+  const commissionRate  = seller.hasCommission ? Number(seller.commissionRate || 0) : 0;
+  const commission      = totalRevenue * (commissionRate / 100);
 
   const generatedRevenue = generatedOrders.reduce((s, o) => s + Number(o.total), 0)
     + generatedCharges.reduce((s, c) => s + Number(c.amount), 0);
@@ -5052,7 +5116,9 @@ function SellerAnalyticsCard({ seller, orders, charges }: { seller: SavedSellerI
 
       {/* Commission */}
       <div className="bg-amber-50 rounded-xl px-4 py-3 border border-amber-200">
-        <p className="text-[10px] text-amber-600 font-semibold uppercase tracking-wide mb-0.5">Comissão (5%)</p>
+        <p className="text-[10px] text-amber-600 font-semibold uppercase tracking-wide mb-0.5">
+          {commissionRate > 0 ? `Comissão (${commissionRate.toFixed(2)}%)` : "Comissão (sem comissão)"}
+        </p>
         <p className="text-xl font-bold text-amber-700">{formatCurrency(commission)}</p>
       </div>
 
@@ -5083,12 +5149,14 @@ function SellerAnalyticsCard({ seller, orders, charges }: { seller: SavedSellerI
   );
 }
 
-function SellersPanel({ siteOrigin, savedSellersList, sellerInput, setSellerInput, sellerWhatsappInput, setSellerWhatsappInput, saveSeller, removeSeller, copySeller, copiedSeller, orders, charges, isPrimary, currentUsername }: {
+function SellersPanel({ siteOrigin, savedSellersList, sellerInput, setSellerInput, sellerWhatsappInput, setSellerWhatsappInput, sellerHasCommissionInput, setSellerHasCommissionInput, sellerCommissionRateInput, setSellerCommissionRateInput, saveSeller, removeSeller, copySeller, copiedSeller, orders, charges, isPrimary, currentUsername }: {
   siteOrigin: string;
   savedSellersList: SavedSellerItem[];
   sellerInput: string; setSellerInput: (v: string) => void;
   sellerWhatsappInput: string; setSellerWhatsappInput: (v: string) => void;
-  saveSeller: (s: string, w: string) => void; removeSeller: (s: string) => void;
+  sellerHasCommissionInput: boolean; setSellerHasCommissionInput: (v: boolean) => void;
+  sellerCommissionRateInput: string; setSellerCommissionRateInput: (v: string) => void;
+  saveSeller: (s: string, w: string, hasCommission: boolean, commissionRate: number) => void; removeSeller: (s: string) => void;
   copySeller: (s: string) => void; copiedSeller: string | null;
   orders: AdminOrder[]; charges: CustomCharge[];
   isPrimary: boolean; currentUsername: string;
@@ -5110,7 +5178,7 @@ function SellersPanel({ siteOrigin, savedSellersList, sellerInput, setSellerInpu
   // Build full list: registered sellers first, then any from orders not yet registered
   const allSellers: SavedSellerItem[] = allSlugs.map((slug) => {
     const found = savedSellersList.find((s) => s.slug === slug);
-    return found ?? { slug, whatsapp: "" };
+    return found ?? { slug, whatsapp: "", hasCommission: true, commissionRate: 5 };
   });
 
   // For non-primary users, only show their own seller entry.
@@ -5156,16 +5224,44 @@ function SellersPanel({ siteOrigin, savedSellersList, sellerInput, setSellerInpu
                 className="flex-1 h-11 px-4 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
                 inputMode="tel"
               />
-              <Button onClick={() => saveSeller(sellerInput, sellerWhatsappInput)} className="gap-2 shrink-0" disabled={!sellerInput.trim()}>
+              <Button
+                onClick={() => saveSeller(sellerInput, sellerWhatsappInput, sellerHasCommissionInput, Number(sellerCommissionRateInput || 0))}
+                className="gap-2 shrink-0"
+                disabled={!sellerInput.trim() || (sellerHasCommissionInput && Number(sellerCommissionRateInput || 0) < 0)}
+              >
                 <Plus className="w-4 h-4" />Criar Link
               </Button>
+            </div>
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-muted/20 px-3 py-2">
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Tem comissão</label>
+              <button
+                type="button"
+                onClick={() => setSellerHasCommissionInput(!sellerHasCommissionInput)}
+                className="text-muted-foreground hover:text-primary transition-colors"
+              >
+                {sellerHasCommissionInput ? <ToggleRight className="w-7 h-7 text-primary" /> : <ToggleLeft className="w-7 h-7" />}
+              </button>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-muted-foreground">Percentual</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={sellerCommissionRateInput}
+                  onChange={(e) => setSellerCommissionRateInput(e.target.value)}
+                  disabled={!sellerHasCommissionInput}
+                  className="h-8 w-24 px-2 rounded-lg border border-border bg-white text-sm outline-none focus:border-primary disabled:bg-muted/50"
+                />
+                <span className="text-xs text-muted-foreground">%</span>
+              </div>
+              <p className="text-xs text-muted-foreground">Desative para dono/sem comissão.</p>
             </div>
           </div>
         )}
 
         {visibleSellers.length > 0 ? (
           <div className="space-y-2">
-            {visibleSellers.map(({ slug, whatsapp }) => {
+            {visibleSellers.map(({ slug, whatsapp, hasCommission, commissionRate }) => {
               const storeUrl      = `${siteOrigin}/${slug}`;
               const paymentUrl    = `${siteOrigin}/pagamento?seller=${slug}`;
               return (
@@ -5178,6 +5274,9 @@ function SellersPanel({ siteOrigin, savedSellersList, sellerInput, setSellerInpu
                     <p className="text-xs font-mono text-muted-foreground truncate">{storeUrl}</p>
                     <p className="text-xs font-mono text-violet-600 truncate">{paymentUrl}</p>
                     {whatsapp && <p className="text-xs text-green-600">WA: +{whatsapp}</p>}
+                    <p className="text-xs text-amber-700">
+                      Comissão: {hasCommission ? `${Number(commissionRate || 0).toFixed(2)}%` : "sem comissão"}
+                    </p>
                   </div>
                   <div className="flex gap-1.5 shrink-0">
                     <Button size="sm" variant="outline" className="gap-1 h-7 text-xs" onClick={() => copySeller(slug)} title="Copiar link da loja">
@@ -5830,7 +5929,7 @@ function ProductsPanel({
   };
 
   const openCreate = () => {
-    setProductForm({ unit: "unidade", isActive: true, sortOrder: 0 });
+    setProductForm({ unit: "unidade", isActive: true, sortOrder: 0, costPrice: 0 });
     setProductFormOpen(true);
   };
 
@@ -5914,6 +6013,20 @@ function ProductsPanel({
                         value={productForm.price}
                         onChange={(n) => setProductForm({ ...productForm, price: n })}
                         placeholder="1.150,00"
+                        className={`${inp2} pl-9`}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Promo price */}
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1 block">Preço de Custo (R$)</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-semibold select-none">R$</span>
+                      <PriceInput
+                        value={productForm.costPrice}
+                        onChange={(n) => setProductForm({ ...productForm, costPrice: n ?? 0 })}
+                        placeholder="700,00"
                         className={`${inp2} pl-9`}
                       />
                     </div>
@@ -6039,6 +6152,7 @@ function ProductsPanel({
                       <span className="font-bold text-sm truncate">{p.name}</span>
                       <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground capitalize">{p.unit}</span>
                       <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">{p.category}</span>
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">Custo: {formatCurrency(Number(p.costPrice || 0))}</span>
                       {!p.isActive && <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700">Inativo</span>}
                     </div>
                     {p.description && <p className="text-xs text-muted-foreground truncate">{p.description}</p>}

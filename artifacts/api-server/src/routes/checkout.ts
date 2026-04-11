@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { db, ordersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, ordersTable, sellersTable, productsTable } from "@workspace/db";
+import { eq, inArray } from "drizzle-orm";
 import crypto from "crypto";
 import { broadcastNotification } from "./notifications";
 import { incrementCouponUse } from "./coupons";
@@ -76,6 +76,21 @@ router.post("/checkout/pix", async (req, res) => {
       ? affiliate.userId
       : null;
 
+    let sellerCommissionRateSnapshot = 0;
+    if (sellerCode) {
+      const slug = String(sellerCode).toLowerCase();
+      const [seller] = await db
+        .select({
+          hasCommission: sellersTable.hasCommission,
+          commissionRate: sellersTable.commissionRate,
+        })
+        .from(sellersTable)
+        .where(eq(sellersTable.slug, slug));
+      if (seller?.hasCommission) {
+        sellerCommissionRateSnapshot = Number(seller.commissionRate ?? 0);
+      }
+    }
+
     // ── Validate client fields ────────────────────────────────────────────
     if (!client?.name || !client?.email || !client?.phone || !client?.document) {
       console.warn(`[CHECKOUT/PIX:${requestId}] Validation failed — missing client fields:`, {
@@ -102,6 +117,21 @@ router.post("/checkout/pix", async (req, res) => {
     // ── Create the order record ───────────────────────────────────────────
     const orderId = crypto.randomBytes(8).toString("hex");
 
+    const productItems = Array.isArray(products) ? products : [];
+    const productIds = Array.from(new Set(productItems.map((p) => String(p?.id || "")).filter(Boolean)));
+    let productCostMap = new Map<string, number>();
+    if (productIds.length > 0) {
+      const costRows = await db
+        .select({ id: productsTable.id, costPrice: productsTable.costPrice })
+        .from(productsTable)
+        .where(inArray(productsTable.id, productIds));
+      productCostMap = new Map(costRows.map((row) => [row.id, Number(row.costPrice || 0)]));
+    }
+    const orderProducts = productItems.map((p) => ({
+      ...p,
+      costPrice: productCostMap.get(String(p.id)) ?? 0,
+    }));
+
     await db.insert(ordersTable).values({
       id:                  orderId,
       userId:              customerSession?.userId ?? null,
@@ -119,7 +149,7 @@ router.post("/checkout/pix", async (req, res) => {
       addressNeighborhood: address?.neighborhood || null,
       addressCity:         address?.city         || null,
       addressState:        address?.state        || null,
-      products:            products ?? [],
+      products:            orderProducts,
       shippingType:        shippingType || "Frete",
       includeInsurance:    Boolean(includeInsurance),
       subtotal:            String(subtotal ?? amount),
@@ -129,6 +159,7 @@ router.post("/checkout/pix", async (req, res) => {
       status:              "pending",
       paymentMethod:       "pix",
       sellerCode:          sellerCode ? String(sellerCode) : null,
+      sellerCommissionRateSnapshot: String(sellerCommissionRateSnapshot),
       couponCode:          couponCode  ? String(couponCode).toUpperCase() : null,
       discountAmount:      discountAmount ? String(discountAmount) : null,
     });

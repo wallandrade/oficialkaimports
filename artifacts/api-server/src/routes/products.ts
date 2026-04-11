@@ -17,9 +17,9 @@ function resolvePrice(p: typeof productsTable.$inferSelect) {
   return { price: Number(p.price), promoPrice: Number(p.promoPrice) };
 }
 
-function mapProduct(p: typeof productsTable.$inferSelect) {
+function mapProduct(p: typeof productsTable.$inferSelect, includeCostPrice = false) {
   const { price, promoPrice } = resolvePrice(p);
-  return {
+  const product = {
     id:          p.id,
     name:        p.name,
     description: p.description ?? "",
@@ -33,6 +33,10 @@ function mapProduct(p: typeof productsTable.$inferSelect) {
     sortOrder:   p.sortOrder,
     createdAt:   p.createdAt.toISOString(),
   };
+  if (includeCostPrice) {
+    return { ...product, costPrice: Number(p.costPrice ?? 0) };
+  }
+  return product;
 }
 
 // ─── Public ──────────────────────────────────────────────────────────────────
@@ -49,7 +53,7 @@ router.get("/products", async (_req, res) => {
       .where(eq(productsTable.isActive, true))
       .orderBy(asc(productsTable.sortOrder), asc(productsTable.createdAt));
 
-    const products   = rows.map(mapProduct);
+    const products   = rows.map((row) => mapProduct(row));
     const categories = [...new Set(products.map((p) => p.category))];
     res.json({ products, categories });
   } catch (err) {
@@ -67,7 +71,7 @@ router.get("/admin/products", requireAdminAuth, async (_req, res) => {
       .select()
       .from(productsTable)
       .orderBy(asc(productsTable.sortOrder), asc(productsTable.createdAt));
-    res.json({ products: rows.map(mapProduct) });
+    res.json({ products: rows.map((row) => mapProduct(row, true)) });
   } catch (err) {
     console.error("Admin products error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR" });
@@ -79,10 +83,10 @@ router.post("/admin/products", requireAdminAuth, async (req, res) => {
   try {
     const {
       name, description, category, unit, price,
-      promoPrice, promoEndsAt, image, isActive, sortOrder,
+      costPrice, promoPrice, promoEndsAt, image, isActive, sortOrder,
     } = req.body as {
       name: string; description?: string; category: string; unit: string;
-      price: number; promoPrice?: number | null; promoEndsAt?: string | null;
+      price: number; costPrice?: number | null; promoPrice?: number | null; promoEndsAt?: string | null;
       image?: string | null; isActive?: boolean; sortOrder?: number;
     };
 
@@ -99,6 +103,7 @@ router.post("/admin/products", requireAdminAuth, async (req, res) => {
       category:    category.trim(),
       unit:        unit || "unidade",
       price:       String(price),
+      costPrice:   String(Number(costPrice ?? 0)),
       promoPrice:  promoPrice ? String(promoPrice) : null,
       promoEndsAt: promoEndsAt ? new Date(promoEndsAt) : null,
       image:       image || null,
@@ -107,7 +112,7 @@ router.post("/admin/products", requireAdminAuth, async (req, res) => {
     });
 
     const [created] = await db.select().from(productsTable).where(eq(productsTable.id, id));
-    res.status(201).json(mapProduct(created!));
+    res.status(201).json(mapProduct(created!, true));
   } catch (err) {
     console.error("Create product error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR" });
@@ -120,10 +125,10 @@ router.patch("/admin/products/:id", requireAdminAuth, async (req, res) => {
     const { id } = req.params;
     const {
       name, description, category, unit, price,
-      promoPrice, promoEndsAt, image, isActive, sortOrder,
+      costPrice, promoPrice, promoEndsAt, image, isActive, sortOrder,
     } = req.body as Partial<{
       name: string; description: string | null; category: string; unit: string;
-      price: number; promoPrice: number | null; promoEndsAt: string | null;
+      price: number; costPrice: number | null; promoPrice: number | null; promoEndsAt: string | null;
       image: string | null; isActive: boolean; sortOrder: number;
     }>;
 
@@ -133,6 +138,7 @@ router.patch("/admin/products/:id", requireAdminAuth, async (req, res) => {
     if (category   !== undefined) updates.category    = category?.trim();
     if (unit       !== undefined) updates.unit        = unit;
     if (price      !== undefined) updates.price       = String(price);
+    if (costPrice  !== undefined) updates.costPrice   = String(Number(costPrice ?? 0));
     if (promoPrice !== undefined) updates.promoPrice  = promoPrice ? String(promoPrice) : null;
     if (promoEndsAt !== undefined) updates.promoEndsAt = promoEndsAt ? new Date(promoEndsAt) : null;
     if (image      !== undefined) updates.image       = image || null;
@@ -143,7 +149,7 @@ router.patch("/admin/products/:id", requireAdminAuth, async (req, res) => {
 
     const [updated] = await db.select().from(productsTable).where(eq(productsTable.id, id));
     if (!updated) { res.status(404).json({ error: "NOT_FOUND" }); return; }
-    res.json(mapProduct(updated));
+    res.json(mapProduct(updated, true));
   } catch (err) {
     console.error("Update product error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR" });

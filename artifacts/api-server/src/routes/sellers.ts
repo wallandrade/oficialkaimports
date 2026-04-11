@@ -33,21 +33,67 @@ router.get("/sellers/:slug", async (req, res) => {
   }
 });
 
+/** GET /api/admin/sellers — admin only, returns full seller settings */
+router.get("/admin/sellers", requireAdminAuth, async (_req, res) => {
+  try {
+    const rows = await db.select({
+      slug: sellersTable.slug,
+      whatsapp: sellersTable.whatsapp,
+      hasCommission: sellersTable.hasCommission,
+      commissionRate: sellersTable.commissionRate,
+    }).from(sellersTable);
+    res.json({
+      sellers: rows.map((s) => ({
+        ...s,
+        commissionRate: Number(s.commissionRate ?? 0),
+      })),
+    });
+  } catch {
+    res.status(500).json({ error: "INTERNAL_ERROR" });
+  }
+});
+
 /** POST /api/admin/sellers — admin only, upsert seller */
 router.post("/admin/sellers", requireAdminAuth, async (req, res) => {
   try {
-    const { slug, whatsapp } = req.body as { slug?: string; whatsapp?: string };
+    const { slug, whatsapp, hasCommission, commissionRate } = req.body as {
+      slug?: string;
+      whatsapp?: string;
+      hasCommission?: boolean;
+      commissionRate?: number;
+    };
     if (!slug?.trim()) { res.status(400).json({ error: "MISSING_SLUG" }); return; }
     const clean = slug.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
     if (!clean) { res.status(400).json({ error: "INVALID_SLUG" }); return; }
     const wNum = (whatsapp || "").replace(/\D/g, "");
+    const hasCommissionValue = hasCommission !== false;
+    const normalizedRate = hasCommissionValue ? Math.max(0, Number(commissionRate ?? 5)) : 0;
     await db
       .insert(sellersTable)
-      .values({ slug: clean, whatsapp: wNum, updatedAt: new Date() })
+      .values({
+        slug: clean,
+        whatsapp: wNum,
+        hasCommission: hasCommissionValue,
+        commissionRate: String(normalizedRate),
+        updatedAt: new Date(),
+      })
       .onDuplicateKeyUpdate({
-        set: { whatsapp: wNum, updatedAt: new Date() },
+        set: {
+          whatsapp: wNum,
+          hasCommission: hasCommissionValue,
+          commissionRate: String(normalizedRate),
+          updatedAt: new Date(),
+        },
       });
-    res.json({ ok: true, seller: { slug: clean, whatsapp: wNum } });
+    res.json({
+      ok: true,
+      seller: {
+        slug: clean,
+        whatsapp: wNum,
+        hasCommission: hasCommissionValue,
+        commissionRate: normalizedRate,
+      },
+    });
   } catch (err) {
     console.error("[Sellers] POST error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR" });
