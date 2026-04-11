@@ -1955,6 +1955,27 @@ export default function Admin() {
   const statsTotalGenerated   = statsGeneratedOrders.reduce((s, o) => s + Number(o.total), 0)
     + statsGeneratedCharges.reduce((s, c) => s + Number(c.amount), 0);
 
+  const statsTopProductsMap = new Map<string, { name: string; quantity: number; revenue: number }>();
+  for (const order of statsPaidOrders) {
+    for (const product of order.products || []) {
+      const key = String(product.name || "").trim().toLowerCase();
+      if (!key) continue;
+      const current = statsTopProductsMap.get(key);
+      const qty = Number(product.quantity) || 0;
+      const unitPrice = Number(product.price) || 0;
+      const lineRevenue = qty * unitPrice;
+      if (current) {
+        current.quantity += qty;
+        current.revenue += lineRevenue;
+      } else {
+        statsTopProductsMap.set(key, { name: product.name, quantity: qty, revenue: lineRevenue });
+      }
+    }
+  }
+  const statsTopProducts = Array.from(statsTopProductsMap.values())
+    .sort((a, b) => b.quantity - a.quantity)
+    .slice(0, 5);
+
   // All registered sellers for dropdowns — use sellers state (always loaded on mount)
   const allSellers = sellers.map((s) => s.slug);
 
@@ -2127,6 +2148,30 @@ export default function Admin() {
               </p>
               <p className="text-xs text-yellow-600 mt-1">pedidos pendentes</p>
             </div>
+          </div>
+
+          <div className="mt-3 rounded-xl border p-4 bg-indigo-50 border-indigo-200">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wide">Produtos mais vendidos</p>
+              <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full font-semibold">TOP</span>
+            </div>
+            {statsTopProducts.length === 0 ? (
+              <p className="text-sm text-indigo-700/80">Sem produtos vendidos no período selecionado.</p>
+            ) : (
+              <div className="space-y-2">
+                {statsTopProducts.map((product, idx) => (
+                  <div key={`${product.name}-${idx}`} className="flex items-center justify-between rounded-lg bg-white/70 border border-indigo-100 px-3 py-2">
+                    <div className="min-w-0 pr-2">
+                      <p className="text-sm font-medium text-indigo-900 truncate">{idx + 1}. {product.name}</p>
+                      <p className="text-xs text-indigo-700/80">Faturamento: {formatCurrency(product.revenue)}</p>
+                    </div>
+                    <div className="text-xs font-semibold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-full whitespace-nowrap">
+                      {product.quantity} un
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
