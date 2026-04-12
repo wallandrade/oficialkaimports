@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { formatCurrency, formatDateBR, formatDateOnlyBR, formatTimeBR } from "@/lib/utils";
