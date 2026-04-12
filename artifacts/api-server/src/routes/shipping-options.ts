@@ -96,7 +96,8 @@ router.post("/admin/shipping-options", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.patch("/admin/shipping-options/:id", requireAdminAuth, async (req, res) => {
   try {
-    const { id } = req.params;
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
     const { name, description, price, sortOrder, isActive } = req.body as {
       name?: string;
       description?: string;
@@ -143,7 +144,8 @@ router.patch("/admin/shipping-options/:id", requireAdminAuth, async (req, res) =
 // ---------------------------------------------------------------------------
 router.delete("/admin/shipping-options/:id", requireAdminAuth, async (req, res) => {
   try {
-    const { id } = req.params;
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
     await db.delete(shippingOptionsTable).where(eq(shippingOptionsTable.id, id));
     res.json({ ok: true });
   } catch (err) {
