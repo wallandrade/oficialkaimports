@@ -1956,6 +1956,31 @@ export default function Admin() {
   const chargeRevenue   = charges.filter((c) => c.status === "paid").reduce((s, c) => s + Number(c.amount), 0);
 
   // ── Dashboard stats — uses independently fetched data (own API call) ─────
+
+  // Financial summary (gateway fees/liquido real)
+  const [financialSummary, setFinancialSummary] = React.useState<null | {
+    totalRevenue: number;
+    totalGatewayFees: number;
+    totalWithdrawFees: number;
+    netRevenue: number;
+    realNetRevenue: number;
+  }>(null);
+  const [financialSummaryLoading, setFinancialSummaryLoading] = React.useState(false);
+  const fetchFinancialSummary = React.useCallback(async () => {
+    setFinancialSummaryLoading(true);
+    try {
+      const params = new URLSearchParams({ dateFrom: statsDateFrom, dateTo: statsDateTo });
+      if (statsSeller !== "all") params.set("sellerCode", statsSeller);
+      const res = await fetch(`${BASE}/api/admin/financial-summary?${params}`, { headers: authHeaders() });
+      if (res.ok) {
+        setFinancialSummary(await res.json());
+      }
+    } catch {}
+    setFinancialSummaryLoading(false);
+  }, [statsDateFrom, statsDateTo, statsSeller]);
+
+  // Atualizar junto com stats
+  React.useEffect(() => { if (authChecked) fetchFinancialSummary(); }, [authChecked, statsDateFrom, statsDateTo, statsSeller, fetchFinancialSummary]);
   const statsPaidOrders    = statsOrdersData.filter((o) => o.status === "paid" || o.status === "completed");
   const statsPixPaid       = statsPaidOrders.filter((o) => o.paymentMethod === "pix");
   const statsCardPaid      = statsPaidOrders.filter((o) => o.paymentMethod === "card_simulation");
@@ -2166,6 +2191,30 @@ export default function Admin() {
                 <span>Custo: <strong className="text-red-700">-{formatCurrency(statsTotalCost)}</strong></span>
                 <span>Comissão: <strong className="text-amber-700">-{formatCurrency(statsTotalCommission)}</strong></span>
               </div>
+            </div>
+          </div>
+
+          {/* Row 1.5 — Gateway Fees/Líquido Real */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+            <div className="rounded-xl border bg-gradient-to-br from-pink-50 to-pink-100/60 border-pink-200 p-5 flex flex-col gap-1 col-span-1 sm:col-span-3">
+              <p className="text-xs font-semibold text-pink-600 uppercase tracking-wide mb-1 flex items-center gap-2">
+                Líquido Real após taxas do gateway
+                {financialSummaryLoading && <span className="ml-2"><Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" /></span>}
+              </p>
+              {financialSummary ? (
+                <>
+                  <div className="flex flex-wrap gap-6 items-center mb-1">
+                    <span className="text-2xl sm:text-3xl font-bold text-pink-700">{formatCurrency(financialSummary.realNetRevenue)}</span>
+                    <span className="text-xs text-pink-700 bg-pink-100 px-2 py-0.5 rounded-full font-semibold">Líquido real</span>
+                  </div>
+                  <div className="flex flex-wrap gap-6 text-xs text-muted-foreground">
+                    <span>Taxas do gateway: <strong className="text-pink-700">-{formatCurrency(financialSummary.totalGatewayFees)}</strong></span>
+                    <span>Taxas de saque: <strong className="text-pink-700">-{formatCurrency(financialSummary.totalWithdrawFees)}</strong></span>
+                  </div>
+                </>
+              ) : (
+                <span className="text-xs text-muted-foreground">Carregando resumo financeiro...</span>
+              )}
             </div>
           </div>
 
@@ -6358,6 +6407,87 @@ function ConfiguracoesPanel({ settings, loading, onSave, onDelete }: {
             onSave={onSave}
             onDelete={onDelete}
           />
+        </div>
+      </div>
+
+      {/* ── Taxas do Gateway ─────────────────────────────────────────────── */}
+      <div className="max-w-2xl">
+        <h2 className="text-lg font-bold mb-1 flex items-center gap-2">
+          <DollarSign className="w-5 h-5 text-primary" />
+          Taxas do Gateway de Pagamento
+        </h2>
+        <p className="text-muted-foreground text-sm mb-5">
+          Configure as taxas cobradas pelo gateway de pagamento para cálculo do líquido real no dashboard.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-medium mb-1">Taxa percentual por transação (%)</label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={settings["gateway_fee_percent"] ?? ""}
+              onChange={e => onSave("gateway_fee_percent", e.target.value)}
+              placeholder="Ex: 1.5"
+              className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm"
+              disabled={!!loading["gateway_fee_percent"]}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">Taxa fixa por transação (R$)</label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={settings["gateway_fee_fixed"] ?? ""}
+              onChange={e => onSave("gateway_fee_fixed", e.target.value)}
+              placeholder="Ex: 0.45"
+              className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm"
+              disabled={!!loading["gateway_fee_fixed"]}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">Taxa mínima por transação (R$)</label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={settings["gateway_fee_min"] ?? ""}
+              onChange={e => onSave("gateway_fee_min", e.target.value)}
+              placeholder="Ex: 0.99"
+              className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm"
+              disabled={!!loading["gateway_fee_min"]}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">Taxa percentual por saque (%)</label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={settings["gateway_withdraw_percent"] ?? ""}
+              onChange={e => onSave("gateway_withdraw_percent", e.target.value)}
+              placeholder="Ex: 1.5"
+              className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm"
+              disabled={!!loading["gateway_withdraw_percent"]}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">Taxa fixa por saque (R$)</label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={settings["gateway_withdraw_fixed"] ?? ""}
+              onChange={e => onSave("gateway_withdraw_fixed", e.target.value)}
+              placeholder="Ex: 0.45"
+              className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm"
+              disabled={!!loading["gateway_withdraw_fixed"]}
+            />
+          </div>
+        </div>
+        <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-xs text-blue-800 mt-4">
+          <p>Essas taxas serão usadas para calcular o valor líquido real no dashboard, descontando custos do gateway de pagamento.</p>
         </div>
       </div>
 
