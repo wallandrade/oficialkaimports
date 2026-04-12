@@ -32,7 +32,8 @@ router.get("/kyc/check-cpf/:cpf", async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get("/kyc/:orderId", async (req, res) => {
   try {
-    const { orderId } = req.params;
+    let orderId = req.params.orderId;
+    if (Array.isArray(orderId)) orderId = orderId[0];
 
     const orderRows = await db
       .select({
@@ -251,7 +252,8 @@ router.get("/admin/kyc", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get("/admin/kyc/:orderId", requireAdminAuth, async (req, res) => {
   try {
-    const { orderId } = req.params;
+    let orderId = req.params.orderId;
+    if (Array.isArray(orderId)) orderId = orderId[0];
     const rows = await db
       .select()
       .from(kycDocumentsTable)
@@ -270,7 +272,8 @@ router.get("/admin/kyc/:orderId", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.patch("/admin/kyc/:orderId/status", requireAdminAuth, async (req, res) => {
   try {
-    const { orderId } = req.params;
+    let orderId = req.params.orderId;
+    if (Array.isArray(orderId)) orderId = orderId[0];
     const { action } = req.body as { action: "approve" | "reject" };
 
     if (!["approve", "reject"].includes(action)) {

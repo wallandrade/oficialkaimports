@@ -5,8 +5,19 @@ import { requireAdminAuth } from "./admin-auth";
 
 const router: IRouter = Router();
 
-const PUBLIC_KEYS  = ["logo", "banner_desktop", "banner_mobile", "site_name", "site_protected", "payment_protected"];
-const ALLOWED_KEYS = [...PUBLIC_KEYS, "site_password", "payment_password"];
+const PUBLIC_KEYS  = [
+  "logo", "banner_desktop", "banner_mobile", "site_name", "site_protected", "payment_protected"
+];
+const ALLOWED_KEYS = [
+  ...PUBLIC_KEYS,
+  "site_password", "payment_password",
+  // Taxas do gateway permitidas
+  "gateway_fee_percent",
+  "gateway_fee_fixed",
+  "gateway_fee_min",
+  "gateway_withdraw_percent",
+  "gateway_withdraw_fixed"
+];
 
 /** GET /api/settings — public, returns only safe display keys */
 router.get("/settings", async (_req, res) => {

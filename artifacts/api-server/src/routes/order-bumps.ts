@@ -125,7 +125,8 @@ router.post("/admin/order-bumps", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.patch("/admin/order-bumps/:id", requireAdminAuth, async (req, res) => {
   try {
-    const id = String(req.params.id);
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
     const body = req.body as {
       productId?: string;
       title?: string;

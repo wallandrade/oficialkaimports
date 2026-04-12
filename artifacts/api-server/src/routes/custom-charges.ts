@@ -357,7 +357,8 @@ router.get("/admin/custom-charges/export", requireAdminAuth, async (req, res) =>
 // ---------------------------------------------------------------------------
 router.patch("/admin/custom-charges/:id/status", requireAdminAuth, async (req, res) => {
   try {
-    const { id } = req.params;
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
     const { status } = req.body as { status: string };
 
     const allowed = ["paid", "cancelled", "awaiting_payment", "pending"];
@@ -418,7 +419,8 @@ router.patch("/admin/custom-charges/:id/status", requireAdminAuth, async (req, r
 // ---------------------------------------------------------------------------
 router.patch("/admin/custom-charges/:id/proof", requireAdminAuth, async (req, res) => {
   try {
-    const { id } = req.params;
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
     const { proofData } = req.body as { proofData: string };
 
     if (!proofData || !proofData.startsWith("data:")) {
@@ -460,7 +462,8 @@ router.patch("/admin/custom-charges/:id/proof", requireAdminAuth, async (req, re
 // ---------------------------------------------------------------------------
 router.patch("/admin/custom-charges/:id/observation", requireAdminAuth, async (req, res) => {
   try {
-    const { id } = req.params;
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
     const { observation } = req.body as { observation?: string };
     await db
       .update(customChargesTable)

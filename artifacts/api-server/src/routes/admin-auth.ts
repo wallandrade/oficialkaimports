@@ -241,6 +241,8 @@ router.post("/admin/users", requirePrimaryAdmin, async (req, res) => {
 // --------------------------------------------------------------------------
 router.patch("/admin/users/:id/access", requirePrimaryAdmin, async (req, res) => {
   const { id } = req.params;
+  // Garante que id é string
+  const userId = Array.isArray(id) ? id[0] : id;
   const { fullAccess } = req.body as { fullAccess?: boolean };
 
   if (typeof fullAccess !== "boolean") {
@@ -252,7 +254,7 @@ router.patch("/admin/users/:id/access", requirePrimaryAdmin, async (req, res) =>
     const existing = await db
       .select()
       .from(adminUsersTable)
-      .where(eq(adminUsersTable.id, id))
+      .where(eq(adminUsersTable.id, userId))
       .limit(1);
 
     if (!existing[0]) {
@@ -275,7 +277,7 @@ router.patch("/admin/users/:id/access", requirePrimaryAdmin, async (req, res) =>
     await db
       .update(adminUsersTable)
       .set({ isPrimary: fullAccess })
-      .where(eq(adminUsersTable.id, id));
+      .where(eq(adminUsersTable.id, userId));
 
     res.json({ ok: true, id, isPrimary: fullAccess });
   } catch (err) {
@@ -289,6 +291,7 @@ router.patch("/admin/users/:id/access", requirePrimaryAdmin, async (req, res) =>
 // --------------------------------------------------------------------------
 router.patch("/admin/users/:id/password", requireAdminAuth, async (req, res) => {
   const { id }       = req.params;
+  const userId = Array.isArray(id) ? id[0] : id;
   const { password } = req.body as { password?: string };
   const session      = getSessionInfo(req);
 
@@ -301,7 +304,7 @@ router.patch("/admin/users/:id/password", requireAdminAuth, async (req, res) => 
     const existing = await db
       .select()
       .from(adminUsersTable)
-      .where(eq(adminUsersTable.id, id))
+      .where(eq(adminUsersTable.id, userId))
       .limit(1);
 
     if (!existing[0]) {
@@ -319,7 +322,7 @@ router.patch("/admin/users/:id/password", requireAdminAuth, async (req, res) => 
     await db
       .update(adminUsersTable)
       .set({ passwordHash: hashPassword(password, salt), salt })
-      .where(eq(adminUsersTable.id, id));
+      .where(eq(adminUsersTable.id, userId));
 
     res.json({ ok: true });
   } catch (err) {
@@ -333,12 +336,13 @@ router.patch("/admin/users/:id/password", requireAdminAuth, async (req, res) => 
 // --------------------------------------------------------------------------
 router.delete("/admin/users/:id", requirePrimaryAdmin, async (req, res) => {
   const { id } = req.params;
+  const userId = Array.isArray(id) ? id[0] : id;
 
   try {
     const existing = await db
       .select()
       .from(adminUsersTable)
-      .where(eq(adminUsersTable.id, id))
+      .where(eq(adminUsersTable.id, userId))
       .limit(1);
 
     if (!existing[0]) {
@@ -351,7 +355,7 @@ router.delete("/admin/users/:id", requirePrimaryAdmin, async (req, res) => {
       return;
     }
 
-    await db.delete(adminUsersTable).where(eq(adminUsersTable.id, id));
+    await db.delete(adminUsersTable).where(eq(adminUsersTable.id, userId));
     res.json({ ok: true });
   } catch (err) {
     console.error("[AdminAuth] delete user error:", err);

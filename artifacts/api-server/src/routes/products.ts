@@ -122,15 +122,16 @@ router.post("/admin/products", requireAdminAuth, async (req, res) => {
 /** PATCH /api/admin/products/:id */
 router.patch("/admin/products/:id", requireAdminAuth, async (req, res) => {
   try {
-    const { id } = req.params;
-    const {
-      name, description, category, unit, price,
-      costPrice, promoPrice, promoEndsAt, image, isActive, sortOrder,
-    } = req.body as Partial<{
-      name: string; description: string | null; category: string; unit: string;
-      price: number; costPrice: number | null; promoPrice: number | null; promoEndsAt: string | null;
-      image: string | null; isActive: boolean; sortOrder: number;
-    }>;
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
+      const {
+        name, description, category, unit, price,
+        costPrice, promoPrice, promoEndsAt, image, isActive, sortOrder,
+      } = req.body as Partial<{
+        name: string; description: string | null; category: string; unit: string;
+        price: number; costPrice: number | null; promoPrice: number | null; promoEndsAt: string | null;
+        image: string | null; isActive: boolean; sortOrder: number;
+      }>;
 
     const updates: Partial<typeof productsTable.$inferInsert> = { updatedAt: new Date() };
     if (name       !== undefined) updates.name        = name?.trim();
@@ -159,7 +160,9 @@ router.patch("/admin/products/:id", requireAdminAuth, async (req, res) => {
 /** DELETE /api/admin/products/:id */
 router.delete("/admin/products/:id", requireAdminAuth, async (req, res) => {
   try {
-    await db.delete(productsTable).where(eq(productsTable.id, req.params.id));
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
+    await db.delete(productsTable).where(eq(productsTable.id, id));
     res.json({ ok: true });
   } catch (err) {
     console.error("Delete product error:", err);

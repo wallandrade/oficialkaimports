@@ -202,11 +202,14 @@ router.get("/me/orders/:id", requireCustomerAuth, async (req, res) => {
       return;
     }
 
-    const { id } = req.params;
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
+    let orderId = id;
+    if (Array.isArray(orderId)) orderId = orderId[0];
     const rows = await db
       .select()
       .from(ordersTable)
-      .where(and(eq(ordersTable.id, id), eq(ordersTable.userId, customerSession.userId)))
+      .where(and(eq(ordersTable.id, orderId), eq(ordersTable.userId, customerSession.userId)))
       .limit(1);
 
     if (!rows[0]) {
@@ -297,7 +300,8 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.patch("/admin/orders/:id/status", requireAdminAuth, async (req, res) => {
   try {
-    const { id } = req.params;
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
     const { status, cardInstallmentsActual, cardInstallmentValue, cardTotalActual } = req.body as {
       status: string;
       cardInstallmentsActual?: number;
@@ -358,7 +362,8 @@ router.patch("/admin/orders/:id/status", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.patch("/admin/orders/:id/observation", requireAdminAuth, async (req, res) => {
   try {
-    const { id } = req.params;
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
     const { observation } = req.body as { observation?: string };
     await db.update(ordersTable)
       .set({ observation: observation?.trim() || null, updatedAt: new Date() })
@@ -375,7 +380,8 @@ router.patch("/admin/orders/:id/observation", requireAdminAuth, async (req, res)
 // ---------------------------------------------------------------------------
 router.patch("/admin/orders/:id/proof", requireAdminAuth, async (req, res) => {
   try {
-    const { id }        = req.params;
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
     const { proofData } = req.body as { proofData: string };
 
     if (!proofData) {
@@ -420,7 +426,8 @@ router.patch("/admin/orders/:id/proof", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
   try {
-    const { id } = req.params;
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
     const { products: newProducts, subtotal, total } = req.body as {
       products: Array<{ id: string; name: string; quantity: number; price: number }>;
       subtotal: number;
@@ -479,7 +486,8 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.post("/admin/orders/:id/difference-charge", requireAdminAuth, async (req, res) => {
   try {
-    const { id } = req.params;
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
     const { amount, description } = req.body as { amount: number; description?: string };
 
     if (!amount || amount <= 0) {

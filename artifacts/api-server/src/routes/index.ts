@@ -19,6 +19,7 @@ import trackingRouter from "./tracking";
 import customerAuthRouter from "./customer-auth";
 import affiliateRouter from "./affiliate";
 import rafflesRouter from "./raffles";
+import financialSummaryRouter from "./financial-summary";
 
 const router: IRouter = Router();
 
@@ -38,6 +39,7 @@ router.use(orderBumpsRouter);
 router.use(checkoutRouter);
 router.use(kycRouter);
 router.use(socialProofRouter);
+router.use(financialSummaryRouter);
 router.use(trackingRouter);
 router.use(customerAuthRouter);
 router.use(affiliateRouter);

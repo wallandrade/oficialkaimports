@@ -132,7 +132,8 @@ router.post("/admin/coupons", requireAdminAuth, requirePrimaryAdmin, async (req,
 // ---------------------------------------------------------------------------
 router.patch("/admin/coupons/:id", requireAdminAuth, requirePrimaryAdmin, async (req, res) => {
   try {
-    const { id }       = req.params;
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
     const { isActive } = req.body as { isActive: boolean };
 
     await db.update(couponsTable)
@@ -151,7 +152,8 @@ router.patch("/admin/coupons/:id", requireAdminAuth, requirePrimaryAdmin, async 
 // ---------------------------------------------------------------------------
 router.delete("/admin/coupons/:id", requireAdminAuth, requirePrimaryAdmin, async (req, res) => {
   try {
-    const { id } = req.params;
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
     await db.delete(couponsTable).where(eq(couponsTable.id, id));
     res.json({ ok: true });
   } catch (err) {
