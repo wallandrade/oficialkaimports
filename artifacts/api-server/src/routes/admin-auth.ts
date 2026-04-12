@@ -1,19 +1,18 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import crypto from "crypto";
-import { db, adminUsersTable } from "@workspace/db";
+import { db, adminUsersTable, adminSessionsTable } from "@workspace/db";
+import { lt } from "drizzle-orm";
 import { eq } from "drizzle-orm";
 
 const router: IRouter = Router();
 const TOKEN_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 
-// In-memory session store: token -> { expiresAt, username, isPrimary }
-const sessions = new Map<string, { expiresAt: number; username: string; isPrimary: boolean }>();
-
-function purgeExpired() {
-  const now = Date.now();
-  for (const [token, s] of sessions) {
-    if (s.expiresAt < now) sessions.delete(token);
-  }
+// Utilitário para limpar sessões expiradas do banco
+async function purgeExpiredSessions() {
+  const now = new Date();
+  await db.delete(adminSessionsTable).where(
+    lt(adminSessionsTable.expiresAt, now)
+  );
 }
 
 // --------------------------------------------------------------------------
@@ -68,7 +67,7 @@ seedFromEnvIfEmpty().catch(console.error);
 // --------------------------------------------------------------------------
 // Middleware
 // --------------------------------------------------------------------------
-export function requireAdminAuth(req: Request, res: Response, next: NextFunction): void {
+export async function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
   const tokenFromQuery = (req.query as Record<string, string>)["token"];
   if (tokenFromQuery && !req.headers.authorization) {
     req.headers.authorization = `Bearer ${tokenFromQuery}`;
@@ -76,16 +75,23 @@ export function requireAdminAuth(req: Request, res: Response, next: NextFunction
 
   const auth  = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  purgeExpired();
+  await purgeExpiredSessions();
 
-  if (!token || !sessions.has(token)) {
+  if (!token) {
     res.status(401).json({ error: "UNAUTHORIZED", message: "Acesso não autorizado." });
     return;
   }
+  const session = await db.select().from(adminSessionsTable).where(adminSessionsTable.token.eq(token)).limit(1);
+  if (!session[0]) {
+    res.status(401).json({ error: "UNAUTHORIZED", message: "Acesso não autorizado." });
+    return;
+  }
+  // Anexa info da sessão para downstream
+  (req as any).adminSession = session[0];
   next();
 }
 
-export function requirePrimaryAdmin(req: Request, res: Response, next: NextFunction): void {
+export async function requirePrimaryAdmin(req: Request, res: Response, next: NextFunction) {
   const tokenFromQuery = (req.query as Record<string, string>)["token"];
   if (tokenFromQuery && !req.headers.authorization) {
     req.headers.authorization = `Bearer ${tokenFromQuery}`;
@@ -93,20 +99,27 @@ export function requirePrimaryAdmin(req: Request, res: Response, next: NextFunct
 
   const auth  = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  purgeExpired();
+  await purgeExpiredSessions();
 
-  const session = token ? sessions.get(token) : undefined;
-  if (!session || !session.isPrimary) {
+  if (!token) {
+    res.status(401).json({ error: "UNAUTHORIZED", message: "Acesso não autorizado." });
+    return;
+  }
+  const session = await db.select().from(adminSessionsTable).where(adminSessionsTable.token.eq(token)).limit(1);
+  if (!session[0] || !session[0].isPrimary) {
     res.status(403).json({ error: "FORBIDDEN", message: "Apenas o administrador principal pode realizar esta ação." });
     return;
   }
+  (req as any).adminSession = session[0];
   next();
 }
 
-export function getSessionInfo(req: Request) {
+export async function getSessionInfo(req: Request) {
   const auth  = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  return sessions.get(token);
+  if (!token) return undefined;
+  const session = await db.select().from(adminSessionsTable).where(adminSessionsTable.token.eq(token)).limit(1);
+  return session[0];
 }
 
 // --------------------------------------------------------------------------
@@ -147,33 +160,41 @@ router.post("/admin/login", async (req, res) => {
       return;
     }
 
-    purgeExpired();
+    await purgeExpiredSessions();
     const token = crypto.randomBytes(32).toString("hex");
-    sessions.set(token, { expiresAt: Date.now() + TOKEN_TTL_MS, username: user.username, isPrimary: user.isPrimary });
-
+    const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
+    await db.insert(adminSessionsTable).values({
+      token,
+      username: user.username,
+      isPrimary: user.isPrimary ? 1 : 0,
+      expiresAt,
+      createdAt: new Date(),
+    });
     res.json({ token, expiresIn: TOKEN_TTL_MS / 1000, isPrimary: user.isPrimary, username: user.username });
   } catch (err) {
-    console.error("[AdminAuth] login error:", err);
-    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao autenticar." });
+    console.error("[AdminAuth] login error:", err, JSON.stringify(err, Object.getOwnPropertyNames(err)));
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao autenticar.", details: String(err) });
   }
 });
 
 // --------------------------------------------------------------------------
 // POST /api/admin/logout
 // --------------------------------------------------------------------------
-router.post("/admin/logout", (req, res) => {
+router.post("/admin/logout", async (req, res) => {
   const auth  = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  if (token) sessions.delete(token);
+  if (token) {
+    await db.delete(adminSessionsTable).where(adminSessionsTable.token.eq(token));
+  }
   res.json({ ok: true });
 });
 
 // --------------------------------------------------------------------------
 // GET /api/admin/verify
 // --------------------------------------------------------------------------
-router.get("/admin/verify", requireAdminAuth, (req, res) => {
-  const session = getSessionInfo(req);
-  res.json({ ok: true, isPrimary: session?.isPrimary ?? false, username: session?.username ?? "" });
+router.get("/admin/verify", requireAdminAuth, async (req, res) => {
+  const session = (req as any).adminSession;
+  res.json({ ok: true, isPrimary: !!session?.isPrimary, username: session?.username ?? "" });
 });
 
 // --------------------------------------------------------------------------
