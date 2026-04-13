@@ -1,3 +1,10 @@
+// Utilitário para formatar datas no padrão brasileiro (dd/MM/yyyy)
+function formatDateBR(date: string | Date | undefined | null): string {
+  if (!date) return "";
+  const d = typeof date === "string" ? new Date(date) : date;
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("pt-BR");
+}
 // Funções utilitárias para recuperar dados do localStorage
 function getIsPrimary() {
   return localStorage.getItem("adminIsPrimary") === "true";
@@ -2740,7 +2747,7 @@ export default function Admin() {
                     className="flex-shrink-0"
                   >
                     {spSettings?.enabled
-                      ? <ToggleRight className="w-10 h-10 text-green-500 cursor-pointer hover:text-green-600 transition-colors" />
+                      ? <IconLucide name="ToggleRight" className="w-10 h-10 text-green-500 cursor-pointer hover:text-green-600 transition-colors" />
                       : <ToggleLeft className="w-10 h-10 text-muted-foreground cursor-pointer hover:text-foreground transition-colors" />
                     }
                   </button>
@@ -2863,7 +2870,7 @@ export default function Admin() {
                         </div>
                         <button onClick={() => spSettings && saveSpSettings({ showRealSales: !spSettings.showRealSales })} disabled={spSettingsSaving}>
                           {spSettings?.showRealSales
-                            ? <ToggleRight className="w-8 h-8 text-green-500 cursor-pointer" />
+                            ? <IconLucide name="ToggleRight" className="w-8 h-8 text-green-500 cursor-pointer" />
                             : <ToggleLeft className="w-8 h-8 text-muted-foreground cursor-pointer" />
                           }
                         </button>
@@ -2894,7 +2901,7 @@ export default function Admin() {
                         </div>
                         <button onClick={() => spSettings && saveSpSettings({ showFakeCards: !spSettings.showFakeCards })} disabled={spSettingsSaving}>
                           {spSettings?.showFakeCards
-                            ? <ToggleRight className="w-8 h-8 text-green-500 cursor-pointer" />
+                            ? <IconLucide name="ToggleRight" className="w-8 h-8 text-green-500 cursor-pointer" />
                             : <ToggleLeft className="w-8 h-8 text-muted-foreground cursor-pointer" />
                           }
                         </button>
@@ -2910,7 +2917,7 @@ export default function Admin() {
                         </div>
                         <button onClick={() => spSettings && saveSpSettings({ autoGenerate: !spSettings.autoGenerate })} disabled={spSettingsSaving}>
                           {spSettings?.autoGenerate
-                            ? <ToggleRight className="w-8 h-8 text-green-500 cursor-pointer" />
+                            ? <IconLucide name="ToggleRight" className="w-8 h-8 text-green-500 cursor-pointer" />
                             : <ToggleLeft className="w-8 h-8 text-muted-foreground cursor-pointer" />
                           }
                         </button>
@@ -5140,7 +5147,7 @@ function SellersPanel({ siteOrigin, savedSellersList, sellerInput, setSellerInpu
                 onClick={() => setSellerHasCommissionInput(!sellerHasCommissionInput)}
                 className="text-muted-foreground hover:text-primary transition-colors"
               >
-                {sellerHasCommissionInput ? <ToggleRight className="w-7 h-7 text-primary" /> : <ToggleLeft className="w-7 h-7" />}
+                {sellerHasCommissionInput ? <IconLucide name="ToggleRight" className="w-7 h-7 text-primary" /> : <ToggleLeft className="w-7 h-7" />}
               </button>
               <div className="flex items-center gap-2">
                 <label className="text-xs text-muted-foreground">Percentual</label>
@@ -5385,7 +5392,7 @@ function UsersPanel({
             }`}
           >
             {newFullAccess
-              ? <ToggleRight className="w-5 h-5 shrink-0" />
+              ? <IconLucide name="ToggleRight" className="w-5 h-5 shrink-0" />
               : <ToggleLeft className="w-5 h-5 shrink-0" />}
             <div>
               <p className="font-semibold text-sm text-foreground">Acesso Total</p>
@@ -5443,7 +5450,7 @@ function UsersPanel({
                 {userAccessUpdating === u.id
                   ? <Loader2 className="w-5 h-5 animate-spin" />
                   : u.isPrimary
-                    ? <ToggleRight className="w-6 h-6 text-primary" />
+                    ? <IconLucide name="ToggleRight" className="w-6 h-6 text-primary" />
                     : <ToggleLeft className="w-6 h-6" />}
               </button>
               {/* Delete */}
@@ -5687,7 +5694,7 @@ function CouponsPanel({
                         className="text-muted-foreground hover:text-primary transition-colors"
                       >
                         {c.isActive
-                          ? <ToggleRight className="w-6 h-6 text-primary" />
+                          ? <IconLucide name="ToggleRight" className="w-6 h-6 text-primary" />
                           : <ToggleLeft className="w-6 h-6" />}
                       </button>
                       <button
@@ -5970,7 +5977,7 @@ function ProductsPanel({
                   <div className="flex items-center gap-3 self-end pb-1">
                     <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Ativo</label>
                     <button type="button" onClick={() => setProductForm({ ...productForm, isActive: !productForm.isActive })} className="text-muted-foreground hover:text-primary transition-colors">
-                      {productForm.isActive !== false ? <ToggleRight className="w-7 h-7 text-primary" /> : <ToggleLeft className="w-7 h-7" />}
+                      {productForm.isActive !== false ? <IconLucide name="ToggleRight" className="w-7 h-7 text-primary" /> : <ToggleLeft className="w-7 h-7" />}
                     </button>
                   </div>
                 </div>
@@ -6082,7 +6089,7 @@ function ProductsPanel({
                       <LinkIcon className="w-4 h-4" />
                     </button>
                     <button type="button" onClick={() => onToggle(p.id, !p.isActive)} title={p.isActive ? "Desativar" : "Ativar"} className="text-muted-foreground hover:text-primary transition-colors">
-                      {p.isActive ? <ToggleRight className="w-6 h-6 text-primary" /> : <ToggleLeft className="w-6 h-6" />}
+                      {p.isActive ? <IconLucide name="ToggleRight" className="w-6 h-6 text-primary" /> : <ToggleLeft className="w-6 h-6" />}
                     </button>
                     <button type="button" onClick={() => openEdit(p)} className="text-muted-foreground hover:text-primary transition-colors p-1">
                       <Info className="w-4 h-4" />
@@ -6573,7 +6580,7 @@ function FretePanel({ options, form, setForm, creating, deleting, editing, setEd
                         className="text-muted-foreground hover:text-primary transition-colors p-1.5"
                         title={opt.isActive ? "Desativar" : "Ativar"}
                       >
-                        {opt.isActive ? <ToggleRight className="w-5 h-5 text-green-600" /> : <ToggleLeft className="w-5 h-5" />}
+                        {opt.isActive ? <IconLucide name="ToggleRight" className="w-5 h-5 text-green-600" /> : <ToggleLeft className="w-5 h-5" />}
                       </button>
                       <button onClick={() => startEdit(opt)} className="text-muted-foreground hover:text-primary transition-colors p-1.5" title="Editar">
                         <Pencil className="w-4 h-4" />
