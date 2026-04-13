@@ -2051,8 +2051,8 @@ export default function Admin() {
               </p>
               <p className="text-xs text-teal-700">Total pago - custo dos produtos - comissão - taxas do gateway - taxas de saque</p>
               <div className="flex gap-4 mt-1 text-xs text-muted-foreground flex-wrap">
-                <span>Custo: <strong className="text-red-700">-{formatCurrency(Number(statsTotalCost) || 0)}</strong></span>
-                <span>Comissão: <strong className="text-amber-700">-{formatCurrency(Number(statsTotalCommission) || 0)}</strong></span>
+                <span>Custo: <strong className="text-red-700">-{formatCurrency(Number(financialSummary?.totalCost) || 0)}</strong></span>
+                <span>Comissão: <strong className="text-amber-700">-{formatCurrency(Number(financialSummary?.totalCommission) || 0)}</strong></span>
                 {financialSummary && (
                   <>
                     <span>Taxas do gateway: <strong className="text-pink-700">-{formatCurrency(Number(financialSummary.totalGatewayFees) || 0)}</strong></span>

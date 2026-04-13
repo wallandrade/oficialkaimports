@@ -44,16 +44,38 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
       totalGatewayFees += fee;
     }
 
+    // Cálculo do custo total dos produtos
+    let totalCost = 0;
+    for (const order of orders) {
+      const products = Array.isArray(order.products) ? order.products : [];
+      for (const item of products) {
+        const qty = Number(item.quantity) || 0;
+        const cost = Number(item.costPrice) || 0;
+        totalCost += qty * cost;
+      }
+    }
+
+    // Cálculo da comissão total
+    let totalCommission = 0;
+    for (const order of orders) {
+      const amount = parseFloat(order.total || "0");
+      const rate = Number(order.sellerCommissionRateSnapshot) || 0;
+      totalCommission += amount * (rate / 100);
+    }
+
     // TODO: calcular taxas de saque se houver tabela de saques
-    // Exemplo:
-    // const withdraws = ...
-    // for (const w of withdraws) { ... }
+    let totalWithdrawFees = 0; // implementar se necessário
+
+    const totalPaid = orders.reduce((sum, o) => sum + parseFloat(o.total || "0"), 0);
+    const realNetRevenue = totalPaid - totalCost - totalCommission - totalGatewayFees - totalWithdrawFees;
 
     res.json({
-      totalPaid: orders.reduce((sum, o) => sum + parseFloat(o.total || "0"), 0),
+      totalPaid,
       totalGatewayFees,
-      // totalWithdrawFees: ...
-      // netAmount: ...
+      totalWithdrawFees,
+      totalCost,
+      totalCommission,
+      realNetRevenue,
       fees,
       ordersCount: orders.length,
     });
