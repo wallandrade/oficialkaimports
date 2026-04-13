@@ -57,7 +57,9 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
       for (const item of products) {
         const qty = Number(item.quantity) || 0;
         const cost = Number(item.costPrice) || 0;
-        totalCost += qty * cost;
+        const subtotal = qty * cost;
+        console.log(`[CUSTO] Pedido: ${order.id} | Produto: ${item.name || item.id} | Qtd: ${qty} | Custo: ${cost} | Subtotal: ${subtotal}`);
+        totalCost += subtotal;
       }
     }
 
