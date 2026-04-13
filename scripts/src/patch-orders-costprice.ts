@@ -1,4 +1,4 @@
-import { db, ordersTable, productsTable } from "@workspace/db";
+import { db, ordersTable, productsTable } from "../../lib/db/src/index";
 import { inArray } from "drizzle-orm";
 
 async function patchOrdersCostPrice() {
