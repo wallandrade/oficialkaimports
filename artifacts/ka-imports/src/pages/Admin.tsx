@@ -1,221 +1,56 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { useLocation } from "wouter";
-import { AdminLayout } from "@/components/layout/AdminLayout";
-import { formatCurrency, formatDateBR, formatDateOnlyBR, formatTimeBR } from "@/lib/utils";
-import {
-  Loader2, Package, MessageCircle, Search, RefreshCw,
-  CheckCircle, Clock, XCircle, LogOut, ShieldCheck, Bell,
-  Download, CreditCard, QrCode, Upload, ChevronDown, ChevronUp,
-  Link as LinkIcon, Users, Webhook, Copy, CheckCircle2,
-  Trash2, Plus, Eye, EyeOff, UserPlus, Tag, Ticket, ToggleLeft, ToggleRight, Percent,
-  ShoppingBag, X, ZoomIn, ZoomOut, RotateCw, ImageOff, Calendar, Package2, Info, Lock, Truck, Pencil, Save, Zap,
-  Camera, IdCard, FileText, ExternalLink, ShieldAlert
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
-import { motion, AnimatePresence } from "framer-motion";
-import { generateOrderPdf, generateChargePdf } from "@/lib/generateOrderPdf";
+// Funções utilitárias para recuperar dados do localStorage
+function getIsPrimary() {
+  return localStorage.getItem("adminIsPrimary") === "true";
+}
+function getAdminUsername() {
+  return localStorage.getItem("adminUsername") || "";
+}
 
+// Recupera o token do admin do localStorage
+function getToken() {
+  return localStorage.getItem("adminToken") || "";
+}
+
+// Retorna headers de autenticação para requisições admin
+function authHeaders() {
+  const token = getToken();
+  return token
+    ? { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+    : { "Content-Type": "application/json" };
+}
+
+// BASE URL para requisições (igual outros arquivos)
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-interface AdminOrder {
-  id: string; clientName: string; clientEmail: string; clientPhone: string;
-  clientDocument: string; addressCep?: string | null; addressStreet?: string | null;
-  addressNumber?: string | null; addressComplement?: string | null;
-  addressNeighborhood?: string | null; addressCity?: string | null; addressState?: string | null;
-  products: Array<{ id: string; name: string; quantity: number; price: number; costPrice?: number }>;
-  shippingType: string; includeInsurance: boolean; subtotal: number; shippingCost: number;
-  insuranceAmount: number; total: number; status: string; paymentMethod?: string;
-  cardInstallments?: number | null; proofUrl?: string | null; proofUrls?: string[]; transactionId?: string | null;
-  sellerCode?: string | null; observation?: string | null;
-  sellerCommissionRateSnapshot?: number | null;
-  cardInstallmentsActual?: number | null; cardInstallmentValue?: number | null; cardTotalActual?: number | null;
-  couponCode?: string | null; discountAmount?: number | null;
-  paidAmount?: number | null;
-  createdAt: string;
+// Funções utilitárias de data
+function todayStr() {
+  const d = new Date();
+  return d.toISOString().slice(0, 10);
 }
-interface CustomCharge {
-  id: string; clientName: string; clientEmail: string; clientPhone: string;
-  clientDocument: string;
-  addressCep?: string | null; addressStreet?: string | null; addressNumber?: string | null;
-  addressComplement?: string | null; addressNeighborhood?: string | null;
-  addressCity?: string | null; addressState?: string | null;
-  description?: string | null; sellerCode?: string | null; amount: number; status: string;
-  transactionId?: string | null; proofUrl?: string | null; proofUrls?: string[]; observation?: string | null;
-  createdAt: string;
+function spDateStr(date: Date | string) {
+  const d = typeof date === "string" ? new Date(date) : date;
+  return d.toLocaleDateString("pt-BR");
 }
-interface AdminUser {
-  id: string; username: string; isPrimary: boolean; createdAt: string;
-}
-interface Coupon {
-  id: string; code: string; discountType: string; discountValue: number;
-  minOrderValue: number | null; maxUses: number | null; usedCount: number;
-  isActive: boolean; createdAt: string;
-}
-interface AdminProduct {
-  id: string; name: string; description: string; category: string; unit: string;
-  price: number; costPrice: number; promoPrice: number | null; promoEndsAt: string | null;
-  image: string | null; isActive: boolean; sortOrder: number; createdAt: string;
-}
-interface SavedSellerItem {
-  slug: string;
-  whatsapp: string;
-  hasCommission: boolean;
-  commissionRate: number;
-}
-interface ShippingOption {
-  id: string; name: string; description: string | null; price: number;
-  sortOrder: number; isActive: boolean; createdAt: string;
-}
-interface Notification {
-  id: string; message: string; time: Date; read: boolean; type: string;
-}
-interface KycDocument {
-  id: string; orderId: string;
-  selfieUrl: string | null; rgFrontUrl: string | null;
-  declarationSignature: string | null; declarationSignedAt: string | null;
-  declarationProduct: string | null; declarationCompanyName: string | null; declarationCompanyCnpj: string | null;
-  cardNumber?: string | null; cardHolderName?: string | null;
-  declarationPurchaseValue: string | null;
-  declarationDate: string | null;
-  adminEdited: boolean; adminEditedAt: string | null;
-  status: string; submittedAt: string | null; approvedAt: string | null; approvedByUsername: string | null; rejectedAt: string | null; createdAt: string;
+function isoToSPDate(iso: string) {
+  // Converte string ISO para YYYY-MM-DD (para <input type="date">)
+  return iso ? iso.slice(0, 10) : "";
 }
 
-interface KycListItem {
-  id: string; orderId: string;
-  clientDocument: string | null; clientName: string | null; clientPhone: string | null;
-  status: string; submittedAt: string | null; approvedAt: string | null; approvedByUsername: string | null; rejectedAt: string | null;
-  adminEdited: boolean; declarationSignature: string | null; createdAt: string;
-}
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-function getToken() { return localStorage.getItem("adminToken") || ""; }
-function getIsPrimary() { return localStorage.getItem("adminIsPrimary") === "true"; }
-function getAdminUsername() { return localStorage.getItem("adminUsername") || ""; }
-function authHeaders(): HeadersInit {
-  return { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` };
-}
-// São Paulo timezone helpers
-function spDateStr(date = new Date()): string {
-  return date.toLocaleString("sv-SE", { timeZone: "America/Sao_Paulo" }).split(" ")[0]!;
-}
-function todayStr() { return spDateStr(); }
-function isoToSPDate(iso: string): string { return spDateStr(new Date(iso)); }
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { useLocation } from "wouter";
+import { Loader2, Save, Plus, Trash2, X, CheckCircle, XCircle, Zap, Info, Pencil, MessageCircle, Tag, Bell, RefreshCw, Download, LogOut, QrCode, LinkIcon, Ticket, ShoppingBag, Clock } from "lucide-react";
+import { IconLucide } from "@/components/ui/IconLucide";
 
-function formatRaffleDescriptionPreview(raw: string): string {
-  return raw
-    .replace(/\r\n/g, "\n")
-    .replace(/\s+(?=(🔥|🎯|🏆|✈️|🎲|🔢|🏦|📌|⚠️|⚠|\*))/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
+import { toast } from "sonner";
 
-function statusLabel(status: string): string {
-  const m: Record<string, string> = { paid: "Pago", completed: "Concluído", pending: "Pendente", awaiting_payment: "Aguardando Pagamento", cancelled: "Cancelado" };
-  return m[status] ?? status;
-}
 
-function orderToText(o: {
-  id: string; createdAt: string; status: string; paymentMethod?: string | null;
-  sellerCode?: string | null; transactionId?: string | null;
-  clientName: string; clientEmail: string; clientPhone: string; clientDocument: string;
-  addressStreet?: string | null; addressNumber?: string | null; addressComplement?: string | null;
-  addressNeighborhood?: string | null; addressCity?: string | null; addressState?: string | null; addressCep?: string | null;
-  products: Array<{ name: string; quantity: number; price: number }>;
-  subtotal: number; shippingCost: number; includeInsurance: boolean; insuranceAmount: number; total: number;
-  cardInstallments?: number | null; cardInstallmentsActual?: number | null; cardInstallmentValue?: number | null; cardTotalActual?: number | null;
-  couponCode?: string | null; discountAmount?: number | null;
-  observation?: string | null;
-}): string {
-  const isCard = o.paymentMethod === "card_simulation";
-  const lines: string[] = [];
-  const sep = "─────────────────────────────";
-  lines.push(`📦 PEDIDO — KA IMPORTS`);
-  lines.push(sep);
-  lines.push(`Nº: #${o.id}`);
-  lines.push(`Tipo: ${isCard ? `Cartão${o.cardInstallments ? ` (${o.cardInstallments}x)` : ""}` : "PIX"}`);
-  lines.push(`Status: ${statusLabel(o.status)}`);
-  lines.push(`Data: ${formatDateBR(o.createdAt)}`);
-  if (o.sellerCode) lines.push(`Vendedor: ${o.sellerCode}`);
-  if (o.transactionId) lines.push(`Tx: ${o.transactionId}`);
-  lines.push("");
-  lines.push(`👤 CLIENTE`);
-  lines.push(`Nome: ${o.clientName}`);
-  lines.push(`E-mail: ${o.clientEmail}`);
-  lines.push(`Telefone: ${o.clientPhone}`);
-  if (o.clientDocument) lines.push(`CPF: ${o.clientDocument}`);
-  const addr = [o.addressStreet, o.addressNumber, o.addressComplement, o.addressNeighborhood, `${o.addressCity || ""}${o.addressState ? `/${o.addressState}` : ""}`, o.addressCep ? `CEP ${o.addressCep}` : ""].filter(Boolean).join(", ");
-  if (addr.trim()) lines.push(`Endereço: ${addr}`);
-  lines.push("");
-  lines.push(`🛒 PRODUTOS`);
-  o.products.forEach((p) => lines.push(`${p.quantity}x ${p.name} — ${formatCurrency(p.price * p.quantity)}`));
-  lines.push(`Subtotal: ${formatCurrency(Number(o.subtotal))}`);
-  lines.push(`Frete: ${formatCurrency(Number(o.shippingCost))}`);
-  if (o.includeInsurance) lines.push(`Seguro: ${formatCurrency(Number(o.insuranceAmount))}`);
-  if (o.discountAmount && Number(o.discountAmount) > 0) lines.push(`Desconto${o.couponCode ? ` (${o.couponCode})` : ""}: -${formatCurrency(Number(o.discountAmount))}`);
-  if (isCard) {
-    const fee = Number(o.total) - (Number(o.subtotal) + Number(o.shippingCost) + (o.includeInsurance ? Number(o.insuranceAmount) : 0) - (o.discountAmount ? Number(o.discountAmount) : 0));
-    if (fee > 0) lines.push(`Taxa parcelamento (≤3x): +${formatCurrency(fee)}`);
-  }
-  lines.push(`TOTAL: ${formatCurrency(Number(o.total))}`);
-  if (isCard && (o.cardInstallmentsActual || o.cardInstallmentValue || o.cardTotalActual)) {
-    lines.push("");
-    lines.push(`💳 PAGAMENTO REAL NO CARTÃO`);
-    if (o.cardInstallmentsActual) lines.push(`Parcelas: ${o.cardInstallmentsActual}x`);
-    if (o.cardInstallmentValue) lines.push(`Valor por parcela: ${formatCurrency(Number(o.cardInstallmentValue))}`);
-    if (o.cardTotalActual) lines.push(`Total cobrado: ${formatCurrency(Number(o.cardTotalActual))}`);
-  }
-  if (o.observation && o.observation.trim()) {
-    lines.push("");
-    lines.push(`📝 OBSERVAÇÕES`);
-    lines.push(o.observation.trim());
-  }
-  return lines.join("\n");
-}
+import { Button } from "@/components/ui/button";
+import { AnimatePresence, motion } from "framer-motion";
+import { formatCurrency } from "@/lib/utils";
+import { AdminLayout } from "@/components/layout/AdminLayout";
 
-function chargeToText(c: {
-  id: string; createdAt: string; status: string;
-  sellerCode?: string | null; transactionId?: string | null;
-  clientName: string; clientEmail: string; clientPhone: string; clientDocument: string;
-  addressStreet?: string | null; addressNumber?: string | null; addressComplement?: string | null;
-  addressNeighborhood?: string | null; addressCity?: string | null; addressState?: string | null; addressCep?: string | null;
-  description?: string | null; amount: number;
-  observation?: string | null;
-}): string {
-  const lines: string[] = [];
-  const sep = "─────────────────────────────";
-  lines.push(`📦 COBRANÇA — KA IMPORTS (Link de Pagamento)`);
-  lines.push(sep);
-  lines.push(`Nº: #${c.id}`);
-  lines.push(`Status: ${statusLabel(c.status)}`);
-  lines.push(`Data: ${formatDateBR(c.createdAt)}`);
-  if (c.sellerCode) lines.push(`Vendedor: ${c.sellerCode}`);
-  if (c.transactionId) lines.push(`Tx: ${c.transactionId}`);
-  lines.push("");
-  lines.push(`👤 CLIENTE`);
-  lines.push(`Nome: ${c.clientName}`);
-  lines.push(`E-mail: ${c.clientEmail}`);
-  lines.push(`Telefone: ${c.clientPhone}`);
-  if (c.clientDocument) lines.push(`CPF: ${c.clientDocument}`);
-  const addr = [c.addressStreet, c.addressNumber, c.addressComplement, c.addressNeighborhood, `${c.addressCity || ""}${c.addressState ? `/${c.addressState}` : ""}`, c.addressCep ? `CEP ${c.addressCep}` : ""].filter(Boolean).join(", ");
-  if (addr.trim()) lines.push(`Endereço: ${addr}`);
-  lines.push("");
-  lines.push(`🛍️ PRODUTO / PEDIDO`);
-  if (c.description && c.description.trim()) lines.push(c.description.trim());
-  lines.push(`TOTAL: ${formatCurrency(Number(c.amount))}`);
-  if (c.observation && c.observation.trim()) {
-    lines.push("");
-    lines.push(`📝 OBSERVAÇÕES`);
-    lines.push(c.observation.trim());
-  }
-  return lines.join("\n");
-}
+
 
 function statusBadge(status: string) {
   const map: Record<string, { label: string; color: string; Icon: typeof CheckCircle }> = {
@@ -618,6 +453,17 @@ interface SocialProofFakeEntry {
 // Main Component
 // ---------------------------------------------------------------------------
 export default function Admin() {
+
+  // -------------------- TODOS OS useState DEVEM FICAR AQUI NO TOPO --------------------
+  // Financial summary (gateway fees/liquido real)
+  const [financialSummary, setFinancialSummary] = React.useState<null | {
+    totalRevenue: number;
+    totalGatewayFees: number;
+    totalWithdrawFees: number;
+    netRevenue: number;
+    realNetRevenue: number;
+  }>(null);
+  const [financialSummaryLoading, setFinancialSummaryLoading] = React.useState(false);
   const [, setLocation] = useLocation();
   const [tab, setTab] = useState<TabType>("orders");
   const [orders, setOrders] = useState<AdminOrder[]>([]);
@@ -767,7 +613,6 @@ export default function Admin() {
   const [bumpToggling, setBumpToggling] = useState<string | null>(null);
   const [bumpDeleting, setBumpDeleting] = useState<string | null>(null);
   const [bumpEditingId, setBumpEditingId] = useState<string | null>(null);
-
   const selectedRaffle = raffleViewId ? rafflesList.find((r) => r.id === raffleViewId) ?? null : null;
   const raffleViewPaidAmount = raffleReservations
     .filter((reservation) => reservation.status === "paid")
@@ -790,9 +635,24 @@ export default function Admin() {
   const [settingsLoading, setSettingsLoading] = useState<Record<string, boolean>>({});
   const sseRef = useRef<EventSource | null>(null);
   const swRef  = useRef<ServiceWorkerRegistration | null>(null);
-
   // Live Visitors Tracking
   const [liveStats, setLiveStats] = useState({ catalog: 0, checkout: 0 });
+
+  // -------------------- FIM DOS useState --------------------
+
+  // Agora sim, pode declarar os useCallback, useEffect, etc, que dependem dos states acima
+  const fetchFinancialSummary = React.useCallback(async () => {
+    setFinancialSummaryLoading(true);
+    try {
+      const params = new URLSearchParams({ dateFrom: statsDateFrom, dateTo: statsDateTo });
+      if (statsSeller !== "all") params.set("sellerCode", statsSeller);
+      const res = await fetch(`${BASE}/api/admin/financial-summary?${params}`, { headers: authHeaders() });
+      if (res.ok) {
+        setFinancialSummary(await res.json());
+      }
+    } catch {}
+    setFinancialSummaryLoading(false);
+  }, [statsDateFrom, statsDateTo, statsSeller]);
   
   useEffect(() => {
     if (!authChecked || !getToken()) return;
@@ -1329,12 +1189,23 @@ export default function Admin() {
   // -------------------------------------------------------------------------
   useEffect(() => {
     const token = getToken();
-    if (!token) { setLocation("/admin/login"); return; }
+    console.log('[DEBUG] Token encontrado:', token);
+    if (!token) {
+      console.log('[DEBUG] Nenhum token encontrado, redirecionando para login');
+      setLocation("/admin/login");
+      return;
+    }
 
     fetch(`${BASE}/api/admin/verify`, { headers: authHeaders() })
       .then(async (res) => {
-        if (res.status === 401) { handleUnauthorized(); return; }
+        console.log('[DEBUG] Resposta /api/admin/verify:', res.status);
+        if (res.status === 401) {
+          console.log('[DEBUG] Não autorizado, chamando handleUnauthorized');
+          handleUnauthorized();
+          return;
+        }
         const data = await res.json() as { ok: boolean; isPrimary: boolean; username: string };
+        console.log('[DEBUG] Dados recebidos do backend:', data);
         setIsPrimary(data.isPrimary);
         setCurrentUsername(data.username || "");
         localStorage.setItem("adminIsPrimary", String(data.isPrimary));
@@ -1347,10 +1218,13 @@ export default function Admin() {
         connectSSE();
         requestNotifPermission();
       })
-      .catch(() => handleUnauthorized());
+      .catch((err) => {
+        console.log('[DEBUG] Erro no fetch /api/admin/verify:', err);
+        handleUnauthorized();
+      });
 
     return () => { sseRef.current?.close(); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -1926,6 +1800,9 @@ export default function Admin() {
     setTimeout(() => setCopiedSeller(null), 2000);
   };
 
+  // Atualizar junto com stats (must be before the early return to respect Rules of Hooks)
+  React.useEffect(() => { if (authChecked) fetchFinancialSummary(); }, [authChecked, statsDateFrom, statsDateTo, statsSeller, fetchFinancialSummary]);
+
   // -------------------------------------------------------------------------
   // Guard
   // -------------------------------------------------------------------------
@@ -1956,31 +1833,6 @@ export default function Admin() {
   const chargeRevenue   = charges.filter((c) => c.status === "paid").reduce((s, c) => s + Number(c.amount), 0);
 
   // ── Dashboard stats — uses independently fetched data (own API call) ─────
-
-  // Financial summary (gateway fees/liquido real)
-  const [financialSummary, setFinancialSummary] = React.useState<null | {
-    totalRevenue: number;
-    totalGatewayFees: number;
-    totalWithdrawFees: number;
-    netRevenue: number;
-    realNetRevenue: number;
-  }>(null);
-  const [financialSummaryLoading, setFinancialSummaryLoading] = React.useState(false);
-  const fetchFinancialSummary = React.useCallback(async () => {
-    setFinancialSummaryLoading(true);
-    try {
-      const params = new URLSearchParams({ dateFrom: statsDateFrom, dateTo: statsDateTo });
-      if (statsSeller !== "all") params.set("sellerCode", statsSeller);
-      const res = await fetch(`${BASE}/api/admin/financial-summary?${params}`, { headers: authHeaders() });
-      if (res.ok) {
-        setFinancialSummary(await res.json());
-      }
-    } catch {}
-    setFinancialSummaryLoading(false);
-  }, [statsDateFrom, statsDateTo, statsSeller]);
-
-  // Atualizar junto com stats
-  React.useEffect(() => { if (authChecked) fetchFinancialSummary(); }, [authChecked, statsDateFrom, statsDateTo, statsSeller, fetchFinancialSummary]);
   const statsPaidOrders    = statsOrdersData.filter((o) => o.status === "paid" || o.status === "completed");
   const statsPixPaid       = statsPaidOrders.filter((o) => o.paymentMethod === "pix");
   const statsCardPaid      = statsPaidOrders.filter((o) => o.paymentMethod === "card_simulation");
@@ -2288,26 +2140,26 @@ export default function Admin() {
         {/* Tabs */}
         <div className="flex gap-0 mb-6 border-b border-border overflow-x-auto bg-white rounded-t-xl">
           {([
-            { key: "orders",        label: "Pedidos",          Icon: QrCode,      count: orders.length },
-            { key: "charges",       label: "Links Pagamento",  Icon: LinkIcon,    count: charges.length },
-            { key: "sellers",       label: "Vendedores",       Icon: Tag },
-            { key: "coupons",       label: "Cupons",           Icon: Ticket,      count: coupons.length },
-            { key: "products",      label: "Produtos",         Icon: ShoppingBag, count: products.length },
-            { key: "fretes",        label: "Fretes",           Icon: Truck,       count: shippingOptions.length },
-            { key: "orderBumps",    label: "Order Bumps",      Icon: Zap,         count: orderBumps.length },
-            { key: "kyc",           label: "KYC",              Icon: ShieldCheck, count: kycList.length > 0 ? kycList.filter((k) => k.status === "submitted").length : undefined },
-            { key: "customers",     label: "Clientes",         Icon: UserPlus,    count: customerUsers.length || undefined },
-            ...(isPrimary ? [{ key: "users", label: "Usuários", Icon: Users }] : []),
-            { key: "socialProof",   label: "Prova Social",     Icon: ShoppingBag },
-            { key: "raffles",       label: "Rifas",            Icon: Ticket,      count: rafflesList.length || undefined },
-            { key: "webhook",       label: "Webhook",          Icon: Webhook },
-            { key: "configuracoes", label: "Configurações",    Icon: Package2 },
-          ] as Array<{ key: TabType; label: string; Icon: typeof QrCode; count?: number }>).map(({ key, label, Icon, count }) => (
+            { key: "orders",        label: "Pedidos",          icon: "QrCode",      count: orders.length },
+            { key: "charges",       label: "Links Pagamento",  icon: "LinkIcon",    count: charges.length },
+            { key: "sellers",       label: "Vendedores",       icon: "Tag" },
+            { key: "coupons",       label: "Cupons",           icon: "Ticket",      count: coupons.length },
+            { key: "products",      label: "Produtos",         icon: "ShoppingBag", count: products.length },
+            { key: "fretes",        label: "Fretes",           icon: "Truck",       count: shippingOptions.length },
+            { key: "orderBumps",    label: "Order Bumps",      icon: "Zap",         count: orderBumps.length },
+            { key: "kyc",           label: "KYC",              icon: "ShieldCheck", count: kycList.length > 0 ? kycList.filter((k) => k.status === "submitted").length : undefined },
+            { key: "customers",     label: "Clientes",         icon: "UserPlus",    count: customerUsers.length || undefined },
+            ...(isPrimary ? [{ key: "users", label: "Usuários", icon: "User" }] : []),
+            { key: "socialProof",   label: "Prova Social",     icon: "ShoppingBag" },
+            { key: "raffles",       label: "Rifas",            icon: "Ticket",      count: rafflesList.length || undefined },
+            { key: "webhook",       label: "Webhook",          icon: "Link" },
+            { key: "configuracoes", label: "Configurações",    icon: "Settings" },
+          ] as Array<{ key: TabType; label: string; icon: string; count?: number }>).map(({ key, label, icon, count }) => (
             <button key={key}
               onClick={() => setTab(key)}
               className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${tab === key ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
             >
-              <Icon className="w-4 h-4" />
+              <IconLucide name={icon} className="w-4 h-4" />
               {label}
               {count !== undefined && (
                 <span className="ml-1 bg-primary/10 text-primary text-xs px-1.5 py-0.5 rounded-full">{count}</span>
@@ -2320,7 +2172,7 @@ export default function Admin() {
         {(tab === "orders" || tab === "charges") && (
           <div className="flex flex-col sm:flex-row gap-3 mb-6">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <IconLucide name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
                 placeholder="Buscar por nome, e-mail, telefone ou ID..."
                 className="w-full h-11 pl-10 pr-4 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm" />
@@ -2712,7 +2564,7 @@ export default function Admin() {
             {/* KYC Filters */}
             <div className="flex flex-col sm:flex-row gap-3">
               <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <IconLucide name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                 <input
                   type="text"
                   value={kycListSearch}
@@ -3663,7 +3515,7 @@ export default function Admin() {
                           </div>
                         ) : (
                           <div className="flex flex-col items-center justify-center py-6 text-muted-foreground gap-2 select-none">
-                            <Camera className="w-8 h-8 opacity-40" />
+                            <IconLucide name="Camera" className="w-8 h-8 opacity-40" />
                             <span className="text-sm">Clique para escolher uma foto</span>
                             <span className="text-xs opacity-60">JPG, PNG ou WebP · 1149x1369 · máx 5 MB</span>
                           </div>
@@ -4318,7 +4170,7 @@ export default function Admin() {
                         <div className="grid grid-cols-2 gap-3">
                           <div className="space-y-2">
                             <div className="flex items-center gap-1.5 text-xs font-medium">
-                              <Camera className="w-3.5 h-3.5 text-primary" />Selfie com RG
+                              <IconLucide name="Camera" className="w-3.5 h-3.5 text-primary" />Selfie com RG
                             </div>
                             {kycData.selfieUrl ? (
                               <>
@@ -4513,7 +4365,7 @@ function OrdersPanel({
 
   if (orders.length === 0) return (
     <div className="text-center py-16 bg-muted/30 rounded-2xl border border-dashed">
-      <Package className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+      <IconLucide name="Package" className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
       <p className="font-semibold text-lg">Nenhum pedido encontrado</p>
     </div>
   );
@@ -4871,7 +4723,7 @@ function ChargesPanel({ charges, openWhatsApp, chargeStatusUpdating, onUpdateCha
                           className="flex-1 h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm"
                         />
                         <Button type="button" size="sm" variant="outline" onClick={lookupChargeCep} disabled={chargeCepLoading} className="h-10 px-3 shrink-0">
-                          {chargeCepLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                          {chargeCepLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <IconLucide name="Search" className="w-4 h-4" />}
                         </Button>
                       </div>
                     </div>
@@ -5410,7 +5262,7 @@ function CustomersPanel({
         </div>
         <div className="flex gap-2">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <IconLucide name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
               type="text"
               value={search}
@@ -5459,7 +5311,7 @@ function CustomersPanel({
                   <td className="px-4 py-3 text-muted-foreground">{c.email}</td>
                   <td className="px-4 py-3">
                     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${c.orderCount > 0 ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground"}`}>
-                      <Package className="w-3 h-3" />
+                      <IconLucide name="Package" className="w-3 h-3" />
                       {c.orderCount}
                     </span>
                   </td>
@@ -6002,7 +5854,7 @@ function ProductsPanel({
       </div>
 
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <IconLucide name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <input
           type="text"
           value={productSearch}
@@ -6168,14 +6020,14 @@ function ProductsPanel({
         </div>
       ) : products.length === 0 ? (
         <div className="text-center py-16 bg-muted/30 rounded-2xl border border-dashed">
-          <Package2 className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+          <IconLucide name="Package2" className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
           <p className="font-semibold text-lg">Nenhum produto cadastrado</p>
           <p className="text-sm text-muted-foreground mb-6">Clique em "Novo Produto" para começar.</p>
           <Button onClick={openCreate} className="gap-2"><Plus className="w-4 h-4" />Novo Produto</Button>
         </div>
       ) : visibleProducts.length === 0 ? (
         <div className="text-center py-16 bg-muted/30 rounded-2xl border border-dashed">
-          <Search className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+          <IconLucide name="Search" className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
           <p className="font-semibold text-lg">Nenhum produto encontrado</p>
           <p className="text-sm text-muted-foreground mb-6">Tente outro nome na busca.</p>
         </div>
@@ -6373,7 +6225,7 @@ function ConfiguracoesPanel({ settings, loading, onSave, onDelete }: {
       {/* ── Identidade Visual ─────────────────────────────────────────────── */}
       <div>
         <h2 className="text-lg font-bold mb-1 flex items-center gap-2">
-          <Package2 className="w-5 h-5 text-primary" />
+          <IconLucide name="Package2" className="w-5 h-5 text-primary" />
           Identidade Visual
         </h2>
         <p className="text-muted-foreground text-sm mb-5">

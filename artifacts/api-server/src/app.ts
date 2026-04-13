@@ -3,7 +3,14 @@ import cors from "cors";
 import router from "./routes";
 import { exec } from "child_process";
 
+
 const app: Express = express();
+
+// Log global de todas as requisições
+app.use((req, res, next) => {
+  console.log(`[REQ] ${req.method} ${req.originalUrl} | headers:`, req.headers);
+  next();
+});
 
 app.use(cors({
   origin: true,
@@ -32,6 +39,17 @@ app.get("/health", (req, res) => {
   res.send("OK");
 });
 
+
 app.use("/api", router);
+
+// Middleware global de tratamento de erros
+app.use((err, req, res, next) => {
+  console.error("[GLOBAL ERROR]", err);
+  res.status(err.status || 500).json({
+    error: true,
+    message: err.message || "Internal Server Error",
+    stack: process.env.NODE_ENV === "development" ? err.stack : undefined,
+  });
+});
 
 export default app;

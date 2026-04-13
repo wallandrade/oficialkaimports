@@ -1,8 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import crypto from "crypto";
 import { db, adminUsersTable, adminSessionsTable } from "@workspace/db";
-import { lt } from "drizzle-orm";
-import { eq } from "drizzle-orm";
+import { lt, eq } from "drizzle-orm";
 
 const router: IRouter = Router();
 const TOKEN_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
@@ -68,27 +67,36 @@ seedFromEnvIfEmpty().catch(console.error);
 // Middleware
 // --------------------------------------------------------------------------
 export async function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
-  const tokenFromQuery = (req.query as Record<string, string>)["token"];
-  if (tokenFromQuery && !req.headers.authorization) {
-    req.headers.authorization = `Bearer ${tokenFromQuery}`;
-  }
+  try {
+    console.log('[requireAdminAuth] INICIO', { headers: req.headers, query: req.query });
+    const tokenFromQuery = (req.query as Record<string, string>)["token"];
+    if (tokenFromQuery && !req.headers.authorization) {
+      req.headers.authorization = `Bearer ${tokenFromQuery}`;
+    }
 
-  const auth  = req.headers.authorization || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  await purgeExpiredSessions();
+    const auth  = req.headers.authorization || "";
+    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+    await purgeExpiredSessions();
 
-  if (!token) {
-    res.status(401).json({ error: "UNAUTHORIZED", message: "Acesso não autorizado." });
-    return;
+    if (!token) {
+      console.log('[requireAdminAuth] Sem token');
+      res.status(401).json({ error: "UNAUTHORIZED", message: "Acesso não autorizado." });
+      return;
+    }
+    const session = await db.select().from(adminSessionsTable).where(eq(adminSessionsTable.token, token)).limit(1);
+    if (!session[0]) {
+      console.log('[requireAdminAuth] Sessão não encontrada para token', token);
+      res.status(401).json({ error: "UNAUTHORIZED", message: "Acesso não autorizado." });
+      return;
+    }
+    // Anexa info da sessão para downstream
+    (req as any).adminSession = session[0];
+    console.log('[requireAdminAuth] Sessão OK', session[0]);
+    next();
+  } catch (err) {
+    console.error('[requireAdminAuth] Erro:', err);
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Erro interno na autenticação', details: String(err) });
   }
-  const session = await db.select().from(adminSessionsTable).where(adminSessionsTable.token.eq(token)).limit(1);
-  if (!session[0]) {
-    res.status(401).json({ error: "UNAUTHORIZED", message: "Acesso não autorizado." });
-    return;
-  }
-  // Anexa info da sessão para downstream
-  (req as any).adminSession = session[0];
-  next();
 }
 
 export async function requirePrimaryAdmin(req: Request, res: Response, next: NextFunction) {
@@ -105,7 +113,7 @@ export async function requirePrimaryAdmin(req: Request, res: Response, next: Nex
     res.status(401).json({ error: "UNAUTHORIZED", message: "Acesso não autorizado." });
     return;
   }
-  const session = await db.select().from(adminSessionsTable).where(adminSessionsTable.token.eq(token)).limit(1);
+  const session = await db.select().from(adminSessionsTable).where(eq(adminSessionsTable.token, token)).limit(1);
   if (!session[0] || !session[0].isPrimary) {
     res.status(403).json({ error: "FORBIDDEN", message: "Apenas o administrador principal pode realizar esta ação." });
     return;
@@ -193,8 +201,15 @@ router.post("/admin/logout", async (req, res) => {
 // GET /api/admin/verify
 // --------------------------------------------------------------------------
 router.get("/admin/verify", requireAdminAuth, async (req, res) => {
-  const session = (req as any).adminSession;
-  res.json({ ok: true, isPrimary: !!session?.isPrimary, username: session?.username ?? "" });
+  try {
+    console.log('[admin/verify] INICIO', { adminSession: (req as any).adminSession });
+    const session = (req as any).adminSession;
+    res.json({ ok: true, isPrimary: !!session?.isPrimary, username: session?.username ?? "" });
+    console.log('[admin/verify] SUCESSO', { username: session?.username });
+  } catch (err) {
+    console.error('[admin/verify] Erro:', err);
+    res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Erro interno no endpoint /admin/verify', details: String(err) });
+  }
 });
 
 // --------------------------------------------------------------------------

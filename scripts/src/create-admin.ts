@@ -1,12 +1,15 @@
+
 // Script para criar um admin diretamente no banco usando Drizzle ORM
 // Basta rodar: pnpm tsx scripts/src/create-admin.ts
+
+
 
 import { db, adminUsersTable } from "../../lib/db/src/index";
 import crypto from "crypto";
 
 async function main() {
-  const username = "jorge2306@gmail.com";
-  const password = "@Gh230600";
+  const username = process.env.ADMIN_USERNAME || "admin";
+  const password = process.env.ADMIN_PASSWORD || "admin123";
   const isPrimary = true;
   const salt = crypto.randomBytes(16).toString("hex");
   const passwordHash = crypto.createHash("sha256").update(password + salt).digest("hex");

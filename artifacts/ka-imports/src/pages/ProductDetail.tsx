@@ -59,8 +59,8 @@ export default function ProductDetail() {
   return (
     <AppLayout>
       <section className="py-6 sm:py-10 px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto w-full">
-        <Button asChild variant="ghost" className="mb-6 px-0 hover:bg-transparent">
-          <Link href={backHref}>
+        <Button variant="ghost" className="mb-6 px-0 hover:bg-transparent">
+          <Link href={backHref} className="flex items-center">
             <ArrowLeft className="w-4 h-4 mr-1.5" />
             Voltar para produtos
           </Link>
