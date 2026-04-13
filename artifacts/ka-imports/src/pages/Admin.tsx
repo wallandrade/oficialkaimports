@@ -1877,7 +1877,7 @@ export default function Admin() {
 
   const productCostMap = new Map(statsProductsData.map((p) => [p.id, Number(p.costPrice || 0)] as const));
   const statsTotalCost = statsPaidOrders.reduce((sum, order) => {
-    const orderCost = (order.products || []).reduce((lineSum, item) => {
+    const orderCost = (Array.isArray(order.products) ? order.products : []).reduce((lineSum, item) => {
       const qty = Number(item.quantity) || 0;
       const lineCost = item.costPrice != null ? Number(item.costPrice) : Number(productCostMap.get(item.id) || 0);
       return lineSum + qty * lineCost;
@@ -1893,7 +1893,7 @@ export default function Admin() {
 
   const statsTopProductsMap = new Map<string, { name: string; quantity: number; revenue: number }>();
   for (const order of statsPaidOrders) {
-    for (const product of order.products || []) {
+    for (const product of (Array.isArray(order.products) ? order.products : [])) {
       const key = String(product.name || "").trim().toLowerCase();
       if (!key) continue;
       const current = statsTopProductsMap.get(key);
