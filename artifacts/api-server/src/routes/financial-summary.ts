@@ -26,8 +26,14 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
   try {
     const { dateFrom, dateTo } = req.query as Record<string, string>;
     const conditions = [];
-    if (dateFrom) conditions.push(gte(ordersTable.createdAt, new Date(dateFrom + "T00:00:00.000Z")));
-    if (dateTo) conditions.push(lte(ordersTable.createdAt, new Date(dateTo + "T23:59:59.999Z")));
+    // Função para converter data local (BRT) para UTC
+    function toUTC(dateStr, hour, minute, second) {
+      // Cria data no fuso BRT (UTC-3)
+      const local = new Date(`${dateStr}T${hour}:${minute}:${second}-03:00`);
+      return new Date(local.toISOString());
+    }
+    if (dateFrom) conditions.push(gte(ordersTable.createdAt, toUTC(dateFrom, "00", "00", "00")));
+    if (dateTo) conditions.push(lte(ordersTable.createdAt, toUTC(dateTo, "23", "59", "59")));
     // Considera apenas pedidos pagos
     conditions.push(inArray(ordersTable.status, ["paid", "completed"]));
     const orders = await db.select().from(ordersTable).where(and(...conditions));
