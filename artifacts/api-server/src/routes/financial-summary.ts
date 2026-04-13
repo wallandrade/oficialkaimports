@@ -56,13 +56,22 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
       } else if (Array.isArray(order.products)) {
         products = order.products;
       }
-      for (const item of products) {
+      // Filtra produtos válidos
+      const validProducts = products.filter(item => {
+        const qty = Number(item.quantity) || 0;
+        const cost = Number(item.costPrice) || 0;
+        return qty > 0 && cost > 0;
+      });
+      let orderTotal = 0;
+      for (const item of validProducts) {
         const qty = Number(item.quantity) || 0;
         const cost = Number(item.costPrice) || 0;
         const subtotal = qty * cost;
         console.log(`[CUSTO] Pedido: ${order.id} | Produto: ${item.name || item.id} | Qtd: ${qty} | Custo: ${cost} | Subtotal: ${subtotal}`);
-        totalCost += subtotal;
+        orderTotal += subtotal;
       }
+      console.log(`[CUSTO:TOTAL] Pedido: ${order.id} | Produtos considerados:`, validProducts, '| Total do pedido:', orderTotal);
+      totalCost += orderTotal;
     }
 
     // Cálculo robusto da comissão do vendedor
