@@ -46,7 +46,7 @@ function isoToSPDate(iso: string) {
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
-import { Loader2, Save, Plus, Trash2, X, CheckCircle, XCircle, Zap, Info, Pencil, MessageCircle, Tag, Bell, RefreshCw, Download, LogOut, QrCode, LinkIcon, Ticket, ShoppingBag, Clock, Upload, ChevronDown, Copy, Users, Percent, Calendar, DollarSign, ShieldCheck, CreditCard } from "lucide-react";
+import { Loader2, Save, Plus, Trash2, X, CheckCircle, XCircle, Zap, Info, Pencil, MessageCircle, Tag, Bell, RefreshCw, Download, LogOut, QrCode, LinkIcon, Ticket, ShoppingBag, Clock, Upload, ChevronDown, Copy, Users, Percent, Calendar, DollarSign, ShieldCheck, CreditCard, Truck, UserPlus, Eye, ToggleLeft, Webhook, ImageOff, Lock } from "lucide-react";
 import { IconLucide } from "@/components/ui/IconLucide";
 
 import { toast } from "sonner";
@@ -54,7 +54,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { AnimatePresence, motion } from "framer-motion";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatDateOnlyBR } from "@/lib/utils";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 
 
@@ -2044,38 +2044,26 @@ export default function Admin() {
             </div>
             <div className="rounded-xl border bg-gradient-to-br from-teal-50 to-teal-100/60 border-teal-200 p-5 flex flex-col gap-1">
               <p className="text-xs font-semibold text-teal-600 uppercase tracking-wide">Faturamento Líquido</p>
-              <p className="text-3xl font-bold text-teal-700">{formatCurrency(statsNetRevenue)}</p>
-              <p className="text-xs text-teal-700">Total pago - custo dos produtos - comissão</p>
-              <div className="flex gap-4 mt-1 text-xs text-muted-foreground">
-                <span>Custo: <strong className="text-red-700">-{formatCurrency(statsTotalCost)}</strong></span>
-                <span>Comissão: <strong className="text-amber-700">-{formatCurrency(statsTotalCommission)}</strong></span>
+              <p className="text-3xl font-bold text-teal-700">
+                {financialSummary
+                  ? formatCurrency(Number(financialSummary.realNetRevenue) || 0)
+                  : formatCurrency(Number(statsNetRevenue) || 0)}
+              </p>
+              <p className="text-xs text-teal-700">Total pago - custo dos produtos - comissão - taxas do gateway - taxas de saque</p>
+              <div className="flex gap-4 mt-1 text-xs text-muted-foreground flex-wrap">
+                <span>Custo: <strong className="text-red-700">-{formatCurrency(Number(statsTotalCost) || 0)}</strong></span>
+                <span>Comissão: <strong className="text-amber-700">-{formatCurrency(Number(statsTotalCommission) || 0)}</strong></span>
+                {financialSummary && (
+                  <>
+                    <span>Taxas do gateway: <strong className="text-pink-700">-{formatCurrency(Number(financialSummary.totalGatewayFees) || 0)}</strong></span>
+                    <span>Taxas de saque: <strong className="text-pink-700">-{formatCurrency(Number(financialSummary.totalWithdrawFees) || 0)}</strong></span>
+                  </>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Row 1.5 — Gateway Fees/Líquido Real */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
-            <div className="rounded-xl border bg-gradient-to-br from-pink-50 to-pink-100/60 border-pink-200 p-5 flex flex-col gap-1 col-span-1 sm:col-span-3">
-              <p className="text-xs font-semibold text-pink-600 uppercase tracking-wide mb-1 flex items-center gap-2">
-                Líquido Real após taxas do gateway
-                {financialSummaryLoading && <span className="ml-2"><Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" /></span>}
-              </p>
-              {financialSummary ? (
-                <>
-                  <div className="flex flex-wrap gap-6 items-center mb-1">
-                    <span className="text-2xl sm:text-3xl font-bold text-pink-700">{formatCurrency(financialSummary.realNetRevenue)}</span>
-                    <span className="text-xs text-pink-700 bg-pink-100 px-2 py-0.5 rounded-full font-semibold">Líquido real</span>
-                  </div>
-                  <div className="flex flex-wrap gap-6 text-xs text-muted-foreground">
-                    <span>Taxas do gateway: <strong className="text-pink-700">-{formatCurrency(financialSummary.totalGatewayFees)}</strong></span>
-                    <span>Taxas de saque: <strong className="text-pink-700">-{formatCurrency(financialSummary.totalWithdrawFees)}</strong></span>
-                  </div>
-                </>
-              ) : (
-                <span className="text-xs text-muted-foreground">Carregando resumo financeiro...</span>
-              )}
-            </div>
-          </div>
+          {/* Row 1.5 — Gateway Fees/Líquido Real removido, agora integrado ao card de Faturamento Líquido */}
 
           {/* Row 2 — Cards individuais */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
