@@ -44,10 +44,16 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
       totalGatewayFees += fee;
     }
 
-    // Cálculo do custo total dos produtos
+
+    // Cálculo robusto do custo total dos produtos
     let totalCost = 0;
     for (const order of orders) {
-      const products = Array.isArray(order.products) ? order.products : [];
+      let products = [];
+      if (typeof order.products === "string") {
+        try { products = JSON.parse(order.products); } catch { products = []; }
+      } else if (Array.isArray(order.products)) {
+        products = order.products;
+      }
       for (const item of products) {
         const qty = Number(item.quantity) || 0;
         const cost = Number(item.costPrice) || 0;
@@ -55,11 +61,16 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
       }
     }
 
-    // Cálculo da comissão total
+    // Cálculo robusto da comissão do vendedor
     let totalCommission = 0;
     for (const order of orders) {
       const amount = parseFloat(order.total || "0");
-      const rate = Number(order.sellerCommissionRateSnapshot) || 0;
+      let rate = 0;
+      if (order.sellerCommissionRateSnapshot !== undefined && order.sellerCommissionRateSnapshot !== null) {
+        rate = Number(order.sellerCommissionRateSnapshot) || 0;
+      } else if (order.sellerCommissionRate !== undefined && order.sellerCommissionRate !== null) {
+        rate = Number(order.sellerCommissionRate) || 0;
+      }
       totalCommission += amount * (rate / 100);
     }
 
