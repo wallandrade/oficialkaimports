@@ -24,7 +24,7 @@ async function getGatewayFees() {
 // GET /api/admin/financial-summary
 router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
   try {
-    const { dateFrom, dateTo } = req.query as Record<string, string>;
+    const { dateFrom, dateTo, sellerCode } = req.query as Record<string, string>;
     const conditions = [];
     // Função para converter data local (BRT) para UTC
     function toUTC(dateStr, hour, minute, second) {
@@ -36,6 +36,9 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
     if (dateTo) conditions.push(lte(ordersTable.createdAt, toUTC(dateTo, "23", "59", "59")));
     // Considera apenas pedidos pagos
     conditions.push(inArray(ordersTable.status, ["paid", "completed"]));
+    if (sellerCode) {
+      conditions.push(ordersTable.sellerCode === sellerCode);
+    }
     const orders = await db.select().from(ordersTable).where(and(...conditions));
 
     // Lê taxas do settings
