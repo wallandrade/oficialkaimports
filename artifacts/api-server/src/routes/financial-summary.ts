@@ -48,6 +48,8 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
     // Cálculo robusto do custo total dos produtos
     let totalCost = 0;
     for (const order of orders) {
+      // Log do campo bruto para depuração
+      console.log(`[CUSTO:RAW] Pedido: ${order.id} | products bruto:`, order.products);
       let products = [];
       if (typeof order.products === "string") {
         try { products = JSON.parse(order.products); } catch { products = []; }
