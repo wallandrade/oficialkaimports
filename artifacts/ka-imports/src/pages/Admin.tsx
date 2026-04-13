@@ -184,7 +184,7 @@ function OrderBumpsPanel({ bumps, products, form, setForm, creating, toggling, d
               onChange={(e) => setForm((f) => ({ ...f, productId: e.target.value }))}
             >
               <option value="">Selecione um produto…</option>
-              {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              {(Array.isArray(products) ? products : []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </div>
           {/* Title */}
@@ -1432,7 +1432,7 @@ export default function Admin() {
   // Order editing
   const openEditOrder = async (order: AdminOrder) => {
     setEditOrderModal(order);
-    setEditItems(order.products.map((p) => ({ id: p.id, name: p.name, quantity: p.quantity, price: p.price })));
+    setEditItems((Array.isArray(order.products) ? order.products : []).map((p) => ({ id: p.id, name: p.name, quantity: p.quantity, price: p.price })));
     setEditProductSearch("");
     setDiffOrder(null);
     setDiffPixResult(null);
@@ -2423,7 +2423,7 @@ export default function Admin() {
         ) : tab === "orderBumps" ? (
           <OrderBumpsPanel
             bumps={orderBumps}
-            products={products.map((p) => ({ id: p.id, name: p.name }))}
+            products={(Array.isArray(products) ? products : []).map((p) => ({ id: p.id, name: p.name }))}
             form={bumpForm}
             setForm={setBumpForm}
             creating={bumpCreating}
@@ -2949,7 +2949,7 @@ export default function Admin() {
                             </div>
                             {!spSettings.fakeAllProducts && (
                               <div className="mt-2 space-y-1.5 max-h-36 overflow-y-auto">
-                                {products.map((p) => {
+                                {(Array.isArray(products) ? products : []).map((p) => {
                                   const checked = spFakeProductIds.includes(p.id);
                                   return (
                                     <label key={p.id} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-white px-2 py-1 rounded-lg">
@@ -2999,7 +2999,7 @@ export default function Admin() {
                           </div>
                           {!spSettings.fakeAllProducts && (
                             <div className="mt-2 space-y-1.5 max-h-40 overflow-y-auto">
-                              {products.map((p) => {
+                              {(Array.isArray(products) ? products : []).map((p) => {
                                 const checked = spFakeProductIds.includes(p.id);
                                 return (
                                   <label key={p.id} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-muted/40 px-2 py-1 rounded-lg">
@@ -4496,7 +4496,7 @@ function OrdersPanel({
                   className="border-t border-border/50 bg-muted/30 px-5 sm:px-6 pb-5 pt-4">
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Produtos</p>
                   <div className="space-y-1">
-                    {order.products.map((p, i) => (
+                    {(Array.isArray(order.products) ? order.products : []).map((p, i) => (
                       <div key={i} className="flex justify-between text-sm">
                         <span>{p.quantity}x {p.name}</span>
                         <span className="font-medium">{formatCurrency(p.price * p.quantity)}</span>
