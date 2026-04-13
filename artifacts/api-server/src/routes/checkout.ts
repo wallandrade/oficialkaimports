@@ -127,8 +127,12 @@ router.post("/checkout/pix", async (req, res) => {
         .where(inArray(productsTable.id, productIds));
       productCostMap = new Map(costRows.map((row) => [row.id, Number(row.costPrice || 0)]));
     }
+    // Garante que todos os campos necessários estejam presentes e costPrice correto
     const orderProducts = productItems.map((p) => ({
-      ...p,
+      id: p.id,
+      name: p.name,
+      quantity: Number(p.quantity) || 0,
+      price: Number(p.price) || 0,
       costPrice: productCostMap.get(String(p.id)) ?? 0,
     }));
 
