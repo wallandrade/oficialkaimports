@@ -1,4 +1,5 @@
 import { db, ordersTable, productsTable } from "../../lib/db/src/index";
+import { eq } from "drizzle-orm";
 import { inArray } from "drizzle-orm";
 
 async function patchOrdersCostPrice() {
@@ -45,7 +46,7 @@ async function patchOrdersCostPrice() {
     // Atualiza o pedido no banco se necessário
     await db.update(ordersTable)
       .set({ products: JSON.stringify(patchedProducts) })
-      .where(ordersTable.id, "=", order.id);
+      .where(eq(ordersTable.id, order.id));
     console.log(`Pedido ${order.id} corrigido.`);
   }
   console.log("Todos os pedidos pagos/completed foram corrigidos.");
