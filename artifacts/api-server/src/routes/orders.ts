@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, ordersTable, customChargesTable, sellersTable, productsTable } from "@workspace/db";
+import { db, ordersTable, customChargesTable, sellersTable, productsTable, siteSettingsTable } from "@workspace/db";
 import { desc, and, gte, lte, eq, inArray } from "drizzle-orm";
 import crypto from "crypto";
 import { requireAdminAuth } from "./admin-auth";
@@ -20,6 +20,17 @@ import {
 } from "../lib/affiliates";
 
 const router: IRouter = Router();
+
+function parseEnabledSetting(value?: string | null): boolean {
+  if (value == null || value === "") return true;
+  const normalized = String(value).trim().toLowerCase();
+  return !["0", "false", "off", "no", "disabled"].includes(normalized);
+}
+
+async function isPaymentMethodEnabled(key: "checkout_enable_pix" | "checkout_enable_card"): Promise<boolean> {
+  const rows = await db.select().from(siteSettingsTable).where(eq(siteSettingsTable.key, key)).limit(1);
+  return parseEnabledSetting(rows[0]?.value ?? null);
+}
 
 function buildGuestAccessToken(): string {
   return crypto.randomBytes(24).toString("hex");
@@ -80,6 +91,28 @@ router.post("/orders", async (req, res) => {
 
     const id     = crypto.randomBytes(8).toString("hex");
     const method = paymentMethod || "pix";
+
+    if (method === "pix") {
+      const pixEnabled = await isPaymentMethodEnabled("checkout_enable_pix");
+      if (!pixEnabled) {
+        res.status(403).json({
+          error: "PAYMENT_METHOD_DISABLED",
+          message: "Pagamento via PIX está temporariamente indisponível.",
+        });
+        return;
+      }
+    }
+
+    if (method === "card_simulation") {
+      const cardEnabled = await isPaymentMethodEnabled("checkout_enable_card");
+      if (!cardEnabled) {
+        res.status(403).json({
+          error: "PAYMENT_METHOD_DISABLED",
+          message: "Pagamento via cartão está temporariamente indisponível.",
+        });
+        return;
+      }
+    }
 
     const productItems = Array.isArray(products) ? products : [];
     const productIds = Array.from(new Set(productItems.map((p: { id?: string }) => String(p?.id || "")).filter(Boolean)));

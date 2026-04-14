@@ -6398,6 +6398,12 @@ function ConfiguracoesPanel({ settings, loading, onSave, onDelete }: {
   const [paymentPw, setPaymentPw] = useState(settings["payment_password"] ?? "");
   const [showSitePw, setShowSitePw] = useState(false);
   const [showPaymentPw, setShowPaymentPw] = useState(false);
+  const pixEnabled = !["0", "false", "off", "no", "disabled"].includes(String(settings["checkout_enable_pix"] ?? "1").toLowerCase());
+  const cardEnabled = !["0", "false", "off", "no", "disabled"].includes(String(settings["checkout_enable_card"] ?? "1").toLowerCase());
+
+  const togglePaymentMethod = (key: "checkout_enable_pix" | "checkout_enable_card", enabled: boolean) => {
+    onSave(key, enabled ? "1" : "0");
+  };
 
   return (
     <div className="space-y-8">
@@ -6520,6 +6526,57 @@ function ConfiguracoesPanel({ settings, loading, onSave, onDelete }: {
         <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-xs text-blue-800 mt-4">
           <p>Essas taxas serão usadas para calcular o valor líquido real no dashboard, descontando custos do gateway de pagamento.</p>
         </div>
+      </div>
+
+      {/* ── Métodos de Pagamento no Checkout ─────────────────────────────── */}
+      <div className="max-w-2xl">
+        <h2 className="text-lg font-bold mb-1 flex items-center gap-2">
+          <CreditCard className="w-5 h-5 text-primary" />
+          Métodos de Pagamento no Checkout
+        </h2>
+        <p className="text-muted-foreground text-sm mb-5">
+          Escolha quais botões ficam disponíveis para o cliente na página de checkout.
+        </p>
+
+        <div className="space-y-4">
+          <div className="bg-card border border-border/60 rounded-2xl p-5 shadow-sm">
+            <label className="flex items-center justify-between gap-4 cursor-pointer">
+              <div>
+                <p className="font-semibold flex items-center gap-2"><QrCode className="w-4 h-4 text-primary" />PIX</p>
+                <p className="text-xs text-muted-foreground">Exibe o botão "Pagar com PIX" no checkout.</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={pixEnabled}
+                onChange={(e) => togglePaymentMethod("checkout_enable_pix", e.target.checked)}
+                disabled={!!loading["checkout_enable_pix"]}
+                className="w-4 h-4"
+              />
+            </label>
+          </div>
+
+          <div className="bg-card border border-border/60 rounded-2xl p-5 shadow-sm">
+            <label className="flex items-center justify-between gap-4 cursor-pointer">
+              <div>
+                <p className="font-semibold flex items-center gap-2"><CreditCard className="w-4 h-4 text-primary" />Cartão</p>
+                <p className="text-xs text-muted-foreground">Exibe o botão "Pagar com Cartão" no checkout.</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={cardEnabled}
+                onChange={(e) => togglePaymentMethod("checkout_enable_card", e.target.checked)}
+                disabled={!!loading["checkout_enable_card"]}
+                className="w-4 h-4"
+              />
+            </label>
+          </div>
+        </div>
+
+        {!pixEnabled && !cardEnabled && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-800 mt-4">
+            Os dois métodos estão desativados. Nesse estado, o checkout ficará sem opção de pagamento.
+          </div>
+        )}
       </div>
 
       {/* ── Controle de Acesso ────────────────────────────────────────────── */}

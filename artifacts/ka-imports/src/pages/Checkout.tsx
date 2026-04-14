@@ -118,6 +118,7 @@ export default function Checkout() {
   const [affiliateCreditAvailable, setAffiliateCreditAvailable] = useState(0);
   const [affiliateCreditLoading, setAffiliateCreditLoading] = useState(false);
   const [useAffiliateCredit, setUseAffiliateCredit] = useState(false);
+  const [paymentMethods, setPaymentMethods] = useState({ pix: true, card: true });
 
   // Order bumps for checkout
   interface CheckoutBump {
@@ -195,6 +196,33 @@ export default function Checkout() {
   const { mutate: createOrder, isPending: isCreatingOrder } = useCreateOrder();
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const isLoading = isCreatingOrder || isCheckingOut;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await fetch(`${BASE}/api/settings`);
+        if (!res.ok) return;
+        const data = await res.json() as Record<string, string>;
+        const parseEnabled = (value?: string) => {
+          if (value == null || value === "") return true;
+          const normalized = String(value).trim().toLowerCase();
+          return !["0", "false", "off", "no", "disabled"].includes(normalized);
+        };
+        if (!cancelled) {
+          setPaymentMethods({
+            pix: parseEnabled(data["checkout_enable_pix"]),
+            card: parseEnabled(data["checkout_enable_card"]),
+          });
+        }
+      } catch {
+        // Keep defaults enabled on network errors.
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, []);
 
   // Smart quantity increase — respects order bump tiers
   const handleQtyIncrease = useCallback((item: (typeof items)[0]) => {
@@ -456,6 +484,11 @@ export default function Checkout() {
   }
 
   const handlePixPayment = async (data: CheckoutFormData) => {
+    if (!paymentMethods.pix) {
+      toast.error("Pagamento via PIX está desativado no momento.");
+      return;
+    }
+
     setIsCheckingOut(true);
     try {
       const clientPayload = {
@@ -623,6 +656,11 @@ export default function Checkout() {
   };
 
   const handleCardPayment = () => {
+    if (!paymentMethods.card) {
+      toast.error("Pagamento com cartão está desativado no momento.");
+      return;
+    }
+
     handleSubmit(async () => {
       setKycOrderId("");
       setKycWhatsAppUrl("");
@@ -1364,36 +1402,46 @@ export default function Checkout() {
               })()}
 
               <div className="space-y-3">
-                <Button
-                  type="submit"
-                  form="checkout-form"
-                  size="lg"
-                  className="w-full text-lg bg-green-600 hover:bg-green-700 border-none shadow-lg shadow-green-500/20"
-                  disabled={isLoading}
-                >
-                  {isLoading ? (
-                    <span className="flex items-center gap-2">
-                      <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      Gerando PIX...
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-2">
-                      <QrCode className="w-5 h-5" />
-                      Pagar com PIX
-                    </span>
-                  )}
-                </Button>
+                {paymentMethods.pix && (
+                  <Button
+                    type="submit"
+                    form="checkout-form"
+                    size="lg"
+                    className="w-full text-lg bg-green-600 hover:bg-green-700 border-none shadow-lg shadow-green-500/20"
+                    disabled={isLoading}
+                  >
+                    {isLoading ? (
+                      <span className="flex items-center gap-2">
+                        <span className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        Gerando PIX...
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        <QrCode className="w-5 h-5" />
+                        Pagar com PIX
+                      </span>
+                    )}
+                  </Button>
+                )}
 
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="lg"
-                  className="w-full text-lg border-2 hover:bg-gray-50"
-                  onClick={handleCardPayment}
-                >
-                  <CreditCard className="w-5 h-5 mr-2" />
-                  Pagar com Cartão
-                </Button>
+                {paymentMethods.card && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="lg"
+                    className="w-full text-lg border-2 hover:bg-gray-50"
+                    onClick={handleCardPayment}
+                  >
+                    <CreditCard className="w-5 h-5 mr-2" />
+                    Pagar com Cartão
+                  </Button>
+                )}
+
+                {!paymentMethods.pix && !paymentMethods.card && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                    No momento, os pagamentos estão temporariamente desativados. Tente novamente em instantes.
+                  </div>
+                )}
               </div>
             </div>
           </div>

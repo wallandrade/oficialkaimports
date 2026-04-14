@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, ordersTable, sellersTable, productsTable } from "@workspace/db";
+import { db, ordersTable, sellersTable, productsTable, siteSettingsTable } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
 import crypto from "crypto";
 import { broadcastNotification } from "./notifications";
@@ -14,6 +14,17 @@ import { getCustomerSession } from "../middlewares/customer-auth";
 import { applyAffiliateCreditToOrder, normalizeAffiliateCode, registerAffiliateLead, resolveAffiliateByCode } from "../lib/affiliates";
 
 const router: IRouter = Router();
+
+function parseEnabledSetting(value?: string | null): boolean {
+  if (value == null || value === "") return true;
+  const normalized = String(value).trim().toLowerCase();
+  return !["0", "false", "off", "no", "disabled"].includes(normalized);
+}
+
+async function isPaymentMethodEnabled(key: "checkout_enable_pix" | "checkout_enable_card"): Promise<boolean> {
+  const rows = await db.select().from(siteSettingsTable).where(eq(siteSettingsTable.key, key)).limit(1);
+  return parseEnabledSetting(rows[0]?.value ?? null);
+}
 
 // ---------------------------------------------------------------------------
 // POST /api/checkout/pix
@@ -41,6 +52,15 @@ router.post("/checkout/pix", async (req, res) => {
   }));
 
   try {
+    const pixEnabled = await isPaymentMethodEnabled("checkout_enable_pix");
+    if (!pixEnabled) {
+      res.status(403).json({
+        error: "PAYMENT_METHOD_DISABLED",
+        message: "Pagamento via PIX está temporariamente indisponível.",
+      });
+      return;
+    }
+
     const customerSession = getCustomerSession(req);
     const guestAccessToken = customerSession ? null : crypto.randomBytes(24).toString("hex");
 

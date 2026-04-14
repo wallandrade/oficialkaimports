@@ -6,7 +6,8 @@ import { requireAdminAuth } from "./admin-auth";
 const router: IRouter = Router();
 
 const PUBLIC_KEYS  = [
-  "logo", "banner_desktop", "banner_mobile", "site_name", "site_protected", "payment_protected"
+  "logo", "banner_desktop", "banner_mobile", "site_name", "site_protected", "payment_protected",
+  "checkout_enable_pix", "checkout_enable_card"
 ];
 const ALLOWED_KEYS = [
   ...PUBLIC_KEYS,
