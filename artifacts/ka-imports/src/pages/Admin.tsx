@@ -57,6 +57,85 @@ function getOrderProducts(raw: unknown): OrderProductLite[] {
   return [];
 }
 
+export function orderToText(order: any): string {
+  const products = getOrderProducts(order?.products);
+  const productsText = products.length
+    ? products
+        .map((p) => {
+          const qty = Number(p?.quantity) || 0;
+          const price = Number(p?.price) || 0;
+          return `- ${qty}x ${p?.name || "Produto"} (${formatCurrency(price * qty)})`;
+        })
+        .join("\n")
+    : "- (Sem produtos no pedido)";
+
+  const address = [
+    order?.addressStreet,
+    order?.addressNumber,
+    order?.addressComplement,
+    order?.addressNeighborhood,
+    `${order?.addressCity || ""}${order?.addressState ? `/${order.addressState}` : ""}`,
+    order?.addressCep ? `CEP ${order.addressCep}` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  return [
+    `Pedido #${order?.id || "-"}`,
+    `Data: ${formatDateBR(order?.createdAt) || "-"}`,
+    `Cliente: ${order?.clientName || "-"}`,
+    `Contato: ${order?.clientPhone || "-"}${order?.clientEmail ? ` · ${order.clientEmail}` : ""}`,
+    order?.clientDocument ? `CPF: ${order.clientDocument}` : "",
+    "",
+    "Produtos:",
+    productsText,
+    "",
+    `Subtotal: ${formatCurrency(Number(order?.subtotal) || 0)}`,
+    `Frete: ${formatCurrency(Number(order?.shippingCost) || 0)}`,
+    Number(order?.insuranceAmount) > 0 ? `Seguro: ${formatCurrency(Number(order.insuranceAmount))}` : "",
+    `Total: ${formatCurrency(Number(order?.total) || 0)}`,
+    "",
+    `Status: ${order?.status || "-"}`,
+    `Pagamento: ${order?.paymentMethod === "card_simulation" ? "Cartão" : "PIX"}`,
+    order?.transactionId ? `Transação: ${order.transactionId}` : "",
+    order?.sellerCode ? `Vendedor: ${order.sellerCode}` : "",
+    address ? `Endereço: ${address}` : "",
+    order?.observation ? `Observação: ${order.observation}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function chargeToText(charge: any): string {
+  const address = [
+    charge?.addressStreet,
+    charge?.addressNumber,
+    charge?.addressComplement,
+    charge?.addressNeighborhood,
+    `${charge?.addressCity || ""}${charge?.addressState ? `/${charge.addressState}` : ""}`,
+    charge?.addressCep ? `CEP ${charge.addressCep}` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  return [
+    `Cobrança #${charge?.id || "-"}`,
+    `Data: ${formatDateBR(charge?.createdAt) || "-"}`,
+    `Cliente: ${charge?.clientName || "-"}`,
+    `Contato: ${charge?.clientPhone || "-"}${charge?.clientEmail ? ` · ${charge.clientEmail}` : ""}`,
+    charge?.clientDocument ? `CPF: ${charge.clientDocument}` : "",
+    `Descrição: ${charge?.description || "-"}`,
+    `Valor: ${formatCurrency(Number(charge?.amount) || 0)}`,
+    `Status: ${charge?.status || "-"}`,
+    charge?.transactionId ? `Transação: ${charge.transactionId}` : "",
+    charge?.sellerCode ? `Vendedor: ${charge.sellerCode}` : "",
+    address ? `Endereço: ${address}` : "",
+    charge?.observation ? `Observação: ${charge.observation}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
