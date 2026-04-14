@@ -751,6 +751,7 @@ function mapOrder(o: typeof ordersTable.$inferSelect) {
     cardTotalActual:        o.cardTotalActual ? Number(o.cardTotalActual) : null,
     paidAmount:             o.paidAmount ? Number(o.paidAmount) : null,
     createdAt:              o.createdAt?.toISOString() ?? new Date().toISOString(),
+    enviado:                !!o.enviado,
   };
 }
 
