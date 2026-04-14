@@ -4636,8 +4636,16 @@ function OrdersPanel({
               {/* Actions */}
               <div className="flex gap-2 mt-4 flex-wrap">
                 {/* Botão de alternância de envio */}
-                <Button size="sm" variant={enviados[order.id] ? "secondary" : "outline"} className="gap-1.5 text-blue-700 border-blue-200 hover:bg-blue-50"
-                  onClick={() => toggleEnviado(order.id)}>
+                <Button
+                  size="sm"
+                  className={`gap-1.5 rounded-full px-5 py-2 font-semibold transition shadow-sm border 
+                    ${enviados[order.id]
+                      ? "bg-yellow-100 text-yellow-800 border-yellow-300 hover:bg-yellow-200"
+                      : "bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200"}
+                  `}
+                  variant="outline"
+                  onClick={() => toggleEnviado(order.id)}
+                >
                   {enviados[order.id] ? "Marcar como Pendente" : "Marcar como Enviado"}
                 </Button>
                 <Button size="sm" className="gap-2 bg-green-600 hover:bg-green-700 text-white border-none"
