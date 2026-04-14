@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { db, ordersTable, siteSettingsTable } from "@workspace/db";
-import { and, gte, lte, inArray } from "drizzle-orm";
+import { db, ordersTable, productsTable, siteSettingsTable } from "@workspace/db";
+import { and, eq, gte, inArray, lte } from "drizzle-orm";
 import { requireAdminAuth } from "./admin-auth";
 
 const router: IRouter = Router();
@@ -27,7 +27,7 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
     const { dateFrom, dateTo, sellerCode } = req.query as Record<string, string>;
     const conditions = [];
     // Função para converter data local (BRT) para UTC
-    function toUTC(dateStr, hour, minute, second) {
+    function toUTC(dateStr: string, hour: string, minute: string, second: string) {
       // Cria data no fuso BRT (UTC-3)
       const local = new Date(`${dateStr}T${hour}:${minute}:${second}-03:00`);
       return new Date(local.toISOString());
@@ -37,7 +37,7 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
     // Considera apenas pedidos pagos
     conditions.push(inArray(ordersTable.status, ["paid", "completed"]));
     if (sellerCode) {
-      conditions.push(ordersTable.sellerCode === sellerCode);
+      conditions.push(eq(ordersTable.sellerCode, sellerCode));
     }
     const orders = await db.select().from(ordersTable).where(and(...conditions));
 
@@ -52,34 +52,50 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
       if (fee < fees.feeMin) fee = fees.feeMin;
       totalGatewayFees += fee;
     }
-
-
-    // Cálculo robusto do custo total dos produtos
+    // Cálculo do custo total dos produtos:
+    // 1) usa costPrice salvo no item do pedido, quando existir
+    // 2) fallback para costPrice atual da tabela de produtos
     let totalCost = 0;
+
+    const productIds = new Set<string>();
     for (const order of orders) {
-      // Log do campo bruto para depuração
-      console.log(`[CUSTO:RAW] Pedido: ${order.id} | products bruto:`, order.products);
-      let products = [];
-      if (typeof order.products === "string") {
-        try { products = JSON.parse(order.products); } catch { products = []; }
-      } else if (Array.isArray(order.products)) {
-        products = order.products;
+      const products = Array.isArray(order.products)
+        ? order.products as Array<Record<string, unknown>>
+        : [];
+      for (const item of products) {
+        const id = String(item.id ?? item.productId ?? "").trim();
+        if (id) productIds.add(id);
       }
-      // Filtra produtos válidos
-      const validProducts = products.filter(item => {
-        const qty = Number(item.quantity) || 0;
-        const cost = Number(item.costPrice) || 0;
-        return qty > 0 && cost > 0;
-      });
+    }
+
+    let productCostMap = new Map<string, number>();
+    if (productIds.size > 0) {
+      const rows = await db
+        .select({ id: productsTable.id, costPrice: productsTable.costPrice })
+        .from(productsTable)
+        .where(inArray(productsTable.id, Array.from(productIds)));
+      productCostMap = new Map(rows.map((row) => [String(row.id), Number(row.costPrice || 0)]));
+    }
+
+    for (const order of orders) {
+      const products = Array.isArray(order.products)
+        ? order.products as Array<Record<string, unknown>>
+        : [];
+
       let orderTotal = 0;
-      for (const item of validProducts) {
-        const qty = Number(item.quantity) || 0;
-        const cost = Number(item.costPrice) || 0;
-        const subtotal = qty * cost;
-        console.log(`[CUSTO] Pedido: ${order.id} | Produto: ${item.name || item.id} | Qtd: ${qty} | Custo: ${cost} | Subtotal: ${subtotal}`);
-        orderTotal += subtotal;
+      for (const item of products) {
+        const qty = Number(item.quantity ?? item.qty ?? 0);
+        if (qty <= 0) continue;
+
+        const productId = String(item.id ?? item.productId ?? "").trim();
+        const itemCost = Number(item.costPrice ?? item.costprice ?? item.cost ?? NaN);
+        const fallbackCost = productId ? Number(productCostMap.get(productId) ?? 0) : 0;
+        const cost = Number.isFinite(itemCost) && itemCost > 0 ? itemCost : fallbackCost;
+
+        if (cost <= 0) continue;
+        orderTotal += qty * cost;
       }
-      console.log(`[CUSTO:TOTAL] Pedido: ${order.id} | Produtos considerados:`, validProducts, '| Total do pedido:', orderTotal);
+
       totalCost += orderTotal;
     }
 
@@ -90,8 +106,6 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
       let rate = 0;
       if (order.sellerCommissionRateSnapshot !== undefined && order.sellerCommissionRateSnapshot !== null) {
         rate = Number(order.sellerCommissionRateSnapshot) || 0;
-      } else if (order.sellerCommissionRate !== undefined && order.sellerCommissionRate !== null) {
-        rate = Number(order.sellerCommissionRate) || 0;
       }
       // Só desconta comissão se tem sellerCode e taxa > 0
       if (order.sellerCode && rate > 0) {
