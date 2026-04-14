@@ -33,6 +33,20 @@ router.get("/settings", async (_req, res) => {
   }
 });
 
+/** GET /api/admin/settings — admin only, returns all allowed keys */
+router.get("/admin/settings", requireAdminAuth, async (_req, res) => {
+  try {
+    const rows = await db.select().from(siteSettingsTable);
+    const out: Record<string, string> = {};
+    for (const row of rows) {
+      if (ALLOWED_KEYS.includes(row.key)) out[row.key] = row.value;
+    }
+    res.json(out);
+  } catch {
+    res.status(500).json({});
+  }
+});
+
 /** PUT /api/admin/settings/:key — admin only, upsert a setting value */
 router.put("/admin/settings/:key", requireAdminAuth, async (req, res) => {
   try {

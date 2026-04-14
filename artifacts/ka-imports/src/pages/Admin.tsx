@@ -974,13 +974,22 @@ export default function Admin() {
 
   const fetchSettings = useCallback(async () => {
     try {
-      const res = await fetch(`${BASE}/api/settings`);
+      const res = await fetch(`${BASE}/api/admin/settings`, { headers: authHeaders() });
+      if (res.status === 401) { handleUnauthorized(); return; }
       if (res.ok) {
         const data = await res.json() as Record<string, string>;
         setSettings(data);
+        return;
+      }
+
+      // Fallback to public endpoint if admin endpoint is temporarily unavailable.
+      const publicRes = await fetch(`${BASE}/api/settings`);
+      if (publicRes.ok) {
+        const data = await publicRes.json() as Record<string, string>;
+        setSettings(data);
       }
     } catch { /* ignore */ }
-  }, []);
+  }, [handleUnauthorized]);
 
   const saveSetting = useCallback(async (key: string, value: string) => {
     setSettingsLoading((p) => ({ ...p, [key]: true }));
