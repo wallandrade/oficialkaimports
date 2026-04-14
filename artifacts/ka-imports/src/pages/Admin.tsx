@@ -2030,6 +2030,8 @@ export default function Admin() {
 
   const statsGeneratedOrders  = statsOrdersData.filter((o) => o.status !== "cancelled");
   const statsGeneratedCharges = statsChargesData.filter((c) => c.status !== "cancelled");
+  const statsCancelledCount   = statsOrdersData.filter((o) => o.status === "cancelled").length
+    + statsChargesData.filter((c) => c.status === "cancelled").length;
   const statsTotalGenerated   = statsGeneratedOrders.reduce((s, o) => s + Number(o.total), 0)
     + statsGeneratedCharges.reduce((s, c) => s + Number(c.amount), 0);
 
@@ -2179,8 +2181,10 @@ export default function Admin() {
               <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide">Total Gerado</p>
               <p className="text-3xl font-bold text-blue-700">{formatCurrency(statsTotalGenerated)}</p>
               <p className="text-xs text-blue-600">{statsGeneratedOrders.length + statsGeneratedCharges.length} pedidos (excl. cancelados)</p>
+              <p className="text-[11px] text-blue-700/90">Inclui: pendente, aguardando, pago e concluído.</p>
               <div className="flex gap-4 mt-1 text-xs text-muted-foreground">
                 <span>Pendentes: <strong className="text-yellow-700">{statsPendingCount}</strong></span>
+                <span>Cancelados fora: <strong className="text-red-700">{statsCancelledCount}</strong></span>
                 <span>Conversão: <strong className="text-blue-700">{statsTotalGenerated > 0 ? ((statsTotalRevenue / statsTotalGenerated) * 100).toFixed(0) : "0"}%</strong></span>
               </div>
             </div>
