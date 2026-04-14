@@ -69,6 +69,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { AnimatePresence, motion } from "framer-motion";
 import { formatCurrency, formatDateOnlyBR } from "@/lib/utils";
+import { generateChargePdf, generateOrderPdf } from "@/lib/generateOrderPdf";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 
 
@@ -87,6 +88,28 @@ function statusBadge(status: string) {
       <cfg.Icon className="w-3 h-3" />{cfg.label}
     </span>
   );
+}
+
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  textarea.style.pointerEvents = "none";
+  document.body.appendChild(textarea);
+  textarea.select();
+
+  const ok = document.execCommand("copy");
+  document.body.removeChild(textarea);
+  if (!ok) {
+    throw new Error("clipboard_not_available");
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -4364,12 +4387,28 @@ function OrdersPanel({
 }) {
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
 
-  const copyOrder = (order: AdminOrder) => {
-    navigator.clipboard.writeText(orderToText(order)).then(() => {
+  const copyOrder = async (order: AdminOrder) => {
+    try {
+      await copyText(orderToText(order));
       setCopiedOrderId(order.id);
       toast.success("Dados copiados!");
       setTimeout(() => setCopiedOrderId(null), 2500);
-    }).catch(() => toast.error("Não foi possível copiar."));
+    } catch {
+      toast.error("Não foi possível copiar.");
+    }
+  };
+
+  const downloadOrder = (order: AdminOrder) => {
+    try {
+      const normalizedProducts = getOrderProducts(order.products).map((p) => ({
+        name: p.name,
+        quantity: Number(p.quantity) || 0,
+        price: Number(p.price) || 0,
+      }));
+      generateOrderPdf({ ...order, products: normalizedProducts });
+    } catch {
+      toast.error("Não foi possível baixar o pedido.");
+    }
   };
 
   if (orders.length === 0) return (
@@ -4480,7 +4519,7 @@ function OrdersPanel({
                   Detalhes
                 </Button>
                 <Button size="sm" variant="outline" className="gap-1.5 text-slate-700 border-slate-200 hover:bg-slate-50"
-                  onClick={() => generateOrderPdf(order)}>
+                  onClick={() => downloadOrder(order)}>
                   <Download className="w-3.5 h-3.5" />Baixar Pedido
                 </Button>
                 <Button size="sm" variant="outline" className="gap-1.5 text-slate-600 border-slate-200 hover:bg-slate-50"
@@ -4630,12 +4669,23 @@ function ChargesPanel({ charges, openWhatsApp, chargeStatusUpdating, onUpdateCha
   const [expandedCharge, setExpandedCharge] = useState<string | null>(null);
   const [copiedChargeId, setCopiedChargeId] = useState<string | null>(null);
 
-  const copyCharge = (charge: CustomCharge) => {
-    navigator.clipboard.writeText(chargeToText(charge)).then(() => {
+  const copyCharge = async (charge: CustomCharge) => {
+    try {
+      await copyText(chargeToText(charge));
       setCopiedChargeId(charge.id);
       toast.success("Dados copiados!");
       setTimeout(() => setCopiedChargeId(null), 2500);
-    }).catch(() => toast.error("Não foi possível copiar."));
+    } catch {
+      toast.error("Não foi possível copiar.");
+    }
+  };
+
+  const downloadCharge = (charge: CustomCharge) => {
+    try {
+      generateChargePdf(charge);
+    } catch {
+      toast.error("Não foi possível baixar o pedido.");
+    }
   };
 
   return (
@@ -4864,7 +4914,7 @@ function ChargesPanel({ charges, openWhatsApp, chargeStatusUpdating, onUpdateCha
               Detalhes
             </Button>
             <Button size="sm" variant="outline" className="gap-1.5 text-slate-700 border-slate-200 hover:bg-slate-50"
-              onClick={() => generateChargePdf(charge)}>
+              onClick={() => downloadCharge(charge)}>
               <Download className="w-3.5 h-3.5" />Baixar Pedido
             </Button>
             <Button size="sm" variant="outline" className="gap-1.5 text-slate-600 border-slate-200 hover:bg-slate-50"
