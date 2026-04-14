@@ -644,6 +644,21 @@ function mapOrder(o: typeof ordersTable.$inferSelect) {
   if (o.proofUrl && !proofUrls.includes(o.proofUrl)) {
     proofUrls = [o.proofUrl, ...proofUrls];
   }
+
+  let products: Array<{ id: string; name: string; quantity: number; price: number; costPrice?: number }> = [];
+  if (Array.isArray(o.products)) {
+    products = o.products as Array<{ id: string; name: string; quantity: number; price: number; costPrice?: number }>;
+  } else if (typeof o.products === "string") {
+    try {
+      const parsed = JSON.parse(o.products);
+      if (Array.isArray(parsed)) {
+        products = parsed as Array<{ id: string; name: string; quantity: number; price: number; costPrice?: number }>;
+      }
+    } catch {
+      products = [];
+    }
+  }
+
   return {
     id:                  o.id,
     clientName:          o.clientName,
@@ -657,7 +672,7 @@ function mapOrder(o: typeof ordersTable.$inferSelect) {
     addressNeighborhood: o.addressNeighborhood,
     addressCity:         o.addressCity,
     addressState:        o.addressState,
-    products:            o.products as Array<{ id: string; name: string; quantity: number; price: number; costPrice?: number }>,
+    products,
     shippingType:        o.shippingType,
     includeInsurance:    o.includeInsurance,
     subtotal:            Number(o.subtotal),

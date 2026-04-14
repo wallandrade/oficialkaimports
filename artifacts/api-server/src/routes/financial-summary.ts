@@ -21,6 +21,19 @@ async function getGatewayFees() {
   };
 }
 
+function parseOrderProducts(raw: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(raw)) return raw as Array<Record<string, unknown>>;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed as Array<Record<string, unknown>> : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 // GET /api/admin/financial-summary
 router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
   try {
@@ -59,9 +72,7 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
 
     const productIds = new Set<string>();
     for (const order of orders) {
-      const products = Array.isArray(order.products)
-        ? order.products as Array<Record<string, unknown>>
-        : [];
+      const products = parseOrderProducts(order.products);
       for (const item of products) {
         const id = String(item.id ?? item.productId ?? "").trim();
         if (id) productIds.add(id);
@@ -78,9 +89,7 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
     }
 
     for (const order of orders) {
-      const products = Array.isArray(order.products)
-        ? order.products as Array<Record<string, unknown>>
-        : [];
+      const products = parseOrderProducts(order.products);
 
       let orderTotal = 0;
       for (const item of products) {
