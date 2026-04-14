@@ -2,6 +2,7 @@
 // PATCH /api/admin/orders/:id/enviado  (protected)
 // ---------------------------------------------------------------------------
 router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => {
+  console.log('[PATCH] /api/admin/orders/:id/enviado', req.body, req.params, req.headers);
   try {
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
