@@ -44,6 +44,7 @@ export const ordersTable = mysqlTable("orders", {
   paidAmount: decimal("paid_amount", { precision: 10, scale: 2 }),
   pixCode: mediumtext("pix_code"),
   pixBase64: mediumtext("pix_base64"),
+  enviado: boolean("enviado").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
