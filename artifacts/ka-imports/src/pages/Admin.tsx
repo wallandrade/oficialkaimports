@@ -42,6 +42,21 @@ function isoToSPDate(iso: string) {
   return iso ? iso.slice(0, 10) : "";
 }
 
+type OrderProductLite = { id: string; name: string; quantity: number; price: number; costPrice?: number };
+
+function getOrderProducts(raw: unknown): OrderProductLite[] {
+  if (Array.isArray(raw)) return raw as OrderProductLite[];
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed as OrderProductLite[] : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
@@ -1431,7 +1446,7 @@ export default function Admin() {
   // Order editing
   const openEditOrder = async (order: AdminOrder) => {
     setEditOrderModal(order);
-    setEditItems((Array.isArray(order.products) ? order.products : []).map((p) => ({ id: p.id, name: p.name, quantity: p.quantity, price: p.price })));
+    setEditItems(getOrderProducts(order.products).map((p) => ({ id: p.id, name: p.name, quantity: p.quantity, price: p.price })));
     setEditProductSearch("");
     setDiffOrder(null);
     setDiffPixResult(null);
@@ -1876,7 +1891,7 @@ export default function Admin() {
 
   const productCostMap = new Map(statsProductsData.map((p) => [p.id, Number(p.costPrice || 0)] as const));
   const statsTotalCost = statsPaidOrders.reduce((sum, order) => {
-    const orderCost = (Array.isArray(order.products) ? order.products : []).reduce((lineSum, item) => {
+    const orderCost = getOrderProducts(order.products).reduce((lineSum, item) => {
       const qty = Number(item.quantity) || 0;
       const lineCost = item.costPrice != null ? Number(item.costPrice) : Number(productCostMap.get(item.id) || 0);
       return lineSum + qty * lineCost;
@@ -1892,7 +1907,7 @@ export default function Admin() {
 
   const statsTopProductsMap = new Map<string, { name: string; quantity: number; revenue: number }>();
   for (const order of statsPaidOrders) {
-    for (const product of (Array.isArray(order.products) ? order.products : [])) {
+    for (const product of getOrderProducts(order.products)) {
       const key = String(product.name || "").trim().toLowerCase();
       if (!key) continue;
       const current = statsTopProductsMap.get(key);
@@ -4501,7 +4516,7 @@ function OrdersPanel({
                   className="border-t border-border/50 bg-muted/30 px-5 sm:px-6 pb-5 pt-4">
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Produtos</p>
                   <div className="space-y-1">
-                    {(Array.isArray(order.products) ? order.products : []).map((p, i) => (
+                    {getOrderProducts(order.products).map((p, i) => (
                       <div key={i} className="flex justify-between text-sm">
                         <span>{p.quantity}x {p.name}</span>
                         <span className="font-medium">{formatCurrency(p.price * p.quantity)}</span>
