@@ -3,7 +3,7 @@ function formatDateBR(date: string | Date | undefined | null): string {
   if (!date) return "";
   const d = typeof date === "string" ? new Date(date) : date;
   if (isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("pt-BR");
+  return d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
 }
 // Funções utilitárias para recuperar dados do localStorage
 function getIsPrimary() {
@@ -31,12 +31,11 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 // Funções utilitárias de data
 function todayStr() {
-  const d = new Date();
-  return d.toISOString().slice(0, 10);
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
 }
 function spDateStr(date: Date | string) {
   const d = typeof date === "string" ? new Date(date) : date;
-  return d.toLocaleDateString("pt-BR");
+  return d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
 }
 function isoToSPDate(iso: string) {
   // Converte string ISO para YYYY-MM-DD (para <input type="date">)
@@ -4076,7 +4075,7 @@ export default function Admin() {
                         toast.success("Link copiado!");
                         setTimeout(() => setKycLinkCopied(false), 2000);
                       }}>
-                        {kycLinkCopied ? <CheckCircle2 className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
+                        {kycLinkCopied ? <CheckCircle className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
                         {kycLinkCopied ? "Copiado!" : "Copiar"}
                       </Button>
                       <Button size="sm" variant="outline" className="shrink-0" onClick={() => window.open(`${window.location.origin}${BASE}/kyc/${kycModal}`, "_blank")}>
@@ -4471,7 +4470,7 @@ function OrdersPanel({
                 </Button>
                 <Button size="sm" variant="outline" className="gap-1.5 text-slate-600 border-slate-200 hover:bg-slate-50"
                   onClick={() => copyOrder(order)}>
-                  {copiedOrderId === order.id ? <CheckCircle2 className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copiedOrderId === order.id ? <CheckCircle className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
                   {copiedOrderId === order.id ? "Copiado!" : "Copiar Dados"}
                 </Button>
                 {isPrimary && (
@@ -4490,9 +4489,15 @@ function OrdersPanel({
             </div>
 
             {/* Expanded details */}
-            <AnimatePresence>
+            <AnimatePresence initial={false}>
               {isExpanded && (
-                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                <motion.div
+                  key={`details-${order.id}`}
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.25, ease: "easeInOut" }}
+                  style={{ overflow: "hidden" }}
                   className="border-t border-border/50 bg-muted/30 px-5 sm:px-6 pb-5 pt-4">
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Produtos</p>
                   <div className="space-y-1">
@@ -4849,7 +4854,7 @@ function ChargesPanel({ charges, openWhatsApp, chargeStatusUpdating, onUpdateCha
             </Button>
             <Button size="sm" variant="outline" className="gap-1.5 text-slate-600 border-slate-200 hover:bg-slate-50"
               onClick={() => copyCharge(charge)}>
-              {copiedChargeId === charge.id ? <CheckCircle2 className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
+              {copiedChargeId === charge.id ? <CheckCircle className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
               {copiedChargeId === charge.id ? "Copiado!" : "Copiar Dados"}
             </Button>
           </div>
@@ -5176,11 +5181,11 @@ function SellersPanel({ siteOrigin, savedSellersList, sellerInput, setSellerInpu
                   </div>
                   <div className="flex gap-1.5 shrink-0">
                     <Button size="sm" variant="outline" className="gap-1 h-7 text-xs" onClick={() => copySeller(slug)} title="Copiar link da loja">
-                      {copiedSeller === slug ? <CheckCircle2 className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
+                      {copiedSeller === slug ? <CheckCircle className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
                       {copiedSeller === slug ? "Copiado!" : "Loja"}
                     </Button>
                     <Button size="sm" variant="outline" className="gap-1 h-7 text-xs text-violet-700 border-violet-200 hover:bg-violet-50" onClick={() => copyPaymentLink(slug)} title="Copiar link de pagamento">
-                      {copiedPaymentLink === slug ? <CheckCircle2 className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
+                      {copiedPaymentLink === slug ? <CheckCircle className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
                       {copiedPaymentLink === slug ? "Copiado!" : "Pgto"}
                     </Button>
                     {isPrimary && (
@@ -5476,7 +5481,7 @@ function WebhookPanel({ webhookUrl, copied, onCopy }: { webhookUrl: string; copi
           <p className="font-mono text-sm break-all text-foreground">{universalUrl}</p>
         </div>
         <Button onClick={() => { navigator.clipboard.writeText(universalUrl); setCopiedUniversal(true); setTimeout(() => setCopiedUniversal(false), 2000); toast.success("URL copiada!"); }} className="w-full gap-2" variant={copiedUniversal ? "default" : "outline"}>
-          {copiedUniversal ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+          {copiedUniversal ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
           {copiedUniversal ? "Copiado!" : "Copiar URL Universal"}
         </Button>
       </div>
@@ -5494,7 +5499,7 @@ function WebhookPanel({ webhookUrl, copied, onCopy }: { webhookUrl: string; copi
           <p className="font-mono text-sm break-all text-foreground">{webhookUrl}</p>
         </div>
         <Button onClick={onCopy} className="w-full gap-2" variant={copied ? "default" : "outline"}>
-          {copied ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+          {copied ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
           {copied ? "Copiado!" : "Copiar URL PIX"}
         </Button>
       </div>
@@ -6113,7 +6118,7 @@ function ProductsPanel({
                                 onClick={() => copyLink(link, key)}
                                 className="flex-shrink-0 flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-primary transition-colors px-2 py-1 rounded-lg hover:bg-primary/5"
                               >
-                                {copiedLink === key ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                                {copiedLink === key ? <CheckCircle className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
                                 {copiedLink === key ? "Copiado!" : "Copiar"}
                               </button>
                             </div>
@@ -6542,7 +6547,7 @@ function FretePanel({ options, form, setForm, creating, deleting, editing, setEd
                     </div>
                     <div className="flex gap-2">
                       <Button size="sm" onClick={() => onUpdate(opt.id, { name: editForm.name, description: editForm.description, price: Number(editForm.price), sortOrder: Number(editForm.sortOrder) })} disabled={updating === opt.id}>
-                        {updating === opt.id ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <CheckCircle2 className="w-3 h-3 mr-1" />}
+                        {updating === opt.id ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <CheckCircle className="w-3 h-3 mr-1" />}
                         Salvar
                       </Button>
                       <Button size="sm" variant="outline" onClick={() => setEditing(null)}>Cancelar</Button>

@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "cross-env NODE_ENV=development tsx --env-file=../../.env ./src/index.ts",
+    "dev": "cross-env NODE_ENV=development TZ=America/Sao_Paulo tsx --env-file=../../.env ./src/index.ts",
     "build": "tsx ./build.ts",
     "start": "cd ../../lib/db && drizzle-kit push --force --config ./drizzle.config.ts && cd ../../artifacts/api-server && node dist/index.cjs",
-    "start-only": "node dist/index.cjs",
+    "start-only": "cross-env TZ=America/Sao_Paulo node dist/index.cjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { clearCustomerToken, fetchCustomerProfile, getCustomerAuthHeaders } from "@/lib/customer-auth";
-import { formatCurrency } from "@/lib/utils";
+import { formatCurrency, formatDateBR } from "@/lib/utils";
 import { Copy, DollarSign, Gift, Loader2, LogOut, Package, Save, Ticket, Users } from "lucide-react";
 import { toast } from "sonner";
 
@@ -287,7 +287,7 @@ export default function CustomerOrders() {
                           <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
                             <p><span className="text-muted-foreground">Total:</span> <strong>{formatCurrency(Number(order.total || 0))}</strong></p>
                             <p><span className="text-muted-foreground">Pagamento:</span> {order.paymentMethod || "pix"}</p>
-                            <p><span className="text-muted-foreground">Data:</span> {new Date(order.createdAt).toLocaleString("pt-BR")}</p>
+                            <p><span className="text-muted-foreground">Data:</span> {formatDateBR(order.createdAt)}</p>
                           </div>
                         </div>
                       ))}
