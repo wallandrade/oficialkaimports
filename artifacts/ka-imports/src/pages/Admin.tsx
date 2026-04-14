@@ -4496,6 +4496,15 @@ function OrdersPanel({
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
   const [enviados, setEnviados] = useState<Record<string, boolean>>({});
 
+  // Inicializa enviados com base nos pedidos carregados
+  useEffect(() => {
+    const map: Record<string, boolean> = {};
+    for (const order of orders) {
+      map[order.id] = !!order.enviado;
+    }
+    setEnviados(map);
+  }, [orders]);
+
   // Funções SEM hooks
   const copyOrder = async (order: AdminOrder) => {
     try {
@@ -4525,10 +4534,24 @@ function OrdersPanel({
     }
   };
 
-  const toggleEnviado = (orderId: string) => {
-    setEnviados(prev => ({ ...prev, [orderId]: !prev[orderId] }));
-    toast.success("Status de envio atualizado!");
-    // Aqui você pode chamar a API real para atualizar o status no backend
+  const toggleEnviado = async (orderId: string) => {
+    const novoValor = !enviados[orderId];
+    try {
+      const res = await fetch(`${BASE}/api/admin/orders/${orderId}/enviado`, {
+        method: "PATCH",
+        headers: {
+          ...authHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ enviado: novoValor }),
+      });
+      if (!res.ok) throw new Error("Erro ao atualizar status de envio");
+      // Só atualiza localmente se o backend confirmou
+      setEnviados(prev => ({ ...prev, [orderId]: novoValor }));
+      toast.success(novoValor ? "Pedido marcado como enviado!" : "Pedido marcado como pendente!");
+    } catch (err) {
+      toast.error("Erro ao atualizar status de envio!");
+    }
   };
 
   if (orders.length === 0) return (
@@ -4635,14 +4658,12 @@ function OrdersPanel({
 
               {/* Actions */}
               <div className="flex gap-2 mt-4 flex-wrap">
-                {/* Botão de alternância de envio */}
+                {/* Botão só aparece se ainda não foi enviado */}
                 <Button
                   size="sm"
-                  className={`gap-1.5 rounded-full px-5 py-2 font-semibold transition shadow-sm border 
-                    ${enviados[order.id]
-                      ? "bg-yellow-100 text-yellow-800 border-yellow-300 hover:bg-yellow-200"
-                      : "bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200"}
-                  `}
+                  className={`gap-1.5 rounded-full px-5 py-2 font-semibold transition shadow-sm border ${enviados[order.id]
+                    ? "bg-yellow-100 text-yellow-800 border-yellow-300 hover:bg-yellow-200"
+                    : "bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200"}`}
                   variant="outline"
                   onClick={() => toggleEnviado(order.id)}
                 >
