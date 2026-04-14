@@ -1,5 +1,8 @@
 import { db, ordersTable } from "../../lib/db/src/index";
 import { and, gte, lte, inArray } from "drizzle-orm";
+import 'dotenv/config';
+// Adiciona log detalhado para CSV
+import fs from 'fs';
 
 async function listPaidOrdersWithCommission(dateFrom: string, dateTo: string) {
   // Função para converter data local (BRT) para UTC
@@ -13,6 +16,9 @@ async function listPaidOrdersWithCommission(dateFrom: string, dateTo: string) {
   conditions.push(inArray(ordersTable.status, ["paid", "completed"]));
   const orders = await db.select().from(ordersTable).where(and(...conditions));
 
+  const output: string[] = [
+    'id,total,status,sellerCode,sellerCommissionRateSnapshot,sellerCommissionRate,commission',
+  ];
   for (const order of orders) {
     const total = parseFloat(order.total || "0");
     let rate = 0;
@@ -22,15 +28,19 @@ async function listPaidOrdersWithCommission(dateFrom: string, dateTo: string) {
       rate = Number(order.sellerCommissionRate) || 0;
     }
     const commission = total * (rate / 100);
-    console.log({
-      id: order.id,
+    output.push([
+      order.id,
       total,
-      sellerCommissionRateSnapshot: order.sellerCommissionRateSnapshot,
-      sellerCommissionRate: order.sellerCommissionRate,
-      commission,
-    });
+      order.status,
+      order.sellerCode,
+      order.sellerCommissionRateSnapshot,
+      order.sellerCommissionRate,
+      commission.toFixed(2),
+    ].join(','));
   }
+  fs.writeFileSync('paid-orders-commission.csv', output.join('\n'), 'utf8');
+  console.log('Arquivo paid-orders-commission.csv gerado com sucesso!');
 }
 
 // Exemplo de uso: datas do período desejado
-listPaidOrdersWithCommission("2026-04-01", "2026-04-13").then(() => process.exit(0));
+listPaidOrdersWithCommission("2026-04-10", "2026-04-14").then(() => process.exit(0));

@@ -4491,8 +4491,12 @@ function OrdersPanel({
   onEditOrder: (order: AdminOrder) => void;
   onOpenKycModal: (orderId: string) => void;
 }) {
-  const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
 
+  // Todos os hooks no topo
+  const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
+  const [enviados, setEnviados] = useState<Record<string, boolean>>({});
+
+  // Funções SEM hooks
   const copyOrder = async (order: AdminOrder) => {
     try {
       const mode = await copyText(orderToText(order));
@@ -4521,6 +4525,12 @@ function OrdersPanel({
     }
   };
 
+  const toggleEnviado = (orderId: string) => {
+    setEnviados(prev => ({ ...prev, [orderId]: !prev[orderId] }));
+    toast.success("Status de envio atualizado!");
+    // Aqui você pode chamar a API real para atualizar o status no backend
+  };
+
   if (orders.length === 0) return (
     <div className="text-center py-16 bg-muted/30 rounded-2xl border border-dashed">
       <IconLucide name="Package" className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
@@ -4540,6 +4550,12 @@ function OrdersPanel({
                 <div className="flex-1 min-w-0">
                   <div className="flex flex-wrap items-center gap-2 mb-2">
                     <span className="font-mono text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">#{order.id}</span>
+                    {/* Badge de status de envio */}
+                    {enviados[order.id] ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-100 text-green-800 text-xs font-semibold border border-green-200">Enviado</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 text-xs font-semibold border border-yellow-200">Pendente para envio</span>
+                    )}
                     {statusBadge(order.status)}
                     {isCard ? (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 text-xs font-semibold border border-purple-200">
@@ -4619,6 +4635,11 @@ function OrdersPanel({
 
               {/* Actions */}
               <div className="flex gap-2 mt-4 flex-wrap">
+                {/* Botão de alternância de envio */}
+                <Button size="sm" variant={enviados[order.id] ? "secondary" : "outline"} className="gap-1.5 text-blue-700 border-blue-200 hover:bg-blue-50"
+                  onClick={() => toggleEnviado(order.id)}>
+                  {enviados[order.id] ? "Marcar como Pendente" : "Marcar como Enviado"}
+                </Button>
                 <Button size="sm" className="gap-2 bg-green-600 hover:bg-green-700 text-white border-none"
                   onClick={() => openWhatsApp(order)}>
                   <MessageCircle className="w-4 h-4" />WhatsApp
