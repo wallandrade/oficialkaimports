@@ -90,26 +90,43 @@ function statusBadge(status: string) {
   );
 }
 
-async function copyText(text: string): Promise<void> {
+async function copyText(text: string): Promise<"auto" | "manual"> {
+  // First try async clipboard API (works in secure contexts and with permission).
   if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-    return;
+    try {
+      await navigator.clipboard.writeText(text);
+      return "auto";
+    } catch {
+      // Fallback below for browsers/contexts where clipboard API is blocked.
+    }
   }
 
+  const previousActive = document.activeElement as HTMLElement | null;
   const textarea = document.createElement("textarea");
   textarea.value = text;
   textarea.setAttribute("readonly", "");
   textarea.style.position = "fixed";
+  textarea.style.top = "0";
+  textarea.style.left = "0";
   textarea.style.opacity = "0";
   textarea.style.pointerEvents = "none";
   document.body.appendChild(textarea);
+  textarea.focus();
   textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
 
-  const ok = document.execCommand("copy");
+  const ok = typeof document.execCommand === "function" && document.execCommand("copy");
   document.body.removeChild(textarea);
+  previousActive?.focus?.();
   if (!ok) {
+    const manual = window.prompt("Copia manual: Ctrl+C e Enter", text);
+    if (manual !== null) {
+      return "manual";
+    }
     throw new Error("clipboard_not_available");
   }
+
+  return "auto";
 }
 
 // ---------------------------------------------------------------------------
@@ -4389,9 +4406,13 @@ function OrdersPanel({
 
   const copyOrder = async (order: AdminOrder) => {
     try {
-      await copyText(orderToText(order));
+      const mode = await copyText(orderToText(order));
       setCopiedOrderId(order.id);
-      toast.success("Dados copiados!");
+      if (mode === "auto") {
+        toast.success("Dados copiados!");
+      } else {
+        toast.info("Abra o prompt e copie manualmente.");
+      }
       setTimeout(() => setCopiedOrderId(null), 2500);
     } catch {
       toast.error("Não foi possível copiar.");
@@ -4671,9 +4692,13 @@ function ChargesPanel({ charges, openWhatsApp, chargeStatusUpdating, onUpdateCha
 
   const copyCharge = async (charge: CustomCharge) => {
     try {
-      await copyText(chargeToText(charge));
+      const mode = await copyText(chargeToText(charge));
       setCopiedChargeId(charge.id);
-      toast.success("Dados copiados!");
+      if (mode === "auto") {
+        toast.success("Dados copiados!");
+      } else {
+        toast.info("Abra o prompt e copie manualmente.");
+      }
       setTimeout(() => setCopiedChargeId(null), 2500);
     } catch {
       toast.error("Não foi possível copiar.");
