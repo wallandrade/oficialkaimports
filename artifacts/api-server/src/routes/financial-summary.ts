@@ -83,7 +83,7 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
       totalCost += orderTotal;
     }
 
-    // Cálculo robusto da comissão do vendedor
+    // Cálculo robusto da comissão do vendedor: só desconta se tem sellerCode e taxa > 0
     let totalCommission = 0;
     for (const order of orders) {
       const amount = parseFloat(order.total || "0");
@@ -93,7 +93,10 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
       } else if (order.sellerCommissionRate !== undefined && order.sellerCommissionRate !== null) {
         rate = Number(order.sellerCommissionRate) || 0;
       }
-      totalCommission += amount * (rate / 100);
+      // Só desconta comissão se tem sellerCode e taxa > 0
+      if (order.sellerCode && rate > 0) {
+        totalCommission += amount * (rate / 100);
+      }
     }
 
     // TODO: calcular taxas de saque se houver tabela de saques
