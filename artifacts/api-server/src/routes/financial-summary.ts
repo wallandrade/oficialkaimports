@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, ordersTable, productsTable, siteSettingsTable } from "@workspace/db";
+import { db, ordersTable, productsTable, sellersTable, siteSettingsTable } from "@workspace/db";
 import { and, eq, gte, inArray, lte } from "drizzle-orm";
 import { requireAdminAuth } from "./admin-auth";
 
@@ -109,13 +109,44 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
     }
 
     // Cálculo robusto da comissão do vendedor: só desconta se tem sellerCode e taxa > 0
+    const sellerCodes = Array.from(new Set(
+      orders
+        .map((order) => String(order.sellerCode ?? "").trim().toLowerCase())
+        .filter(Boolean),
+    ));
+
+    let sellerRateMap = new Map<string, number>();
+    if (sellerCodes.length > 0) {
+      const sellerRows = await db
+        .select({
+          slug: sellersTable.slug,
+          hasCommission: sellersTable.hasCommission,
+          commissionRate: sellersTable.commissionRate,
+        })
+        .from(sellersTable)
+        .where(inArray(sellersTable.slug, sellerCodes));
+
+      sellerRateMap = new Map(
+        sellerRows.map((seller) => [
+          String(seller.slug).toLowerCase(),
+          seller.hasCommission ? Number(seller.commissionRate ?? 0) : 0,
+        ]),
+      );
+    }
+
     let totalCommission = 0;
     for (const order of orders) {
       const amount = parseFloat(order.total || "0");
       let rate = 0;
+
+      // Prioriza snapshot histórico (não altera pedidos que já têm taxa travada)
       if (order.sellerCommissionRateSnapshot !== undefined && order.sellerCommissionRateSnapshot !== null) {
         rate = Number(order.sellerCommissionRateSnapshot) || 0;
+      } else if (order.sellerCode) {
+        // Fallback apenas para pedidos antigos sem snapshot
+        rate = sellerRateMap.get(String(order.sellerCode).toLowerCase()) ?? 0;
       }
+
       // Só desconta comissão se tem sellerCode e taxa > 0
       if (order.sellerCode && rate > 0) {
         totalCommission += amount * (rate / 100);
