@@ -59,6 +59,11 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
       name: "seller_commission_rate_snapshot",
       sql: "ALTER TABLE orders ADD COLUMN seller_commission_rate_snapshot DECIMAL(5,2) NULL",
     },
+    // Novo campo para status de envio
+    {
+      name: "enviado",
+      sql: "ALTER TABLE orders ADD COLUMN enviado TINYINT(1) NOT NULL DEFAULT 0",
+    },
   ];
 
   for (const definition of definitions) {

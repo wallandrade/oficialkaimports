@@ -1,3 +1,25 @@
+// ---------------------------------------------------------------------------
+// PATCH /api/admin/orders/:id/enviado  (protected)
+// ---------------------------------------------------------------------------
+router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => {
+  try {
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
+    const { enviado } = req.body as { enviado: boolean };
+    if (typeof enviado !== "boolean") {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Campo 'enviado' obrigatório e deve ser boolean." });
+      return;
+    }
+    await db.update(ordersTable)
+      .set({ enviado, updatedAt: new Date() })
+      .where(eq(ordersTable.id, id));
+    broadcastNotification({ type: "order_enviado_updated", data: { id, enviado } });
+    res.json({ ok: true, id, enviado });
+  } catch (err) {
+    console.error("Update order enviado error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao atualizar status de envio." });
+  }
+});
 import { Router, type IRouter } from "express";
 import { db, ordersTable, customChargesTable, sellersTable, productsTable, siteSettingsTable } from "@workspace/db";
 import { desc, and, gte, lte, eq, inArray } from "drizzle-orm";
