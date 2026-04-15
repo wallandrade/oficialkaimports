@@ -4534,11 +4534,13 @@ function OrdersPanel({
     }
   };
 
+  const [enviando, setEnviando] = useState<Record<string, boolean>>({});
   const toggleEnviado = async (orderId: string) => {
     if (!orderId || typeof orderId !== "string" || orderId.length === 0) {
       toast.error("ID do pedido inválido!");
       return;
     }
+    setEnviando(prev => ({ ...prev, [orderId]: true }));
     const novoValor = !enviados[orderId];
     try {
       const res = await fetch(`${BASE}/api/admin/orders/${orderId}/enviado`, {
@@ -4549,12 +4551,18 @@ function OrdersPanel({
         },
         body: JSON.stringify({ enviado: novoValor }),
       });
+      if (res.status === 404) {
+        toast.error("Pedido não encontrado no banco de dados!");
+        setEnviando(prev => ({ ...prev, [orderId]: false }));
+        return;
+      }
       if (!res.ok) throw new Error("Erro ao atualizar status de envio");
-      // Só atualiza localmente se o backend confirmou
       setEnviados(prev => ({ ...prev, [orderId]: novoValor }));
       toast.success(novoValor ? "Pedido marcado como enviado!" : "Pedido marcado como pendente!");
     } catch (err) {
       toast.error("Erro ao atualizar status de envio!");
+    } finally {
+      setEnviando(prev => ({ ...prev, [orderId]: false }));
     }
   };
 
@@ -4671,9 +4679,14 @@ function OrdersPanel({
                     ? "bg-yellow-100 text-yellow-800 border-yellow-300 hover:bg-yellow-200"
                     : "bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200"}`}
                   variant="outline"
+                  disabled={!!enviando[order.id]}
                   onClick={() => toggleEnviado(order.id)}
                 >
-                  {enviados[order.id] ? "Marcar como Pendente" : "Marcar como Enviado"}
+                  {enviando[order.id]
+                    ? "Salvando..."
+                    : enviados[order.id]
+                      ? "Marcar como Pendente"
+                      : "Marcar como Enviado"}
                 </Button>
                 <Button size="sm" className="gap-2 bg-green-600 hover:bg-green-700 text-white border-none"
                   onClick={() => openWhatsApp(order)}>
