@@ -3,11 +3,15 @@ import { eq } from "drizzle-orm";
 import { inArray } from "drizzle-orm";
 
 async function patchOrdersCostPrice() {
-  // Busca todos os pedidos
-  // Corrige apenas pedidos pagos ou completed
-  const orders = await db.select().from(ordersTable).where(
-    (row) => ["paid", "completed"].includes(row.status)
-  );
+  // Corrige apenas pedidos pagos/concluidos e seleciona somente colunas necessarias.
+  // Evita falhas em deploy quando novas colunas ainda nao existem no banco.
+  const orders = await db
+    .select({
+      id: ordersTable.id,
+      products: ordersTable.products,
+    })
+    .from(ordersTable)
+    .where(inArray(ordersTable.status, ["paid", "completed"]));
   for (const order of orders) {
     let products = [];
     // Tenta parsear products mesmo se mal formatado
@@ -45,7 +49,7 @@ async function patchOrdersCostPrice() {
     }));
     // Atualiza o pedido no banco se necessário
     await db.update(ordersTable)
-      .set({ products: JSON.stringify(patchedProducts) })
+      .set({ products: patchedProducts })
       .where(eq(ordersTable.id, order.id));
     console.log(`Pedido ${order.id} corrigido.`);
   }
