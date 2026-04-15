@@ -340,22 +340,89 @@ router.patch("/admin/support-tickets/:id/status", requireAdminAuth, async (req, 
       return;
     }
 
-    const rows = await db.select({ id: supportTicketsTable.id }).from(supportTicketsTable).where(eq(supportTicketsTable.id, id)).limit(1);
-    if (!rows[0]) {
+    const ticketRows = await db
+      .select({
+        id: supportTicketsTable.id,
+        orderId: supportTicketsTable.orderId,
+        addressChangeJson: supportTicketsTable.addressChangeJson,
+      })
+      .from(supportTicketsTable)
+      .where(eq(supportTicketsTable.id, id))
+      .limit(1);
+
+    const ticket = ticketRows[0];
+    if (!ticket) {
       res.status(404).json({ error: "NOT_FOUND", message: "Chamado nao encontrado." });
       return;
+    }
+
+    let resolutionReason: string | null = status === "resolved" ? "resolvido_manual" : null;
+    let reshipment: { id: string; status: string; missingProducts: string[] } | null = null;
+
+    if (status === "resolved" && ticket.addressChangeJson) {
+      let parsedAddress: AddressChangePayload | null = null;
+      try {
+        parsedAddress = normalizeAddressChange(JSON.parse(ticket.addressChangeJson));
+      } catch {
+        parsedAddress = null;
+      }
+
+      if (parsedAddress) {
+        await db
+          .update(ordersTable)
+          .set({
+            addressCep: parsedAddress.cep,
+            addressStreet: parsedAddress.street,
+            addressNumber: parsedAddress.number,
+            addressComplement: parsedAddress.complement || null,
+            addressNeighborhood: parsedAddress.neighborhood,
+            addressCity: parsedAddress.city,
+            addressState: parsedAddress.state,
+            updatedAt: new Date(),
+          })
+          .where(eq(ordersTable.id, ticket.orderId));
+
+        const orderRows = await db
+          .select({ id: ordersTable.id, products: ordersTable.products })
+          .from(ordersTable)
+          .where(eq(ordersTable.id, ticket.orderId))
+          .limit(1);
+
+        const order = orderRows[0];
+        if (order) {
+          reshipment = await createOrRefreshReshipment({
+            orderId: order.id,
+            supportTicketId: ticket.id,
+            productsRaw: order.products,
+            resolvedReason: "reenvio_autorizado",
+          });
+          resolutionReason = "reenvio_autorizado";
+        }
+      }
     }
 
     await db.update(supportTicketsTable)
       .set({
         status,
-        resolutionReason: status === "resolved" ? "resolvido_manual" : null,
+        resolutionReason,
         resolvedAt: status === "resolved" ? new Date() : null,
         updatedAt: new Date(),
       })
       .where(eq(supportTicketsTable.id, id));
 
-    res.json({ ok: true, id, status });
+    if (reshipment) {
+      broadcastNotification({
+        type: "support_ticket_reshipment_authorized",
+        data: {
+          ticketId: id,
+          orderId: ticket.orderId,
+          reshipmentId: reshipment.id,
+          reshipmentStatus: reshipment.status,
+        },
+      });
+    }
+
+    res.json({ ok: true, id, status, resolutionReason, reshipment });
   } catch (err) {
     console.error("Support ticket status update error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao atualizar chamado." });

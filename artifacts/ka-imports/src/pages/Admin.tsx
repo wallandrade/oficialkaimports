@@ -2760,16 +2760,36 @@ export default function Admin() {
                   headers: authHeaders(),
                   body: JSON.stringify({ status }),
                 });
+                const data = await res.json() as {
+                  message?: string;
+                  resolutionReason?: string | null;
+                  reshipment?: { status?: string } | null;
+                };
                 if (!res.ok) {
-                  toast.error("Erro ao atualizar chamado.");
+                  toast.error(data?.message || "Erro ao atualizar chamado.");
                   return;
                 }
                 setSupportTickets((prev) => prev.map((t) => (
                   t.id === id
-                    ? { ...t, status, resolvedAt: status === "resolved" ? new Date().toISOString() : null }
+                    ? {
+                        ...t,
+                        status,
+                        resolutionReason: status === "resolved" ? (data?.resolutionReason || "resolvido_manual") : null,
+                        resolvedAt: status === "resolved" ? new Date().toISOString() : null,
+                      }
                     : t
                 )));
-                toast.success(status === "resolved" ? "Chamado marcado como resolvido." : "Chamado reaberto.");
+                if (status === "resolved") {
+                  fetchOrders(true);
+                  fetchInventoryOverview();
+                }
+                if (status === "resolved" && data?.reshipment?.status === "reenvio_aguardando_estoque") {
+                  toast.success("Chamado resolvido. Pedido entrou em reenvio aguardando estoque.");
+                } else if (status === "resolved" && data?.reshipment?.status === "reenvio_pronto_para_envio") {
+                  toast.success("Chamado resolvido. Pedido pronto para reenvio.");
+                } else {
+                  toast.success(status === "resolved" ? "Chamado marcado como resolvido." : "Chamado reaberto.");
+                }
               } catch {
                 toast.error("Erro ao atualizar chamado.");
               }
