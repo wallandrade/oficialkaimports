@@ -134,19 +134,19 @@ export function CartDrawer() {
             </div>
 
             {items.length > 0 && (
-              <div className="p-6 bg-gray-50 border-t border-border">
-                <div className="flex items-center justify-between mb-6 text-lg">
+              <div className="p-4 bg-gray-50 border-t border-border shrink-0">
+                <div className="flex items-center justify-between mb-3 text-base">
                   <span className="font-medium text-muted-foreground">Subtotal</span>
-                  <span className="font-display font-bold text-2xl text-foreground">
+                  <span className="font-display font-bold text-xl text-foreground">
                     {formatCurrency(getSubtotal())}
                   </span>
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Button size="lg" className="w-full text-lg shadow-xl shadow-primary/20" onClick={handleCheckout}>
+                  <Button className="w-full shadow-xl shadow-primary/20" onClick={handleCheckout}>
                     Finalizar Pedido
-                    <ArrowRight className="w-5 h-5 ml-2" />
+                    <ArrowRight className="w-4 h-4 ml-2" />
                   </Button>
-                  <Button size="lg" variant="outline" className="w-full text-base" onClick={() => setIsOpen(false)}>
+                  <Button variant="outline" className="w-full" onClick={() => setIsOpen(false)}>
                     Continuar comprando
                   </Button>
                 </div>
