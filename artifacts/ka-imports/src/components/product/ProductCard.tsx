@@ -67,25 +67,23 @@ export function ProductCard({ product, sellerSlug }: ProductCardProps) {
             )}
           </div>
 
-          <div className="flex gap-1.5">
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-1 rounded-lg text-xs px-2 h-8"
-              onClick={handleAddToCart}
-            >
-              <ShoppingCart className="w-3.5 h-3.5 mr-1 shrink-0" />
-              <span className="truncate">Carrinho</span>
-            </Button>
+          <div className="flex flex-col gap-2">
             <Button
               asChild
-              size="sm"
-              className="flex-1 rounded-lg text-xs px-2 h-8"
+              className="w-full rounded-xl text-sm"
             >
               <Link href={href}>
-                <span className="truncate">Ver produto</span>
-                <ArrowRight className="w-3.5 h-3.5 ml-1 shrink-0" />
+                Ver produto
+                <ArrowRight className="w-4 h-4 ml-1.5" />
               </Link>
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full rounded-xl text-sm"
+              onClick={handleAddToCart}
+            >
+              <ShoppingCart className="w-4 h-4 mr-1.5" />
+              Adicionar ao carrinho
             </Button>
           </div>
         </div>
