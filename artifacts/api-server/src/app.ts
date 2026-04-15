@@ -41,7 +41,56 @@ const sensitivePublicWritePaths = new Set([
   "/api/support/tickets",
 ]);
 
+type RateLimitRule = {
+  windowMs: number;
+  max: number;
+};
+
+type RateBucket = {
+  count: number;
+  resetAt: number;
+};
+
+const publicWriteRateRules: Record<string, RateLimitRule> = {
+  "/api/orders": {
+    windowMs: Number(process.env.RL_PUBLIC_ORDERS_WINDOW_MS || 10 * 60 * 1000),
+    max: Number(process.env.RL_PUBLIC_ORDERS_MAX || 40),
+  },
+  "/api/checkout/pix": {
+    windowMs: Number(process.env.RL_PUBLIC_CHECKOUT_WINDOW_MS || 10 * 60 * 1000),
+    max: Number(process.env.RL_PUBLIC_CHECKOUT_MAX || 40),
+  },
+  "/api/custom-charges": {
+    windowMs: Number(process.env.RL_PUBLIC_CUSTOM_CHARGES_WINDOW_MS || 10 * 60 * 1000),
+    max: Number(process.env.RL_PUBLIC_CUSTOM_CHARGES_MAX || 25),
+  },
+  "/api/support/orders-by-cpf": {
+    windowMs: Number(process.env.RL_PUBLIC_SUPPORT_LOOKUP_WINDOW_MS || 10 * 60 * 1000),
+    max: Number(process.env.RL_PUBLIC_SUPPORT_LOOKUP_MAX || 40),
+  },
+  "/api/support/tickets": {
+    windowMs: Number(process.env.RL_PUBLIC_SUPPORT_TICKETS_WINDOW_MS || 10 * 60 * 1000),
+    max: Number(process.env.RL_PUBLIC_SUPPORT_TICKETS_MAX || 20),
+  },
+};
+
+const rateBuckets = new Map<string, RateBucket>();
+
+function getIp(req: express.Request): string {
+  const xf = String(req.get("x-forwarded-for") || "").split(",")[0]?.trim();
+  return xf || req.ip || "unknown";
+}
+
+function cleanupExpiredRateBuckets(now: number): void {
+  for (const [key, bucket] of rateBuckets.entries()) {
+    if (bucket.resetAt <= now) {
+      rateBuckets.delete(key);
+    }
+  }
+}
+
 const app: Express = express();
+app.set("trust proxy", 1);
 
 // Log global de todas as requisições
 app.use((req, res, next) => {
@@ -93,6 +142,55 @@ app.use((req, res, next) => {
     return;
   }
 
+  next();
+});
+
+// Emergency anti-abuse limiter for public write endpoints.
+app.use((req, res, next) => {
+  if (!sensitivePublicWritePaths.has(req.path) || req.method !== "POST") {
+    next();
+    return;
+  }
+
+  const rule = publicWriteRateRules[req.path];
+  if (!rule || rule.max <= 0 || rule.windowMs <= 0) {
+    next();
+    return;
+  }
+
+  const now = Date.now();
+  cleanupExpiredRateBuckets(now);
+
+  const ip = getIp(req);
+  const bucketKey = `${req.path}|${ip}`;
+  const current = rateBuckets.get(bucketKey);
+
+  if (!current || current.resetAt <= now) {
+    rateBuckets.set(bucketKey, { count: 1, resetAt: now + rule.windowMs });
+    next();
+    return;
+  }
+
+  if (current.count >= rule.max) {
+    const retryAfterSec = Math.max(1, Math.ceil((current.resetAt - now) / 1000));
+    res.setHeader("Retry-After", String(retryAfterSec));
+    console.warn("[SECURITY] Rate limit exceeded", {
+      path: req.path,
+      ip,
+      count: current.count,
+      max: rule.max,
+      retryAfterSec,
+      ua: req.get("user-agent"),
+    });
+    res.status(429).json({
+      error: "RATE_LIMITED",
+      message: "Muitas tentativas. Tente novamente em instantes.",
+      retryAfterSec,
+    });
+    return;
+  }
+
+  current.count += 1;
   next();
 });
 
