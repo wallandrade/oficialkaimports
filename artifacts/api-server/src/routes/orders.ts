@@ -19,6 +19,7 @@ import {
   resolveAffiliateByCode,
 } from "../lib/affiliates";
 import { getReshipmentByOrderIds } from "../lib/reshipments";
+import { lookupIpGeo } from "../lib/ip-geo";
 
 const router: IRouter = Router();
 
@@ -211,6 +212,15 @@ router.post("/orders", async (req, res) => {
       couponCode:        req.body.couponCode ? String(req.body.couponCode).toUpperCase() : null,
       discountAmount:    req.body.discountAmount ? String(req.body.discountAmount) : null,
     });
+
+    // Geo lookup — fire and forget, não bloqueia a resposta
+    lookupIpGeo(purchaseIp).then((geo) => {
+      if (!geo) return;
+      db.update(ordersTable)
+        .set({ ipCity: geo.city, ipRegion: geo.region, ipIsp: geo.isp, ipIsProxy: geo.isProxy })
+        .where(eq(ordersTable.id, id))
+        .catch(() => {});
+    }).catch(() => {});
 
     if (affiliateUserId) {
       await registerAffiliateLead({
@@ -432,22 +442,59 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
         .filter((ip) => ip !== "");
       const sameIpFound = currentIp !== "" && otherKnownIps.includes(currentIp);
 
-      let purchaseRisk: "low" | "medium" | "high" = "medium";
-      let purchaseRiskReason = "Sem histórico suficiente de IP.";
+      const ipIsProxy  = !!(order as any).ipIsProxy;
+      const ipCity     = String((order as any).ipCity  || "").trim().toLowerCase();
+      const ipRegion   = String((order as any).ipRegion || "").trim().toLowerCase();
+      const addrCity   = String(order.addressCity   || "").trim().toLowerCase();
+      const addrState  = String(order.addressState  || "").trim().toLowerCase();
+      const hasGeo     = ipCity !== "" || ipRegion !== "";
 
-      if (!currentIp) {
-        purchaseRisk = "medium";
-        purchaseRiskReason = "IP da compra ausente; risco inconclusivo.";
-      } else if (otherKnownIps.length === 0) {
-        purchaseRisk = "medium";
-        purchaseRiskReason = "Sem histórico confiável de IP para este CPF.";
-      } else if (sameIpFound) {
-        purchaseRisk = "low";
-        purchaseRiskReason = "IP já utilizado anteriormente por este CPF.";
-      } else {
-        purchaseRisk = "high";
-        purchaseRiskReason = "IP inédito para este CPF com histórico prévio.";
+      const reasons: string[] = [];
+      let score = 0;
+
+      // Proxy / datacenter / VPN
+      if (ipIsProxy) {
+        score += 3;
+        reasons.push("VPN/proxy detectado");
       }
+
+      // Histórico de IP do mesmo CPF
+      if (!currentIp) {
+        score += 1;
+        reasons.push("IP ausente");
+      } else if (otherKnownIps.length === 0) {
+        // Primeiro pedido — sem histórico, neutro
+        reasons.push("Primeiro pedido deste CPF");
+      } else if (sameIpFound) {
+        score -= 2;
+        reasons.push("IP já usado por este CPF");
+      } else {
+        score += 2;
+        reasons.push("IP inédito para CPF com histórico");
+      }
+
+      // Comparação geo IP vs endereço do pedido
+      if (hasGeo && addrCity) {
+        const cityMatch   = ipCity   !== "" && addrCity   !== "" && addrCity.includes(ipCity);
+        const regionMatch = ipRegion !== "" && addrState  !== "" && ipRegion.includes(addrState);
+
+        if (cityMatch) {
+          score -= 1;
+          reasons.push(`Cidade IP bate (${(order as any).ipCity})`);
+        } else if (regionMatch) {
+          reasons.push(`Estado IP bate, cidade diverge (IP: ${(order as any).ipCity}, pedido: ${order.addressCity})`);
+        } else {
+          score += 1;
+          reasons.push(`Localização diverge (IP: ${(order as any).ipCity || (order as any).ipRegion}, pedido: ${order.addressCity}/${order.addressState})`);
+        }
+      }
+
+      let purchaseRisk: "low" | "medium" | "high";
+      if (score <= 0)      purchaseRisk = "low";
+      else if (score <= 2) purchaseRisk = "medium";
+      else                 purchaseRisk = "high";
+
+      const purchaseRiskReason = reasons.length > 0 ? reasons.join(" · ") : "Sem dados suficientes.";
 
       return {
         ...mapOrder(order),
@@ -876,6 +923,10 @@ function mapOrder(o: typeof ordersTable.$inferSelect) {
     paidAmount:             o.paidAmount ? Number(o.paidAmount) : null,
     createdAt:              o.createdAt?.toISOString() ?? new Date().toISOString(),
     purchaseIp:             o.purchaseIp,
+    ipCity:                 o.ipCity ?? null,
+    ipRegion:               o.ipRegion ?? null,
+    ipIsp:                  o.ipIsp ?? null,
+    ipIsProxy:              o.ipIsProxy ?? null,
     enviado:                !!o.enviado,
   };
 }

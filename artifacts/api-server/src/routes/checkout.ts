@@ -12,6 +12,7 @@ import {
 } from "../gateway";
 import { getCustomerSession } from "../middlewares/customer-auth";
 import { applyAffiliateCreditToOrder, normalizeAffiliateCode, registerAffiliateLead, resolveAffiliateByCode } from "../lib/affiliates";
+import { lookupIpGeo } from "../lib/ip-geo";
 
 const router: IRouter = Router();
 
@@ -262,6 +263,15 @@ router.post("/checkout/pix", async (req, res) => {
     }
 
     console.log(`[CHECKOUT/PIX:${requestId}] Order created: ${orderId} (sellerCode=${sellerCode || "none"})`);
+
+    // Geo lookup — fire and forget, não bloqueia a resposta
+    lookupIpGeo(purchaseIp).then((geo) => {
+      if (!geo) return;
+      db.update(ordersTable)
+        .set({ ipCity: geo.city, ipRegion: geo.region, ipIsp: geo.isp, ipIsProxy: geo.isProxy })
+        .where(eq(ordersTable.id, orderId))
+        .catch(() => {});
+    }).catch(() => {});
 
     broadcastNotification({
       type: "new_order",

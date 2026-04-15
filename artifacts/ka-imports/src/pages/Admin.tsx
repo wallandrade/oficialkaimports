@@ -5339,11 +5339,22 @@ function OrdersPanel({
                             <Tag className="w-3 h-3" />{order.sellerCode}
                           </span>
                         )}
+                        {order.purchaseIp && (
+                          <span className="font-mono text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded" title={(order as any).ipIsp || "IP de compra"}>
+                            {normalizeIp(order.purchaseIp)}
+                            {(order as any).ipCity ? ` · ${(order as any).ipCity}/${(order as any).ipRegion || ""}` : ""}
+                          </span>
+                        )}
                         {(() => {
                           const cfg = riskCfg((order as any).purchaseRisk);
+                          const tooltip = [
+                            (order as any).purchaseRiskReason,
+                            (order as any).ipIsp ? `ISP: ${(order as any).ipIsp}` : "",
+                            (order as any).ipIsProxy ? "⚠ VPN/proxy detectado" : "",
+                          ].filter(Boolean).join("\n");
                           return (
                             <span
-                              title={(order as any).purchaseRiskReason || "Validação por histórico de IP do CPF"}
+                              title={tooltip || "Validação por histórico de IP do CPF"}
                               className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${cfg.cls}`}
                             >
                               <AlertTriangle className="w-3 h-3" />{cfg.label}
