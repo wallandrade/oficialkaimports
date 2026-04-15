@@ -136,7 +136,7 @@ export function chargeToText(charge: any): string {
     .join("\n");
 }
 
-function supplierOrderBlock(order: any): string {
+function supplierOrderBlock(order: any, sequence: number): string {
   const products = getOrderProducts(order?.products);
   const resumoPedido = products.length
     ? products
@@ -150,7 +150,7 @@ function supplierOrderBlock(order: any): string {
   const rua = [order?.addressStreet, order?.addressNumber].filter(Boolean).join(", ") || "-";
 
   return [
-    `Pedido numero: ${order?.id || "-"}`,
+    `Pedido numero: ${sequence}`,
     "",
     `Nome: ${order?.clientName || "-"}`,
     `Rua: ${rua}`,
@@ -2020,7 +2020,7 @@ export default function Admin() {
       return;
     }
 
-    const text = ordersParaEnviar.map((order) => supplierOrderBlock(order)).join("\n\n");
+    const text = ordersParaEnviar.map((order, index) => supplierOrderBlock(order, index + 1)).join("\n\n");
     try {
       const mode = await copyText(text);
       toast.success(mode === "manual" ? "Texto aberto para copia manual." : "Pedidos copiados com sucesso.");
