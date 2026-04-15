@@ -162,6 +162,7 @@ function supplierOrderBlock(order: any, sequence: number): string {
     "",
     "Resumo pedido:",
     resumoPedido,
+    "_______________________________",
   ].join("\n");
 }
 
