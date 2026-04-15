@@ -2774,6 +2774,27 @@ export default function Admin() {
                 toast.error("Erro ao atualizar chamado.");
               }
             }}
+            onDelete={async (id) => {
+              if (!window.confirm("Excluir este chamado de suporte? Esta ação não pode ser desfeita.")) {
+                return;
+              }
+
+              try {
+                const res = await fetch(`${BASE}/api/admin/support-tickets/${id}`, {
+                  method: "DELETE",
+                  headers: authHeaders(),
+                });
+                const data = await res.json() as { message?: string };
+                if (!res.ok) {
+                  toast.error(data?.message || "Erro ao excluir chamado.");
+                  return;
+                }
+                setSupportTickets((prev) => prev.filter((t) => t.id !== id));
+                toast.success("Chamado excluído.");
+              } catch {
+                toast.error("Erro ao excluir chamado.");
+              }
+            }}
             onReenviar={async (id) => {
               try {
                 const res = await fetch(`${BASE}/api/admin/support-tickets/${id}/reenviar`, {
@@ -4872,12 +4893,14 @@ function SupportTicketsPanel({
   loading,
   onRefresh,
   onSetStatus,
+  onDelete,
   onReenviar,
 }: {
   tickets: SupportTicketRecord[];
   loading: boolean;
   onRefresh: () => void;
   onSetStatus: (id: string, status: "open" | "resolved") => void;
+  onDelete: (id: string) => void;
   onReenviar: (id: string) => void;
 }) {
   return (
@@ -4930,9 +4953,17 @@ function SupportTicketsPanel({
                       <Button size="sm" variant="outline" className="border-red-200 text-red-700 hover:bg-red-50" onClick={() => onReenviar(ticket.id)}>
                         Reenviar
                       </Button>
+                      <Button size="sm" variant="outline" className="border-red-200 text-red-700 hover:bg-red-50" onClick={() => onDelete(ticket.id)}>
+                        Excluir
+                      </Button>
                     </>
                   ) : (
-                    <Button size="sm" variant="outline" onClick={() => onSetStatus(ticket.id, "open")}>Reabrir</Button>
+                    <>
+                      <Button size="sm" variant="outline" onClick={() => onSetStatus(ticket.id, "open")}>Reabrir</Button>
+                      <Button size="sm" variant="outline" className="border-red-200 text-red-700 hover:bg-red-50" onClick={() => onDelete(ticket.id)}>
+                        Excluir
+                      </Button>
+                    </>
                   )}
                 </div>
               </div>

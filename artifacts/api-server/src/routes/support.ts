@@ -362,4 +362,35 @@ router.patch("/admin/support-tickets/:id/status", requireAdminAuth, async (req, 
   }
 });
 
+// ---------------------------------------------------------------------------
+// DELETE /api/admin/support-tickets/:id
+// ---------------------------------------------------------------------------
+router.delete("/admin/support-tickets/:id", requireAdminAuth, async (req, res) => {
+  try {
+    const id = String(req.params.id ?? "").trim();
+    if (!id) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Chamado invalido." });
+      return;
+    }
+
+    const rows = await db
+      .select({ id: supportTicketsTable.id })
+      .from(supportTicketsTable)
+      .where(eq(supportTicketsTable.id, id))
+      .limit(1);
+
+    if (!rows[0]) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Chamado nao encontrado." });
+      return;
+    }
+
+    await db.delete(supportTicketsTable).where(eq(supportTicketsTable.id, id));
+
+    res.json({ ok: true, id });
+  } catch (err) {
+    console.error("Support ticket delete error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao excluir chamado." });
+  }
+});
+
 export default router;
