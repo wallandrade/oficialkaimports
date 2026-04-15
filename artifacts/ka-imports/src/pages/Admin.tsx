@@ -1980,6 +1980,7 @@ export default function Admin() {
   const paidOrders      = orders.filter((o) => o.status === "paid" || o.status === "completed");
   const revenue         = paidOrders.reduce((s, o) => s + Number(o.total), 0);
   const chargeRevenue   = charges.filter((c) => c.status === "paid").reduce((s, c) => s + Number(c.amount), 0);
+  const ordersParaEnviar = orders.filter((o) => (o.status === "paid" || o.status === "completed") && !o.enviado);
 
   // ── Dashboard stats — uses independently fetched data (own API call) ─────
   const statsPaidOrders    = statsOrdersData.filter((o) => o.status === "paid" || o.status === "completed");
@@ -2248,6 +2249,46 @@ export default function Admin() {
               </p>
               <p className="text-xs text-yellow-600 mt-1">pedidos pendentes</p>
             </div>
+          </div>
+
+          {/* Card Pedidos para Enviar */}
+          <div
+            className="mt-3 rounded-xl border p-4 bg-amber-50 border-amber-300 cursor-pointer hover:bg-amber-100 transition"
+            onClick={() => setTab("orders")}
+            title="Ver pedidos para enviar"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide flex items-center gap-1.5">
+                <Truck className="w-4 h-4" /> Pedidos para Enviar
+              </p>
+              <span className="text-[10px] bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-bold">
+                {ordersParaEnviar.length}
+              </span>
+            </div>
+            {ordersParaEnviar.length === 0 ? (
+              <p className="text-sm text-amber-700/80 flex items-center gap-1.5">
+                <CheckCircle className="w-4 h-4 text-green-500" /> Todos os pedidos pagos já foram enviados!
+              </p>
+            ) : (
+              <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                {ordersParaEnviar.slice(0, 5).map((o) => (
+                  <div key={o.id} className="flex items-center justify-between rounded-lg bg-white/70 border border-amber-100 px-3 py-1.5">
+                    <div className="min-w-0 pr-2">
+                      <p className="text-sm font-medium text-amber-900 truncate">{o.clientName}</p>
+                      <p className="text-xs text-amber-700/80">#{o.id} · {formatDateBR(o.createdAt)}</p>
+                    </div>
+                    <span className="text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full whitespace-nowrap">
+                      {formatCurrency(Number(o.total))}
+                    </span>
+                  </div>
+                ))}
+                {ordersParaEnviar.length > 5 && (
+                  <p className="text-xs text-amber-700 font-semibold text-center mt-1">
+                    +{ordersParaEnviar.length - 5} pedidos a enviar
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="mt-3 rounded-xl border p-4 bg-indigo-50 border-indigo-200">
