@@ -136,6 +136,35 @@ export function chargeToText(charge: any): string {
     .join("\n");
 }
 
+function supplierOrderBlock(order: any): string {
+  const products = getOrderProducts(order?.products);
+  const resumoPedido = products.length
+    ? products
+        .map((p) => {
+          const qty = Number(p?.quantity) || 0;
+          return `- ${qty}x ${p?.name || "Produto"}`;
+        })
+        .join("\n")
+    : "- Sem itens";
+
+  const rua = [order?.addressStreet, order?.addressNumber].filter(Boolean).join(", ") || "-";
+
+  return [
+    `Pedido numero: ${order?.id || "-"}`,
+    "",
+    `Nome: ${order?.clientName || "-"}`,
+    `Rua: ${rua}`,
+    `Bairro: ${order?.addressNeighborhood || "-"}`,
+    `Complemento: ${order?.addressComplement || "-"}`,
+    `Cidade: ${order?.addressCity || "-"}`,
+    `Estado: ${order?.addressState || "-"}`,
+    `Cep: ${order?.addressCep || "-"}`,
+    "",
+    "Resumo pedido:",
+    resumoPedido,
+  ].join("\n");
+}
+
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
@@ -1982,6 +2011,24 @@ export default function Admin() {
   const chargeRevenue   = charges.filter((c) => c.status === "paid").reduce((s, c) => s + Number(c.amount), 0);
   const ordersParaEnviar = orders.filter((o) => (o.status === "paid" || o.status === "completed") && !o.enviado);
 
+  const copyOrdersParaEnviar = async (event?: React.MouseEvent<HTMLButtonElement>) => {
+    event?.preventDefault();
+    event?.stopPropagation();
+
+    if (ordersParaEnviar.length === 0) {
+      toast.info("Nao ha pedidos pendentes para copiar.");
+      return;
+    }
+
+    const text = ordersParaEnviar.map((order) => supplierOrderBlock(order)).join("\n\n");
+    try {
+      const mode = await copyText(text);
+      toast.success(mode === "manual" ? "Texto aberto para copia manual." : "Pedidos copiados com sucesso.");
+    } catch {
+      toast.error("Nao foi possivel copiar os pedidos.");
+    }
+  };
+
   // ── Dashboard stats — uses independently fetched data (own API call) ─────
   const statsPaidOrders    = statsOrdersData.filter((o) => o.status === "paid" || o.status === "completed");
   const statsPixPaid       = statsPaidOrders.filter((o) => o.paymentMethod === "pix");
@@ -2261,9 +2308,18 @@ export default function Admin() {
               <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide flex items-center gap-1.5">
                 <Truck className="w-4 h-4" /> Pedidos para Enviar
               </p>
-              <span className="text-[10px] bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-bold">
-                {ordersParaEnviar.length}
-              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={copyOrdersParaEnviar}
+                  className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-white/90 px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-white"
+                >
+                  <Copy className="w-3.5 h-3.5" /> Copiar Pedido
+                </button>
+                <span className="text-[10px] bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-bold">
+                  {ordersParaEnviar.length}
+                </span>
+              </div>
             </div>
             {ordersParaEnviar.length === 0 ? (
               <p className="text-sm text-amber-700/80 flex items-center gap-1.5">
