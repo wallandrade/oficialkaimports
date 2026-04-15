@@ -4553,6 +4553,7 @@ function OrdersPanel({
       });
       if (res.status === 404) {
         toast.error("Pedido não encontrado no banco de dados!");
+        setOrders(prev => prev.filter(o => o.id !== orderId));
         setEnviando(prev => ({ ...prev, [orderId]: false }));
         return;
       }
