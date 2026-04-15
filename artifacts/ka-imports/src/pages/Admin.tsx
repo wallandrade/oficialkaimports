@@ -5351,7 +5351,8 @@ function OrdersPanel({
                           );
                         })()}
                         <span className="text-xs text-muted-foreground">
-                          {formatDateBR(order.createdAt)}
+                          {formatDateBR(order.createdAt)}{" "}
+                          {order.createdAt ? new Date(order.createdAt).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" }) : ""}
                         </span>
                       </div>
                     );

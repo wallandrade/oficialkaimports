@@ -37,20 +37,51 @@ function buildGuestAccessToken(): string {
   return crypto.randomBytes(24).toString("hex");
 }
 
+function getHeaderValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const text = String(item || "").trim();
+      if (text) return text;
+    }
+    return "";
+  }
+  return String(value || "").trim();
+}
+
+function pickFirstForwardedIp(value: unknown): string {
+  const raw = getHeaderValue(value);
+  if (!raw) return "";
+  return raw.split(",")[0]?.trim() || "";
+}
+
 function getPurchaseIp(req: { ip?: string; headers?: Record<string, unknown> }): string | null {
-  const forwardedForRaw = typeof req.headers?.["x-forwarded-for"] === "string"
-    ? req.headers["x-forwarded-for"]
-    : "";
-  const forwardedFor = forwardedForRaw.split(",")[0]?.trim();
-  const ip = forwardedFor || req.ip || "";
-  return ip || null;
+  const headers = req.headers || {};
+  const candidates = [
+    pickFirstForwardedIp(headers["cf-connecting-ip"]),
+    pickFirstForwardedIp(headers["x-real-ip"]),
+    pickFirstForwardedIp(headers["x-forwarded-for"]),
+    pickFirstForwardedIp(headers["x-client-ip"]),
+    pickFirstForwardedIp(headers["x-original-forwarded-for"]),
+    pickFirstForwardedIp(headers["fastly-client-ip"]),
+    String(req.ip || "").trim(),
+  ];
+
+  const ip = candidates.find((candidate) => candidate && candidate.toLowerCase() !== "unknown") || "";
+  return ip ? normalizeIp(ip) : null;
 }
 
 function normalizeIp(raw?: string | null): string {
-  return String(raw || "")
+  const normalized = String(raw || "")
     .trim()
     .replace(/^::ffff:/, "")
     .replace(/^\[|\]$/g, "");
+
+  const lowered = normalized.toLowerCase();
+  if (!normalized || lowered === "ip_nao_encontrado" || lowered === "unknown") {
+    return "";
+  }
+
+  return normalized;
 }
 
 // ---------------------------------------------------------------------------
@@ -69,7 +100,7 @@ function csvField(value: unknown): string {
 // ---------------------------------------------------------------------------
 router.post("/orders", async (req, res) => {
   try {
-    const purchaseIp = getPurchaseIp(req);
+    const purchaseIp = getPurchaseIp(req) || "IP_NAO_ENCONTRADO";
     const customerSession = getCustomerSession(req);
     const guestAccessToken = customerSession ? null : buildGuestAccessToken();
 
@@ -396,18 +427,24 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
       const history = historyByDoc.get(docKey) || [];
       const currentIp = normalizeIp(order.purchaseIp);
       const otherHistory = history.filter((h) => h.id !== order.id);
-      const sameIpFound = otherHistory.some((h) => normalizeIp(h.purchaseIp) === currentIp && currentIp !== "");
+      const otherKnownIps = otherHistory
+        .map((h) => normalizeIp(h.purchaseIp))
+        .filter((ip) => ip !== "");
+      const sameIpFound = currentIp !== "" && otherKnownIps.includes(currentIp);
 
       let purchaseRisk: "low" | "medium" | "high" = "medium";
       let purchaseRiskReason = "Sem histórico suficiente de IP.";
 
       if (!currentIp) {
-        purchaseRisk = "high";
-        purchaseRiskReason = "IP da compra ausente.";
+        purchaseRisk = "medium";
+        purchaseRiskReason = "IP da compra ausente; risco inconclusivo.";
+      } else if (otherKnownIps.length === 0) {
+        purchaseRisk = "medium";
+        purchaseRiskReason = "Sem histórico confiável de IP para este CPF.";
       } else if (sameIpFound) {
         purchaseRisk = "low";
         purchaseRiskReason = "IP já utilizado anteriormente por este CPF.";
-      } else if (otherHistory.length > 0) {
+      } else {
         purchaseRisk = "high";
         purchaseRiskReason = "IP inédito para este CPF com histórico prévio.";
       }

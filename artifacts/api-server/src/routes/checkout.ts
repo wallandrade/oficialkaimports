@@ -15,13 +15,44 @@ import { applyAffiliateCreditToOrder, normalizeAffiliateCode, registerAffiliateL
 
 const router: IRouter = Router();
 
+function normalizeIp(raw?: string | null): string {
+  return String(raw || "")
+    .trim()
+    .replace(/^::ffff:/, "")
+    .replace(/^\[|\]$/g, "");
+}
+
+function getHeaderValue(value: unknown): string {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const text = String(item || "").trim();
+      if (text) return text;
+    }
+    return "";
+  }
+  return String(value || "").trim();
+}
+
+function pickFirstForwardedIp(value: unknown): string {
+  const raw = getHeaderValue(value);
+  if (!raw) return "";
+  return raw.split(",")[0]?.trim() || "";
+}
+
 function getPurchaseIp(req: { ip?: string; headers?: Record<string, unknown> }): string | null {
-  const forwardedForRaw = typeof req.headers?.["x-forwarded-for"] === "string"
-    ? req.headers["x-forwarded-for"]
-    : "";
-  const forwardedFor = forwardedForRaw.split(",")[0]?.trim();
-  const ip = forwardedFor || req.ip || "";
-  return ip || null;
+  const headers = req.headers || {};
+  const candidates = [
+    pickFirstForwardedIp(headers["cf-connecting-ip"]),
+    pickFirstForwardedIp(headers["x-real-ip"]),
+    pickFirstForwardedIp(headers["x-forwarded-for"]),
+    pickFirstForwardedIp(headers["x-client-ip"]),
+    pickFirstForwardedIp(headers["x-original-forwarded-for"]),
+    pickFirstForwardedIp(headers["fastly-client-ip"]),
+    String(req.ip || "").trim(),
+  ];
+
+  const ip = candidates.find((candidate) => candidate && candidate.toLowerCase() !== "unknown") || "";
+  return ip ? normalizeIp(ip) : null;
 }
 
 function parseEnabledSetting(value?: string | null): boolean {
@@ -43,7 +74,7 @@ async function isPaymentMethodEnabled(key: "checkout_enable_pix" | "checkout_ena
 // ---------------------------------------------------------------------------
 router.post("/checkout/pix", async (req, res) => {
   const requestId = crypto.randomBytes(4).toString("hex");
-  const purchaseIp = getPurchaseIp(req);
+  const purchaseIp = getPurchaseIp(req) || "IP_NAO_ENCONTRADO";
 
   // Log the FULL request payload immediately — before any validation
   console.log(`[CHECKOUT/PIX:${requestId}] Request received:`, JSON.stringify({
