@@ -551,7 +551,7 @@ function OrderBumpsPanel({ bumps, products, form, setForm, creating, toggling, d
   );
 }
 
-type TabType = "orders" | "charges" | "sellers" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "webhook" | "configuracoes" | "socialProof" | "raffles";
+type TabType = "orders" | "charges" | "sellers" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "support" | "webhook" | "configuracoes" | "socialProof" | "raffles";
 
 interface AdminRaffle {
   id: string; title: string; description: string | null; imageUrl: string | null;
@@ -592,6 +592,21 @@ interface AdminRaffleResult {
 interface CustomerUserRecord {
   id: string; name: string; email: string; createdAt: string;
   orderCount: number; affiliateCode: string | null;
+}
+
+interface SupportTicketRecord {
+  id: string;
+  orderId: string;
+  clientDocument: string;
+  clientName: string;
+  description: string;
+  imageUrl: string | null;
+  status: "open" | "resolved" | string;
+  orderTotal: number | null;
+  orderCreatedAt: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface SocialProofSettings {
@@ -642,6 +657,8 @@ export default function Admin() {
   const [sellerAllCharges, setSellerAllCharges] = useState<CustomCharge[]>([]);
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
   const [customerUsers, setCustomerUsers] = useState<CustomerUserRecord[]>([]);
+  const [supportTickets, setSupportTickets] = useState<SupportTicketRecord[]>([]);
+  const [supportLoading, setSupportLoading] = useState(false);
   const [customersLoading, setCustomersLoading] = useState(false);
   const [customerSearch, setCustomerSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -983,6 +1000,21 @@ export default function Admin() {
     finally { setCustomersLoading(false); }
   }, []);
 
+  const fetchSupportTickets = useCallback(async () => {
+    setSupportLoading(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/support-tickets`, { headers: authHeaders() });
+      if (res.status === 401) { handleUnauthorized(); return; }
+      if (!res.ok) return;
+      const data = await res.json() as { tickets: SupportTicketRecord[] };
+      setSupportTickets(data.tickets || []);
+    } catch {
+      // silent
+    } finally {
+      setSupportLoading(false);
+    }
+  }, [handleUnauthorized]);
+
   const fetchCoupons = useCallback(async () => {
     setLoading(true);
     try {
@@ -1284,6 +1316,7 @@ export default function Admin() {
     else if (tab === "charges")    fetchCharges();
     else if (tab === "users")      fetchUsers();
     else if (tab === "customers")  fetchCustomers();
+    else if (tab === "support")    fetchSupportTickets();
     else if (tab === "coupons")    fetchCoupons();
     else if (tab === "products")   fetchProducts();
     else if (tab === "configuracoes") fetchSettings();
@@ -1294,7 +1327,7 @@ export default function Admin() {
     else if (tab === "socialProof") { fetchSocialProof(); fetchProducts(); }
     else if (tab === "raffles")    fetchRaffles();
     else setLoading(false);
-  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchCoupons, fetchProducts, fetchSettings, fetchSellers, fetchSellerData, fetchShippingOptions, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchSocialProof, fetchRaffles]);
+  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchSupportTickets, fetchCoupons, fetchProducts, fetchSettings, fetchSellers, fetchSellerData, fetchShippingOptions, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchSocialProof, fetchRaffles]);
 
   // -------------------------------------------------------------------------
   // SSE
@@ -1350,6 +1383,9 @@ export default function Admin() {
           showPushNotification("KA Imports — Cobrança Paga! ✅", message);
         } else if (event.type === "order_updated") {
           fetchOrders(true);
+        } else if (event.type === "support_ticket_created") {
+          message = "Novo chamado de suporte recebido";
+          fetchSupportTickets();
         }
 
         if (message) {
@@ -1364,7 +1400,7 @@ export default function Admin() {
       es.close();
       setTimeout(() => { if (getToken()) connectSSE(); }, 1000);
     };
-  }, [fetchOrders, fetchCharges, fetchSellerData, fetchStatsData, showPushNotification]);
+  }, [fetchOrders, fetchCharges, fetchSellerData, fetchStatsData, fetchSupportTickets, showPushNotification]);
 
   // -------------------------------------------------------------------------
   // Mount
@@ -2431,6 +2467,7 @@ export default function Admin() {
             { key: "orderBumps",    label: "Order Bumps",      icon: "Zap",         count: orderBumps.length },
             { key: "kyc",           label: "KYC",              icon: "ShieldCheck", count: kycList.length > 0 ? kycList.filter((k) => k.status === "submitted").length : undefined },
             { key: "customers",     label: "Clientes",         icon: "UserPlus",    count: customerUsers.length || undefined },
+            { key: "support",       label: "Suporte",          icon: "MessageCircle", count: supportTickets.filter((t) => t.status === "open").length || undefined },
             ...(isPrimary ? [{ key: "users", label: "Usuários", icon: "User" }] : []),
             { key: "socialProof",   label: "Prova Social",     icon: "ShoppingBag" },
             { key: "raffles",       label: "Rifas",            icon: "Ticket",      count: rafflesList.length || undefined },
@@ -2601,6 +2638,33 @@ export default function Admin() {
             search={customerSearch}
             setSearch={setCustomerSearch}
             onRefresh={fetchCustomers}
+          />
+        ) : tab === "support" ? (
+          <SupportTicketsPanel
+            tickets={supportTickets}
+            loading={supportLoading}
+            onRefresh={fetchSupportTickets}
+            onSetStatus={async (id, status) => {
+              try {
+                const res = await fetch(`${BASE}/api/admin/support-tickets/${id}/status`, {
+                  method: "PATCH",
+                  headers: authHeaders(),
+                  body: JSON.stringify({ status }),
+                });
+                if (!res.ok) {
+                  toast.error("Erro ao atualizar chamado.");
+                  return;
+                }
+                setSupportTickets((prev) => prev.map((t) => (
+                  t.id === id
+                    ? { ...t, status, resolvedAt: status === "resolved" ? new Date().toISOString() : null }
+                    : t
+                )));
+                toast.success(status === "resolved" ? "Chamado marcado como resolvido." : "Chamado reaberto.");
+              } catch {
+                toast.error("Erro ao atualizar chamado.");
+              }
+            }}
           />
         ) : tab === "users" && isPrimary ? (
           <UsersPanel
@@ -4621,6 +4685,88 @@ export default function Admin() {
 // ===========================================================================
 // Sub-panels
 // ===========================================================================
+
+function SupportTicketsPanel({
+  tickets,
+  loading,
+  onRefresh,
+  onSetStatus,
+}: {
+  tickets: SupportTicketRecord[];
+  loading: boolean;
+  onRefresh: () => void;
+  onSetStatus: (id: string, status: "open" | "resolved") => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between rounded-2xl border border-border bg-card p-4">
+        <div>
+          <p className="text-sm font-semibold">Chamados de Suporte</p>
+          <p className="text-xs text-muted-foreground">Cliente escolhe o pedido especifico e reporta problema da entrega.</p>
+        </div>
+        <Button variant="outline" size="sm" onClick={onRefresh} className="gap-1.5">
+          <RefreshCw className="w-3.5 h-3.5" />Atualizar
+        </Button>
+      </div>
+
+      {loading ? (
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed py-16">
+          <Loader2 className="w-8 h-8 animate-spin text-primary mb-2" />
+          <p className="text-sm text-muted-foreground">Carregando chamados...</p>
+        </div>
+      ) : tickets.length === 0 ? (
+        <div className="text-center py-16 bg-muted/30 rounded-2xl border border-dashed">
+          <MessageCircle className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+          <p className="font-semibold">Nenhum chamado encontrado</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {tickets.map((ticket) => (
+            <div key={ticket.id} className="rounded-2xl border bg-card p-4 sm:p-5 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                <div>
+                  <div className="flex items-center flex-wrap gap-2">
+                    <span className="font-mono text-xs bg-muted px-2 py-0.5 rounded">#{ticket.id}</span>
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${ticket.status === "resolved" ? "bg-green-100 text-green-800 border-green-200" : "bg-yellow-100 text-yellow-800 border-yellow-200"}`}>
+                      {ticket.status === "resolved" ? "Resolvido" : "Em aberto"}
+                    </span>
+                    <span className="text-xs text-muted-foreground">{formatDateBR(ticket.createdAt)}</span>
+                  </div>
+                  <p className="mt-2 text-sm font-semibold">{ticket.clientName}</p>
+                  <p className="text-xs text-muted-foreground">CPF: {ticket.clientDocument} | Pedido: {ticket.orderId}</p>
+                  {ticket.orderTotal != null && (
+                    <p className="text-xs text-muted-foreground">Valor pedido: {formatCurrency(ticket.orderTotal)}</p>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  {ticket.status !== "resolved" ? (
+                    <Button size="sm" onClick={() => onSetStatus(ticket.id, "resolved")}>Marcar resolvido</Button>
+                  ) : (
+                    <Button size="sm" variant="outline" onClick={() => onSetStatus(ticket.id, "open")}>Reabrir</Button>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-border bg-muted/20 p-3 text-sm whitespace-pre-wrap">
+                {ticket.description}
+              </div>
+
+              {ticket.imageUrl && (
+                <div className="rounded-xl border border-border p-2 bg-white">
+                  <img
+                    src={ticket.imageUrl}
+                    alt={`Comprovacao chamado ${ticket.id}`}
+                    className="max-h-80 w-full object-contain rounded-lg"
+                  />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function OrdersPanel({
   orders, statusUpdating, expandedOrder, setExpandedOrder,

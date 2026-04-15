@@ -299,6 +299,60 @@ async function ensureRaffleTables(databaseName: string): Promise<void> {
   }
 }
 
+async function ensureSupportTicketsTable(databaseName: string): Promise<void> {
+  if (!(await tableExists("support_tickets", databaseName))) {
+    await pool.query(`
+      CREATE TABLE support_tickets (
+        id VARCHAR(255) NOT NULL PRIMARY KEY,
+        order_id VARCHAR(255) NOT NULL,
+        client_document VARCHAR(32) NOT NULL,
+        client_name VARCHAR(255) NOT NULL,
+        description TEXT NOT NULL,
+        image_url MEDIUMTEXT NULL,
+        status VARCHAR(32) NOT NULL DEFAULT 'open',
+        order_total DECIMAL(10,2) NULL,
+        order_created_at TIMESTAMP NULL,
+        resolved_at TIMESTAMP NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY support_tickets_order_id_idx (order_id),
+        KEY support_tickets_client_document_idx (client_document),
+        KEY support_tickets_status_idx (status),
+        KEY support_tickets_created_at_idx (created_at)
+      )
+    `);
+    return;
+  }
+
+  const definitions = [
+    { name: "order_total", sql: "ALTER TABLE support_tickets ADD COLUMN order_total DECIMAL(10,2) NULL" },
+    { name: "order_created_at", sql: "ALTER TABLE support_tickets ADD COLUMN order_created_at TIMESTAMP NULL" },
+    { name: "resolved_at", sql: "ALTER TABLE support_tickets ADD COLUMN resolved_at TIMESTAMP NULL" },
+  ];
+
+  for (const definition of definitions) {
+    if (!(await columnExists("support_tickets", definition.name, databaseName))) {
+      await pool.query(definition.sql);
+    }
+  }
+
+  const indexes = [
+    { name: "support_tickets_order_id_idx", sql: "ALTER TABLE support_tickets ADD KEY support_tickets_order_id_idx (order_id)" },
+    {
+      name: "support_tickets_client_document_idx",
+      sql: "ALTER TABLE support_tickets ADD KEY support_tickets_client_document_idx (client_document)",
+    },
+    { name: "support_tickets_status_idx", sql: "ALTER TABLE support_tickets ADD KEY support_tickets_status_idx (status)" },
+    { name: "support_tickets_created_at_idx", sql: "ALTER TABLE support_tickets ADD KEY support_tickets_created_at_idx (created_at)" },
+  ];
+
+  for (const index of indexes) {
+    if (!(await indexExists("support_tickets", index.name, databaseName))) {
+      await pool.query(index.sql);
+    }
+  }
+}
+
 export async function ensureRuntimeSchema(): Promise<void> {
   try {
     const databaseName = getDatabaseName();
@@ -313,6 +367,7 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureCustomerUsersTable(databaseName);
     await ensureAffiliatesTables(databaseName);
     await ensureRaffleTables(databaseName);
+    await ensureSupportTicketsTable(databaseName);
 
     console.log("[RuntimeSchema] Schema sync completed.");
   } catch (error) {

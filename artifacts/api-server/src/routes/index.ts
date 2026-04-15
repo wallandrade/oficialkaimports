@@ -20,6 +20,7 @@ import customerAuthRouter from "./customer-auth";
 import affiliateRouter from "./affiliate";
 import rafflesRouter from "./raffles";
 import financialSummaryRouter from "./financial-summary";
+import supportRouter from "./support";
 
 const router: IRouter = Router();
 
@@ -44,5 +45,6 @@ router.use(trackingRouter);
 router.use(customerAuthRouter);
 router.use(affiliateRouter);
 router.use(rafflesRouter);
+router.use(supportRouter);
 
 export default router;

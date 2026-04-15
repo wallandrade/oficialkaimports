@@ -13,3 +13,4 @@ export * from "./customer-users";
 export * from "./affiliates";
 export * from "./raffles";
 export * from "./admin-sessions";
+export * from "./support-tickets";
