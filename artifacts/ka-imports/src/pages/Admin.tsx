@@ -4535,6 +4535,10 @@ function OrdersPanel({
   };
 
   const toggleEnviado = async (orderId: string) => {
+    if (!orderId || typeof orderId !== "string" || orderId.length === 0) {
+      toast.error("ID do pedido inválido!");
+      return;
+    }
     const novoValor = !enviados[orderId];
     try {
       const res = await fetch(`${BASE}/api/admin/orders/${orderId}/enviado`, {
@@ -4563,11 +4567,13 @@ function OrdersPanel({
 
   return (
     <div className="space-y-4">
-      {orders.map((order) => {
-        const isCard     = order.paymentMethod === "card_simulation";
-        const isExpanded = expandedOrder === order.id;
-        return (
-          <div key={order.id} className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${isCard ? "border-purple-200" : "border-border/60"}`}>
+      {orders
+        .filter(order => typeof order.id === "string" && order.id.length > 0)
+        .map((order) => {
+          const isCard     = order.paymentMethod === "card_simulation";
+          const isExpanded = expandedOrder === order.id;
+          return (
+            <div key={order.id} className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${isCard ? "border-purple-200" : "border-border/60"}`}>
             <div className="p-5 sm:p-6">
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                 <div className="flex-1 min-w-0">
