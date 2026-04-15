@@ -1384,8 +1384,12 @@ export default function Admin() {
         } else if (event.type === "order_updated") {
           fetchOrders(true);
         } else if (event.type === "support_ticket_created") {
-          message = "Novo chamado de suporte recebido";
+          const d = event.data as { id?: string; orderId?: string; clientName?: string };
+          const orderLabel = d.orderId ? `pedido ${String(d.orderId).slice(0, 8)}` : "pedido";
+          const clientLabel = d.clientName ? ` - ${d.clientName}` : "";
+          message = `Novo ticket de suporte (${orderLabel})${clientLabel}`;
           fetchSupportTickets();
+          showPushNotification("KA Imports — Novo Ticket de Suporte", message);
         }
 
         if (message) {
