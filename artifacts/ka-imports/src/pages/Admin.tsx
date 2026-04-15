@@ -2015,6 +2015,42 @@ export default function Admin() {
   const chargeRevenue   = charges.filter((c) => c.status === "paid").reduce((s, c) => s + Number(c.amount), 0);
   const ordersParaEnviar = orders.filter((o) => (o.status === "paid" || o.status === "completed") && !o.enviado);
 
+  const copyShoppingList = async (event?: React.MouseEvent<HTMLButtonElement>) => {
+    event?.preventDefault();
+    event?.stopPropagation();
+
+    if (ordersParaEnviar.length === 0) {
+      toast.info("Nao ha pedidos pendentes.");
+      return;
+    }
+
+    const totals = new Map<string, number>();
+    for (const order of ordersParaEnviar) {
+      for (const p of getOrderProducts(order.products)) {
+        const name = (p.name || "Produto").trim();
+        const key  = name.toLowerCase();
+        totals.set(key, (totals.get(key) ?? 0) + (Number(p.quantity) || 0));
+        // preserve original casing from first occurrence
+        if (!totals.has("__label__" + key)) {
+          totals.set("__label__" + key, name as any);
+        }
+      }
+    }
+
+    const lines = [...totals.entries()]
+      .filter(([k]) => !k.startsWith("__label__"))
+      .map(([k, qty]) => `- ${qty}x ${totals.get("__label__" + k) ?? k}`);
+
+    const text = `Lista de Compra - ${ordersParaEnviar.length} pedido${ordersParaEnviar.length !== 1 ? "s" : ""}\n\n${lines.join("\n")}`;
+
+    try {
+      const mode = await copyText(text);
+      toast.success(mode === "manual" ? "Texto aberto para copia manual." : "Lista de compra copiada!");
+    } catch {
+      toast.error("Nao foi possivel copiar a lista.");
+    }
+  };
+
   const copyOrdersParaEnviar = async (event?: React.MouseEvent<HTMLButtonElement>) => {
     event?.preventDefault();
     event?.stopPropagation();
@@ -2313,6 +2349,13 @@ export default function Admin() {
                 <Truck className="w-4 h-4" /> Pedidos para Enviar
               </p>
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={copyShoppingList}
+                  className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-white/90 px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-white"
+                >
+                  <ShoppingBag className="w-3.5 h-3.5" /> Lista de Compra
+                </button>
                 <button
                   type="button"
                   onClick={copyOrdersParaEnviar}
