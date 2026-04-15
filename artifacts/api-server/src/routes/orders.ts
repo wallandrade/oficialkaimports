@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, ordersTable, customChargesTable, sellersTable, productsTable, siteSettingsTable } from "@workspace/db";
+import { db, ordersTable, customChargesTable, sellersTable, productsTable, siteSettingsTable, reshipmentsTable } from "@workspace/db";
 import { desc, and, gte, lte, eq, inArray } from "drizzle-orm";
 import crypto from "crypto";
 import { requireAdminAuth } from "./admin-auth";
@@ -316,29 +316,58 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
 
     // São Paulo = UTC-3: midnight SP = 03:00 UTC; end-of-day SP 23:59:59 = next day 02:59:59 UTC
     const SP_OFFSET_MS = 3 * 60 * 60 * 1000;
-    const conditions = [];
+    const dateConditions = [];
+    const nonDateConditions = [];
     if (dateFrom) {
       const from = new Date(dateFrom + "T00:00:00.000Z");
       from.setTime(from.getTime() + SP_OFFSET_MS);
-      conditions.push(gte(ordersTable.createdAt, from));
+      dateConditions.push(gte(ordersTable.createdAt, from));
     }
     if (dateTo) {
       const to = new Date(dateTo + "T23:59:59.999Z");
       to.setTime(to.getTime() + SP_OFFSET_MS);
-      conditions.push(lte(ordersTable.createdAt, to));
+      dateConditions.push(lte(ordersTable.createdAt, to));
     }
     if (status && status !== "all") {
-      if (status === "paid") conditions.push(inArray(ordersTable.status, ["paid", "completed"]));
-      else conditions.push(eq(ordersTable.status, status));
+      if (status === "paid") nonDateConditions.push(inArray(ordersTable.status, ["paid", "completed"]));
+      else nonDateConditions.push(eq(ordersTable.status, status));
     }
-    if (paymentMethod && paymentMethod !== "all") conditions.push(eq(ordersTable.paymentMethod, paymentMethod));
-    if (sellerCode && sellerCode !== "all") conditions.push(eq(ordersTable.sellerCode, sellerCode));
+    if (paymentMethod && paymentMethod !== "all") nonDateConditions.push(eq(ordersTable.paymentMethod, paymentMethod));
+    if (sellerCode && sellerCode !== "all") nonDateConditions.push(eq(ordersTable.sellerCode, sellerCode));
 
-    const orders = await db
+    const conditions = [...dateConditions, ...nonDateConditions];
+
+    const baseOrders = await db
       .select()
       .from(ordersTable)
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(ordersTable.createdAt));
+
+    // Keep active reshipments visible in Orders even if the order is outside the current date range.
+    let orders = baseOrders;
+    if (dateConditions.length > 0) {
+      const activeReshipments = await db
+        .select({ orderId: reshipmentsTable.orderId })
+        .from(reshipmentsTable)
+        .where(inArray(reshipmentsTable.status, ["reenvio_aguardando_estoque", "reenvio_pronto_para_envio"]));
+
+      const baseOrderIds = new Set(baseOrders.map((o) => o.id));
+      const activeOrderIds = Array.from(new Set(activeReshipments.map((r) => r.orderId))).filter((id) => !baseOrderIds.has(id));
+
+      if (activeOrderIds.length > 0) {
+        const extraWhere = nonDateConditions.length > 0
+          ? and(inArray(ordersTable.id, activeOrderIds), ...nonDateConditions)
+          : inArray(ordersTable.id, activeOrderIds);
+
+        const extraOrders = await db
+          .select()
+          .from(ordersTable)
+          .where(extraWhere)
+          .orderBy(desc(ordersTable.createdAt));
+
+        orders = [...baseOrders, ...extraOrders];
+      }
+    }
 
     const reshipmentByOrder = await getReshipmentByOrderIds(orders.map((o) => o.id));
 
@@ -390,7 +419,17 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
       };
     });
 
-    res.json({ orders: enriched });
+    // Prioritize cards that still need resend handling at the top of the list.
+    const prioritized = [...enriched].sort((a, b) => {
+      const aActive = a.reshipment?.status === "reenvio_aguardando_estoque" || a.reshipment?.status === "reenvio_pronto_para_envio";
+      const bActive = b.reshipment?.status === "reenvio_aguardando_estoque" || b.reshipment?.status === "reenvio_pronto_para_envio";
+      if (aActive !== bActive) return bActive ? 1 : -1;
+      const aTime = Date.parse(a.createdAt || "");
+      const bTime = Date.parse(b.createdAt || "");
+      return (Number.isFinite(bTime) ? bTime : 0) - (Number.isFinite(aTime) ? aTime : 0);
+    });
+
+    res.json({ orders: prioritized });
   } catch (err) {
     console.error("Admin orders error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao buscar pedidos." });
