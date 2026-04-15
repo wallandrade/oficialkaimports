@@ -896,7 +896,10 @@ export default function Admin() {
       if (statusFilter !== "all") params.set("status", statusFilter);
       if (methodFilter !== "all") params.set("paymentMethod", methodFilter);
       if (sellerFilter !== "all") params.set("sellerCode", sellerFilter);
-      const res = await fetch(`${BASE}/api/admin/orders?${params}`, { headers: authHeaders() });
+      const res = await fetch(`${BASE}/api/admin/orders?${params}`, {
+        headers: authHeaders(),
+        cache: "no-store",
+      });
       if (res.status === 401) { handleUnauthorized(); return; }
       const data = await res.json() as { orders: AdminOrder[] };
       setOrders(data.orders || []);
@@ -2463,6 +2466,12 @@ export default function Admin() {
             isPrimary={isPrimary}
             onEditOrder={openEditOrder}
             onOpenKycModal={openKycModal}
+            onSetOrderEnviado={(id, enviado) => {
+              setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, enviado } : o)));
+            }}
+            onRemoveOrder={(id) => {
+              setOrders((prev) => prev.filter((o) => o.id !== id));
+            }}
           />
         ) : tab === "charges" ? (
           <ChargesPanel
@@ -4573,6 +4582,7 @@ function OrdersPanel({
   orders, statusUpdating, expandedOrder, setExpandedOrder,
   updateOrderStatus, setProofModal, setProofViewer, openWhatsApp,
   onOpenCardPaidModal, updateOrderObservation, isPrimary, onEditOrder, onOpenKycModal,
+  onSetOrderEnviado, onRemoveOrder,
 }: {
   orders: AdminOrder[];
   statusUpdating: string | null;
@@ -4587,6 +4597,8 @@ function OrdersPanel({
   isPrimary: boolean;
   onEditOrder: (order: AdminOrder) => void;
   onOpenKycModal: (orderId: string) => void;
+  onSetOrderEnviado: (id: string, enviado: boolean) => void;
+  onRemoveOrder: (id: string) => void;
 }) {
 
   // Todos os hooks no topo
@@ -4650,11 +4662,12 @@ function OrdersPanel({
       });
       if (res.status === 404) {
         toast.error("Pedido não encontrado no banco de dados!");
-        setOrders(prev => prev.filter(o => o.id !== orderId));
+        onRemoveOrder(orderId);
         setEnviando(prev => ({ ...prev, [orderId]: false }));
         return;
       }
       if (!res.ok) throw new Error("Erro ao atualizar status de envio");
+      onSetOrderEnviado(orderId, novoValor);
       setEnviados(prev => ({ ...prev, [orderId]: novoValor }));
       toast.success(novoValor ? "Pedido marcado como enviado!" : "Pedido marcado como pendente!");
     } catch (err) {
