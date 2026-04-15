@@ -1,8 +1,9 @@
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, ShoppingCart } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import type { Product } from "@workspace/api-client-react";
 import { Link } from "wouter";
+import { useCart } from "@/store/use-cart";
 
 interface ProductCardProps {
   product: Product;
@@ -12,6 +13,13 @@ interface ProductCardProps {
 export function ProductCard({ product, sellerSlug }: ProductCardProps) {
   const hasPromo = product.promoPrice != null && product.promoPrice < product.price;
   const href = sellerSlug ? `/${sellerSlug}/produto/${product.id}` : `/produto/${product.id}`;
+  const { addItem, setIsOpen } = useCart();
+
+  function handleAddToCart(e: React.MouseEvent) {
+    e.preventDefault();
+    addItem(product);
+    setIsOpen(true);
+  }
 
   return (
     <div className="group flex flex-col w-full h-full bg-card rounded-2xl border border-border/50 shadow-sm hover:shadow-xl hover:border-primary/20 transition-all duration-300 overflow-hidden">
@@ -59,15 +67,25 @@ export function ProductCard({ product, sellerSlug }: ProductCardProps) {
             )}
           </div>
 
-          <Button
-            asChild
-            className="w-full rounded-xl text-sm"
-          >
-            <Link href={href}>
-              Ver produto
-              <ArrowRight className="w-4 h-4 ml-1.5" />
-            </Link>
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              className="flex-1 rounded-xl text-sm"
+              onClick={handleAddToCart}
+            >
+              <ShoppingCart className="w-4 h-4 mr-1.5" />
+              Carrinho
+            </Button>
+            <Button
+              asChild
+              className="flex-1 rounded-xl text-sm"
+            >
+              <Link href={href}>
+                Ver produto
+                <ArrowRight className="w-4 h-4 ml-1.5" />
+              </Link>
+            </Button>
+          </div>
         </div>
       </div>
     </div>
