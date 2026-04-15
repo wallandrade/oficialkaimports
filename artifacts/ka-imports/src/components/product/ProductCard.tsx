@@ -67,22 +67,24 @@ export function ProductCard({ product, sellerSlug }: ProductCardProps) {
             )}
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex gap-1.5">
             <Button
               variant="outline"
-              className="flex-1 rounded-xl text-sm"
+              size="sm"
+              className="flex-1 rounded-lg text-xs px-2 h-8"
               onClick={handleAddToCart}
             >
-              <ShoppingCart className="w-4 h-4 mr-1.5" />
-              Carrinho
+              <ShoppingCart className="w-3.5 h-3.5 mr-1 shrink-0" />
+              <span className="truncate">Carrinho</span>
             </Button>
             <Button
               asChild
-              className="flex-1 rounded-xl text-sm"
+              size="sm"
+              className="flex-1 rounded-lg text-xs px-2 h-8"
             >
               <Link href={href}>
-                Ver produto
-                <ArrowRight className="w-4 h-4 ml-1.5" />
+                <span className="truncate">Ver produto</span>
+                <ArrowRight className="w-3.5 h-3.5 ml-1 shrink-0" />
               </Link>
             </Button>
           </div>
