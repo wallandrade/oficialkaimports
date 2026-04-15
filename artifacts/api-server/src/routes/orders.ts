@@ -312,7 +312,8 @@ router.get("/orders/guest/:id", async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get("/admin/orders", requireAdminAuth, async (req, res) => {
   try {
-    const { dateFrom, dateTo, status, paymentMethod, sellerCode } = req.query as Record<string, string>;
+    const { dateFrom, dateTo, status, paymentMethod, sellerCode, pinReshipments } = req.query as Record<string, string>;
+    const shouldPinReshipments = pinReshipments !== "0";
 
     // São Paulo = UTC-3: midnight SP = 03:00 UTC; end-of-day SP 23:59:59 = next day 02:59:59 UTC
     const SP_OFFSET_MS = 3 * 60 * 60 * 1000;
@@ -345,7 +346,7 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
 
     // Keep active reshipments visible in Orders even if the order is outside the current date range.
     let orders = baseOrders;
-    if (dateConditions.length > 0) {
+    if (shouldPinReshipments && dateConditions.length > 0) {
       const activeReshipments = await db
         .select({ orderId: reshipmentsTable.orderId })
         .from(reshipmentsTable)

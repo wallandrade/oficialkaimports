@@ -1004,6 +1004,7 @@ export default function Admin() {
     setStatsLoading(true);
     try {
       const ordParams = new URLSearchParams({ dateFrom: statsDateFrom, dateTo: statsDateTo });
+      ordParams.set("pinReshipments", "0");
       if (statsSeller !== "all") ordParams.set("sellerCode", statsSeller);
       const chgParams = new URLSearchParams({ dateFrom: statsDateFrom, dateTo: statsDateTo });
       if (statsSeller !== "all") chgParams.set("sellerCode", statsSeller);
