@@ -12,6 +12,7 @@ export const ordersTable = mysqlTable("orders", {
   clientEmail: varchar("client_email", { length: 255 }).notNull(),
   clientPhone: varchar("client_phone", { length: 255 }).notNull(),
   clientDocument: varchar("client_document", { length: 255 }).notNull(),
+  purchaseIp: varchar("purchase_ip", { length: 64 }),
   addressCep: varchar("address_cep", { length: 255 }),
   addressStreet: varchar("address_street", { length: 255 }),
   addressNumber: varchar("address_number", { length: 255 }),

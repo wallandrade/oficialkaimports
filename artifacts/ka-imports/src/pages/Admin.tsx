@@ -169,7 +169,7 @@ function supplierOrderBlock(order: any, sequence: number): string {
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
-import { Loader2, Save, Plus, Trash2, X, CheckCircle, XCircle, Zap, Info, Pencil, MessageCircle, Tag, Bell, RefreshCw, Download, LogOut, QrCode, LinkIcon, Ticket, ShoppingBag, Clock, Upload, ChevronDown, ChevronUp, Copy, Users, Percent, Calendar, DollarSign, ShieldCheck, CreditCard, Truck, UserPlus, Eye, ToggleLeft, Webhook, ImageOff, Lock } from "lucide-react";
+import { Loader2, Save, Plus, Trash2, X, CheckCircle, XCircle, Zap, Info, Pencil, MessageCircle, Tag, Bell, RefreshCw, Download, LogOut, QrCode, LinkIcon, Ticket, ShoppingBag, Clock, Upload, ChevronDown, ChevronUp, Copy, Users, Percent, Calendar, DollarSign, ShieldCheck, CreditCard, Truck, UserPlus, Eye, ToggleLeft, Webhook, ImageOff, Lock, AlertTriangle } from "lucide-react";
 import { IconLucide } from "@/components/ui/IconLucide";
 
 import { toast } from "sonner";
@@ -4795,6 +4795,27 @@ function OrdersPanel({
   onRemoveOrder: (id: string) => void;
 }) {
 
+  const normalizeIp = (ip?: string | null) => String(ip || "").trim().replace(/^::ffff:/, "") || "-";
+
+  const riskCfg = (risk?: string) => {
+    if (risk === "low") {
+      return {
+        label: "Risco baixo",
+        cls: "bg-green-100 text-green-800 border-green-200",
+      };
+    }
+    if (risk === "high") {
+      return {
+        label: "Risco alto",
+        cls: "bg-red-100 text-red-800 border-red-200",
+      };
+    }
+    return {
+      label: "Risco médio",
+      cls: "bg-yellow-100 text-yellow-800 border-yellow-200",
+    };
+  };
+
   // Todos os hooks no topo
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
   const [enviados, setEnviados] = useState<Record<string, boolean>>({});
@@ -4913,6 +4934,17 @@ function OrdersPanel({
                         <Tag className="w-3 h-3" />{order.sellerCode}
                       </span>
                     )}
+                    {(() => {
+                      const cfg = riskCfg((order as any).purchaseRisk);
+                      return (
+                        <span
+                          title={(order as any).purchaseRiskReason || "Validação por histórico de IP do CPF"}
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${cfg.cls}`}
+                        >
+                          <AlertTriangle className="w-3 h-3" />{cfg.label}
+                        </span>
+                      );
+                    })()}
                     <span className="text-xs text-muted-foreground">
                       {formatDateBR(order.createdAt)}
                     </span>
@@ -4922,6 +4954,7 @@ function OrdersPanel({
                   {order.clientDocument && (
                     <p className="text-xs text-muted-foreground mt-0.5">CPF: {order.clientDocument}</p>
                   )}
+                  <p className="text-xs text-muted-foreground mt-0.5">IP compra: {normalizeIp((order as any).purchaseIp)}</p>
                   {order.addressCity && (
                     <p className="text-xs text-muted-foreground mt-0.5">{order.addressCity}{order.addressState && `/${order.addressState}`}</p>
                   )}

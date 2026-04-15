@@ -54,6 +54,7 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
     { name: "guest_access_token", sql: "ALTER TABLE orders ADD COLUMN guest_access_token VARCHAR(255) NULL" },
     { name: "affiliate_user_id", sql: "ALTER TABLE orders ADD COLUMN affiliate_user_id VARCHAR(255) NULL" },
     { name: "affiliate_code", sql: "ALTER TABLE orders ADD COLUMN affiliate_code VARCHAR(32) NULL" },
+    { name: "purchase_ip", sql: "ALTER TABLE orders ADD COLUMN purchase_ip VARCHAR(64) NULL" },
     { name: "affiliate_credit_used", sql: "ALTER TABLE orders ADD COLUMN affiliate_credit_used DECIMAL(10,2) NULL" },
     {
       name: "seller_commission_rate_snapshot",

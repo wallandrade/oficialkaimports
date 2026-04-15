@@ -15,6 +15,15 @@ import { applyAffiliateCreditToOrder, normalizeAffiliateCode, registerAffiliateL
 
 const router: IRouter = Router();
 
+function getPurchaseIp(req: { ip?: string; headers?: Record<string, unknown> }): string | null {
+  const forwardedForRaw = typeof req.headers?.["x-forwarded-for"] === "string"
+    ? req.headers["x-forwarded-for"]
+    : "";
+  const forwardedFor = forwardedForRaw.split(",")[0]?.trim();
+  const ip = forwardedFor || req.ip || "";
+  return ip || null;
+}
+
 function parseEnabledSetting(value?: string | null): boolean {
   if (value == null || value === "") return true;
   const normalized = String(value).trim().toLowerCase();
@@ -34,6 +43,7 @@ async function isPaymentMethodEnabled(key: "checkout_enable_pix" | "checkout_ena
 // ---------------------------------------------------------------------------
 router.post("/checkout/pix", async (req, res) => {
   const requestId = crypto.randomBytes(4).toString("hex");
+  const purchaseIp = getPurchaseIp(req);
 
   // Log the FULL request payload immediately — before any validation
   console.log(`[CHECKOUT/PIX:${requestId}] Request received:`, JSON.stringify({
@@ -166,6 +176,7 @@ router.post("/checkout/pix", async (req, res) => {
       clientEmail:         client.email,
       clientPhone:         client.phone,
       clientDocument:      client.document,
+      purchaseIp,
       addressCep:          address?.cep          || null,
       addressStreet:       address?.street       || null,
       addressNumber:       address?.number       || null,

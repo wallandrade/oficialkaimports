@@ -36,6 +36,22 @@ function buildGuestAccessToken(): string {
   return crypto.randomBytes(24).toString("hex");
 }
 
+function getPurchaseIp(req: { ip?: string; headers?: Record<string, unknown> }): string | null {
+  const forwardedForRaw = typeof req.headers?.["x-forwarded-for"] === "string"
+    ? req.headers["x-forwarded-for"]
+    : "";
+  const forwardedFor = forwardedForRaw.split(",")[0]?.trim();
+  const ip = forwardedFor || req.ip || "";
+  return ip || null;
+}
+
+function normalizeIp(raw?: string | null): string {
+  return String(raw || "")
+    .trim()
+    .replace(/^::ffff:/, "")
+    .replace(/^\[|\]$/g, "");
+}
+
 // ---------------------------------------------------------------------------
 // CSV field escaper — wraps in quotes, escapes internal quotes, strips newlines
 // ---------------------------------------------------------------------------
@@ -52,6 +68,7 @@ function csvField(value: unknown): string {
 // ---------------------------------------------------------------------------
 router.post("/orders", async (req, res) => {
   try {
+    const purchaseIp = getPurchaseIp(req);
     const customerSession = getCustomerSession(req);
     const guestAccessToken = customerSession ? null : buildGuestAccessToken();
 
@@ -139,6 +156,7 @@ router.post("/orders", async (req, res) => {
       clientEmail:         client.email,
       clientPhone:         client.phone,
       clientDocument:      client.document,
+      purchaseIp,
       addressCep:          address?.cep          || null,
       addressStreet:       address?.street       || null,
       addressNumber:       address?.number       || null,
@@ -321,7 +339,54 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(ordersTable.createdAt));
 
-    res.json({ orders: orders.map(mapOrder) });
+    const docs = Array.from(new Set(orders.map((o) => String(o.clientDocument || "").trim()).filter(Boolean)));
+    const historyRows = docs.length > 0
+      ? await db
+          .select({
+            id: ordersTable.id,
+            clientDocument: ordersTable.clientDocument,
+            purchaseIp: ordersTable.purchaseIp,
+          })
+          .from(ordersTable)
+          .where(inArray(ordersTable.clientDocument, docs))
+      : [];
+
+    const historyByDoc = new Map<string, Array<{ id: string; purchaseIp: string | null }>>();
+    for (const row of historyRows) {
+      const key = String(row.clientDocument || "").trim();
+      if (!historyByDoc.has(key)) historyByDoc.set(key, []);
+      historyByDoc.get(key)!.push({ id: row.id, purchaseIp: row.purchaseIp });
+    }
+
+    const enriched = orders.map((order) => {
+      const docKey = String(order.clientDocument || "").trim();
+      const history = historyByDoc.get(docKey) || [];
+      const currentIp = normalizeIp(order.purchaseIp);
+      const otherHistory = history.filter((h) => h.id !== order.id);
+      const sameIpFound = otherHistory.some((h) => normalizeIp(h.purchaseIp) === currentIp && currentIp !== "");
+
+      let purchaseRisk: "low" | "medium" | "high" = "medium";
+      let purchaseRiskReason = "Sem histórico suficiente de IP.";
+
+      if (!currentIp) {
+        purchaseRisk = "high";
+        purchaseRiskReason = "IP da compra ausente.";
+      } else if (sameIpFound) {
+        purchaseRisk = "low";
+        purchaseRiskReason = "IP já utilizado anteriormente por este CPF.";
+      } else if (otherHistory.length > 0) {
+        purchaseRisk = "high";
+        purchaseRiskReason = "IP inédito para este CPF com histórico prévio.";
+      }
+
+      return {
+        ...mapOrder(order),
+        purchaseRisk,
+        purchaseRiskReason,
+      };
+    });
+
+    res.json({ orders: enriched });
   } catch (err) {
     console.error("Admin orders error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao buscar pedidos." });
@@ -729,6 +794,7 @@ function mapOrder(o: typeof ordersTable.$inferSelect) {
     cardTotalActual:        o.cardTotalActual ? Number(o.cardTotalActual) : null,
     paidAmount:             o.paidAmount ? Number(o.paidAmount) : null,
     createdAt:              o.createdAt?.toISOString() ?? new Date().toISOString(),
+    purchaseIp:             o.purchaseIp,
     enviado:                !!o.enviado,
   };
 }
