@@ -141,10 +141,15 @@ export function CartDrawer() {
                     {formatCurrency(getSubtotal())}
                   </span>
                 </div>
-                <Button size="lg" className="w-full text-lg shadow-xl shadow-primary/20" onClick={handleCheckout}>
-                  Finalizar Pedido
-                  <ArrowRight className="w-5 h-5 ml-2" />
-                </Button>
+                <div className="flex flex-col gap-2">
+                  <Button size="lg" className="w-full text-lg shadow-xl shadow-primary/20" onClick={handleCheckout}>
+                    Finalizar Pedido
+                    <ArrowRight className="w-5 h-5 ml-2" />
+                  </Button>
+                  <Button size="lg" variant="outline" className="w-full text-base" onClick={() => setIsOpen(false)}>
+                    Continuar comprando
+                  </Button>
+                </div>
               </div>
             )}
           </motion.div>
