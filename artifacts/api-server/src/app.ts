@@ -2,6 +2,7 @@ import express, { type Express } from "express";
 import cors from "cors";
 import router from "./routes";
 import { exec } from "child_process";
+import crypto from "crypto";
 
 const DEFAULT_ALLOWED_ORIGINS = [
   "https://ka-imports.com",
@@ -40,6 +41,71 @@ const sensitivePublicWritePaths = new Set([
   "/api/support/orders-by-cpf",
   "/api/support/tickets",
 ]);
+
+const CHECKOUT_TOKEN_TTL_MS = Number(process.env.CHECKOUT_TOKEN_TTL_MS || 5 * 60 * 1000);
+const CHECKOUT_TOKEN_SECRET = process.env.CHECKOUT_TOKEN_SECRET || "unsafe-dev-secret-change-me";
+
+type CheckoutTokenPayload = {
+  ts: number;
+  nonce: string;
+  uaHash: string;
+};
+
+function toBase64Url(value: Buffer | string): string {
+  return Buffer.from(value)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function fromBase64Url(value: string): Buffer {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const padding = normalized.length % 4 === 0 ? "" : "=".repeat(4 - (normalized.length % 4));
+  return Buffer.from(normalized + padding, "base64");
+}
+
+function hashUserAgent(ua: string): string {
+  return crypto.createHash("sha256").update(ua || "unknown").digest("hex");
+}
+
+function signCheckoutPayload(payloadB64: string): string {
+  return toBase64Url(
+    crypto.createHmac("sha256", CHECKOUT_TOKEN_SECRET).update(payloadB64).digest(),
+  );
+}
+
+function createCheckoutToken(userAgent: string): string {
+  const payload: CheckoutTokenPayload = {
+    ts: Date.now(),
+    nonce: crypto.randomBytes(8).toString("hex"),
+    uaHash: hashUserAgent(userAgent),
+  };
+  const payloadB64 = toBase64Url(JSON.stringify(payload));
+  const signature = signCheckoutPayload(payloadB64);
+  return `${payloadB64}.${signature}`;
+}
+
+function verifyCheckoutToken(token: string, userAgent: string): boolean {
+  const [payloadB64, signature] = token.split(".");
+  if (!payloadB64 || !signature) return false;
+
+  const expectedSignature = signCheckoutPayload(payloadB64);
+  if (signature !== expectedSignature) return false;
+
+  let payload: CheckoutTokenPayload;
+  try {
+    payload = JSON.parse(fromBase64Url(payloadB64).toString("utf8")) as CheckoutTokenPayload;
+  } catch {
+    return false;
+  }
+
+  if (!payload?.ts || !payload?.uaHash) return false;
+  const age = Date.now() - Number(payload.ts);
+  if (age < 0 || age > CHECKOUT_TOKEN_TTL_MS) return false;
+  if (payload.uaHash !== hashUserAgent(userAgent)) return false;
+  return true;
+}
 
 type RateLimitRule = {
   windowMs: number;
@@ -118,6 +184,17 @@ app.use(cors({
 app.use(express.json({ limit: "15mb" }));
 app.use(express.urlencoded({ extended: true, limit: "15mb" }));
 
+app.get("/api/security/checkout-token", (req, res) => {
+  const origin = req.get("origin");
+  if (origin && !isOriginAllowed(origin)) {
+    res.status(403).json({ error: "FORBIDDEN_ORIGIN", message: "Origem não autorizada." });
+    return;
+  }
+
+  const token = createCheckoutToken(req.get("user-agent") || "");
+  res.json({ token, expiresInMs: CHECKOUT_TOKEN_TTL_MS });
+});
+
 // Emergency anti-clone gate: reject non-official browser origins on public write routes.
 app.use((req, res, next) => {
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
@@ -149,6 +226,27 @@ app.use((req, res, next) => {
 app.use((req, res, next) => {
   if (!sensitivePublicWritePaths.has(req.path) || req.method !== "POST") {
     next();
+    return;
+  }
+
+  // Authenticated admin/customer writes do not require checkout token.
+  if (req.get("authorization")) {
+    next();
+    return;
+  }
+
+  const checkoutToken = req.get("x-checkout-token") || "";
+  if (!checkoutToken || !verifyCheckoutToken(checkoutToken, req.get("user-agent") || "")) {
+    console.warn("[SECURITY] Missing/invalid checkout token", {
+      path: req.path,
+      ip: getIp(req),
+      origin: req.get("origin"),
+      ua: req.get("user-agent"),
+    });
+    res.status(403).json({
+      error: "INVALID_CHECKOUT_TOKEN",
+      message: "Sessão de checkout inválida. Recarregue a página e tente novamente.",
+    });
     return;
   }
 

@@ -9,6 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { formatCurrency, fetchAndCacheSellerWhatsApp, getActiveWhatsApp } from "@/lib/utils";
+import { getCheckoutSecurityHeaders } from "@/lib/checkout-security";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const PIX_POLL_INTERVAL_MS = 2000;
@@ -238,7 +239,7 @@ function PaymentLinkInner() {
     try {
       const res = await fetch(`${BASE}/api/custom-charges`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getCheckoutSecurityHeaders(),
         body: JSON.stringify({
           client: {
             name: form.name.trim(),

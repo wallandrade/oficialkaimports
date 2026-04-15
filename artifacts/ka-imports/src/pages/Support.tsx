@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { AlertCircle, CheckCircle2, ImagePlus, Loader2, Search, ShieldAlert, ShoppingBag } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
+import { getCheckoutSecurityHeaders } from "@/lib/checkout-security";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -65,7 +66,7 @@ export default function Support() {
     try {
       const res = await fetch(`${BASE}/api/support/orders-by-cpf`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getCheckoutSecurityHeaders(),
         body: JSON.stringify({ cpf: cpfDigits }),
       });
       const data = (await res.json()) as { orders?: SupportOrder[]; message?: string };
@@ -130,7 +131,7 @@ export default function Support() {
     try {
       const res = await fetch(`${BASE}/api/support/tickets`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getCheckoutSecurityHeaders(),
         body: JSON.stringify({
           cpf: cpfDigits,
           orderId: selectedOrderId,

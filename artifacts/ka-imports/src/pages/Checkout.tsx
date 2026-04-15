@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { useLiveTracking } from "@/hooks/useLiveTracking";
 import { useCart } from "@/store/use-cart";
 import { getStoredReferralCode } from "@/lib/affiliate";
+import { getCheckoutSecurityHeaders } from "@/lib/checkout-security";
 import { getCustomerAuthHeaders, getCustomerToken } from "@/lib/customer-auth";
 import { formatCurrency, getActiveWhatsApp } from "@/lib/utils";
 import { useCreateOrder } from "@workspace/api-client-react";
@@ -519,7 +520,7 @@ export default function Checkout() {
 
       const resp = await fetch(`${BASE}/api/checkout/pix`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await getCheckoutSecurityHeaders(),
         body: JSON.stringify({
           client: clientPayload,
           address: addressPayload,
