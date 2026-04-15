@@ -14,3 +14,5 @@ export * from "./affiliates";
 export * from "./raffles";
 export * from "./admin-sessions";
 export * from "./support-tickets";
+export * from "./reshipments";
+export * from "./inventory";

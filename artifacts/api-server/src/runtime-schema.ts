@@ -310,7 +310,9 @@ async function ensureSupportTicketsTable(databaseName: string): Promise<void> {
         client_name VARCHAR(255) NOT NULL,
         description TEXT NOT NULL,
         image_url MEDIUMTEXT NULL,
+        address_change_json MEDIUMTEXT NULL,
         status VARCHAR(32) NOT NULL DEFAULT 'open',
+        resolution_reason VARCHAR(64) NULL,
         order_total DECIMAL(10,2) NULL,
         order_created_at TIMESTAMP NULL,
         resolved_at TIMESTAMP NULL,
@@ -329,6 +331,8 @@ async function ensureSupportTicketsTable(databaseName: string): Promise<void> {
     { name: "order_total", sql: "ALTER TABLE support_tickets ADD COLUMN order_total DECIMAL(10,2) NULL" },
     { name: "order_created_at", sql: "ALTER TABLE support_tickets ADD COLUMN order_created_at TIMESTAMP NULL" },
     { name: "resolved_at", sql: "ALTER TABLE support_tickets ADD COLUMN resolved_at TIMESTAMP NULL" },
+    { name: "resolution_reason", sql: "ALTER TABLE support_tickets ADD COLUMN resolution_reason VARCHAR(64) NULL" },
+    { name: "address_change_json", sql: "ALTER TABLE support_tickets ADD COLUMN address_change_json MEDIUMTEXT NULL" },
   ];
 
   for (const definition of definitions) {
@@ -354,6 +358,121 @@ async function ensureSupportTicketsTable(databaseName: string): Promise<void> {
   }
 }
 
+async function ensureReshipmentsTable(databaseName: string): Promise<void> {
+  if (!(await tableExists("reshipments", databaseName))) {
+    await pool.query(`
+      CREATE TABLE reshipments (
+        id VARCHAR(255) NOT NULL PRIMARY KEY,
+        order_id VARCHAR(255) NOT NULL,
+        support_ticket_id VARCHAR(255) NOT NULL,
+        status VARCHAR(50) NOT NULL DEFAULT 'reenvio_aguardando_estoque',
+        products_snapshot JSON NOT NULL,
+        resolved_reason VARCHAR(255) NULL,
+        authorized_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        sent_at TIMESTAMP NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY reshipments_order_id_unique (order_id),
+        KEY reshipments_support_ticket_id_idx (support_ticket_id),
+        KEY reshipments_status_idx (status),
+        KEY reshipments_created_at_idx (created_at)
+      )
+    `);
+    return;
+  }
+
+  const definitions = [
+    { name: "support_ticket_id", sql: "ALTER TABLE reshipments ADD COLUMN support_ticket_id VARCHAR(255) NOT NULL DEFAULT ''" },
+    { name: "status", sql: "ALTER TABLE reshipments ADD COLUMN status VARCHAR(50) NOT NULL DEFAULT 'reenvio_aguardando_estoque'" },
+    { name: "products_snapshot", sql: "ALTER TABLE reshipments ADD COLUMN products_snapshot JSON NULL" },
+    { name: "resolved_reason", sql: "ALTER TABLE reshipments ADD COLUMN resolved_reason VARCHAR(255) NULL" },
+    { name: "authorized_at", sql: "ALTER TABLE reshipments ADD COLUMN authorized_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP" },
+    { name: "sent_at", sql: "ALTER TABLE reshipments ADD COLUMN sent_at TIMESTAMP NULL" },
+  ];
+
+  for (const definition of definitions) {
+    if (!(await columnExists("reshipments", definition.name, databaseName))) {
+      await pool.query(definition.sql);
+    }
+  }
+
+  const indexes = [
+    { name: "reshipments_order_id_unique", sql: "ALTER TABLE reshipments ADD UNIQUE KEY reshipments_order_id_unique (order_id)" },
+    { name: "reshipments_support_ticket_id_idx", sql: "ALTER TABLE reshipments ADD KEY reshipments_support_ticket_id_idx (support_ticket_id)" },
+    { name: "reshipments_status_idx", sql: "ALTER TABLE reshipments ADD KEY reshipments_status_idx (status)" },
+    { name: "reshipments_created_at_idx", sql: "ALTER TABLE reshipments ADD KEY reshipments_created_at_idx (created_at)" },
+  ];
+
+  for (const index of indexes) {
+    if (!(await indexExists("reshipments", index.name, databaseName))) {
+      try {
+        await pool.query(index.sql);
+      } catch {
+        // Ignore index creation races in startup.
+      }
+    }
+  }
+}
+
+async function ensureInventoryTables(databaseName: string): Promise<void> {
+  if (!(await tableExists("inventory_balances", databaseName))) {
+    await pool.query(`
+      CREATE TABLE inventory_balances (
+        product_id VARCHAR(255) NOT NULL PRIMARY KEY,
+        quantity INT NOT NULL DEFAULT 0,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+  }
+
+  if (!(await tableExists("inventory_movements", databaseName))) {
+    await pool.query(`
+      CREATE TABLE inventory_movements (
+        id VARCHAR(255) NOT NULL PRIMARY KEY,
+        product_id VARCHAR(255) NOT NULL,
+        type VARCHAR(32) NOT NULL DEFAULT 'entry',
+        quantity INT NOT NULL,
+        reason VARCHAR(255) NULL,
+        reference_id VARCHAR(255) NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY inventory_movements_product_id_idx (product_id),
+        KEY inventory_movements_type_idx (type),
+        KEY inventory_movements_created_at_idx (created_at)
+      )
+    `);
+  } else {
+    const definitions = [
+      { name: "type", sql: "ALTER TABLE inventory_movements ADD COLUMN type VARCHAR(32) NOT NULL DEFAULT 'entry'" },
+      { name: "reason", sql: "ALTER TABLE inventory_movements ADD COLUMN reason VARCHAR(255) NULL" },
+      { name: "reference_id", sql: "ALTER TABLE inventory_movements ADD COLUMN reference_id VARCHAR(255) NULL" },
+    ];
+
+    for (const definition of definitions) {
+      if (!(await columnExists("inventory_movements", definition.name, databaseName))) {
+        await pool.query(definition.sql);
+      }
+    }
+  }
+
+  const indexes = [
+    {
+      name: "inventory_movements_product_id_idx",
+      sql: "ALTER TABLE inventory_movements ADD KEY inventory_movements_product_id_idx (product_id)",
+    },
+    { name: "inventory_movements_type_idx", sql: "ALTER TABLE inventory_movements ADD KEY inventory_movements_type_idx (type)" },
+    {
+      name: "inventory_movements_created_at_idx",
+      sql: "ALTER TABLE inventory_movements ADD KEY inventory_movements_created_at_idx (created_at)",
+    },
+  ];
+
+  for (const index of indexes) {
+    if (!(await indexExists("inventory_movements", index.name, databaseName))) {
+      await pool.query(index.sql);
+    }
+  }
+}
+
 export async function ensureRuntimeSchema(): Promise<void> {
   try {
     const databaseName = getDatabaseName();
@@ -369,6 +488,8 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureAffiliatesTables(databaseName);
     await ensureRaffleTables(databaseName);
     await ensureSupportTicketsTable(databaseName);
+    await ensureReshipmentsTable(databaseName);
+    await ensureInventoryTables(databaseName);
 
     console.log("[RuntimeSchema] Schema sync completed.");
   } catch (error) {

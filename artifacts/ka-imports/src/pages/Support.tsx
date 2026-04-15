@@ -22,6 +22,16 @@ type SupportOrder = {
   products: SupportOrderItem[];
 };
 
+type AddressChangePayload = {
+  cep: string;
+  street: string;
+  number: string;
+  complement?: string;
+  neighborhood: string;
+  city: string;
+  state: string;
+};
+
 function digitsOnly(value: string): string {
   return value.replace(/\D/g, "");
 }
@@ -40,6 +50,12 @@ function formatDateBR(value: string): string {
   return date.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
 }
 
+function formatCep(value: string): string {
+  const digits = digitsOnly(value).slice(0, 8);
+  if (digits.length <= 5) return digits;
+  return `${digits.slice(0, 5)}-${digits.slice(5)}`;
+}
+
 export default function Support() {
   const [cpf, setCpf] = useState("");
   const [lookupLoading, setLookupLoading] = useState(false);
@@ -47,6 +63,16 @@ export default function Support() {
   const [selectedOrderId, setSelectedOrderId] = useState<string>("");
   const [description, setDescription] = useState("");
   const [imageData, setImageData] = useState<string | null>(null);
+  const [wantsAddressChange, setWantsAddressChange] = useState(false);
+  const [newAddress, setNewAddress] = useState<AddressChangePayload>({
+    cep: "",
+    street: "",
+    number: "",
+    complement: "",
+    neighborhood: "",
+    city: "",
+    state: "",
+  });
   const [submitting, setSubmitting] = useState(false);
   const [ticketId, setTicketId] = useState<string | null>(null);
 
@@ -127,6 +153,33 @@ export default function Support() {
       return;
     }
 
+    let addressChange: AddressChangePayload | null = null;
+    if (wantsAddressChange) {
+      const cepDigits = digitsOnly(newAddress.cep);
+      const state = String(newAddress.state || "").trim().toUpperCase();
+      if (
+        cepDigits.length !== 8
+        || !String(newAddress.street || "").trim()
+        || !String(newAddress.number || "").trim()
+        || !String(newAddress.neighborhood || "").trim()
+        || !String(newAddress.city || "").trim()
+        || state.length !== 2
+      ) {
+        toast.error("Preencha o novo endereco completo (CEP, rua, numero, bairro, cidade e UF).");
+        return;
+      }
+
+      addressChange = {
+        cep: cepDigits,
+        street: String(newAddress.street || "").trim(),
+        number: String(newAddress.number || "").trim(),
+        complement: String(newAddress.complement || "").trim(),
+        neighborhood: String(newAddress.neighborhood || "").trim(),
+        city: String(newAddress.city || "").trim(),
+        state,
+      };
+    }
+
     setSubmitting(true);
     try {
       const res = await fetch(`${BASE}/api/support/tickets`, {
@@ -137,6 +190,7 @@ export default function Support() {
           orderId: selectedOrderId,
           description: description.trim(),
           imageData,
+          addressChange,
         }),
       });
       const data = (await res.json()) as { ok?: boolean; ticketId?: string; message?: string };
@@ -158,6 +212,16 @@ export default function Support() {
     setSelectedOrderId("");
     setDescription("");
     setImageData(null);
+    setWantsAddressChange(false);
+    setNewAddress({
+      cep: "",
+      street: "",
+      number: "",
+      complement: "",
+      neighborhood: "",
+      city: "",
+      state: "",
+    });
     setTicketId(null);
   };
 
@@ -267,6 +331,65 @@ export default function Support() {
                         <img src={imageData} alt="Comprovacao do problema" className="max-h-64 rounded-lg object-contain mx-auto" />
                       </div>
                     )}
+
+                    <div className="rounded-xl border border-slate-200 p-3 space-y-3">
+                      <label className="flex items-center gap-2 text-sm font-medium text-slate-800 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={wantsAddressChange}
+                          onChange={(e) => setWantsAddressChange(e.target.checked)}
+                          className="rounded"
+                        />
+                        Quero alterar o endereco de entrega deste pedido
+                      </label>
+
+                      {wantsAddressChange && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <input
+                            value={newAddress.cep}
+                            onChange={(e) => setNewAddress((prev) => ({ ...prev, cep: formatCep(e.target.value) }))}
+                            placeholder="CEP"
+                            className="h-10 rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-amber-500"
+                          />
+                          <input
+                            value={newAddress.state}
+                            onChange={(e) => setNewAddress((prev) => ({ ...prev, state: String(e.target.value || "").toUpperCase().slice(0, 2) }))}
+                            placeholder="UF"
+                            className="h-10 rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-amber-500"
+                          />
+                          <input
+                            value={newAddress.street}
+                            onChange={(e) => setNewAddress((prev) => ({ ...prev, street: e.target.value }))}
+                            placeholder="Rua"
+                            className="h-10 rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-amber-500 sm:col-span-2"
+                          />
+                          <input
+                            value={newAddress.number}
+                            onChange={(e) => setNewAddress((prev) => ({ ...prev, number: e.target.value }))}
+                            placeholder="Numero"
+                            className="h-10 rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-amber-500"
+                          />
+                          <input
+                            value={newAddress.complement || ""}
+                            onChange={(e) => setNewAddress((prev) => ({ ...prev, complement: e.target.value }))}
+                            placeholder="Complemento (opcional)"
+                            className="h-10 rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-amber-500"
+                          />
+                          <input
+                            value={newAddress.neighborhood}
+                            onChange={(e) => setNewAddress((prev) => ({ ...prev, neighborhood: e.target.value }))}
+                            placeholder="Bairro"
+                            className="h-10 rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-amber-500"
+                          />
+                          <input
+                            value={newAddress.city}
+                            onChange={(e) => setNewAddress((prev) => ({ ...prev, city: e.target.value }))}
+                            placeholder="Cidade"
+                            className="h-10 rounded-lg border border-slate-300 px-3 text-sm outline-none focus:border-amber-500"
+                          />
+                        </div>
+                      )}
+                    </div>
 
                     <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 flex items-start gap-2">
                       <ShieldAlert className="w-4 h-4 mt-0.5" />

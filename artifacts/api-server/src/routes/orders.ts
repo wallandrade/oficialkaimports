@@ -18,6 +18,7 @@ import {
   registerAffiliateLead,
   resolveAffiliateByCode,
 } from "../lib/affiliates";
+import { getReshipmentByOrderIds } from "../lib/reshipments";
 
 const router: IRouter = Router();
 
@@ -339,6 +340,8 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(ordersTable.createdAt));
 
+    const reshipmentByOrder = await getReshipmentByOrderIds(orders.map((o) => o.id));
+
     const docs = Array.from(new Set(orders.map((o) => String(o.clientDocument || "").trim()).filter(Boolean)));
     const historyRows = docs.length > 0
       ? await db
@@ -383,6 +386,7 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
         ...mapOrder(order),
         purchaseRisk,
         purchaseRiskReason,
+        reshipment: reshipmentByOrder.get(order.id) || null,
       };
     });
 

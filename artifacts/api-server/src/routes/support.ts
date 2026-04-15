@@ -4,8 +4,19 @@ import crypto from "crypto";
 import { db, ordersTable, supportTicketsTable } from "@workspace/db";
 import { requireAdminAuth } from "./admin-auth";
 import { broadcastNotification } from "./notifications";
+import { createOrRefreshReshipment } from "../lib/reshipments";
 
 const router: IRouter = Router();
+
+type AddressChangePayload = {
+  cep: string;
+  street: string;
+  number: string;
+  complement?: string;
+  neighborhood: string;
+  city: string;
+  state: string;
+};
 
 function onlyDigits(value: unknown): string {
   return String(value ?? "").replace(/\D/g, "");
@@ -26,6 +37,37 @@ function getOrderProducts(raw: unknown): Array<{ name?: string; quantity?: numbe
     }
   }
   return [];
+}
+
+function normalizeAddressChange(raw: unknown): AddressChangePayload | null {
+  if (!raw || typeof raw !== "object") return null;
+  const source = raw as Record<string, unknown>;
+
+  const cepDigits = String(source.cep ?? "").replace(/\D/g, "");
+  const street = String(source.street ?? "").trim();
+  const number = String(source.number ?? "").trim();
+  const complement = String(source.complement ?? "").trim();
+  const neighborhood = String(source.neighborhood ?? "").trim();
+  const city = String(source.city ?? "").trim();
+  const state = String(source.state ?? "").trim().toUpperCase();
+
+  if (!cepDigits && !street && !number && !neighborhood && !city && !state && !complement) {
+    return null;
+  }
+
+  if (!street || !number || !neighborhood || !city || cepDigits.length !== 8 || state.length !== 2) {
+    throw new Error("Endereco incompleto. Preencha CEP, rua, numero, bairro, cidade e UF.");
+  }
+
+  return {
+    cep: cepDigits,
+    street,
+    number,
+    complement: complement || "",
+    neighborhood,
+    city,
+    state,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -86,6 +128,7 @@ router.post("/support/tickets", async (req, res) => {
     const orderId = String(req.body?.orderId ?? "").trim();
     const description = String(req.body?.description ?? "").trim();
     const imageData = req.body?.imageData == null ? null : String(req.body.imageData);
+    let addressChange: AddressChangePayload | null = null;
 
     if (cpf.length !== 11 || !orderId || description.length < 10) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Dados invalidos para abertura do chamado." });
@@ -99,6 +142,14 @@ router.post("/support/tickets", async (req, res) => {
 
     if (imageData && (!imageData.startsWith("data:image/") || imageData.length > 8 * 1024 * 1024)) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Imagem invalida. Envie PNG/JPG ate 5MB." });
+      return;
+    }
+
+    try {
+      addressChange = normalizeAddressChange(req.body?.addressChange);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Endereco invalido.";
+      res.status(400).json({ error: "INVALID_INPUT", message });
       return;
     }
 
@@ -132,7 +183,9 @@ router.post("/support/tickets", async (req, res) => {
       clientName: order.clientName,
       description,
       imageUrl: imageData,
+      addressChangeJson: addressChange ? JSON.stringify(addressChange) : null,
       status: "open",
+      resolutionReason: null,
       orderTotal: String(order.total),
       orderCreatedAt: order.createdAt,
       updatedAt: new Date(),
@@ -164,25 +217,114 @@ router.get("/admin/support-tickets", requireAdminAuth, async (req, res) => {
       .where(whereClause)
       .orderBy(desc(supportTicketsTable.createdAt));
 
-    const tickets = rows.map((row) => ({
-      id: row.id,
-      orderId: row.orderId,
-      clientDocument: row.clientDocument,
-      clientName: row.clientName,
-      description: row.description,
-      imageUrl: row.imageUrl,
-      status: row.status,
-      orderTotal: row.orderTotal == null ? null : Number(row.orderTotal),
-      orderCreatedAt: row.orderCreatedAt?.toISOString() ?? null,
-      resolvedAt: row.resolvedAt?.toISOString() ?? null,
-      createdAt: row.createdAt?.toISOString() ?? new Date().toISOString(),
-      updatedAt: row.updatedAt?.toISOString() ?? new Date().toISOString(),
-    }));
+    const tickets = rows.map((row) => {
+      let addressChange: AddressChangePayload | null = null;
+      if (row.addressChangeJson) {
+        try {
+          const parsed = JSON.parse(row.addressChangeJson);
+          addressChange = normalizeAddressChange(parsed);
+        } catch {
+          addressChange = null;
+        }
+      }
+
+      return {
+        id: row.id,
+        orderId: row.orderId,
+        clientDocument: row.clientDocument,
+        clientName: row.clientName,
+        description: row.description,
+        imageUrl: row.imageUrl,
+        addressChange,
+        status: row.status,
+        resolutionReason: row.resolutionReason,
+        orderTotal: row.orderTotal == null ? null : Number(row.orderTotal),
+        orderCreatedAt: row.orderCreatedAt?.toISOString() ?? null,
+        resolvedAt: row.resolvedAt?.toISOString() ?? null,
+        createdAt: row.createdAt?.toISOString() ?? new Date().toISOString(),
+        updatedAt: row.updatedAt?.toISOString() ?? new Date().toISOString(),
+      };
+    });
 
     res.json({ tickets });
   } catch (err) {
     console.error("Support tickets list error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao listar chamados." });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/admin/support-tickets/:id/reenviar
+// ---------------------------------------------------------------------------
+router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req, res) => {
+  try {
+    const id = String(req.params.id ?? "").trim();
+    if (!id) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Chamado invalido." });
+      return;
+    }
+
+    const ticketRows = await db
+      .select()
+      .from(supportTicketsTable)
+      .where(eq(supportTicketsTable.id, id))
+      .limit(1);
+
+    const ticket = ticketRows[0];
+    if (!ticket) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Chamado nao encontrado." });
+      return;
+    }
+
+    const orderRows = await db
+      .select({ id: ordersTable.id, products: ordersTable.products })
+      .from(ordersTable)
+      .where(eq(ordersTable.id, ticket.orderId))
+      .limit(1);
+
+    const order = orderRows[0];
+    if (!order) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido do chamado nao encontrado." });
+      return;
+    }
+
+    const reshipment = await createOrRefreshReshipment({
+      orderId: order.id,
+      supportTicketId: ticket.id,
+      productsRaw: order.products,
+      resolvedReason: "reenvio_autorizado",
+    });
+
+    await db
+      .update(supportTicketsTable)
+      .set({
+        status: "resolved",
+        resolutionReason: "reenvio_autorizado",
+        resolvedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(supportTicketsTable.id, id));
+
+    broadcastNotification({
+      type: "support_ticket_reshipment_authorized",
+      data: {
+        ticketId: id,
+        orderId: order.id,
+        reshipmentId: reshipment.id,
+        reshipmentStatus: reshipment.status,
+      },
+    });
+
+    res.json({
+      ok: true,
+      ticketId: id,
+      orderId: order.id,
+      reshipment,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Erro ao criar reenvio.";
+    console.error("Support reenviar error:", err);
+    res.status(400).json({ error: "INTERNAL_ERROR", message });
   }
 });
 
@@ -207,6 +349,7 @@ router.patch("/admin/support-tickets/:id/status", requireAdminAuth, async (req, 
     await db.update(supportTicketsTable)
       .set({
         status,
+        resolutionReason: status === "resolved" ? "resolvido_manual" : null,
         resolvedAt: status === "resolved" ? new Date() : null,
         updatedAt: new Date(),
       })

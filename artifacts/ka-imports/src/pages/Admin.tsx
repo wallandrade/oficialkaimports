@@ -551,7 +551,7 @@ function OrderBumpsPanel({ bumps, products, form, setForm, creating, toggling, d
   );
 }
 
-type TabType = "orders" | "charges" | "sellers" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "support" | "webhook" | "configuracoes" | "socialProof" | "raffles";
+type TabType = "orders" | "charges" | "sellers" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "support" | "inventory" | "webhook" | "configuracoes" | "socialProof" | "raffles";
 
 interface AdminRaffle {
   id: string; title: string; description: string | null; imageUrl: string | null;
@@ -601,12 +601,51 @@ interface SupportTicketRecord {
   clientName: string;
   description: string;
   imageUrl: string | null;
+  addressChange?: {
+    cep: string;
+    street: string;
+    number: string;
+    complement?: string;
+    neighborhood: string;
+    city: string;
+    state: string;
+  } | null;
   status: "open" | "resolved" | string;
+  resolutionReason?: string | null;
   orderTotal: number | null;
   orderCreatedAt: string | null;
   resolvedAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+interface ReshipmentRecord {
+  id: string;
+  orderId: string;
+  supportTicketId: string;
+  status: "reenvio_aguardando_estoque" | "reenvio_pronto_para_envio" | "reenvio_enviado" | string;
+  clientName: string;
+  products: Array<{ id: string; name: string; quantity: number }>;
+  resolvedReason: string | null;
+  authorizedAt: string | null;
+  sentAt: string | null;
+  createdAt: string | null;
+}
+
+interface InventoryBalanceRecord {
+  productId: string;
+  productName: string;
+  quantity: number;
+}
+
+interface InventoryMovementRecord {
+  id: string;
+  productId: string;
+  productName: string;
+  type: string;
+  quantity: number;
+  reason: string | null;
+  createdAt: string;
 }
 
 interface SocialProofSettings {
@@ -659,6 +698,13 @@ export default function Admin() {
   const [customerUsers, setCustomerUsers] = useState<CustomerUserRecord[]>([]);
   const [supportTickets, setSupportTickets] = useState<SupportTicketRecord[]>([]);
   const [supportLoading, setSupportLoading] = useState(false);
+  const [inventoryLoading, setInventoryLoading] = useState(false);
+  const [inventoryBalances, setInventoryBalances] = useState<InventoryBalanceRecord[]>([]);
+  const [inventoryMovements, setInventoryMovements] = useState<InventoryMovementRecord[]>([]);
+  const [pendingReshipments, setPendingReshipments] = useState<ReshipmentRecord[]>([]);
+  const [inventoryEntryForm, setInventoryEntryForm] = useState({ productId: "", quantity: "", reason: "" });
+  const [inventorySubmitting, setInventorySubmitting] = useState(false);
+  const [reshipmentUpdatingId, setReshipmentUpdatingId] = useState<string | null>(null);
   const [customersLoading, setCustomersLoading] = useState(false);
   const [customerSearch, setCustomerSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -1015,6 +1061,27 @@ export default function Admin() {
     }
   }, [handleUnauthorized]);
 
+  const fetchInventoryOverview = useCallback(async () => {
+    setInventoryLoading(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/inventory/overview`, { headers: authHeaders() });
+      if (res.status === 401) { handleUnauthorized(); return; }
+      if (!res.ok) return;
+      const data = await res.json() as {
+        balances: InventoryBalanceRecord[];
+        movements: InventoryMovementRecord[];
+        pendingReshipments: ReshipmentRecord[];
+      };
+      setInventoryBalances(data.balances || []);
+      setInventoryMovements(data.movements || []);
+      setPendingReshipments(data.pendingReshipments || []);
+    } catch {
+      // silent
+    } finally {
+      setInventoryLoading(false);
+    }
+  }, [handleUnauthorized]);
+
   const fetchCoupons = useCallback(async () => {
     setLoading(true);
     try {
@@ -1317,6 +1384,7 @@ export default function Admin() {
     else if (tab === "users")      fetchUsers();
     else if (tab === "customers")  fetchCustomers();
     else if (tab === "support")    fetchSupportTickets();
+    else if (tab === "inventory")  fetchInventoryOverview();
     else if (tab === "coupons")    fetchCoupons();
     else if (tab === "products")   fetchProducts();
     else if (tab === "configuracoes") fetchSettings();
@@ -1327,7 +1395,7 @@ export default function Admin() {
     else if (tab === "socialProof") { fetchSocialProof(); fetchProducts(); }
     else if (tab === "raffles")    fetchRaffles();
     else setLoading(false);
-  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchSupportTickets, fetchCoupons, fetchProducts, fetchSettings, fetchSellers, fetchSellerData, fetchShippingOptions, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchSocialProof, fetchRaffles]);
+  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchSellers, fetchSellerData, fetchShippingOptions, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchSocialProof, fetchRaffles]);
 
   // -------------------------------------------------------------------------
   // SSE
@@ -1390,6 +1458,19 @@ export default function Admin() {
           message = `Novo ticket de suporte (${orderLabel})${clientLabel}`;
           fetchSupportTickets();
           showPushNotification("KA Imports — Novo Ticket de Suporte", message);
+        } else if (event.type === "support_ticket_reshipment_authorized") {
+          message = "Reenvio autorizado em chamado de suporte";
+          fetchSupportTickets();
+          fetchOrders(true);
+          fetchInventoryOverview();
+        } else if (event.type === "reshipment_stock_released") {
+          message = "Reenvio liberado automaticamente por entrada de estoque";
+          fetchOrders(true);
+          fetchInventoryOverview();
+        } else if (event.type === "reshipment_updated") {
+          message = "Status de reenvio atualizado";
+          fetchOrders(true);
+          fetchInventoryOverview();
         }
 
         if (message) {
@@ -1404,7 +1485,7 @@ export default function Admin() {
       es.close();
       setTimeout(() => { if (getToken()) connectSSE(); }, 1000);
     };
-  }, [fetchOrders, fetchCharges, fetchSellerData, fetchStatsData, fetchSupportTickets, showPushNotification]);
+  }, [fetchOrders, fetchCharges, fetchSellerData, fetchStatsData, fetchSupportTickets, fetchInventoryOverview, showPushNotification]);
 
   // -------------------------------------------------------------------------
   // Mount
@@ -2472,6 +2553,7 @@ export default function Admin() {
             { key: "kyc",           label: "KYC",              icon: "ShieldCheck", count: kycList.length > 0 ? kycList.filter((k) => k.status === "submitted").length : undefined },
             { key: "customers",     label: "Clientes",         icon: "UserPlus",    count: customerUsers.length || undefined },
             { key: "support",       label: "Suporte",          icon: "MessageCircle", count: supportTickets.filter((t) => t.status === "open").length || undefined },
+            { key: "inventory",     label: "Estoque",          icon: "Package",     count: pendingReshipments.length || undefined },
             ...(isPrimary ? [{ key: "users", label: "Usuários", icon: "User" }] : []),
             { key: "socialProof",   label: "Prova Social",     icon: "ShoppingBag" },
             { key: "raffles",       label: "Rifas",            icon: "Ticket",      count: rafflesList.length || undefined },
@@ -2553,6 +2635,29 @@ export default function Admin() {
             onOpenKycModal={openKycModal}
             onSetOrderEnviado={(id, enviado) => {
               setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, enviado } : o)));
+            }}
+            onSetReshipmentStatus={async (reshipmentId, status) => {
+              if (!reshipmentId) return;
+              setReshipmentUpdatingId(reshipmentId);
+              try {
+                const res = await fetch(`${BASE}/api/admin/reshipments/${reshipmentId}/status`, {
+                  method: "PATCH",
+                  headers: authHeaders(),
+                  body: JSON.stringify({ status }),
+                });
+                const data = await res.json() as { message?: string };
+                if (!res.ok) {
+                  toast.error(data?.message || "Erro ao atualizar reenvio.");
+                  return;
+                }
+                fetchOrders(true);
+                if (tab === "inventory") fetchInventoryOverview();
+                toast.success(status === "reenvio_enviado" ? "Reenvio marcado como enviado." : "Status do reenvio atualizado.");
+              } catch {
+                toast.error("Erro ao atualizar reenvio.");
+              } finally {
+                setReshipmentUpdatingId(null);
+              }
             }}
             onRemoveOrder={(id) => {
               setOrders((prev) => prev.filter((o) => o.id !== id));
@@ -2667,6 +2772,78 @@ export default function Admin() {
                 toast.success(status === "resolved" ? "Chamado marcado como resolvido." : "Chamado reaberto.");
               } catch {
                 toast.error("Erro ao atualizar chamado.");
+              }
+            }}
+            onReenviar={async (id) => {
+              try {
+                const res = await fetch(`${BASE}/api/admin/support-tickets/${id}/reenviar`, {
+                  method: "POST",
+                  headers: authHeaders(),
+                });
+                const data = await res.json() as { message?: string; reshipment?: { status?: string } };
+                if (!res.ok) {
+                  toast.error(data?.message || "Erro ao autorizar reenvio.");
+                  return;
+                }
+                setSupportTickets((prev) => prev.map((t) => (
+                  t.id === id
+                    ? { ...t, status: "resolved", resolutionReason: "reenvio_autorizado", resolvedAt: new Date().toISOString() }
+                    : t
+                )));
+                fetchOrders(true);
+                fetchInventoryOverview();
+                const st = data?.reshipment?.status;
+                if (st === "reenvio_aguardando_estoque") {
+                  toast.success("Reenvio criado e aguardando estoque.");
+                } else {
+                  toast.success("Reenvio autorizado e pronto para envio.");
+                }
+              } catch {
+                toast.error("Erro ao autorizar reenvio.");
+              }
+            }}
+          />
+        ) : tab === "inventory" ? (
+          <InventoryPanel
+            loading={inventoryLoading}
+            products={products}
+            balances={inventoryBalances}
+            movements={inventoryMovements}
+            pendingReshipments={pendingReshipments}
+            entryForm={inventoryEntryForm}
+            setEntryForm={setInventoryEntryForm}
+            submitting={inventorySubmitting}
+            onRefresh={fetchInventoryOverview}
+            onCreateEntry={async () => {
+              const productId = String(inventoryEntryForm.productId || "").trim();
+              const quantity = Number(inventoryEntryForm.quantity || 0);
+              const reason = String(inventoryEntryForm.reason || "").trim();
+              if (!productId || !Number.isFinite(quantity) || quantity <= 0) {
+                toast.error("Selecione o produto e informe quantidade válida.");
+                return;
+              }
+              setInventorySubmitting(true);
+              try {
+                const res = await fetch(`${BASE}/api/admin/inventory/entries`, {
+                  method: "POST",
+                  headers: authHeaders(),
+                  body: JSON.stringify({ productId, quantity, reason }),
+                });
+                const data = await res.json() as { releasedCount?: number; message?: string };
+                if (!res.ok) {
+                  toast.error(data?.message || "Erro ao registrar entrada de estoque.");
+                  return;
+                }
+                setInventoryEntryForm({ productId: "", quantity: "", reason: "" });
+                fetchInventoryOverview();
+                fetchOrders(true);
+                const released = Number(data?.releasedCount || 0);
+                if (released > 0) toast.success(`Entrada registrada. ${released} reenvio(s) liberado(s).`);
+                else toast.success("Entrada de estoque registrada.");
+              } catch {
+                toast.error("Erro ao registrar entrada de estoque.");
+              } finally {
+                setInventorySubmitting(false);
               }
             }}
           />
@@ -4695,11 +4872,13 @@ function SupportTicketsPanel({
   loading,
   onRefresh,
   onSetStatus,
+  onReenviar,
 }: {
   tickets: SupportTicketRecord[];
   loading: boolean;
   onRefresh: () => void;
   onSetStatus: (id: string, status: "open" | "resolved") => void;
+  onReenviar: (id: string) => void;
 }) {
   return (
     <div className="space-y-4">
@@ -4732,7 +4911,9 @@ function SupportTicketsPanel({
                   <div className="flex items-center flex-wrap gap-2">
                     <span className="font-mono text-xs bg-muted px-2 py-0.5 rounded">#{ticket.id}</span>
                     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${ticket.status === "resolved" ? "bg-green-100 text-green-800 border-green-200" : "bg-yellow-100 text-yellow-800 border-yellow-200"}`}>
-                      {ticket.status === "resolved" ? "Resolvido" : "Em aberto"}
+                      {ticket.status === "resolved"
+                        ? (ticket.resolutionReason === "reenvio_autorizado" ? "Resolvido · Reenvio" : "Resolvido")
+                        : "Em aberto"}
                     </span>
                     <span className="text-xs text-muted-foreground">{formatDateBR(ticket.createdAt)}</span>
                   </div>
@@ -4744,7 +4925,12 @@ function SupportTicketsPanel({
                 </div>
                 <div className="flex gap-2">
                   {ticket.status !== "resolved" ? (
-                    <Button size="sm" onClick={() => onSetStatus(ticket.id, "resolved")}>Marcar resolvido</Button>
+                    <>
+                      <Button size="sm" onClick={() => onSetStatus(ticket.id, "resolved")}>Marcar resolvido</Button>
+                      <Button size="sm" variant="outline" className="border-red-200 text-red-700 hover:bg-red-50" onClick={() => onReenviar(ticket.id)}>
+                        Reenviar
+                      </Button>
+                    </>
                   ) : (
                     <Button size="sm" variant="outline" onClick={() => onSetStatus(ticket.id, "open")}>Reabrir</Button>
                   )}
@@ -4754,6 +4940,19 @@ function SupportTicketsPanel({
               <div className="rounded-xl border border-border bg-muted/20 p-3 text-sm whitespace-pre-wrap">
                 {ticket.description}
               </div>
+
+              {ticket.addressChange && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+                  <p className="text-xs font-semibold text-amber-800 mb-1">Solicitacao de novo endereco</p>
+                  <p className="text-sm text-amber-900">
+                    {ticket.addressChange.street}, {ticket.addressChange.number}
+                    {ticket.addressChange.complement ? `, ${ticket.addressChange.complement}` : ""}
+                  </p>
+                  <p className="text-xs text-amber-800">
+                    {ticket.addressChange.neighborhood} - {ticket.addressChange.city}/{ticket.addressChange.state} - CEP {ticket.addressChange.cep}
+                  </p>
+                </div>
+              )}
 
               {ticket.imageUrl && (
                 <div className="rounded-xl border border-border p-2 bg-white">
@@ -4772,11 +4971,148 @@ function SupportTicketsPanel({
   );
 }
 
+function InventoryPanel({
+  loading,
+  products,
+  balances,
+  movements,
+  pendingReshipments,
+  entryForm,
+  setEntryForm,
+  submitting,
+  onRefresh,
+  onCreateEntry,
+}: {
+  loading: boolean;
+  products: Array<{ id: string; name: string }>;
+  balances: InventoryBalanceRecord[];
+  movements: InventoryMovementRecord[];
+  pendingReshipments: ReshipmentRecord[];
+  entryForm: { productId: string; quantity: string; reason: string };
+  setEntryForm: React.Dispatch<React.SetStateAction<{ productId: string; quantity: string; reason: string }>>;
+  submitting: boolean;
+  onRefresh: () => void;
+  onCreateEntry: () => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-border bg-card p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold">Estoque e Reenvios</p>
+            <p className="text-xs text-muted-foreground">Dê entrada de estoque e libere reenvios automaticamente.</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={onRefresh} className="gap-1.5">
+            <RefreshCw className="w-3.5 h-3.5" />Atualizar
+          </Button>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-2">
+          <select
+            className="h-10 rounded-lg border border-border px-3 text-sm bg-white md:col-span-2"
+            value={entryForm.productId}
+            onChange={(e) => setEntryForm((prev) => ({ ...prev, productId: e.target.value }))}
+          >
+            <option value="">Selecione o produto</option>
+            {products.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          <input
+            type="number"
+            min={1}
+            className="h-10 rounded-lg border border-border px-3 text-sm"
+            placeholder="Quantidade"
+            value={entryForm.quantity}
+            onChange={(e) => setEntryForm((prev) => ({ ...prev, quantity: e.target.value }))}
+          />
+          <Button className="h-10" onClick={onCreateEntry} disabled={submitting}>
+            {submitting ? "Salvando..." : "Dar Entrada"}
+          </Button>
+        </div>
+        <input
+          className="mt-2 h-10 rounded-lg border border-border px-3 text-sm w-full"
+          placeholder="Motivo (opcional)"
+          value={entryForm.reason}
+          onChange={(e) => setEntryForm((prev) => ({ ...prev, reason: e.target.value }))}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <p className="text-sm font-semibold mb-3">Saldo atual por produto</p>
+          {loading ? (
+            <p className="text-sm text-muted-foreground">Carregando estoque...</p>
+          ) : balances.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nenhum saldo registrado ainda.</p>
+          ) : (
+            <div className="space-y-2 max-h-72 overflow-auto pr-1">
+              {balances.map((row) => (
+                <div key={row.productId} className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
+                  <span className="text-sm truncate pr-2">{row.productName}</span>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${row.quantity > 0 ? "bg-green-100 text-green-800 border-green-200" : "bg-red-100 text-red-700 border-red-200"}`}>
+                    {row.quantity} un
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <p className="text-sm font-semibold mb-3">Reenvios aguardando produto</p>
+          {loading ? (
+            <p className="text-sm text-muted-foreground">Carregando reenvios...</p>
+          ) : pendingReshipments.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nenhum reenvio aguardando estoque.</p>
+          ) : (
+            <div className="space-y-2 max-h-72 overflow-auto pr-1">
+              {pendingReshipments.map((item) => (
+                <div key={item.id} className="rounded-lg border border-red-200 bg-red-50/60 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-red-800 truncate">{item.clientName} · Pedido {item.orderId}</p>
+                  </div>
+                  <p className="text-xs text-red-700 mt-1">
+                    {item.products.map((p) => `${p.quantity}x ${p.name}`).join(" · ")}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-border bg-card p-4">
+        <p className="text-sm font-semibold mb-3">Movimentações de estoque</p>
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Carregando movimentações...</p>
+        ) : movements.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Sem movimentações registradas.</p>
+        ) : (
+          <div className="space-y-2 max-h-80 overflow-auto pr-1">
+            {movements.map((mv) => (
+              <div key={mv.id} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{mv.productName}</p>
+                  <p className="text-xs text-muted-foreground truncate">{mv.reason || "Movimentação"} · {formatDateBR(mv.createdAt)}</p>
+                </div>
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${mv.quantity >= 0 ? "bg-green-100 text-green-800 border-green-200" : "bg-red-100 text-red-800 border-red-200"}`}>
+                  {mv.quantity >= 0 ? "+" : ""}{mv.quantity}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function OrdersPanel({
   orders, statusUpdating, expandedOrder, setExpandedOrder,
   updateOrderStatus, setProofModal, setProofViewer, openWhatsApp,
   onOpenCardPaidModal, updateOrderObservation, isPrimary, onEditOrder, onOpenKycModal,
-  onSetOrderEnviado, onRemoveOrder,
+  onSetOrderEnviado, onSetReshipmentStatus, onRemoveOrder,
 }: {
   orders: AdminOrder[];
   statusUpdating: string | null;
@@ -4792,6 +5128,7 @@ function OrdersPanel({
   onEditOrder: (order: AdminOrder) => void;
   onOpenKycModal: (orderId: string) => void;
   onSetOrderEnviado: (id: string, enviado: boolean) => void;
+  onSetReshipmentStatus: (reshipmentId: string, status: "reenvio_aguardando_estoque" | "reenvio_pronto_para_envio" | "reenvio_enviado") => void;
   onRemoveOrder: (id: string) => void;
 }) {
 
@@ -4819,6 +5156,13 @@ function OrdersPanel({
   // Todos os hooks no topo
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
   const [enviados, setEnviados] = useState<Record<string, boolean>>({});
+
+  const reshipmentStatusLabel = (status?: string) => {
+    if (status === "reenvio_aguardando_estoque") return "Reenvio · Aguardando estoque";
+    if (status === "reenvio_pronto_para_envio") return "Reenvio · Pronto para envio";
+    if (status === "reenvio_enviado") return "Reenvio · Enviado";
+    return "Reenvio";
+  };
 
   // Inicializa enviados com base nos pedidos carregados
   useEffect(() => {
@@ -4911,44 +5255,55 @@ function OrdersPanel({
             <div className="p-5 sm:p-6">
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                 <div className="flex-1 min-w-0">
-                  <div className="flex flex-wrap items-center gap-2 mb-2">
-                    <span className="font-mono text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">#{order.id}</span>
-                    {/* Badge de status de envio */}
-                    {enviados[order.id] ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-100 text-green-800 text-xs font-semibold border border-green-200">Enviado</span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 text-xs font-semibold border border-yellow-200">Pendente para envio</span>
-                    )}
-                    {statusBadge(order.status)}
-                    {isCard ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 text-xs font-semibold border border-purple-200">
-                        <CreditCard className="w-3 h-3" />Cartão{order.cardInstallments ? ` · ${order.cardInstallments}x` : ""}
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 text-xs font-semibold border border-blue-200">
-                        <QrCode className="w-3 h-3" />PIX
-                      </span>
-                    )}
-                    {order.sellerCode && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-100 text-orange-800 text-xs font-semibold border border-orange-200">
-                        <Tag className="w-3 h-3" />{order.sellerCode}
-                      </span>
-                    )}
-                    {(() => {
-                      const cfg = riskCfg((order as any).purchaseRisk);
-                      return (
-                        <span
-                          title={(order as any).purchaseRiskReason || "Validação por histórico de IP do CPF"}
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${cfg.cls}`}
-                        >
-                          <AlertTriangle className="w-3 h-3" />{cfg.label}
+                  {(() => {
+                    const rs = (order as any)?.reshipment?.status as string | undefined;
+                    const isReshipment = !!rs;
+                    return (
+                      <div className="flex flex-wrap items-center gap-2 mb-2">
+                        <span className="font-mono text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">#{order.id}</span>
+                        {/* Badge de status de envio */}
+                        {enviados[order.id] ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-100 text-green-800 text-xs font-semibold border border-green-200">Enviado</span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 text-xs font-semibold border border-yellow-200">Pendente para envio</span>
+                        )}
+                        {isReshipment && (
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${rs === "reenvio_aguardando_estoque" ? "bg-red-100 text-red-800 border-red-200" : rs === "reenvio_pronto_para_envio" ? "bg-red-50 text-red-700 border-red-200" : "bg-rose-100 text-rose-800 border-rose-200"}`}>
+                            <AlertTriangle className="w-3 h-3" />{reshipmentStatusLabel(rs)}
+                          </span>
+                        )}
+                        {statusBadge(order.status)}
+                        {isCard ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 text-xs font-semibold border border-purple-200">
+                            <CreditCard className="w-3 h-3" />Cartão{order.cardInstallments ? ` · ${order.cardInstallments}x` : ""}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 text-xs font-semibold border border-blue-200">
+                            <QrCode className="w-3 h-3" />PIX
+                          </span>
+                        )}
+                        {order.sellerCode && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-100 text-orange-800 text-xs font-semibold border border-orange-200">
+                            <Tag className="w-3 h-3" />{order.sellerCode}
+                          </span>
+                        )}
+                        {(() => {
+                          const cfg = riskCfg((order as any).purchaseRisk);
+                          return (
+                            <span
+                              title={(order as any).purchaseRiskReason || "Validação por histórico de IP do CPF"}
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${cfg.cls}`}
+                            >
+                              <AlertTriangle className="w-3 h-3" />{cfg.label}
+                            </span>
+                          );
+                        })()}
+                        <span className="text-xs text-muted-foreground">
+                          {formatDateBR(order.createdAt)}
                         </span>
-                      );
-                    })()}
-                    <span className="text-xs text-muted-foreground">
-                      {formatDateBR(order.createdAt)}
-                    </span>
-                  </div>
+                      </div>
+                    );
+                  })()}
                   <h3 className="font-bold text-lg">{order.clientName}</h3>
                   <p className="text-sm text-muted-foreground">{order.clientEmail} · {order.clientPhone}</p>
                   {order.clientDocument && (
@@ -5054,6 +5409,16 @@ function OrdersPanel({
                   <Button size="sm" variant="outline" className="gap-1.5 text-amber-600 border-amber-200 hover:bg-amber-50"
                     onClick={() => onOpenKycModal(order.id)}>
                     <ShieldCheck className="w-3.5 h-3.5" />KYC
+                  </Button>
+                )}
+                {(order as any)?.reshipment?.id && (order as any)?.reshipment?.status !== "reenvio_enviado" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 text-red-700 border-red-200 hover:bg-red-50"
+                    onClick={() => onSetReshipmentStatus((order as any).reshipment.id, "reenvio_enviado")}
+                  >
+                    <Truck className="w-3.5 h-3.5" />Marcar Reenvio Enviado
                   </Button>
                 )}
               </div>
