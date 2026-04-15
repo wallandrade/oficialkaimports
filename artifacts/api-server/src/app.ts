@@ -9,6 +9,8 @@ const DEFAULT_ALLOWED_ORIGINS = [
   "https://www.ka-imports.com",
 ];
 
+const SECURITY_ORIGIN_ENFORCE = String(process.env.SECURITY_ORIGIN_ENFORCE || "false").toLowerCase() === "true";
+
 function normalizeOrigin(origin: string): string {
   try {
     return new URL(origin).origin;
@@ -32,6 +34,15 @@ const allowedOrigins = getAllowedOrigins();
 function isOriginAllowed(origin?: string | null): boolean {
   if (!origin) return true;
   return allowedOrigins.has(normalizeOrigin(origin));
+}
+
+function getRefererOrigin(referer?: string | null): string | null {
+  if (!referer) return null;
+  try {
+    return new URL(referer).origin;
+  } catch {
+    return null;
+  }
 }
 
 const sensitivePublicWritePaths = new Set([
@@ -208,15 +219,29 @@ app.use((req, res, next) => {
   }
 
   const origin = req.get("origin");
-  if (origin && !isOriginAllowed(origin)) {
-    console.warn("[SECURITY] Blocked public write by untrusted origin", {
+  const referer = req.get("referer");
+  const refererOrigin = getRefererOrigin(referer);
+
+  const hasSuspiciousOrigin = Boolean(origin && !isOriginAllowed(origin));
+  const hasSuspiciousReferer = Boolean(refererOrigin && !isOriginAllowed(refererOrigin));
+
+  if (hasSuspiciousOrigin || hasSuspiciousReferer) {
+    const logPayload = {
       path: req.path,
       origin,
+      referer,
+      refererOrigin,
       ip: req.ip,
       ua: req.get("user-agent"),
-    });
-    res.status(403).json({ error: "FORBIDDEN_ORIGIN", message: "Origem não autorizada." });
-    return;
+    };
+
+    if (SECURITY_ORIGIN_ENFORCE) {
+      console.warn("[SECURITY] Blocked public write by suspicious origin/referer", logPayload);
+      res.status(403).json({ error: "FORBIDDEN_ORIGIN", message: "Origem não autorizada." });
+      return;
+    }
+
+    console.warn("[SECURITY] Suspicious origin/referer detected (monitor mode)", logPayload);
   }
 
   next();
