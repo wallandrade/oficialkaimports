@@ -1386,7 +1386,7 @@ export default function Admin() {
     else if (tab === "customers")  fetchCustomers();
     else if (tab === "support")    fetchSupportTickets();
     else if (tab === "inventory")  fetchInventoryOverview();
-    else if (tab === "coupons")    fetchCoupons();
+    else if (tab === "coupons")    { fetchCoupons(); fetchProducts(); }
     else if (tab === "products")   fetchProducts();
     else if (tab === "configuracoes") fetchSettings();
     else if (tab === "sellers")    { fetchSellers(); fetchSellerData(); }
