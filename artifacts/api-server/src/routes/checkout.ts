@@ -1,9 +1,9 @@
 import { Router, type IRouter } from "express";
-import { db, ordersTable, sellersTable, productsTable, siteSettingsTable } from "@workspace/db";
+import { db, ordersTable, sellersTable, productsTable, siteSettingsTable, couponsTable } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
 import crypto from "crypto";
 import { broadcastNotification } from "./notifications";
-import { incrementCouponUse } from "./coupons";
+import { evaluateCouponForProducts, incrementCouponUse } from "./coupons";
 import {
   createPixCharge,
   buildCallbackUrl,
@@ -108,8 +108,8 @@ router.post("/checkout/pix", async (req, res) => {
 
     const {
       client, address, products, shippingType, includeInsurance,
-      subtotal, shippingCost, insuranceAmount, total,
-      sellerCode, couponCode, discountAmount,
+      shippingCost, insuranceAmount,
+      sellerCode, couponCode,
       useAffiliateCredit,
     } = req.body as {
       client: { name: string; email: string; phone: string; document: string };
@@ -120,13 +120,10 @@ router.post("/checkout/pix", async (req, res) => {
       products?: Array<{ id: string; name: string; quantity: number; price: number }>;
       shippingType?: string;
       includeInsurance?: boolean;
-      subtotal?: number;
       shippingCost?: number;
       insuranceAmount?: number;
-      total: number;
       sellerCode?: string;
       couponCode?: string;
-      discountAmount?: number;
       useAffiliateCredit?: boolean;
     };
 
@@ -163,19 +160,6 @@ router.post("/checkout/pix", async (req, res) => {
       return;
     }
 
-    // ── Validate amount ───────────────────────────────────────────────────
-    const amount = Number(total);
-    if (!amount || amount <= 0) {
-      console.warn(`[CHECKOUT/PIX:${requestId}] Validation failed — invalid amount: ${total}`);
-      res.status(400).json({ error: "INVALID_INPUT", message: "Valor inválido. Deve ser maior que zero." });
-      return;
-    }
-    if (amount > 10000) {
-      console.warn(`[CHECKOUT/PIX:${requestId}] Validation failed — amount exceeds limit: ${amount}`);
-      res.status(400).json({ error: "INVALID_INPUT", message: "O valor máximo para PIX é R$10.000." });
-      return;
-    }
-
     // ── Create the order record ───────────────────────────────────────────
     const orderId = crypto.randomBytes(8).toString("hex");
 
@@ -198,6 +182,45 @@ router.post("/checkout/pix", async (req, res) => {
       costPrice: productCostMap.get(String(p.id)) ?? 0,
     }));
 
+    const computedSubtotal = orderProducts.reduce((acc, p) => acc + (Number(p.quantity) || 0) * (Number(p.price) || 0), 0);
+    const computedShippingCost = Math.max(0, Number(shippingCost) || 0);
+    const computedInsuranceAmount = Math.max(0, Number(insuranceAmount) || 0);
+    const computedBaseTotal = computedSubtotal + computedShippingCost + computedInsuranceAmount;
+
+    let normalizedCouponCode: string | null = null;
+    let computedDiscountAmount = 0;
+
+    if (couponCode?.trim()) {
+      const cleanCouponCode = String(couponCode).trim().toUpperCase();
+      const [coupon] = await db.select().from(couponsTable).where(eq(couponsTable.code, cleanCouponCode));
+      if (!coupon) {
+        res.status(400).json({ error: "INVALID_COUPON", message: "Cupom não encontrado." });
+        return;
+      }
+      const evaluation = evaluateCouponForProducts(coupon, orderProducts, computedBaseTotal);
+      if (!evaluation.valid) {
+        res.status(400).json({
+          error: evaluation.error || "INVALID_COUPON",
+          message: evaluation.message || "Cupom inválido para este carrinho.",
+        });
+        return;
+      }
+      normalizedCouponCode = cleanCouponCode;
+      computedDiscountAmount = evaluation.discountAmount;
+    }
+
+    const amount = Math.max(0, computedBaseTotal - computedDiscountAmount);
+    if (!amount || amount <= 0) {
+      console.warn(`[CHECKOUT/PIX:${requestId}] Validation failed — invalid computed amount: ${amount}`);
+      res.status(400).json({ error: "INVALID_INPUT", message: "Valor inválido. Deve ser maior que zero." });
+      return;
+    }
+    if (amount > 10000) {
+      console.warn(`[CHECKOUT/PIX:${requestId}] Validation failed — amount exceeds limit: ${amount}`);
+      res.status(400).json({ error: "INVALID_INPUT", message: "O valor máximo para PIX é R$10.000." });
+      return;
+    }
+
     await db.insert(ordersTable).values({
       id:                  orderId,
       userId:              customerSession?.userId ?? null,
@@ -219,16 +242,16 @@ router.post("/checkout/pix", async (req, res) => {
       products:            orderProducts,
       shippingType:        shippingType || "Frete",
       includeInsurance:    Boolean(includeInsurance),
-      subtotal:            String(subtotal ?? amount),
-      shippingCost:        String(shippingCost ?? 0),
-      insuranceAmount:     String(insuranceAmount ?? 0),
+      subtotal:            String(computedSubtotal),
+      shippingCost:        String(computedShippingCost),
+      insuranceAmount:     String(computedInsuranceAmount),
       total:               String(amount),
       status:              "pending",
       paymentMethod:       "pix",
       sellerCode:          sellerCode ? String(sellerCode) : null,
       sellerCommissionRateSnapshot: String(sellerCommissionRateSnapshot),
-      couponCode:          couponCode  ? String(couponCode).toUpperCase() : null,
-      discountAmount:      discountAmount ? String(discountAmount) : null,
+      couponCode:          normalizedCouponCode,
+      discountAmount:      computedDiscountAmount > 0 ? String(computedDiscountAmount) : null,
     });
 
     let affiliateCreditUsed = 0;
@@ -286,8 +309,8 @@ router.post("/checkout/pix", async (req, res) => {
     });
 
     // Increment coupon usage if applicable
-    if (couponCode) {
-      try { await incrementCouponUse(couponCode); } catch { /* non-fatal */ }
+    if (normalizedCouponCode) {
+      try { await incrementCouponUse(normalizedCouponCode); } catch { /* non-fatal */ }
     }
 
     const payableAmount = Math.max(0, amount - affiliateCreditUsed);

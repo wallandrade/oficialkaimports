@@ -115,6 +115,7 @@ export default function Checkout() {
   const [couponLoading, setCouponLoading] = useState(false);
   const [appliedCoupon, setAppliedCoupon] = useState<{
     code: string; discountType: string; discountValue: number;
+    eligibleProductIds: string[];
   } | null>(null);
   const [affiliateCreditAvailable, setAffiliateCreditAvailable] = useState(0);
   const [affiliateCreditLoading, setAffiliateCreditLoading] = useState(false);
@@ -319,14 +320,43 @@ export default function Checkout() {
   }, []);
 
   const subtotal = getSubtotal();
+  const couponProductsPayload = useMemo(
+    () => items.map((item) => ({
+      id: (item as { bumpForProductId?: string }).bumpForProductId ?? item.id,
+      quantity: item.quantity,
+      price: item.price,
+      regularPrice: (item as { regularPrice?: number }).regularPrice ?? item.price,
+    })),
+    [items]
+  );
+  const eligibleProductSubtotal = useMemo(() => {
+    if (!appliedCoupon) return 0;
+    if (!appliedCoupon.eligibleProductIds.length) {
+      return couponProductsPayload.reduce((acc, p) => acc + p.price * p.quantity, 0);
+    }
+    const eligibleSet = new Set(appliedCoupon.eligibleProductIds);
+    return couponProductsPayload.reduce((acc, p) => (
+      eligibleSet.has(p.id) ? acc + p.price * p.quantity : acc
+    ), 0);
+  }, [appliedCoupon, couponProductsPayload]);
+  const eligibleProductSubtotalCard = useMemo(() => {
+    if (!appliedCoupon) return 0;
+    if (!appliedCoupon.eligibleProductIds.length) {
+      return couponProductsPayload.reduce((acc, p) => acc + p.regularPrice * p.quantity, 0);
+    }
+    const eligibleSet = new Set(appliedCoupon.eligibleProductIds);
+    return couponProductsPayload.reduce((acc, p) => (
+      eligibleSet.has(p.id) ? acc + p.regularPrice * p.quantity : acc
+    ), 0);
+  }, [appliedCoupon, couponProductsPayload]);
   const selectedShipping = shippingOptions.find((o) => o.id === selectedShippingId) ?? null;
   const shippingCost = selectedShipping ? Number(selectedShipping.price) : 0;
   const insuranceAmount = includeInsurance ? subtotal * 0.1 : 0;
   const baseTotal = subtotal + shippingCost + insuranceAmount;
   const discountAmount = appliedCoupon
     ? appliedCoupon.discountType === "percent"
-      ? baseTotal * (appliedCoupon.discountValue / 100)
-      : Math.min(appliedCoupon.discountValue, baseTotal)
+      ? eligibleProductSubtotal * (appliedCoupon.discountValue / 100)
+      : Math.min(appliedCoupon.discountValue, eligibleProductSubtotal)
     : 0;
   const total = Math.max(0, baseTotal - discountAmount);
   const affiliateCreditToApply = useAffiliateCredit ? Math.min(affiliateCreditAvailable, total) : 0;
@@ -338,8 +368,8 @@ export default function Checkout() {
   const cardBaseTotal = cardSubtotal + shippingCost + cardInsuranceAmount;
   const cardDiscountAmount = appliedCoupon
     ? appliedCoupon.discountType === "percent"
-      ? cardBaseTotal * (appliedCoupon.discountValue / 100)
-      : Math.min(appliedCoupon.discountValue, cardBaseTotal)
+      ? eligibleProductSubtotalCard * (appliedCoupon.discountValue / 100)
+      : Math.min(appliedCoupon.discountValue, eligibleProductSubtotalCard)
     : 0;
   const cardNetTotal = Math.max(0, cardBaseTotal - cardDiscountAmount);
 
@@ -384,16 +414,30 @@ export default function Checkout() {
       const res = await fetch(`${import.meta.env.BASE_URL.replace(/\/$/, "")}/api/coupons/validate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: couponInput.trim(), orderValue: baseTotal }),
+        body: JSON.stringify({
+          code: couponInput.trim(),
+          orderValue: baseTotal,
+          products: couponProductsPayload.map((p) => ({ id: p.id, quantity: p.quantity, price: p.price })),
+        }),
       });
       const data = await res.json() as {
-        valid?: boolean; code?: string; discountType?: string; discountValue?: number; message?: string;
+        valid?: boolean;
+        code?: string;
+        discountType?: string;
+        discountValue?: number;
+        eligibleProductIds?: string[];
+        message?: string;
       };
       if (!res.ok || !data.valid) {
         toast.error(data.message || "Cupom inválido.");
         return;
       }
-      setAppliedCoupon({ code: data.code!, discountType: data.discountType!, discountValue: data.discountValue! });
+      setAppliedCoupon({
+        code: data.code!,
+        discountType: data.discountType!,
+        discountValue: data.discountValue!,
+        eligibleProductIds: Array.isArray(data.eligibleProductIds) ? data.eligibleProductIds : [],
+      });
       setCouponInput("");
       toast.success(`Cupom ${data.code} aplicado!`);
     } catch {

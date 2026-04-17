@@ -6,12 +6,120 @@ import { requireAdminAuth, requirePrimaryAdmin } from "./admin-auth";
 
 const router: IRouter = Router();
 
+type CouponProductInput = {
+  id?: string;
+  quantity?: number;
+  price?: number;
+};
+
+type CouponEvaluation = {
+  valid: boolean;
+  error?: string;
+  message?: string;
+  eligibleProductIds: string[];
+  eligibleSubtotal: number;
+  discountAmount: number;
+};
+
+function normalizeEligibleProductIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    const id = String(item || "").trim();
+    if (id) seen.add(id);
+  }
+  return Array.from(seen);
+}
+
+function getProductsSubtotal(products: CouponProductInput[]): number {
+  return products.reduce((acc, p) => {
+    const qty = Number(p.quantity) || 0;
+    const price = Number(p.price) || 0;
+    if (qty <= 0 || price <= 0) return acc;
+    return acc + qty * price;
+  }, 0);
+}
+
+function getEligibleSubtotal(products: CouponProductInput[], eligibleProductIds: string[]): number {
+  if (eligibleProductIds.length === 0) return getProductsSubtotal(products);
+  const eligibleSet = new Set(eligibleProductIds);
+  return products.reduce((acc, p) => {
+    const id = String(p.id || "").trim();
+    const qty = Number(p.quantity) || 0;
+    const price = Number(p.price) || 0;
+    if (!id || !eligibleSet.has(id) || qty <= 0 || price <= 0) return acc;
+    return acc + qty * price;
+  }, 0);
+}
+
+function calculateDiscount(discountType: string, discountValue: number, baseAmount: number): number {
+  if (baseAmount <= 0 || discountValue <= 0) return 0;
+  if (discountType === "percent") return baseAmount * (discountValue / 100);
+  if (discountType === "fixed") return Math.min(discountValue, baseAmount);
+  return 0;
+}
+
+export function evaluateCouponForProducts(
+  coupon: typeof couponsTable.$inferSelect,
+  products: CouponProductInput[],
+  orderValue?: number,
+): CouponEvaluation {
+  const eligibleProductIds = normalizeEligibleProductIds(coupon.eligibleProductIds);
+
+  if (!coupon.isActive) {
+    return { valid: false, error: "INACTIVE", message: "Este cupom está desativado.", eligibleProductIds, eligibleSubtotal: 0, discountAmount: 0 };
+  }
+  if (coupon.maxUses !== null && coupon.usedCount >= coupon.maxUses) {
+    return { valid: false, error: "EXHAUSTED", message: "Este cupom atingiu o limite de usos.", eligibleProductIds, eligibleSubtotal: 0, discountAmount: 0 };
+  }
+  if (coupon.minOrderValue !== null && orderValue !== undefined && orderValue < Number(coupon.minOrderValue)) {
+    return {
+      valid: false,
+      error: "MIN_VALUE",
+      message: `Pedido mínimo de R$ ${Number(coupon.minOrderValue).toFixed(2).replace(".", ",")} para usar este cupom.`,
+      eligibleProductIds,
+      eligibleSubtotal: 0,
+      discountAmount: 0,
+    };
+  }
+
+  const eligibleSubtotal = getEligibleSubtotal(products, eligibleProductIds);
+  if (eligibleProductIds.length > 0 && eligibleSubtotal <= 0) {
+    return {
+      valid: false,
+      error: "PRODUCT_NOT_ELIGIBLE",
+      message: "Este cupom só é válido para produtos específicos do carrinho.",
+      eligibleProductIds,
+      eligibleSubtotal: 0,
+      discountAmount: 0,
+    };
+  }
+
+  const discountAmount = calculateDiscount(coupon.discountType, Number(coupon.discountValue), eligibleSubtotal);
+  if (discountAmount <= 0) {
+    return {
+      valid: false,
+      error: "INVALID_DISCOUNT",
+      message: "Este cupom não gera desconto para os produtos elegíveis deste carrinho.",
+      eligibleProductIds,
+      eligibleSubtotal,
+      discountAmount: 0,
+    };
+  }
+
+  return { valid: true, eligibleProductIds, eligibleSubtotal, discountAmount };
+}
+
 // ---------------------------------------------------------------------------
 // POST /api/coupons/validate  — public: validate a coupon before checkout
 // ---------------------------------------------------------------------------
 router.post("/coupons/validate", async (req, res) => {
   try {
-    const { code, orderValue } = req.body as { code: string; orderValue?: number };
+    const { code, orderValue, products } = req.body as {
+      code: string;
+      orderValue?: number;
+      products?: CouponProductInput[];
+    };
 
     if (!code?.trim()) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Código de cupom obrigatório." });
@@ -27,18 +135,12 @@ router.post("/coupons/validate", async (req, res) => {
       res.status(404).json({ error: "NOT_FOUND", message: "Cupom não encontrado." });
       return;
     }
-    if (!coupon.isActive) {
-      res.status(400).json({ error: "INACTIVE", message: "Este cupom está desativado." });
-      return;
-    }
-    if (coupon.maxUses !== null && coupon.usedCount >= coupon.maxUses) {
-      res.status(400).json({ error: "EXHAUSTED", message: "Este cupom atingiu o limite de usos." });
-      return;
-    }
-    if (coupon.minOrderValue !== null && orderValue !== undefined && orderValue < Number(coupon.minOrderValue)) {
+    const productList = Array.isArray(products) ? products : [];
+    const evaluation = evaluateCouponForProducts(coupon, productList, orderValue);
+    if (!evaluation.valid) {
       res.status(400).json({
-        error: "MIN_VALUE",
-        message: `Pedido mínimo de R$ ${Number(coupon.minOrderValue).toFixed(2).replace(".", ",")} para usar este cupom.`,
+        error: evaluation.error || "INVALID_COUPON",
+        message: evaluation.message || "Cupom inválido.",
       });
       return;
     }
@@ -48,6 +150,9 @@ router.post("/coupons/validate", async (req, res) => {
       code:          coupon.code,
       discountType:  coupon.discountType,
       discountValue: Number(coupon.discountValue),
+      discountAmount: evaluation.discountAmount,
+      eligibleSubtotal: evaluation.eligibleSubtotal,
+      eligibleProductIds: evaluation.eligibleProductIds,
       minOrderValue: coupon.minOrderValue ? Number(coupon.minOrderValue) : null,
       maxUses:       coupon.maxUses,
       usedCount:     coupon.usedCount,
@@ -76,10 +181,11 @@ router.get("/admin/coupons", requireAdminAuth, async (_req, res) => {
 // ---------------------------------------------------------------------------
 router.post("/admin/coupons", requireAdminAuth, requirePrimaryAdmin, async (req, res) => {
   try {
-    const { code, discountType, discountValue, minOrderValue, maxUses } =
+    const { code, discountType, discountValue, minOrderValue, maxUses, eligibleProductIds } =
       req.body as {
         code: string; discountType: string; discountValue: number;
         minOrderValue?: number | null; maxUses?: number | null;
+        eligibleProductIds?: string[] | null;
       };
 
     if (!code?.trim() || !discountType || !discountValue) {
@@ -101,6 +207,8 @@ router.post("/admin/coupons", requireAdminAuth, requirePrimaryAdmin, async (req,
       return;
     }
 
+    const cleanEligibleProductIds = normalizeEligibleProductIds(eligibleProductIds);
+
     // Check duplicate
     const [existing] = await db.select().from(couponsTable).where(eq(couponsTable.code, cleanCode));
     if (existing) {
@@ -114,6 +222,7 @@ router.post("/admin/coupons", requireAdminAuth, requirePrimaryAdmin, async (req,
       code:          cleanCode,
       discountType,
       discountValue: String(discountValue),
+      eligibleProductIds: cleanEligibleProductIds.length > 0 ? cleanEligibleProductIds : null,
       minOrderValue: minOrderValue ? String(minOrderValue) : null,
       maxUses:       maxUses || null,
       isActive:      true,
@@ -179,11 +288,13 @@ export async function incrementCouponUse(code: string) {
 }
 
 function mapCoupon(c: typeof couponsTable.$inferSelect) {
+  const eligibleProductIds = normalizeEligibleProductIds(c.eligibleProductIds);
   return {
     id:            c.id,
     code:          c.code,
     discountType:  c.discountType,
     discountValue: Number(c.discountValue),
+    eligibleProductIds,
     minOrderValue: c.minOrderValue ? Number(c.minOrderValue) : null,
     maxUses:       c.maxUses,
     usedCount:     c.usedCount,

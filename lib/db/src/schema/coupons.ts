@@ -1,10 +1,11 @@
-import { mysqlTable, varchar, decimal, int, boolean, timestamp } from "drizzle-orm/mysql-core";
+import { mysqlTable, varchar, decimal, int, boolean, timestamp, json } from "drizzle-orm/mysql-core";
 
 export const couponsTable = mysqlTable("coupons", {
   id: varchar("id", { length: 255 }).primaryKey(),
   code: varchar("code", { length: 255 }).notNull().unique(),
   discountType: varchar("discount_type", { length: 255 }).notNull().default("percent"), // "percent" | "fixed"
   discountValue: decimal("discount_value", { precision: 10, scale: 2 }).notNull(),
+  eligibleProductIds: json("eligible_product_ids"),
   minOrderValue: decimal("min_order_value", { precision: 10, scale: 2 }),
   maxUses: int("max_uses"),
   usedCount: int("used_count").notNull().default(0),

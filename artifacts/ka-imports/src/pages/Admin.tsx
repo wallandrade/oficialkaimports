@@ -770,7 +770,7 @@ export default function Admin() {
   // Coupons
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [couponForm, setCouponForm] = useState({
-    code: "", discountType: "percent", discountValue: "", minOrderValue: "", maxUses: "",
+    code: "", discountType: "percent", discountValue: "", minOrderValue: "", maxUses: "", eligibleProductIds: [] as string[],
   });
   const [couponCreating, setCouponCreating] = useState(false);
   const [couponDeleting, setCouponDeleting] = useState<string | null>(null);
@@ -2031,12 +2031,13 @@ export default function Admin() {
           discountValue: Number(couponForm.discountValue),
           minOrderValue: couponForm.minOrderValue ? Number(couponForm.minOrderValue) : null,
           maxUses:       couponForm.maxUses ? Number(couponForm.maxUses) : null,
+          eligibleProductIds: couponForm.eligibleProductIds,
         }),
       });
       const data = await res.json() as Coupon & { message?: string };
       if (!res.ok) { toast.error(data.message || "Erro ao criar cupom."); return; }
       toast.success(`Cupom "${data.code}" criado!`);
-      setCouponForm({ code: "", discountType: "percent", discountValue: "", minOrderValue: "", maxUses: "" });
+      setCouponForm({ code: "", discountType: "percent", discountValue: "", minOrderValue: "", maxUses: "", eligibleProductIds: [] });
       setCoupons((prev) => [...prev, data]);
     } catch { toast.error("Erro ao criar cupom."); }
     finally { setCouponCreating(false); }
@@ -2711,6 +2712,7 @@ export default function Admin() {
         ) : tab === "coupons" ? (
           <CouponsPanel
             coupons={coupons}
+            products={products}
             couponForm={couponForm}
             setCouponForm={setCouponForm}
             couponCreating={couponCreating}
@@ -6548,18 +6550,25 @@ function WebhookPanel({ webhookUrl, copied, onCopy }: { webhookUrl: string; copi
 // CouponsPanel
 // ===========================================================================
 function CouponsPanel({
-  coupons, couponForm, setCouponForm, couponCreating, couponDeleting,
+  coupons, products, couponForm, setCouponForm, couponCreating, couponDeleting,
   createCoupon, toggleCoupon, deleteCoupon, isPrimary,
 }: {
   coupons: Coupon[];
-  couponForm: { code: string; discountType: string; discountValue: string; minOrderValue: string; maxUses: string };
-  setCouponForm: (f: { code: string; discountType: string; discountValue: string; minOrderValue: string; maxUses: string }) => void;
+  products: AdminProduct[];
+  couponForm: { code: string; discountType: string; discountValue: string; minOrderValue: string; maxUses: string; eligibleProductIds: string[] };
+  setCouponForm: (f: { code: string; discountType: string; discountValue: string; minOrderValue: string; maxUses: string; eligibleProductIds: string[] }) => void;
   couponCreating: boolean; couponDeleting: string | null; isPrimary: boolean;
   createCoupon: () => void;
   toggleCoupon: (id: string, isActive: boolean) => void;
   deleteCoupon: (id: string, code: string) => void;
 }) {
   const inp = "h-10 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm w-full";
+  const productNameById = (id: string) => products.find((p) => p.id === id)?.name || id;
+  const getCouponEligibleProductIds = (coupon: Coupon): string[] => {
+    const raw = (coupon as { eligibleProductIds?: unknown }).eligibleProductIds;
+    if (!Array.isArray(raw)) return [];
+    return raw.map((id) => String(id || "").trim()).filter(Boolean);
+  };
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -6641,6 +6650,41 @@ function CouponsPanel({
                 className={inp}
               />
             </div>
+
+            <div className="sm:col-span-2">
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1 block">
+                Produtos válidos para este cupom <span className="font-normal normal-case text-muted-foreground">— opcional, vazio = todos os produtos</span>
+              </label>
+              <div className="max-h-40 overflow-auto rounded-xl border border-border bg-white p-2 space-y-1">
+                {products.length === 0 ? (
+                  <p className="text-xs text-muted-foreground px-2 py-1">Nenhum produto carregado.</p>
+                ) : (
+                  products.map((p) => {
+                    const checked = couponForm.eligibleProductIds.includes(p.id);
+                    return (
+                      <label key={p.id} className="flex items-center gap-2 text-sm px-2 py-1 rounded-lg hover:bg-muted/50 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            const next = e.target.checked
+                              ? [...couponForm.eligibleProductIds, p.id]
+                              : couponForm.eligibleProductIds.filter((id) => id !== p.id);
+                            setCouponForm({ ...couponForm, eligibleProductIds: next });
+                          }}
+                        />
+                        <span className="truncate">{p.name}</span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+              {couponForm.eligibleProductIds.length > 0 && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {couponForm.eligibleProductIds.length} produto(s) selecionado(s). O desconto será aplicado somente sobre esses itens.
+                </p>
+              )}
+            </div>
           </div>
 
           <Button
@@ -6667,7 +6711,9 @@ function CouponsPanel({
           </div>
         ) : (
           <div className="space-y-3">
-            {coupons.map((c) => (
+            {coupons.map((c) => {
+              const eligibleIds = getCouponEligibleProductIds(c);
+              return (
               <div key={c.id} className={`bg-card border rounded-2xl p-4 shadow-sm flex items-start gap-4 ${c.isActive ? "border-border/60" : "border-border/30 opacity-60"}`}>
                 <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${c.discountType === "percent" ? "bg-blue-100 text-blue-700" : "bg-green-100 text-green-700"}`}>
                   {c.discountType === "percent" ? <Percent className="w-5 h-5" /> : <span className="text-sm font-bold">R$</span>}
@@ -6689,6 +6735,11 @@ function CouponsPanel({
                     {c.minOrderValue && ` · Mínimo: R$ ${c.minOrderValue.toFixed(2).replace(".", ",")}`}
                     {c.maxUses && ` · Limite: ${c.usedCount}/${c.maxUses} usos`}
                     {!c.maxUses && ` · ${c.usedCount} uso${c.usedCount !== 1 ? "s" : ""}`}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {eligibleIds.length > 0
+                      ? `Válido somente para: ${eligibleIds.map(productNameById).join(", ")}`
+                      : "Válido para todos os produtos"}
                   </p>
                 </div>
 
@@ -6719,7 +6770,8 @@ function CouponsPanel({
                   )}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

@@ -1,10 +1,10 @@
 import { Router, type IRouter } from "express";
-import { db, ordersTable, customChargesTable, sellersTable, productsTable, siteSettingsTable, reshipmentsTable } from "@workspace/db";
+import { db, ordersTable, customChargesTable, sellersTable, productsTable, siteSettingsTable, reshipmentsTable, couponsTable } from "@workspace/db";
 import { desc, and, gte, lte, eq, inArray } from "drizzle-orm";
 import crypto from "crypto";
 import { requireAdminAuth } from "./admin-auth";
 import { broadcastNotification } from "./notifications";
-import { incrementCouponUse } from "./coupons";
+import { evaluateCouponForProducts, incrementCouponUse } from "./coupons";
 import {
   createPixCharge,
   buildCallbackUrl,
@@ -107,7 +107,7 @@ router.post("/orders", async (req, res) => {
 
     const {
       client, address, products, shippingType, includeInsurance,
-      subtotal, shippingCost, insuranceAmount, total,
+      shippingCost, insuranceAmount,
       paymentMethod, cardInstallments, sellerCode,
     } = req.body;
 
@@ -134,7 +134,7 @@ router.post("/orders", async (req, res) => {
       }
     }
 
-    if (!client || !products || !shippingType || total == null) {
+    if (!client || !products || !shippingType) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Campos obrigatórios ausentes." });
       return;
     }
@@ -179,6 +179,46 @@ router.post("/orders", async (req, res) => {
       costPrice: productCostMap.get(String(p.id)) ?? 0,
     }));
 
+    const computedSubtotal = orderProducts.reduce((acc: number, p: { quantity?: number; price?: number }) => {
+      const qty = Number(p.quantity) || 0;
+      const price = Number(p.price) || 0;
+      return acc + qty * price;
+    }, 0);
+    const computedShippingCost = Math.max(0, Number(shippingCost) || 0);
+    const computedInsuranceAmount = Math.max(0, Number(insuranceAmount) || 0);
+    const computedBaseTotal = computedSubtotal + computedShippingCost + computedInsuranceAmount;
+
+    let normalizedCouponCode: string | null = null;
+    let computedDiscountAmount = 0;
+    const rawCouponCode = req.body.couponCode ? String(req.body.couponCode).trim().toUpperCase() : "";
+    if (rawCouponCode) {
+      const [coupon] = await db.select().from(couponsTable).where(eq(couponsTable.code, rawCouponCode));
+      if (!coupon) {
+        res.status(400).json({ error: "INVALID_COUPON", message: "Cupom não encontrado." });
+        return;
+      }
+      const evaluation = evaluateCouponForProducts(coupon, orderProducts, computedBaseTotal);
+      if (!evaluation.valid) {
+        res.status(400).json({
+          error: evaluation.error || "INVALID_COUPON",
+          message: evaluation.message || "Cupom inválido para este carrinho.",
+        });
+        return;
+      }
+      normalizedCouponCode = rawCouponCode;
+      computedDiscountAmount = evaluation.discountAmount;
+    }
+
+    const computedTotal = Math.max(0, computedBaseTotal - computedDiscountAmount);
+    if (!computedTotal || computedTotal <= 0) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Valor inválido. Deve ser maior que zero." });
+      return;
+    }
+    if (computedTotal > 10000) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "O valor máximo por pedido é R$10.000." });
+      return;
+    }
+
     await db.insert(ordersTable).values({
       id,
       userId: customerSession?.userId ?? null,
@@ -200,17 +240,17 @@ router.post("/orders", async (req, res) => {
       products: orderProducts,
       shippingType,
       includeInsurance:  Boolean(includeInsurance),
-      subtotal:          String(subtotal),
-      shippingCost:      String(shippingCost),
-      insuranceAmount:   String(insuranceAmount),
-      total:             String(total),
+      subtotal:          String(computedSubtotal),
+      shippingCost:      String(computedShippingCost),
+      insuranceAmount:   String(computedInsuranceAmount),
+      total:             String(computedTotal),
       status:            method === "card_simulation" ? "awaiting_payment" : "pending",
       paymentMethod:     method,
       cardInstallments:  cardInstallments ? Number(cardInstallments) : null,
       sellerCode:        sellerCode ? String(sellerCode) : null,
       sellerCommissionRateSnapshot: String(sellerCommissionRateSnapshot),
-      couponCode:        req.body.couponCode ? String(req.body.couponCode).toUpperCase() : null,
-      discountAmount:    req.body.discountAmount ? String(req.body.discountAmount) : null,
+      couponCode:        normalizedCouponCode,
+      discountAmount:    computedDiscountAmount > 0 ? String(computedDiscountAmount) : null,
     });
 
     // Geo lookup — fire and forget, não bloqueia a resposta
@@ -235,7 +275,7 @@ router.post("/orders", async (req, res) => {
       data: {
         id,
         clientName: client.name,
-        total,
+        total: computedTotal,
         paymentMethod: method,
         sellerCode: sellerCode || null,
         createdAt: new Date().toISOString(),
@@ -245,7 +285,10 @@ router.post("/orders", async (req, res) => {
     res.status(201).json({
       id, client, address: address || null, products: orderProducts, shippingType,
       includeInsurance: Boolean(includeInsurance),
-      subtotal, shippingCost, insuranceAmount, total,
+      subtotal: computedSubtotal,
+      shippingCost: computedShippingCost,
+      insuranceAmount: computedInsuranceAmount,
+      total: computedTotal,
       status:        method === "card_simulation" ? "awaiting_payment" : "pending",
       paymentMethod: method,
       sellerCode:    sellerCode || null,
