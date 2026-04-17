@@ -1365,8 +1365,13 @@ export default function Checkout() {
                         <p className="text-xs">
                           {appliedCoupon.discountType === "percent"
                             ? `${appliedCoupon.discountValue}% de desconto`
-                            : `R$ ${appliedCoupon.discountValue.toFixed(2).replace(".", ",")} de desconto`}
+                            : `${formatCurrency(discountAmount)} aplicado`}
                         </p>
+                        {appliedCoupon.discountType === "fixed" && discountAmount < appliedCoupon.discountValue && (
+                          <p className="text-[11px] text-green-700/80">
+                            Limitado ao valor dos produtos elegíveis ({formatCurrency(eligibleProductSubtotal)}).
+                          </p>
+                        )}
                       </div>
                     </div>
                     <button type="button" onClick={removeCoupon} className="text-green-600 hover:text-red-500 transition-colors">
