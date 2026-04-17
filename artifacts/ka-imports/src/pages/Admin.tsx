@@ -2034,8 +2034,26 @@ export default function Admin() {
           eligibleProductIds: couponForm.eligibleProductIds,
         }),
       });
-      const data = await res.json() as Coupon & { message?: string };
-      if (!res.ok) { toast.error(data.message || "Erro ao criar cupom."); return; }
+      let data: (Coupon & { message?: string }) | null = null;
+      let textFallback = "";
+      try {
+        data = await res.json() as Coupon & { message?: string };
+      } catch {
+        try {
+          textFallback = await res.text();
+        } catch {
+          textFallback = "";
+        }
+      }
+      if (!res.ok) {
+        const msg = data?.message || textFallback || `Erro ao criar cupom (HTTP ${res.status}).`;
+        toast.error(msg);
+        return;
+      }
+      if (!data) {
+        toast.error("Resposta inválida ao criar cupom.");
+        return;
+      }
       toast.success(`Cupom "${data.code}" criado!`);
       setCouponForm({ code: "", discountType: "percent", discountValue: "", minOrderValue: "", maxUses: "", eligibleProductIds: [] });
       setCoupons((prev) => [...prev, data]);

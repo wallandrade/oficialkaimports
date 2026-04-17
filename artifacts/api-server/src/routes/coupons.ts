@@ -6,6 +6,23 @@ import { requireAdminAuth, requirePrimaryAdmin } from "./admin-auth";
 
 const router: IRouter = Router();
 
+function getCouponSchemaErrorMessage(err: unknown, fallback: string): string {
+  const e = err as { code?: string; message?: string } | null;
+  const code = String(e?.code || "");
+  const message = String(e?.message || "").toLowerCase();
+
+  const missingEligibleProductsColumn =
+    code === "ER_BAD_FIELD_ERROR" ||
+    message.includes("eligible_product_ids") ||
+    message.includes("unknown column");
+
+  if (missingEligibleProductsColumn) {
+    return "Atualização pendente no banco: execute ALTER TABLE coupons ADD COLUMN eligible_product_ids JSON NULL; e tente novamente.";
+  }
+
+  return fallback;
+}
+
 type CouponProductInput = {
   id?: string;
   quantity?: number;
@@ -159,7 +176,10 @@ router.post("/coupons/validate", async (req, res) => {
     });
   } catch (err) {
     console.error("Validate coupon error:", err);
-    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao validar cupom." });
+    res.status(500).json({
+      error: "INTERNAL_ERROR",
+      message: getCouponSchemaErrorMessage(err, "Erro ao validar cupom."),
+    });
   }
 });
 
@@ -172,7 +192,10 @@ router.get("/admin/coupons", requireAdminAuth, async (_req, res) => {
     res.json({ coupons: coupons.map(mapCoupon) });
   } catch (err) {
     console.error("List coupons error:", err);
-    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao listar cupons." });
+    res.status(500).json({
+      error: "INTERNAL_ERROR",
+      message: getCouponSchemaErrorMessage(err, "Erro ao listar cupons."),
+    });
   }
 });
 
@@ -232,7 +255,10 @@ router.post("/admin/coupons", requireAdminAuth, requirePrimaryAdmin, async (req,
     res.status(201).json(mapCoupon(created!));
   } catch (err) {
     console.error("Create coupon error:", err);
-    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao criar cupom." });
+    res.status(500).json({
+      error: "INTERNAL_ERROR",
+      message: getCouponSchemaErrorMessage(err, "Erro ao criar cupom."),
+    });
   }
 });
 
