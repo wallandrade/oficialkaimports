@@ -5532,6 +5532,12 @@ function OrdersPanel({
                     <p>Subtotal: {formatCurrency(Number(order.subtotal))}</p>
                     <p>Frete: {formatCurrency(Number(order.shippingCost))}</p>
                     {order.includeInsurance && <p>Seguro: {formatCurrency(Number(order.insuranceAmount))}</p>}
+                    {((order.discountAmount || 0) > 0 || !!order.couponCode) && (
+                      <p>
+                        Desconto: <span className="text-green-700">-{formatCurrency(Number(order.discountAmount || 0))}</span>
+                        {order.couponCode && <span>{` (Cupom ${order.couponCode})`}</span>}
+                      </p>
+                    )}
                     {order.transactionId && <p className="font-mono text-xs">Tx: {order.transactionId}</p>}
                     {order.sellerCode && <p>Vendedor: <strong>{order.sellerCode}</strong></p>}
                     {[order.addressStreet, order.addressNumber, order.addressNeighborhood, order.addressCity, order.addressState, order.addressCep].some(Boolean) && (
