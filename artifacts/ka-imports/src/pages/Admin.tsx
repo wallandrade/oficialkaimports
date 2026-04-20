@@ -5556,6 +5556,7 @@ function OrdersPanel({
   // Todos os hooks no topo
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
   const [enviados, setEnviados] = useState<Record<string, boolean>>({});
+  const [imagePreview, setImagePreview] = useState<{ src: string; name: string } | null>(null);
 
   const reshipmentStatusLabel = (status?: string) => {
     if (status === "reenvio_aguardando_estoque") return "Reenvio · Aguardando estoque";
@@ -5572,6 +5573,15 @@ function OrdersPanel({
     }
     setEnviados(map);
   }, [orders]);
+
+  useEffect(() => {
+    if (!imagePreview) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setImagePreview(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [imagePreview]);
 
   // Funções SEM hooks
   const copyOrder = async (order: AdminOrder) => {
@@ -5742,7 +5752,11 @@ function OrdersPanel({
                           <div
                             key={`${product.id}-${index}`}
                             title={`${product.quantity}x ${product.name}`}
-                            className="group relative h-11 w-11 rounded-lg overflow-visible shrink-0"
+                            className={`group relative h-11 w-11 rounded-lg overflow-visible shrink-0 ${imageSrc ? "cursor-zoom-in" : ""}`}
+                            onClick={() => {
+                              if (!imageSrc) return;
+                              setImagePreview({ src: imageSrc, name: product.name });
+                            }}
                           >
                             <div className="h-11 w-11 rounded-lg overflow-hidden border border-border bg-muted/30">
                               {imageSrc ? (
@@ -5754,7 +5768,7 @@ function OrdersPanel({
                               )}
                             </div>
                             {imageSrc && (
-                              <div className="pointer-events-none absolute left-12 top-1/2 z-30 hidden -translate-y-1/2 rounded-xl border border-border bg-white p-1 shadow-2xl group-hover:block">
+                              <div className="pointer-events-none absolute left-12 top-1/2 z-30 hidden -translate-y-1/2 rounded-xl border border-border bg-white p-1 shadow-2xl opacity-0 scale-95 invisible transition-all duration-200 ease-out group-hover:opacity-100 group-hover:scale-100 group-hover:visible sm:block">
                                 <img
                                   src={imageSrc}
                                   alt={`Zoom ${product.name}`}
@@ -5902,7 +5916,13 @@ function OrdersPanel({
                       return (
                       <div key={i} className="flex items-center justify-between text-sm gap-3">
                         <div className="flex items-center gap-2 min-w-0">
-                          <div className="group relative h-9 w-9 overflow-visible shrink-0">
+                          <div
+                            className={`group relative h-9 w-9 overflow-visible shrink-0 ${imageSrc ? "cursor-zoom-in" : ""}`}
+                            onClick={() => {
+                              if (!imageSrc) return;
+                              setImagePreview({ src: imageSrc, name: p.name });
+                            }}
+                          >
                             <div className="h-9 w-9 rounded-md overflow-hidden border border-border bg-muted/30">
                               {imageSrc ? (
                                 <img src={imageSrc} alt={p.name} className="h-full w-full object-cover" loading="lazy" />
@@ -5913,7 +5933,7 @@ function OrdersPanel({
                               )}
                             </div>
                             {imageSrc && (
-                              <div className="pointer-events-none absolute left-10 top-1/2 z-30 hidden -translate-y-1/2 rounded-xl border border-border bg-white p-1 shadow-2xl group-hover:block">
+                              <div className="pointer-events-none absolute left-10 top-1/2 z-30 hidden -translate-y-1/2 rounded-xl border border-border bg-white p-1 shadow-2xl opacity-0 scale-95 invisible transition-all duration-200 ease-out group-hover:opacity-100 group-hover:scale-100 group-hover:visible sm:block">
                                 <img
                                   src={imageSrc}
                                   alt={`Zoom ${p.name}`}
@@ -5968,6 +5988,36 @@ function OrdersPanel({
           </div>
         );
       })}
+
+      <AnimatePresence>
+        {imagePreview && (
+          <motion.div
+            className="fixed inset-0 z-[120] bg-black/70 backdrop-blur-[1px] p-4 sm:p-8 flex items-center justify-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setImagePreview(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 6 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 6 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+              onClick={(event) => event.stopPropagation()}
+              className="max-w-[94vw] rounded-2xl border border-white/20 bg-white p-2 shadow-2xl"
+            >
+              <img
+                src={imagePreview.src}
+                alt={`Prévia ${imagePreview.name}`}
+                className="max-h-[78vh] w-auto max-w-[90vw] rounded-xl object-contain"
+              />
+              <p className="px-2 pt-2 pb-1 text-xs font-medium text-muted-foreground truncate max-w-[86vw]">
+                {imagePreview.name}
+              </p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
