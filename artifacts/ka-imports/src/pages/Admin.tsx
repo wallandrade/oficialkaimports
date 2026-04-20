@@ -1158,12 +1158,13 @@ export default function Admin() {
     setProductsLoading(true);
     try {
       const res = await fetch(`${BASE}/api/admin/products`, { headers: authHeaders() });
+      if (res.status === 401) { handleUnauthorized(); return; }
       if (!res.ok) return;
       const data = await res.json() as { products: AdminProduct[] };
       setProducts(data.products || []);
     } catch { /* ignore */ }
     finally { setProductsLoading(false); }
-  }, []);
+  }, [handleUnauthorized]);
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -1483,7 +1484,7 @@ export default function Admin() {
     else if (tab === "users")      fetchUsers();
     else if (tab === "customers")  fetchCustomers();
     else if (tab === "support")    fetchSupportTickets();
-    else if (tab === "inventory")  fetchInventoryOverview();
+    else if (tab === "inventory")  { fetchInventoryOverview(); fetchProducts(); }
     else if (tab === "coupons")    { fetchCoupons(); fetchProducts(); }
     else if (tab === "products")   fetchProducts();
     else if (tab === "configuracoes") fetchSettings();
@@ -2984,7 +2985,7 @@ export default function Admin() {
             entryForm={inventoryEntryForm}
             setEntryForm={setInventoryEntryForm}
             submitting={inventorySubmitting}
-            onRefresh={fetchInventoryOverview}
+            onRefresh={() => { fetchInventoryOverview(); fetchProducts(); }}
             onCreateEntry={async () => {
               const productId = String(inventoryEntryForm.productId || "").trim();
               const quantity = Number(inventoryEntryForm.quantity || 0);
