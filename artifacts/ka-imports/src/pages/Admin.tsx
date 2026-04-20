@@ -5742,13 +5742,25 @@ function OrdersPanel({
                           <div
                             key={`${product.id}-${index}`}
                             title={`${product.quantity}x ${product.name}`}
-                            className="h-11 w-11 rounded-lg overflow-hidden border border-border bg-muted/30 shrink-0"
+                            className="group relative h-11 w-11 rounded-lg overflow-visible shrink-0"
                           >
-                            {imageSrc ? (
-                              <img src={imageSrc} alt={product.name} className="h-full w-full object-cover" loading="lazy" />
-                            ) : (
-                              <div className="h-full w-full flex items-center justify-center text-muted-foreground">
-                                <ShoppingBag className="w-4 h-4" />
+                            <div className="h-11 w-11 rounded-lg overflow-hidden border border-border bg-muted/30">
+                              {imageSrc ? (
+                                <img src={imageSrc} alt={product.name} className="h-full w-full object-cover" loading="lazy" />
+                              ) : (
+                                <div className="h-full w-full flex items-center justify-center text-muted-foreground">
+                                  <ShoppingBag className="w-4 h-4" />
+                                </div>
+                              )}
+                            </div>
+                            {imageSrc && (
+                              <div className="pointer-events-none absolute left-12 top-1/2 z-30 hidden -translate-y-1/2 rounded-xl border border-border bg-white p-1 shadow-2xl group-hover:block">
+                                <img
+                                  src={imageSrc}
+                                  alt={`Zoom ${product.name}`}
+                                  className="h-32 w-32 rounded-lg object-cover"
+                                  loading="lazy"
+                                />
                               </div>
                             )}
                           </div>
@@ -5890,12 +5902,24 @@ function OrdersPanel({
                       return (
                       <div key={i} className="flex items-center justify-between text-sm gap-3">
                         <div className="flex items-center gap-2 min-w-0">
-                          <div className="h-9 w-9 rounded-md overflow-hidden border border-border bg-muted/30 shrink-0">
-                            {imageSrc ? (
-                              <img src={imageSrc} alt={p.name} className="h-full w-full object-cover" loading="lazy" />
-                            ) : (
-                              <div className="h-full w-full flex items-center justify-center text-muted-foreground">
-                                <ShoppingBag className="w-3.5 h-3.5" />
+                          <div className="group relative h-9 w-9 overflow-visible shrink-0">
+                            <div className="h-9 w-9 rounded-md overflow-hidden border border-border bg-muted/30">
+                              {imageSrc ? (
+                                <img src={imageSrc} alt={p.name} className="h-full w-full object-cover" loading="lazy" />
+                              ) : (
+                                <div className="h-full w-full flex items-center justify-center text-muted-foreground">
+                                  <ShoppingBag className="w-3.5 h-3.5" />
+                                </div>
+                              )}
+                            </div>
+                            {imageSrc && (
+                              <div className="pointer-events-none absolute left-10 top-1/2 z-30 hidden -translate-y-1/2 rounded-xl border border-border bg-white p-1 shadow-2xl group-hover:block">
+                                <img
+                                  src={imageSrc}
+                                  alt={`Zoom ${p.name}`}
+                                  className="h-28 w-28 rounded-lg object-cover"
+                                  loading="lazy"
+                                />
                               </div>
                             )}
                           </div>
