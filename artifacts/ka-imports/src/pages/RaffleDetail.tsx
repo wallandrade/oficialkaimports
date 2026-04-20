@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatCurrency, cn } from "@/lib/utils";
+import { getCheckoutSecurityHeaders } from "@/lib/checkout-security";
 import { Loader2, Ticket, Info, Share2, Search, Copy, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
@@ -209,11 +210,14 @@ export default function RaffleDetail() {
     setLookupError(null);
     setLookupResults(null);
     try {
+      const headers = await getCheckoutSecurityHeaders();
       const res = await fetch(
         `${BASE}/api/raffles/reservations/lookup?query=${encodeURIComponent(digits)}&raffleId=${encodeURIComponent(raffleId)}`,
+        { headers },
       );
       if (!res.ok) {
-        setLookupError("Erro ao consultar. Tente novamente.");
+        const err = await res.json().catch(() => ({}));
+        setLookupError((err as { message?: string }).message || "Erro ao consultar. Tente novamente.");
         return;
       }
       const rows = (await res.json()) as LookupResult[];
@@ -232,9 +236,10 @@ export default function RaffleDetail() {
     setRefreshingPix(reservationId);
     try {
       const body = cpf ? JSON.stringify({ document: cpf }) : undefined;
+      const headers = await getCheckoutSecurityHeaders();
       const res = await fetch(`${BASE}/api/raffles/reservations/${reservationId}/refresh-pix`, {
         method: "POST",
-        headers: cpf ? { "Content-Type": "application/json" } : undefined,
+        headers,
         body,
       });
       const json = await res.json() as { pixCode?: string; pixBase64?: string; pixExpiresAt?: string; message?: string };
@@ -277,9 +282,10 @@ export default function RaffleDetail() {
 
     setSubmitting(true);
     try {
+      const headers = await getCheckoutSecurityHeaders();
       const res = await fetch(`${BASE}/api/raffles/${raffleId}/reserve`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           numbers: Array.from(selected).sort((a, b) => a - b),
           client: { name: name.trim(), email: email.trim(), phone: phone.trim(), cpf: rawCpf },
