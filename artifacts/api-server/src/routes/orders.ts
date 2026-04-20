@@ -772,10 +772,19 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
 
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
-    const { products: newProducts, subtotal, total } = req.body as {
+    const { products: newProducts, subtotal, total, address } = req.body as {
       products: Array<{ id: string; name: string; quantity: number; price: number }>;
       subtotal: number;
       total: number;
+      address?: {
+        cep?: string | null;
+        street?: string | null;
+        number?: string | null;
+        complement?: string | null;
+        neighborhood?: string | null;
+        city?: string | null;
+        state?: string | null;
+      };
     };
 
     if (!newProducts || !Array.isArray(newProducts) || newProducts.length === 0) {
@@ -810,8 +819,32 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
       newStatus = currentStatus;
     }
 
+    const nextAddressCep = address?.cep !== undefined ? String(address.cep || "").trim() || null : undefined;
+    const nextAddressStreet = address?.street !== undefined ? String(address.street || "").trim() || null : undefined;
+    const nextAddressNumber = address?.number !== undefined ? String(address.number || "").trim() || null : undefined;
+    const nextAddressComplement = address?.complement !== undefined ? String(address.complement || "").trim() || null : undefined;
+    const nextAddressNeighborhood = address?.neighborhood !== undefined ? String(address.neighborhood || "").trim() || null : undefined;
+    const nextAddressCity = address?.city !== undefined ? String(address.city || "").trim() || null : undefined;
+    const nextAddressState = address?.state !== undefined ? String(address.state || "").trim() || null : undefined;
+
+    const updates: Partial<typeof ordersTable.$inferInsert> = {
+      products: newProducts,
+      subtotal: String(subtotal),
+      total: String(total),
+      status: newStatus,
+      updatedAt: new Date(),
+    };
+
+    if (nextAddressCep !== undefined) updates.addressCep = nextAddressCep;
+    if (nextAddressStreet !== undefined) updates.addressStreet = nextAddressStreet;
+    if (nextAddressNumber !== undefined) updates.addressNumber = nextAddressNumber;
+    if (nextAddressComplement !== undefined) updates.addressComplement = nextAddressComplement;
+    if (nextAddressNeighborhood !== undefined) updates.addressNeighborhood = nextAddressNeighborhood;
+    if (nextAddressCity !== undefined) updates.addressCity = nextAddressCity;
+    if (nextAddressState !== undefined) updates.addressState = nextAddressState;
+
     await db.update(ordersTable)
-      .set({ products: newProducts, subtotal: String(subtotal), total: String(total), status: newStatus, updatedAt: new Date() })
+      .set(updates)
       .where(buildAdminOrderWhere(id, adminScope));
 
     const updated = await db.select().from(ordersTable).where(buildAdminOrderWhere(id, adminScope)).limit(1);

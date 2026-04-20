@@ -784,6 +784,15 @@ export default function Admin() {
   // Order editing
   const [editOrderModal, setEditOrderModal] = useState<AdminOrder | null>(null);
   const [editItems, setEditItems] = useState<Array<{ id: string; name: string; quantity: number; price: number }>>([]);
+  const [editAddress, setEditAddress] = useState({
+    cep: "",
+    street: "",
+    number: "",
+    complement: "",
+    neighborhood: "",
+    city: "",
+    state: "",
+  });
   const [editProductSearch, setEditProductSearch] = useState("");
   const [editSaving, setEditSaving] = useState(false);
   const [editCatalog, setEditCatalog] = useState<AdminProduct[]>([]);
@@ -1936,6 +1945,15 @@ export default function Admin() {
   const openEditOrder = async (order: AdminOrder) => {
     setEditOrderModal(order);
     setEditItems(getOrderProducts(order.products).map((p) => ({ id: p.id, name: p.name, quantity: p.quantity, price: p.price })));
+    setEditAddress({
+      cep: String(order.addressCep || ""),
+      street: String(order.addressStreet || ""),
+      number: String(order.addressNumber || ""),
+      complement: String(order.addressComplement || ""),
+      neighborhood: String(order.addressNeighborhood || ""),
+      city: String(order.addressCity || ""),
+      state: String(order.addressState || ""),
+    });
     setEditProductSearch("");
     setDiffOrder(null);
     setDiffPixResult(null);
@@ -2125,7 +2143,20 @@ export default function Admin() {
       const total = Math.max(0, subtotal + shippingCost + insuranceAmount - discountAmount);
       const res = await fetch(`${BASE}/api/admin/orders/${editOrderModal.id}/edit`, {
         method: "PATCH", headers: authHeaders(),
-        body: JSON.stringify({ products: editItems, subtotal, total }),
+        body: JSON.stringify({
+          products: editItems,
+          subtotal,
+          total,
+          address: {
+            cep: editAddress.cep,
+            street: editAddress.street,
+            number: editAddress.number,
+            complement: editAddress.complement,
+            neighborhood: editAddress.neighborhood,
+            city: editAddress.city,
+            state: editAddress.state,
+          },
+        }),
       });
       if (!res.ok) { toast.error("Erro ao salvar edição."); return; }
       const data = await res.json() as { ok: boolean; order: AdminOrder };
@@ -4812,6 +4843,56 @@ export default function Admin() {
                       </div>
                     )}
                   </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block mb-2">Endereço do cliente</label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <input
+                        value={editAddress.cep}
+                        onChange={(e) => setEditAddress((prev) => ({ ...prev, cep: e.target.value }))}
+                        placeholder="CEP"
+                        className="h-9 px-3 rounded-lg border border-border bg-muted/30 text-sm outline-none focus:border-primary"
+                      />
+                      <input
+                        value={editAddress.state}
+                        onChange={(e) => setEditAddress((prev) => ({ ...prev, state: e.target.value.toUpperCase() }))}
+                        placeholder="UF"
+                        className="h-9 px-3 rounded-lg border border-border bg-muted/30 text-sm outline-none focus:border-primary"
+                        maxLength={2}
+                      />
+                      <input
+                        value={editAddress.street}
+                        onChange={(e) => setEditAddress((prev) => ({ ...prev, street: e.target.value }))}
+                        placeholder="Rua"
+                        className="h-9 px-3 rounded-lg border border-border bg-muted/30 text-sm outline-none focus:border-primary sm:col-span-2"
+                      />
+                      <input
+                        value={editAddress.number}
+                        onChange={(e) => setEditAddress((prev) => ({ ...prev, number: e.target.value }))}
+                        placeholder="Número"
+                        className="h-9 px-3 rounded-lg border border-border bg-muted/30 text-sm outline-none focus:border-primary"
+                      />
+                      <input
+                        value={editAddress.complement}
+                        onChange={(e) => setEditAddress((prev) => ({ ...prev, complement: e.target.value }))}
+                        placeholder="Complemento"
+                        className="h-9 px-3 rounded-lg border border-border bg-muted/30 text-sm outline-none focus:border-primary"
+                      />
+                      <input
+                        value={editAddress.neighborhood}
+                        onChange={(e) => setEditAddress((prev) => ({ ...prev, neighborhood: e.target.value }))}
+                        placeholder="Bairro"
+                        className="h-9 px-3 rounded-lg border border-border bg-muted/30 text-sm outline-none focus:border-primary"
+                      />
+                      <input
+                        value={editAddress.city}
+                        onChange={(e) => setEditAddress((prev) => ({ ...prev, city: e.target.value }))}
+                        placeholder="Cidade"
+                        className="h-9 px-3 rounded-lg border border-border bg-muted/30 text-sm outline-none focus:border-primary"
+                      />
+                    </div>
+                  </div>
+
                   {/* Totals preview */}
                   {editItems.length > 0 && (() => {
                     const subtotal = editItems.reduce((s, p) => s + p.price * p.quantity, 0);
