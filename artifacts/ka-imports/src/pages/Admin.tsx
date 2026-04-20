@@ -806,6 +806,7 @@ export default function Admin() {
   const [sellerWhatsappInput, setSellerWhatsappInput] = useState("");
   const [sellerHasCommissionInput, setSellerHasCommissionInput] = useState(true);
   const [sellerCommissionRateInput, setSellerCommissionRateInput] = useState("5");
+  const [sellerCommissionUpdatingSlug, setSellerCommissionUpdatingSlug] = useState<string | null>(null);
   const [sellers, setSellers] = useState<SavedSellerItem[]>([]);
   const [sellersLoading, setSellersLoading] = useState(false);
   const [copiedSeller, setCopiedSeller] = useState<string | null>(null);
@@ -2321,6 +2322,34 @@ export default function Admin() {
       toast.info("Link removido.");
     } catch { toast.error("Erro ao remover vendedor."); }
   };
+
+  const updateSellerCommission = async (slug: string, whatsapp: string, hasCommission: boolean, commissionRate: number) => {
+    const clean = String(slug || "").trim().toLowerCase();
+    if (!clean) return;
+    setSellerCommissionUpdatingSlug(clean);
+    try {
+      const normalizedRate = hasCommission ? Math.max(0, Number(commissionRate || 0)) : 0;
+      const res = await fetch(`${BASE}/api/admin/sellers`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ slug: clean, whatsapp: whatsapp || "", hasCommission, commissionRate: normalizedRate }),
+      });
+      if (!res.ok) {
+        toast.error("Erro ao atualizar comissão do vendedor.");
+        return false;
+      }
+      const data = await res.json() as { seller: SavedSellerItem };
+      setSellers((prev) => prev.map((s) => (s.slug === clean ? data.seller : s)));
+      toast.success(`Comissão de ${clean} atualizada.`);
+      return true;
+    } catch {
+      toast.error("Erro ao atualizar comissão do vendedor.");
+      return false;
+    } finally {
+      setSellerCommissionUpdatingSlug(null);
+    }
+  };
+
   const copySeller = (slug: string) => {
     navigator.clipboard.writeText(`${siteOrigin}/${slug}`);
     setCopiedSeller(slug);
@@ -2965,6 +2994,8 @@ export default function Admin() {
             sellerCommissionRateInput={sellerCommissionRateInput}
             setSellerCommissionRateInput={setSellerCommissionRateInput}
             saveSeller={saveSeller}
+            updateSellerCommission={updateSellerCommission}
+            sellerCommissionUpdatingSlug={sellerCommissionUpdatingSlug}
             removeSeller={removeSeller}
             copySeller={copySeller}
             copiedSeller={copiedSeller}
@@ -6542,7 +6573,7 @@ function SellerAnalyticsCard({ seller, orders, charges }: { seller: SavedSellerI
   );
 }
 
-function SellersPanel({ siteOrigin, savedSellersList, sellerInput, setSellerInput, sellerWhatsappInput, setSellerWhatsappInput, sellerHasCommissionInput, setSellerHasCommissionInput, sellerCommissionRateInput, setSellerCommissionRateInput, saveSeller, removeSeller, copySeller, copiedSeller, orders, charges, isPrimary, currentUsername }: {
+function SellersPanel({ siteOrigin, savedSellersList, sellerInput, setSellerInput, sellerWhatsappInput, setSellerWhatsappInput, sellerHasCommissionInput, setSellerHasCommissionInput, sellerCommissionRateInput, setSellerCommissionRateInput, saveSeller, updateSellerCommission, sellerCommissionUpdatingSlug, removeSeller, copySeller, copiedSeller, orders, charges, isPrimary, currentUsername }: {
   siteOrigin: string;
   savedSellersList: SavedSellerItem[];
   sellerInput: string; setSellerInput: (v: string) => void;
@@ -6550,11 +6581,16 @@ function SellersPanel({ siteOrigin, savedSellersList, sellerInput, setSellerInpu
   sellerHasCommissionInput: boolean; setSellerHasCommissionInput: (v: boolean) => void;
   sellerCommissionRateInput: string; setSellerCommissionRateInput: (v: string) => void;
   saveSeller: (s: string, w: string, hasCommission: boolean, commissionRate: number) => void; removeSeller: (s: string) => void;
+  updateSellerCommission: (slug: string, whatsapp: string, hasCommission: boolean, commissionRate: number) => Promise<boolean>;
+  sellerCommissionUpdatingSlug: string | null;
   copySeller: (s: string) => void; copiedSeller: string | null;
   orders: AdminOrder[]; charges: CustomCharge[];
   isPrimary: boolean; currentUsername: string;
 }) {
   const [copiedPaymentLink, setCopiedPaymentLink] = useState<string | null>(null);
+  const [editingCommissionSlug, setEditingCommissionSlug] = useState<string | null>(null);
+  const [editingHasCommission, setEditingHasCommission] = useState(true);
+  const [editingCommissionRate, setEditingCommissionRate] = useState("5");
 
   const copyPaymentLink = (slug: string) => {
     const url = `${siteOrigin}/pagamento?seller=${slug}`;
@@ -6562,6 +6598,18 @@ function SellersPanel({ siteOrigin, savedSellersList, sellerInput, setSellerInpu
     setCopiedPaymentLink(slug);
     toast.success("Link de pagamento copiado!");
     setTimeout(() => setCopiedPaymentLink(null), 2500);
+  };
+
+  const startCommissionEdit = (seller: SavedSellerItem) => {
+    setEditingCommissionSlug(seller.slug);
+    setEditingHasCommission(!!seller.hasCommission);
+    setEditingCommissionRate(String(Number(seller.commissionRate || 0)));
+  };
+
+  const cancelCommissionEdit = () => {
+    setEditingCommissionSlug(null);
+    setEditingHasCommission(true);
+    setEditingCommissionRate("5");
   };
 
   // All seller slugs: those registered + those in orders (in case they were added manually)
@@ -6667,9 +6715,55 @@ function SellersPanel({ siteOrigin, savedSellersList, sellerInput, setSellerInpu
                     <p className="text-xs font-mono text-muted-foreground truncate">{storeUrl}</p>
                     <p className="text-xs font-mono text-violet-600 truncate">{paymentUrl}</p>
                     {whatsapp && <p className="text-xs text-green-600">WA: +{whatsapp}</p>}
-                    <p className="text-xs text-amber-700">
-                      Comissão: {hasCommission ? `${Number(commissionRate || 0).toFixed(2)}%` : "sem comissão"}
-                    </p>
+                    {editingCommissionSlug === slug ? (
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditingHasCommission(!editingHasCommission)}
+                          className="text-muted-foreground hover:text-primary transition-colors"
+                          title="Ativar/desativar comissão"
+                        >
+                          {editingHasCommission ? <IconLucide name="ToggleRight" className="w-6 h-6 text-primary" /> : <ToggleLeft className="w-6 h-6" />}
+                        </button>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={editingCommissionRate}
+                          onChange={(e) => setEditingCommissionRate(e.target.value)}
+                          disabled={!editingHasCommission}
+                          className="h-7 w-24 px-2 rounded-md border border-border bg-white text-xs outline-none focus:border-primary disabled:bg-muted/50"
+                        />
+                        <span className="text-xs text-muted-foreground">%</span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2 text-xs gap-1"
+                          disabled={sellerCommissionUpdatingSlug === slug || (editingHasCommission && Number(editingCommissionRate || 0) < 0)}
+                          onClick={async () => {
+                            const ok = await updateSellerCommission(slug, whatsapp || "", editingHasCommission, Number(editingCommissionRate || 0));
+                            if (ok) cancelCommissionEdit();
+                          }}
+                        >
+                          {sellerCommissionUpdatingSlug === slug ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                          Salvar
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2 text-xs gap-1 text-muted-foreground"
+                          onClick={cancelCommissionEdit}
+                          disabled={sellerCommissionUpdatingSlug === slug}
+                        >
+                          <X className="w-3 h-3" />
+                          Cancelar
+                        </Button>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-amber-700">
+                        Comissão: {hasCommission ? `${Number(commissionRate || 0).toFixed(2)}%` : "sem comissão"}
+                      </p>
+                    )}
                   </div>
                   <div className="flex gap-1.5 shrink-0">
                     <Button size="sm" variant="outline" className="gap-1 h-7 text-xs" onClick={() => copySeller(slug)} title="Copiar link da loja">
@@ -6680,6 +6774,22 @@ function SellersPanel({ siteOrigin, savedSellersList, sellerInput, setSellerInpu
                       {copiedPaymentLink === slug ? <CheckCircle className="w-3 h-3 text-green-600" /> : <Copy className="w-3 h-3" />}
                       {copiedPaymentLink === slug ? "Copiado!" : "Pgto"}
                     </Button>
+                    {isPrimary && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1 h-7 text-xs text-amber-700 border-amber-200 hover:bg-amber-50"
+                        onClick={() => {
+                          const seller = savedSellersList.find((s) => s.slug === slug);
+                          startCommissionEdit(seller ?? { slug, whatsapp, hasCommission, commissionRate });
+                        }}
+                        disabled={sellerCommissionUpdatingSlug === slug}
+                        title="Editar comissão"
+                      >
+                        <Pencil className="w-3 h-3" />
+                        Comissão
+                      </Button>
+                    )}
                     {isPrimary && (
                       <Button size="sm" variant="outline" className="h-7 text-red-600 border-red-200 hover:bg-red-50 px-2" onClick={() => removeSeller(slug)}>
                         <Trash2 className="w-3.5 h-3.5" />
