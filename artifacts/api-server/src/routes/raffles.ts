@@ -675,6 +675,44 @@ router.get("/admin/raffles/:id/reservations", requireAdminAuth, async (req, res)
 });
 
 // ---------------------------------------------------------------------------
+// ADMIN: PATCH /api/admin/raffles/:id/reservations/:reservationId/cancel
+// ---------------------------------------------------------------------------
+router.patch("/admin/raffles/:id/reservations/:reservationId/cancel", requireAdminAuth, async (req, res) => {
+  const { id: raffleId, reservationId } = req.params as { id: string; reservationId: string };
+
+  const [reservation] = await db
+    .select()
+    .from(raffleReservationsTable)
+    .where(and(
+      eq(raffleReservationsTable.id, reservationId),
+      eq(raffleReservationsTable.raffleId, raffleId),
+    ))
+    .limit(1);
+
+  if (!reservation) {
+    res.status(404).json({ error: "NOT_FOUND", message: "Reserva não encontrada." });
+    return;
+  }
+
+  if (reservation.status === "paid") {
+    res.status(400).json({ error: "INVALID_STATUS", message: "Não é possível cancelar uma reserva já paga." });
+    return;
+  }
+
+  if (reservation.status === "expired") {
+    res.json({ ok: true, status: "expired" });
+    return;
+  }
+
+  await db
+    .update(raffleReservationsTable)
+    .set({ status: "expired", expiresAt: new Date(), updatedAt: new Date() })
+    .where(eq(raffleReservationsTable.id, reservation.id));
+
+  res.json({ ok: true, status: "expired" });
+});
+
+// ---------------------------------------------------------------------------
 // ADMIN: GET /api/admin/raffles/:id/ranking — ranking for admin panel
 // ---------------------------------------------------------------------------
 router.get("/admin/raffles/:id/ranking", requireAdminAuth, async (req, res) => {
