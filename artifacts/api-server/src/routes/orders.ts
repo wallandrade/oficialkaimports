@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db, ordersTable, customChargesTable, sellersTable, productsTable, siteSettingsTable, reshipmentsTable, couponsTable } from "@workspace/db";
-import { desc, and, gte, lte, eq, inArray } from "drizzle-orm";
+import { desc, and, gte, lte, eq, inArray, isNull, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { broadcastNotification } from "./notifications";
@@ -104,6 +104,21 @@ function ensureSellerScopeOnOrderQuery(
 function buildAdminOrderWhere(orderId: string, scope: { hasGlobalAccess: boolean; sellerCode: string | null }) {
   if (scope.hasGlobalAccess) return eq(ordersTable.id, orderId);
   return and(eq(ordersTable.id, orderId), eq(ordersTable.sellerCode, scope.sellerCode!));
+}
+
+async function attachLegacyGuestOrdersToCustomer(userId: string, email: string): Promise<void> {
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  if (!userId || !normalizedEmail) return;
+
+  await db
+    .update(ordersTable)
+    .set({ userId })
+    .where(
+      and(
+        isNull(ordersTable.userId),
+        sql`lower(trim(${ordersTable.clientEmail})) = ${normalizedEmail}`,
+      ),
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -335,6 +350,8 @@ router.get("/me/orders", requireCustomerAuth, async (req, res) => {
       return;
     }
 
+    await attachLegacyGuestOrdersToCustomer(customerSession.userId, customerSession.email);
+
     const orders = await db
       .select()
       .from(ordersTable)
@@ -358,6 +375,8 @@ router.get("/me/orders/:id", requireCustomerAuth, async (req, res) => {
       res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
       return;
     }
+
+    await attachLegacyGuestOrdersToCustomer(customerSession.userId, customerSession.email);
 
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];

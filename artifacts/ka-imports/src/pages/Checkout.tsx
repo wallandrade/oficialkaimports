@@ -195,7 +195,11 @@ export default function Checkout() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nonBumpSnapshot, checkoutBumps]);
 
-  const { mutate: createOrder, isPending: isCreatingOrder } = useCreateOrder();
+  const { mutate: createOrder, isPending: isCreatingOrder } = useCreateOrder({
+    request: {
+      headers: getCustomerAuthHeaders(),
+    },
+  });
   const [isCheckingOut, setIsCheckingOut] = useState(false);
   const isLoading = isCreatingOrder || isCheckingOut;
 
@@ -564,7 +568,7 @@ export default function Checkout() {
 
       const resp = await fetch(`${BASE}/api/checkout/pix`, {
         method: "POST",
-        headers: await getCheckoutSecurityHeaders(),
+        headers: await getCheckoutSecurityHeaders(getCustomerAuthHeaders() as Record<string, string>),
         body: JSON.stringify({
           client: clientPayload,
           address: addressPayload,
