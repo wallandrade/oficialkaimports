@@ -1,10 +1,38 @@
 import { Router, type IRouter } from "express";
 import { db, kycDocumentsTable, ordersTable, sellersTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import crypto from "crypto";
-import { requireAdminAuth, getSessionInfo } from "./admin-auth";
+import { requireAdminAuth, getSessionInfo, getAdminScope } from "./admin-auth";
 
 const router: IRouter = Router();
+
+function normalizeSellerCode(value: unknown): string | null {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized || null;
+}
+
+function getKycAdminScope(req: Parameters<typeof router.get>[1] extends (req: infer R, _res: infer _S) => unknown ? R : never, res: Parameters<typeof router.get>[1] extends (_req: infer _R, res: infer S) => unknown ? S : never) {
+  const scope = getAdminScope(req as never);
+  if (!scope) {
+    (res as any).status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
+    return null;
+  }
+  if (!scope.hasGlobalAccess && !scope.sellerCode) {
+    (res as any).status(403).json({ error: "FORBIDDEN", message: "Usuário sem seller vinculado." });
+    return null;
+  }
+  return { hasGlobalAccess: scope.hasGlobalAccess, sellerCode: normalizeSellerCode(scope.sellerCode) };
+}
+
+async function canAccessOrderId(orderId: string, scope: { hasGlobalAccess: boolean; sellerCode: string | null }) {
+  if (scope.hasGlobalAccess) return true;
+  const rows = await db
+    .select({ id: ordersTable.id })
+    .from(ordersTable)
+    .where(and(eq(ordersTable.id, orderId), eq(ordersTable.sellerCode, scope.sellerCode!)))
+    .limit(1);
+  return !!rows[0];
+}
 
 // ---------------------------------------------------------------------------
 // GET /api/kyc/check-cpf/:cpf — public: check if CPF has an approved KYC
@@ -12,7 +40,7 @@ const router: IRouter = Router();
 router.get("/kyc/check-cpf/:cpf", async (req, res) => {
   try {
     const cpf = req.params.cpf.replace(/\D/g, "");
-    if (!cpf) { res.json({ approved: false }); return; }
+    if (cpf.length !== 11) { res.json({ approved: false }); return; }
 
     const rows = await db
       .select({ id: kycDocumentsTable.id, status: kycDocumentsTable.status, approvedAt: kycDocumentsTable.approvedAt })
@@ -20,7 +48,7 @@ router.get("/kyc/check-cpf/:cpf", async (req, res) => {
       .where(and(eq(kycDocumentsTable.clientDocument, cpf), eq(kycDocumentsTable.status, "approved")))
       .limit(1);
 
-    res.json({ approved: rows.length > 0, kycId: rows[0]?.id ?? null });
+    res.json({ approved: rows.length > 0 });
   } catch (err) {
     console.error("[KYC] check-cpf error:", err);
     res.json({ approved: false });
@@ -124,13 +152,14 @@ router.get("/kyc/:orderId", async (req, res) => {
 router.post("/kyc/:orderId", async (req, res) => {
   try {
     const { orderId } = req.params;
-    const { selfieUrl, rgFrontUrl, declarationSignature, cardNumber, cardHolderName, declarationProduct } = req.body as {
+    const { selfieUrl, rgFrontUrl, declarationSignature, cardNumber, cardHolderName, declarationProduct, clientDocument } = req.body as {
       selfieUrl?: string;
       rgFrontUrl?: string;
       declarationSignature?: string;
       cardNumber?: string;
       cardHolderName?: string;
       declarationProduct?: string;
+      clientDocument?: string;
     };
 
     if (!selfieUrl || !rgFrontUrl || !declarationSignature?.trim()) {
@@ -156,6 +185,11 @@ router.post("/kyc/:orderId", async (req, res) => {
     }
 
     const cpf = order.clientDocument?.replace(/\D/g, "") ?? order.clientDocument ?? null;
+    const bodyCpf = String(clientDocument ?? "").replace(/\D/g, "");
+    if (!cpf || bodyCpf.length !== 11 || bodyCpf !== cpf) {
+      res.status(404).json({ error: "ORDER_NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
 
     const existing = await db
       .select({ id: kycDocumentsTable.id, status: kycDocumentsTable.status })
@@ -221,6 +255,45 @@ router.post("/kyc/:orderId", async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get("/admin/kyc", requireAdminAuth, async (req, res) => {
   try {
+    const scope = getKycAdminScope(req, res);
+    if (!scope) return;
+
+    if (!scope.hasGlobalAccess) {
+      const scopedOrders = await db
+        .select({ id: ordersTable.id })
+        .from(ordersTable)
+        .where(eq(ordersTable.sellerCode, scope.sellerCode!));
+
+      const scopedOrderIds = scopedOrders.map((row) => row.id).filter(Boolean);
+      if (scopedOrderIds.length === 0) {
+        res.json({ kycs: [] });
+        return;
+      }
+
+      const rows = await db
+        .select({
+          id: kycDocumentsTable.id,
+          orderId: kycDocumentsTable.orderId,
+          clientDocument: kycDocumentsTable.clientDocument,
+          clientName: kycDocumentsTable.clientName,
+          clientPhone: kycDocumentsTable.clientPhone,
+          status: kycDocumentsTable.status,
+          submittedAt: kycDocumentsTable.submittedAt,
+          approvedAt: kycDocumentsTable.approvedAt,
+          approvedByUsername: kycDocumentsTable.approvedByUsername,
+          rejectedAt: kycDocumentsTable.rejectedAt,
+          adminEdited: kycDocumentsTable.adminEdited,
+          declarationSignature: kycDocumentsTable.declarationSignature,
+          createdAt: kycDocumentsTable.createdAt,
+        })
+        .from(kycDocumentsTable)
+        .where(inArray(kycDocumentsTable.orderId, scopedOrderIds))
+        .orderBy(kycDocumentsTable.createdAt);
+
+      res.json({ kycs: rows.reverse() });
+      return;
+    }
+
     const rows = await db
       .select({
         id: kycDocumentsTable.id,
@@ -252,8 +325,16 @@ router.get("/admin/kyc", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get("/admin/kyc/:orderId", requireAdminAuth, async (req, res) => {
   try {
+    const scope = getKycAdminScope(req, res);
+    if (!scope) return;
+
     let orderId = req.params.orderId;
     if (Array.isArray(orderId)) orderId = orderId[0];
+    if (!(await canAccessOrderId(orderId, scope))) {
+      res.status(404).json({ error: "NOT_FOUND" });
+      return;
+    }
+
     const rows = await db
       .select()
       .from(kycDocumentsTable)
@@ -272,8 +353,16 @@ router.get("/admin/kyc/:orderId", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.patch("/admin/kyc/:orderId/status", requireAdminAuth, async (req, res) => {
   try {
+    const scope = getKycAdminScope(req, res);
+    if (!scope) return;
+
     let orderId = req.params.orderId;
     if (Array.isArray(orderId)) orderId = orderId[0];
+    if (!(await canAccessOrderId(orderId, scope))) {
+      res.status(404).json({ error: "KYC_NOT_FOUND" });
+      return;
+    }
+
     const { action } = req.body as { action: "approve" | "reject" };
 
     if (!["approve", "reject"].includes(action)) {
@@ -292,7 +381,7 @@ router.patch("/admin/kyc/:orderId/status", requireAdminAuth, async (req, res) =>
       return;
     }
 
-    const session = getSessionInfo(req);
+    const session = await getSessionInfo(req);
     const now = new Date();
     await db
       .update(kycDocumentsTable)
@@ -317,7 +406,15 @@ router.patch("/admin/kyc/:orderId/status", requireAdminAuth, async (req, res) =>
 // ---------------------------------------------------------------------------
 router.patch("/admin/kyc/:orderId", requireAdminAuth, async (req, res) => {
   try {
+    const scope = getKycAdminScope(req, res);
+    if (!scope) return;
+
     const { orderId } = req.params;
+    if (!(await canAccessOrderId(orderId, scope))) {
+      res.status(404).json({ error: "KYC_NOT_FOUND" });
+      return;
+    }
+
     const { declarationProduct, declarationCompanyName, declarationCompanyCnpj, declarationPurchaseValue, declarationDate } = req.body as {
       declarationProduct?: string;
       declarationCompanyName?: string;

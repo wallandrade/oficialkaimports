@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { db, customChargesTable, ordersTable } from "@workspace/db";
 import { desc, and, gte, lte, eq } from "drizzle-orm";
 import crypto from "crypto";
-import { requireAdminAuth } from "./admin-auth";
+import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { broadcastNotification } from "./notifications";
 import {
   createPixCharge,
@@ -13,6 +13,69 @@ import {
 } from "../gateway";
 
 const router: IRouter = Router();
+
+function normalizeSellerCode(value: unknown): string | null {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized || null;
+}
+
+function getScopedSellerOrReject(req: Parameters<typeof router.get>[1] extends (req: infer R, _res: infer _S) => unknown ? R : never, res: Parameters<typeof router.get>[1] extends (_req: infer _R, res: infer S) => unknown ? S : never): { hasGlobalAccess: boolean; sellerCode: string | null } | null {
+  const scope = getAdminScope(req as never);
+  if (!scope) {
+    (res as any).status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
+    return null;
+  }
+  if (!scope.hasGlobalAccess && !scope.sellerCode) {
+    (res as any).status(403).json({ error: "FORBIDDEN", message: "Usuário sem seller vinculado." });
+    return null;
+  }
+  return { hasGlobalAccess: scope.hasGlobalAccess, sellerCode: normalizeSellerCode(scope.sellerCode) };
+}
+
+async function ensureChargeScopeOrReject(
+  req: Parameters<typeof router.get>[1] extends (req: infer R, _res: infer _S) => unknown ? R : never,
+  res: Parameters<typeof router.get>[1] extends (_req: infer _R, res: infer S) => unknown ? S : never,
+  chargeId: string,
+) {
+  const scope = getScopedSellerOrReject(req, res);
+  if (!scope) return null;
+
+  const rows = await db
+    .select({ id: customChargesTable.id, sellerCode: customChargesTable.sellerCode, orderId: customChargesTable.orderId, status: customChargesTable.status, amount: customChargesTable.amount, proofUrl: customChargesTable.proofUrl, proofUrls: customChargesTable.proofUrls })
+    .from(customChargesTable)
+    .where(eq(customChargesTable.id, chargeId))
+    .limit(1);
+
+  const charge = rows[0];
+  if (!charge) {
+    (res as any).status(404).json({ error: "NOT_FOUND", message: "Cobrança não encontrada." });
+    return null;
+  }
+
+  if (scope.hasGlobalAccess) {
+    return { scope, charge };
+  }
+
+  const chargeSellerCode = normalizeSellerCode(charge.sellerCode);
+  if (chargeSellerCode && chargeSellerCode === scope.sellerCode) {
+    return { scope, charge };
+  }
+
+  if (charge.orderId) {
+    const parentOrderRows = await db
+      .select({ sellerCode: ordersTable.sellerCode })
+      .from(ordersTable)
+      .where(eq(ordersTable.id, charge.orderId))
+      .limit(1);
+    const parentSellerCode = normalizeSellerCode(parentOrderRows[0]?.sellerCode);
+    if (parentSellerCode && parentSellerCode === scope.sellerCode) {
+      return { scope, charge };
+    }
+  }
+
+  (res as any).status(404).json({ error: "NOT_FOUND", message: "Cobrança não encontrada." });
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // POST /api/custom-charges  (public)
@@ -228,6 +291,9 @@ router.post("/custom-charges/callback/:token/:chargeId", async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get("/admin/custom-charges", requireAdminAuth, async (req, res) => {
   try {
+    const scope = getScopedSellerOrReject(req, res);
+    if (!scope) return;
+
     const { dateFrom, dateTo, status, sellerCode } = req.query as Record<string, string>;
     const SP_OFFSET_MS = 3 * 60 * 60 * 1000;
     const conditions = [];
@@ -245,7 +311,13 @@ router.get("/admin/custom-charges", requireAdminAuth, async (req, res) => {
     if (status && status !== "all") {
       conditions.push(eq(customChargesTable.status, status));
     }
-    if (sellerCode && sellerCode !== "all") {
+    if (!scope.hasGlobalAccess) {
+      if (sellerCode && sellerCode !== "all" && normalizeSellerCode(sellerCode) !== scope.sellerCode) {
+        res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para acessar outro seller." });
+        return;
+      }
+      conditions.push(eq(customChargesTable.sellerCode, scope.sellerCode!));
+    } else if (sellerCode && sellerCode !== "all") {
       conditions.push(eq(customChargesTable.sellerCode, sellerCode));
     }
 
@@ -300,7 +372,10 @@ router.get("/admin/custom-charges", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get("/admin/custom-charges/export", requireAdminAuth, async (req, res) => {
   try {
-    const { dateFrom, dateTo, status } = req.query as Record<string, string>;
+    const scope = getScopedSellerOrReject(req, res);
+    if (!scope) return;
+
+    const { dateFrom, dateTo, status, sellerCode } = req.query as Record<string, string>;
     const conditions = [];
 
     if (dateFrom) {
@@ -318,6 +393,15 @@ router.get("/admin/custom-charges/export", requireAdminAuth, async (req, res) =>
     }
     if (status && status !== "all") {
       conditions.push(eq(customChargesTable.status, status));
+    }
+    if (!scope.hasGlobalAccess) {
+      if (sellerCode && sellerCode !== "all" && normalizeSellerCode(sellerCode) !== scope.sellerCode) {
+        res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para acessar outro seller." });
+        return;
+      }
+      conditions.push(eq(customChargesTable.sellerCode, scope.sellerCode!));
+    } else if (sellerCode && sellerCode !== "all") {
+      conditions.push(eq(customChargesTable.sellerCode, sellerCode));
     }
 
     const charges = await db
@@ -367,11 +451,9 @@ router.patch("/admin/custom-charges/:id/status", requireAdminAuth, async (req, r
       return;
     }
 
-    const existing = await db
-      .select({ status: customChargesTable.status, orderId: customChargesTable.orderId, amount: customChargesTable.amount })
-      .from(customChargesTable)
-      .where(eq(customChargesTable.id, id))
-      .limit(1);
+    const scoped = await ensureChargeScopeOrReject(req, res, id);
+    if (!scoped) return;
+    const existing = scoped.charge;
 
     await db
       .update(customChargesTable)
@@ -382,26 +464,26 @@ router.patch("/admin/custom-charges/:id/status", requireAdminAuth, async (req, r
       broadcastNotification({ type: "charge_paid", data: { id, status } });
 
       // Propagate to parent order if this is a diff charge
-      if (existing[0]?.orderId && existing[0].status !== "paid") {
+      if (existing.orderId && existing.status !== "paid") {
         const parentOrder = await db
           .select({ id: ordersTable.id, status: ordersTable.status, total: ordersTable.total, paidAmount: ordersTable.paidAmount })
           .from(ordersTable)
-          .where(eq(ordersTable.id, existing[0].orderId))
+          .where(eq(ordersTable.id, existing.orderId))
           .limit(1);
 
         if (parentOrder[0] && parentOrder[0].status === "awaiting_payment") {
           const orderTotal  = Number(parentOrder[0].total ?? 0);
           const alreadyPaid = Number(parentOrder[0].paidAmount ?? 0);
-          const diffPaid    = Number(existing[0].amount ?? 0);
+          const diffPaid    = Number(existing.amount ?? 0);
           const totalPaid   = alreadyPaid + diffPaid;
           const newOrderStatus = totalPaid >= orderTotal - 0.01 ? "paid" : "awaiting_payment";
 
           await db
             .update(ordersTable)
             .set({ status: newOrderStatus, paidAmount: String(totalPaid), updatedAt: new Date() })
-            .where(eq(ordersTable.id, existing[0].orderId));
+            .where(eq(ordersTable.id, existing.orderId));
 
-          broadcastNotification({ type: "order_paid", data: { id: existing[0].orderId, status: newOrderStatus } });
+          broadcastNotification({ type: "order_paid", data: { id: existing.orderId, status: newOrderStatus } });
         }
       }
     }
@@ -428,18 +510,16 @@ router.patch("/admin/custom-charges/:id/proof", requireAdminAuth, async (req, re
       return;
     }
 
-    const existing = await db
-      .select({ proofUrl: customChargesTable.proofUrl, proofUrls: customChargesTable.proofUrls })
-      .from(customChargesTable)
-      .where(eq(customChargesTable.id, id))
-      .limit(1);
+    const scoped = await ensureChargeScopeOrReject(req, res, id);
+    if (!scoped) return;
+    const existing = scoped.charge;
 
     let urls: string[] = [];
-    if (existing[0]?.proofUrls) {
-      try { urls = JSON.parse(existing[0].proofUrls); } catch { urls = []; }
+    if (existing.proofUrls) {
+      try { urls = JSON.parse(existing.proofUrls); } catch { urls = []; }
     }
-    if (existing[0]?.proofUrl && !urls.includes(existing[0].proofUrl)) {
-      urls.unshift(existing[0].proofUrl);
+    if (existing.proofUrl && !urls.includes(existing.proofUrl)) {
+      urls.unshift(existing.proofUrl);
     }
     if (!urls.includes(proofData)) urls.push(proofData);
 
@@ -464,6 +544,9 @@ router.patch("/admin/custom-charges/:id/observation", requireAdminAuth, async (r
   try {
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
+    const scoped = await ensureChargeScopeOrReject(req, res, id);
+    if (!scoped) return;
+
     const { observation } = req.body as { observation?: string };
     await db
       .update(customChargesTable)

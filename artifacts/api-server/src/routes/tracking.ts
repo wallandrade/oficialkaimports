@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { requireAdminAuth } from "./admin-auth";
+import { requirePrimaryAdmin } from "./admin-auth";
 
 const router: IRouter = Router();
 
@@ -22,7 +22,7 @@ router.post("/tracking/heartbeat", (req, res) => {
 });
 
 // admin: get live counts
-router.get("/admin/tracking/live", requireAdminAuth, (req, res) => {
+router.get("/admin/tracking/live", requirePrimaryAdmin, (req, res) => {
   const now = Date.now();
   let catalogCount = 0;
   let checkoutCount = 0;

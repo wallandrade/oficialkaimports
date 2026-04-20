@@ -2,11 +2,39 @@ import { Router, type IRouter } from "express";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { db, ordersTable, supportTicketsTable } from "@workspace/db";
-import { requireAdminAuth } from "./admin-auth";
+import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { broadcastNotification } from "./notifications";
 import { createOrRefreshReshipment } from "../lib/reshipments";
 
 const router: IRouter = Router();
+
+function normalizeSellerCode(value: unknown): string | null {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized || null;
+}
+
+function getSupportAdminScope(req: Parameters<typeof router.get>[1] extends (req: infer R, _res: infer _S) => unknown ? R : never, res: Parameters<typeof router.get>[1] extends (_req: infer _R, res: infer S) => unknown ? S : never) {
+  const scope = getAdminScope(req as never);
+  if (!scope) {
+    (res as any).status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
+    return null;
+  }
+  if (!scope.hasGlobalAccess && !scope.sellerCode) {
+    (res as any).status(403).json({ error: "FORBIDDEN", message: "Usuário sem seller vinculado." });
+    return null;
+  }
+  return { hasGlobalAccess: scope.hasGlobalAccess, sellerCode: normalizeSellerCode(scope.sellerCode) };
+}
+
+async function ticketBelongsToScope(orderId: string, scope: { hasGlobalAccess: boolean; sellerCode: string | null }): Promise<boolean> {
+  if (scope.hasGlobalAccess) return true;
+  const rows = await db
+    .select({ id: ordersTable.id })
+    .from(ordersTable)
+    .where(and(eq(ordersTable.id, orderId), eq(ordersTable.sellerCode, scope.sellerCode!)))
+    .limit(1);
+  return !!rows[0];
+}
 
 type AddressChangePayload = {
   cep: string;
@@ -24,6 +52,21 @@ function onlyDigits(value: unknown): string {
 
 function normalizedDocumentSql(column: typeof ordersTable.clientDocument) {
   return sql<string>`REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(${column}, '.', ''), '-', ''), '/', ''), ' ', ''), '\t', '')`;
+}
+
+function maskName(raw: string | null | undefined): string {
+  const source = String(raw ?? "").trim();
+  if (!source) return "Cliente";
+  const parts = source.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) {
+    if (parts[0].length <= 2) return parts[0][0] + "*";
+    return parts[0].slice(0, 2) + "*".repeat(Math.max(1, parts[0].length - 2));
+  }
+  const first = parts[0];
+  const last = parts[parts.length - 1];
+  const firstMasked = first.length <= 2 ? first[0] + "*" : first.slice(0, 2) + "*".repeat(Math.max(1, first.length - 2));
+  const lastMasked = last.length <= 1 ? "*" : "*" + last.slice(1);
+  return `${firstMasked} ${lastMasked}`;
 }
 
 function getOrderProducts(raw: unknown): Array<{ name?: string; quantity?: number }> {
@@ -98,11 +141,11 @@ router.post("/support/orders-by-cpf", async (req, res) => {
         ),
       )
       .orderBy(desc(ordersTable.createdAt))
-      .limit(30);
+      .limit(10);
 
     const orders = rows.map((row) => ({
       id: row.id,
-      clientName: row.clientName,
+      clientName: maskName(row.clientName),
       total: Number(row.total),
       status: row.status,
       createdAt: row.createdAt?.toISOString() ?? new Date().toISOString(),
@@ -208,8 +251,62 @@ router.post("/support/tickets", async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get("/admin/support-tickets", requireAdminAuth, async (req, res) => {
   try {
+    const scope = getSupportAdminScope(req, res);
+    if (!scope) return;
+
     const status = String(req.query?.status ?? "all");
     const whereClause = status === "all" ? undefined : eq(supportTicketsTable.status, status);
+
+    if (!scope.hasGlobalAccess) {
+      const scopedOrders = await db
+        .select({ id: ordersTable.id })
+        .from(ordersTable)
+        .where(eq(ordersTable.sellerCode, scope.sellerCode!));
+
+      const scopedOrderIds = scopedOrders.map((row) => row.id).filter(Boolean);
+      if (scopedOrderIds.length === 0) {
+        res.json({ tickets: [] });
+        return;
+      }
+
+      const rows = await db
+        .select()
+        .from(supportTicketsTable)
+        .where(whereClause ? and(whereClause, inArray(supportTicketsTable.orderId, scopedOrderIds)) : inArray(supportTicketsTable.orderId, scopedOrderIds))
+        .orderBy(desc(supportTicketsTable.createdAt));
+
+      const tickets = rows.map((row) => {
+        let addressChange: AddressChangePayload | null = null;
+        if (row.addressChangeJson) {
+          try {
+            const parsed = JSON.parse(row.addressChangeJson);
+            addressChange = normalizeAddressChange(parsed);
+          } catch {
+            addressChange = null;
+          }
+        }
+
+        return {
+          id: row.id,
+          orderId: row.orderId,
+          clientDocument: row.clientDocument,
+          clientName: row.clientName,
+          description: row.description,
+          imageUrl: row.imageUrl,
+          addressChange,
+          status: row.status,
+          resolutionReason: row.resolutionReason,
+          orderTotal: row.orderTotal == null ? null : Number(row.orderTotal),
+          orderCreatedAt: row.orderCreatedAt?.toISOString() ?? null,
+          resolvedAt: row.resolvedAt?.toISOString() ?? null,
+          createdAt: row.createdAt?.toISOString() ?? new Date().toISOString(),
+          updatedAt: row.updatedAt?.toISOString() ?? new Date().toISOString(),
+        };
+      });
+
+      res.json({ tickets });
+      return;
+    }
 
     const rows = await db
       .select()
@@ -258,6 +355,9 @@ router.get("/admin/support-tickets", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req, res) => {
   try {
+    const scope = getSupportAdminScope(req, res);
+    if (!scope) return;
+
     const id = String(req.params.id ?? "").trim();
     if (!id) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Chamado invalido." });
@@ -275,11 +375,17 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
       res.status(404).json({ error: "NOT_FOUND", message: "Chamado nao encontrado." });
       return;
     }
+    if (!(await ticketBelongsToScope(ticket.orderId, scope))) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Chamado nao encontrado." });
+      return;
+    }
 
     const orderRows = await db
       .select({ id: ordersTable.id, products: ordersTable.products })
       .from(ordersTable)
-      .where(eq(ordersTable.id, ticket.orderId))
+      .where(scope.hasGlobalAccess
+        ? eq(ordersTable.id, ticket.orderId)
+        : and(eq(ordersTable.id, ticket.orderId), eq(ordersTable.sellerCode, scope.sellerCode!)))
       .limit(1);
 
     const order = orderRows[0];
@@ -333,6 +439,9 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
 // ---------------------------------------------------------------------------
 router.patch("/admin/support-tickets/:id/status", requireAdminAuth, async (req, res) => {
   try {
+    const scope = getSupportAdminScope(req, res);
+    if (!scope) return;
+
     const id = String(req.params.id ?? "").trim();
     const status = String(req.body?.status ?? "").trim();
     if (!id || !["open", "resolved"].includes(status)) {
@@ -352,6 +461,10 @@ router.patch("/admin/support-tickets/:id/status", requireAdminAuth, async (req, 
 
     const ticket = ticketRows[0];
     if (!ticket) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Chamado nao encontrado." });
+      return;
+    }
+    if (!(await ticketBelongsToScope(ticket.orderId, scope))) {
       res.status(404).json({ error: "NOT_FOUND", message: "Chamado nao encontrado." });
       return;
     }
@@ -380,12 +493,16 @@ router.patch("/admin/support-tickets/:id/status", requireAdminAuth, async (req, 
             addressState: parsedAddress.state,
             updatedAt: new Date(),
           })
-          .where(eq(ordersTable.id, ticket.orderId));
+          .where(scope.hasGlobalAccess
+            ? eq(ordersTable.id, ticket.orderId)
+            : and(eq(ordersTable.id, ticket.orderId), eq(ordersTable.sellerCode, scope.sellerCode!)));
 
         const orderRows = await db
           .select({ id: ordersTable.id, products: ordersTable.products })
           .from(ordersTable)
-          .where(eq(ordersTable.id, ticket.orderId))
+          .where(scope.hasGlobalAccess
+            ? eq(ordersTable.id, ticket.orderId)
+            : and(eq(ordersTable.id, ticket.orderId), eq(ordersTable.sellerCode, scope.sellerCode!)))
           .limit(1);
 
         const order = orderRows[0];
@@ -434,6 +551,9 @@ router.patch("/admin/support-tickets/:id/status", requireAdminAuth, async (req, 
 // ---------------------------------------------------------------------------
 router.delete("/admin/support-tickets/:id", requireAdminAuth, async (req, res) => {
   try {
+    const scope = getSupportAdminScope(req, res);
+    if (!scope) return;
+
     const id = String(req.params.id ?? "").trim();
     if (!id) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Chamado invalido." });
@@ -441,12 +561,16 @@ router.delete("/admin/support-tickets/:id", requireAdminAuth, async (req, res) =
     }
 
     const rows = await db
-      .select({ id: supportTicketsTable.id })
+      .select({ id: supportTicketsTable.id, orderId: supportTicketsTable.orderId })
       .from(supportTicketsTable)
       .where(eq(supportTicketsTable.id, id))
       .limit(1);
 
     if (!rows[0]) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Chamado nao encontrado." });
+      return;
+    }
+    if (!(await ticketBelongsToScope(rows[0].orderId, scope))) {
       res.status(404).json({ error: "NOT_FOUND", message: "Chamado nao encontrado." });
       return;
     }

@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { db, productsTable } from "@workspace/db";
 import { eq, asc } from "drizzle-orm";
 import crypto from "crypto";
-import { requireAdminAuth } from "./admin-auth";
+import { requirePrimaryAdmin } from "./admin-auth";
 
 const router: IRouter = Router();
 
@@ -65,7 +65,7 @@ router.get("/products", async (_req, res) => {
 // ─── Admin CRUD ───────────────────────────────────────────────────────────────
 
 /** GET /api/admin/products */
-router.get("/admin/products", requireAdminAuth, async (_req, res) => {
+router.get("/admin/products", requirePrimaryAdmin, async (_req, res) => {
   try {
     const rows = await db
       .select()
@@ -79,7 +79,7 @@ router.get("/admin/products", requireAdminAuth, async (_req, res) => {
 });
 
 /** POST /api/admin/products */
-router.post("/admin/products", requireAdminAuth, async (req, res) => {
+router.post("/admin/products", requirePrimaryAdmin, async (req, res) => {
   try {
     const {
       name, description, category, unit, price,
@@ -120,7 +120,7 @@ router.post("/admin/products", requireAdminAuth, async (req, res) => {
 });
 
 /** PATCH /api/admin/products/:id */
-router.patch("/admin/products/:id", requireAdminAuth, async (req, res) => {
+router.patch("/admin/products/:id", requirePrimaryAdmin, async (req, res) => {
   try {
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
@@ -158,7 +158,7 @@ router.patch("/admin/products/:id", requireAdminAuth, async (req, res) => {
 });
 
 /** DELETE /api/admin/products/:id */
-router.delete("/admin/products/:id", requireAdminAuth, async (req, res) => {
+router.delete("/admin/products/:id", requirePrimaryAdmin, async (req, res) => {
   try {
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];

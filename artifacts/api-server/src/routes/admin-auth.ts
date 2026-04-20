@@ -6,6 +6,89 @@ import { lt, eq } from "drizzle-orm";
 const router: IRouter = Router();
 const TOKEN_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 
+type AdminSessionRecord = {
+  username: string;
+  isPrimary: number | boolean;
+};
+
+export type AdminScope = {
+  username: string;
+  isPrimary: boolean;
+  hasGlobalAccess: boolean;
+  sellerCode: string | null;
+};
+
+let adminSellerScopeMapCache: Record<string, string> | null = null;
+
+function normalizeSellerCode(value: unknown): string | null {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized || null;
+}
+
+function getAdminSellerScopeMap(): Record<string, string> {
+  if (adminSellerScopeMapCache) return adminSellerScopeMapCache;
+
+  const raw = process.env["ADMIN_SELLER_SCOPE_MAP"];
+  if (!raw) {
+    adminSellerScopeMapCache = {};
+    return adminSellerScopeMapCache;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    const map: Record<string, string> = {};
+
+    if (parsed && typeof parsed === "object") {
+      for (const [username, sellerCode] of Object.entries(parsed as Record<string, unknown>)) {
+        const normalizedUsername = String(username).trim().toLowerCase();
+        const normalizedSeller = normalizeSellerCode(sellerCode);
+        if (normalizedUsername && normalizedSeller) {
+          map[normalizedUsername] = normalizedSeller;
+        }
+      }
+    }
+
+    adminSellerScopeMapCache = map;
+    return map;
+  } catch (err) {
+    console.error("[AdminAuth] ADMIN_SELLER_SCOPE_MAP inválido. Use JSON no formato {\"usuario\":\"seller-slug\"}.", err);
+    adminSellerScopeMapCache = {};
+    return adminSellerScopeMapCache;
+  }
+}
+
+export function resolveAdminScopeFromSession(session: AdminSessionRecord): AdminScope {
+  const username = String(session.username || "").trim().toLowerCase();
+  const isPrimary = !!session.isPrimary;
+  if (isPrimary) {
+    return {
+      username,
+      isPrimary,
+      hasGlobalAccess: true,
+      sellerCode: null,
+    };
+  }
+
+  const sellerCode = getAdminSellerScopeMap()[username] ?? null;
+  return {
+    username,
+    isPrimary,
+    hasGlobalAccess: false,
+    sellerCode,
+  };
+}
+
+export function getAdminScope(req: Request): AdminScope | null {
+  const session = (req as any).adminSession;
+  if (!session) return null;
+  return {
+    username: String(session.username || "").trim().toLowerCase(),
+    isPrimary: !!session.isPrimary,
+    hasGlobalAccess: !!session.hasGlobalAccess,
+    sellerCode: normalizeSellerCode(session.sellerCode),
+  };
+}
+
 // Utilitário para limpar sessões expiradas do banco
 async function purgeExpiredSessions() {
   const now = new Date();
@@ -83,15 +166,25 @@ export async function requireAdminAuth(req: Request, res: Response, next: NextFu
       res.status(401).json({ error: "UNAUTHORIZED", message: "Acesso não autorizado." });
       return;
     }
-    const session = await db.select().from(adminSessionsTable).where(eq(adminSessionsTable.token, token)).limit(1);
-    if (!session[0]) {
+    const sessionRows = await db.select().from(adminSessionsTable).where(eq(adminSessionsTable.token, token)).limit(1);
+    if (!sessionRows[0]) {
       console.log('[requireAdminAuth] Sessão não encontrada para token', token);
       res.status(401).json({ error: "UNAUTHORIZED", message: "Acesso não autorizado." });
       return;
     }
+    const scope = resolveAdminScopeFromSession(sessionRows[0]);
+
+    if (!scope.hasGlobalAccess && !scope.sellerCode) {
+      res.status(403).json({
+        error: "FORBIDDEN",
+        message: "Usuário admin sem seller vinculado. Configure ADMIN_SELLER_SCOPE_MAP.",
+      });
+      return;
+    }
+
     // Anexa info da sessão para downstream
-    (req as any).adminSession = session[0];
-    console.log('[requireAdminAuth] Sessão OK', session[0]);
+    (req as any).adminSession = { ...sessionRows[0], ...scope };
+    console.log('[requireAdminAuth] Sessão OK', (req as any).adminSession);
     next();
   } catch (err) {
     console.error('[requireAdminAuth] Erro:', err);
@@ -113,12 +206,13 @@ export async function requirePrimaryAdmin(req: Request, res: Response, next: Nex
     res.status(401).json({ error: "UNAUTHORIZED", message: "Acesso não autorizado." });
     return;
   }
-  const session = await db.select().from(adminSessionsTable).where(eq(adminSessionsTable.token, token)).limit(1);
-  if (!session[0] || !session[0].isPrimary) {
+  const sessionRows = await db.select().from(adminSessionsTable).where(eq(adminSessionsTable.token, token)).limit(1);
+  if (!sessionRows[0] || !sessionRows[0].isPrimary) {
     res.status(403).json({ error: "FORBIDDEN", message: "Apenas o administrador principal pode realizar esta ação." });
     return;
   }
-  (req as any).adminSession = session[0];
+  const scope = resolveAdminScopeFromSession(sessionRows[0]);
+  (req as any).adminSession = { ...sessionRows[0], ...scope };
   next();
 }
 
@@ -126,8 +220,9 @@ export async function getSessionInfo(req: Request) {
   const auth  = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
   if (!token) return undefined;
-  const session = await db.select().from(adminSessionsTable).where(adminSessionsTable.token.eq(token)).limit(1);
-  return session[0];
+  const sessionRows = await db.select().from(adminSessionsTable).where(adminSessionsTable.token.eq(token)).limit(1);
+  if (!sessionRows[0]) return undefined;
+  return { ...sessionRows[0], ...resolveAdminScopeFromSession(sessionRows[0]) };
 }
 
 // --------------------------------------------------------------------------
@@ -178,7 +273,8 @@ router.post("/admin/login", async (req, res) => {
       expiresAt,
       createdAt: new Date(),
     });
-    res.json({ token, expiresIn: TOKEN_TTL_MS / 1000, isPrimary: user.isPrimary, username: user.username });
+    const sellerCode = resolveAdminScopeFromSession({ username: user.username, isPrimary: user.isPrimary }).sellerCode;
+    res.json({ token, expiresIn: TOKEN_TTL_MS / 1000, isPrimary: user.isPrimary, username: user.username, sellerCode });
   } catch (err) {
     console.error("[AdminAuth] login error:", err, JSON.stringify(err, Object.getOwnPropertyNames(err)));
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao autenticar.", details: String(err) });
@@ -323,9 +419,9 @@ router.patch("/admin/users/:id/access", requirePrimaryAdmin, async (req, res) =>
 });
 
 // --------------------------------------------------------------------------
-// PATCH /api/admin/users/:id/password  — change own password or (primary) any
+// PATCH /api/admin/users/:id/password  — change own password (primary admin) or any user (super)
 // --------------------------------------------------------------------------
-router.patch("/admin/users/:id/password", requireAdminAuth, async (req, res) => {
+router.patch("/admin/users/:id/password", requireAdminAuth, requirePrimaryAdmin, async (req, res) => {
   const { id }       = req.params;
   const userId = Array.isArray(id) ? id[0] : id;
   const { password } = req.body as { password?: string };

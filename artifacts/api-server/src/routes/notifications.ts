@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Response } from "express";
-import { requireAdminAuth } from "./admin-auth";
+import { requirePrimaryAdmin } from "./admin-auth";
 
 const router: IRouter = Router();
 
@@ -16,7 +16,7 @@ export function broadcastNotification(event: { type: string; data: Record<string
   }
 }
 
-router.get("/admin/notifications", requireAdminAuth, (req, res) => {
+router.get("/admin/notifications", requirePrimaryAdmin, (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");

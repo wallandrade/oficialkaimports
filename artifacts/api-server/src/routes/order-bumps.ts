@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { db, orderBumpsTable } from "@workspace/db";
 import { eq, asc } from "drizzle-orm";
 import crypto from "crypto";
-import { requireAdminAuth } from "./admin-auth";
+import { requirePrimaryAdmin } from "./admin-auth";
 
 const router: IRouter = Router();
 
@@ -54,7 +54,7 @@ router.get("/order-bumps", async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /api/admin/order-bumps   (admin — all bumps for all products)
 // ---------------------------------------------------------------------------
-router.get("/admin/order-bumps", requireAdminAuth, async (_req, res) => {
+router.get("/admin/order-bumps", requirePrimaryAdmin, async (_req, res) => {
   try {
     const rows = await db
       .select()
@@ -70,7 +70,7 @@ router.get("/admin/order-bumps", requireAdminAuth, async (_req, res) => {
 // ---------------------------------------------------------------------------
 // POST /api/admin/order-bumps   (admin — create)
 // ---------------------------------------------------------------------------
-router.post("/admin/order-bumps", requireAdminAuth, async (req, res) => {
+router.post("/admin/order-bumps", requirePrimaryAdmin, async (req, res) => {
   try {
     const { productId, title, cardTitle, description, image, discountType, discountValue, buyQuantity, getQuantity, tiers, unit, isActive, sortOrder } = req.body as {
       productId: string;
@@ -123,7 +123,7 @@ router.post("/admin/order-bumps", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // PATCH /api/admin/order-bumps/:id   (admin — update)
 // ---------------------------------------------------------------------------
-router.patch("/admin/order-bumps/:id", requireAdminAuth, async (req, res) => {
+router.patch("/admin/order-bumps/:id", requirePrimaryAdmin, async (req, res) => {
   try {
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
@@ -176,7 +176,7 @@ router.patch("/admin/order-bumps/:id", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // DELETE /api/admin/order-bumps/:id   (admin — delete)
 // ---------------------------------------------------------------------------
-router.delete("/admin/order-bumps/:id", requireAdminAuth, async (req, res) => {
+router.delete("/admin/order-bumps/:id", requirePrimaryAdmin, async (req, res) => {
   try {
     const id = String(req.params.id);
     await db.delete(orderBumpsTable).where(eq(orderBumpsTable.id, id));

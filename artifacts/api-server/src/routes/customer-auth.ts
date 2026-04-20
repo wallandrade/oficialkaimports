@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import crypto from "crypto";
 import { db, customerUsersTable, ordersTable, affiliatesTable } from "@workspace/db";
-import { eq, sql, desc } from "drizzle-orm";
+import { eq, sql, desc, inArray } from "drizzle-orm";
 import {
   createCustomerSession,
   generateSalt,
@@ -10,7 +10,7 @@ import {
   removeCustomerSession,
   requireCustomerAuth,
 } from "../middlewares/customer-auth";
-import { requireAdminAuth } from "./admin-auth";
+import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { normalizeAffiliateCode, registerAffiliateLead, resolveAffiliateByCode } from "../lib/affiliates";
 
 const router: IRouter = Router();
@@ -174,6 +174,34 @@ router.get("/auth/me", requireCustomerAuth, async (req, res) => {
 // --------------------------------------------------------------------------
 router.get("/admin/customers", requireAdminAuth, async (req, res) => {
   try {
+    const adminScope = getAdminScope(req);
+    if (!adminScope) {
+      res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
+      return;
+    }
+    if (!adminScope.hasGlobalAccess && !adminScope.sellerCode) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Usuário sem seller vinculado." });
+      return;
+    }
+
+    // Count orders per customer
+    const orderCountsBase = await db
+      .select({
+        userId: ordersTable.userId,
+        orderCount: sql<number>`count(*)`.as("order_count"),
+      })
+      .from(ordersTable)
+      .where(adminScope.hasGlobalAccess ? undefined : eq(ordersTable.sellerCode, adminScope.sellerCode!))
+      .groupBy(ordersTable.userId);
+
+    const orderCounts = orderCountsBase.filter((row) => !!row.userId);
+    const scopedCustomerIds = Array.from(new Set(orderCounts.map((row) => String(row.userId)).filter(Boolean)));
+
+    if (!adminScope.hasGlobalAccess && scopedCustomerIds.length === 0) {
+      res.json({ customers: [] });
+      return;
+    }
+
     const customers = await db
       .select({
         id: customerUsersTable.id,
@@ -182,16 +210,8 @@ router.get("/admin/customers", requireAdminAuth, async (req, res) => {
         createdAt: customerUsersTable.createdAt,
       })
       .from(customerUsersTable)
+      .where(adminScope.hasGlobalAccess ? undefined : inArray(customerUsersTable.id, scopedCustomerIds))
       .orderBy(desc(customerUsersTable.createdAt));
-
-    // Count orders per customer
-    const orderCounts = await db
-      .select({
-        userId: ordersTable.userId,
-        orderCount: sql<number>`count(*)`.as("order_count"),
-      })
-      .from(ordersTable)
-      .groupBy(ordersTable.userId);
 
     const orderCountMap = new Map<string, number>();
     for (const row of orderCounts) {
@@ -201,7 +221,8 @@ router.get("/admin/customers", requireAdminAuth, async (req, res) => {
     // Fetch affiliate codes
     const affiliateRows = await db
       .select({ userId: affiliatesTable.userId, affiliateCode: affiliatesTable.affiliateCode })
-      .from(affiliatesTable);
+      .from(affiliatesTable)
+      .where(adminScope.hasGlobalAccess ? undefined : inArray(affiliatesTable.userId, scopedCustomerIds));
 
     const affiliateCodeMap = new Map<string, string>();
     for (const row of affiliateRows) {

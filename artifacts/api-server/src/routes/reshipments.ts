@@ -1,5 +1,7 @@
 import { Router, type IRouter } from "express";
-import { requireAdminAuth } from "./admin-auth";
+import { and, eq } from "drizzle-orm";
+import { db, ordersTable, reshipmentsTable } from "@workspace/db";
+import { getAdminScope, requireAdminAuth, requirePrimaryAdmin } from "./admin-auth";
 import {
   getInventoryOverview,
   listReshipments,
@@ -11,7 +13,35 @@ import { broadcastNotification } from "./notifications";
 
 const router: IRouter = Router();
 
-router.get("/admin/inventory/overview", requireAdminAuth, async (_req, res) => {
+function normalizeSellerCode(value: unknown): string | null {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized || null;
+}
+
+function getReshipmentScope(req: Parameters<typeof router.get>[1] extends (req: infer R, _res: infer _S) => unknown ? R : never, res: Parameters<typeof router.get>[1] extends (_req: infer _R, res: infer S) => unknown ? S : never) {
+  const scope = getAdminScope(req as never);
+  if (!scope) {
+    (res as any).status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
+    return null;
+  }
+  if (!scope.hasGlobalAccess && !scope.sellerCode) {
+    (res as any).status(403).json({ error: "FORBIDDEN", message: "Usuário sem seller vinculado." });
+    return null;
+  }
+  return { hasGlobalAccess: scope.hasGlobalAccess, sellerCode: normalizeSellerCode(scope.sellerCode) };
+}
+
+async function isOrderInScope(orderId: string, scope: { hasGlobalAccess: boolean; sellerCode: string | null }): Promise<boolean> {
+  if (scope.hasGlobalAccess) return true;
+  const rows = await db
+    .select({ id: ordersTable.id })
+    .from(ordersTable)
+    .where(and(eq(ordersTable.id, orderId), eq(ordersTable.sellerCode, scope.sellerCode!)))
+    .limit(1);
+  return !!rows[0];
+}
+
+router.get("/admin/inventory/overview", requirePrimaryAdmin, async (_req, res) => {
   try {
     const [inventory, pendingReshipments] = await Promise.all([
       getInventoryOverview(),
@@ -29,7 +59,7 @@ router.get("/admin/inventory/overview", requireAdminAuth, async (_req, res) => {
   }
 });
 
-router.post("/admin/inventory/entries", requireAdminAuth, async (req, res) => {
+router.post("/admin/inventory/entries", requirePrimaryAdmin, async (req, res) => {
   try {
     const productId = String(req.body?.productId ?? "").trim();
     const quantity = Number(req.body?.quantity || 0);
@@ -56,8 +86,21 @@ router.post("/admin/inventory/entries", requireAdminAuth, async (req, res) => {
 
 router.get("/admin/reshipments", requireAdminAuth, async (req, res) => {
   try {
+    const scope = getReshipmentScope(req, res);
+    if (!scope) return;
+
     const status = String(req.query?.status ?? "all");
     const reshipments = await listReshipments(status);
+    if (!scope.hasGlobalAccess) {
+      const orderRows = await db
+        .select({ id: ordersTable.id })
+        .from(ordersTable)
+        .where(eq(ordersTable.sellerCode, scope.sellerCode!));
+      const allowedOrderIds = new Set(orderRows.map((row) => row.id));
+      res.json({ reshipments: reshipments.filter((item) => allowedOrderIds.has(item.orderId)) });
+      return;
+    }
+
     res.json({ reshipments });
   } catch (err) {
     console.error("List reshipments error:", err);
@@ -67,6 +110,9 @@ router.get("/admin/reshipments", requireAdminAuth, async (req, res) => {
 
 router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res) => {
   try {
+    const scope = getReshipmentScope(req, res);
+    if (!scope) return;
+
     const id = String(req.params.id ?? "").trim();
     const status = String(req.body?.status ?? "").trim() as
       | "reenvio_aguardando_estoque"
@@ -75,6 +121,22 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
 
     if (!id || !["reenvio_aguardando_estoque", "reenvio_pronto_para_envio", "reenvio_enviado"].includes(status)) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Status de reenvio inválido." });
+      return;
+    }
+
+    const rows = await db
+      .select({ orderId: reshipmentsTable.orderId })
+      .from(reshipmentsTable)
+      .where(eq(reshipmentsTable.id, id))
+      .limit(1);
+
+    if (!rows[0]) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Reenvio não encontrado." });
+      return;
+    }
+
+    if (!(await isOrderInScope(rows[0].orderId, scope))) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Reenvio não encontrado." });
       return;
     }
 

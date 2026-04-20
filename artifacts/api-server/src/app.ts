@@ -55,6 +55,20 @@ const sensitivePublicWritePaths = new Set([
   "/api/support/tickets",
 ]);
 
+const sensitivePublicWritePathPatterns = [
+  /^\/api\/raffles\/reservations\/[^/]+\/refresh-pix$/,
+  /^\/api\/kyc\/[^/]+$/,
+];
+
+const sensitivePublicReadPaths = new Set([
+  "/api/raffles/reservations/lookup",
+]);
+
+const sensitivePublicReadPathPatterns = [
+  /^\/api\/kyc\/check-cpf\/[^/]+$/,
+  /^\/api\/kyc\/[^/]+$/,
+];
+
 const CHECKOUT_TOKEN_TTL_MS = Number(process.env.CHECKOUT_TOKEN_TTL_MS || 5 * 60 * 1000);
 const CHECKOUT_TOKEN_SECRET = process.env.CHECKOUT_TOKEN_SECRET || "";
 
@@ -152,9 +166,93 @@ const publicWriteRateRules: Record<string, RateLimitRule> = {
     windowMs: Number(process.env.RL_PUBLIC_SUPPORT_TICKETS_WINDOW_MS || 10 * 60 * 1000),
     max: Number(process.env.RL_PUBLIC_SUPPORT_TICKETS_MAX || 20),
   },
+  "/api/raffles/reservations/:id/refresh-pix": {
+    windowMs: Number(process.env.RL_PUBLIC_RAFFLE_REFRESH_WINDOW_MS || 10 * 60 * 1000),
+    max: Number(process.env.RL_PUBLIC_RAFFLE_REFRESH_MAX || 12),
+  },
+  "/api/kyc/:orderId": {
+    windowMs: Number(process.env.RL_PUBLIC_KYC_SUBMIT_WINDOW_MS || 10 * 60 * 1000),
+    max: Number(process.env.RL_PUBLIC_KYC_SUBMIT_MAX || 12),
+  },
+};
+
+const publicReadRateRules: Record<string, RateLimitRule> = {
+  "/api/raffles/reservations/lookup": {
+    windowMs: Number(process.env.RL_PUBLIC_RAFFLE_LOOKUP_WINDOW_MS || 10 * 60 * 1000),
+    max: Number(process.env.RL_PUBLIC_RAFFLE_LOOKUP_MAX || 25),
+  },
+  "/api/kyc/check-cpf/:cpf": {
+    windowMs: Number(process.env.RL_PUBLIC_KYC_CHECK_WINDOW_MS || 10 * 60 * 1000),
+    max: Number(process.env.RL_PUBLIC_KYC_CHECK_MAX || 40),
+  },
+  "/api/kyc/:orderId": {
+    windowMs: Number(process.env.RL_PUBLIC_KYC_LOOKUP_WINDOW_MS || 10 * 60 * 1000),
+    max: Number(process.env.RL_PUBLIC_KYC_LOOKUP_MAX || 25),
+  },
 };
 
 const rateBuckets = new Map<string, RateBucket>();
+const readRateBuckets = new Map<string, RateBucket>();
+
+function isSensitivePublicWritePath(path: string): boolean {
+  if (sensitivePublicWritePaths.has(path)) return true;
+  return sensitivePublicWritePathPatterns.some((pattern) => pattern.test(path));
+}
+
+function isSensitivePublicReadPath(path: string): boolean {
+  if (sensitivePublicReadPaths.has(path)) return true;
+  return sensitivePublicReadPathPatterns.some((pattern) => pattern.test(path));
+}
+
+function resolvePublicWriteRule(path: string): RateLimitRule | undefined {
+  const direct = publicWriteRateRules[path];
+  if (direct) return direct;
+  if (/^\/api\/raffles\/reservations\/[^/]+\/refresh-pix$/.test(path)) {
+    return publicWriteRateRules["/api/raffles/reservations/:id/refresh-pix"];
+  }
+  if (/^\/api\/kyc\/[^/]+$/.test(path)) {
+    return publicWriteRateRules["/api/kyc/:orderId"];
+  }
+  return undefined;
+}
+
+function resolvePublicReadRule(path: string): RateLimitRule | undefined {
+  const direct = publicReadRateRules[path];
+  if (direct) return direct;
+  if (/^\/api\/kyc\/check-cpf\/[^/]+$/.test(path)) {
+    return publicReadRateRules["/api/kyc/check-cpf/:cpf"];
+  }
+  if (/^\/api\/kyc\/[^/]+$/.test(path)) {
+    return publicReadRateRules["/api/kyc/:orderId"];
+  }
+  return undefined;
+}
+
+function verifyCheckoutTokenOrReject(req: express.Request, res: express.Response): boolean {
+  if (SECURITY_REQUIRE_CHECKOUT_TOKEN_SECRET && !CHECKOUT_TOKEN_SECRET) {
+    res.status(503).json({
+      error: "SECURITY_MISCONFIGURED",
+      message: "Configuração de segurança incompleta.",
+    });
+    return false;
+  }
+
+  const checkoutToken = req.get("x-checkout-token") || "";
+  if (!checkoutToken || !verifyCheckoutToken(checkoutToken, req.get("user-agent") || "")) {
+    console.warn("[SECURITY] Missing/invalid checkout token", {
+      path: req.path,
+      ip: getIp(req),
+      origin: req.get("origin"),
+      ua: req.get("user-agent"),
+    });
+    res.status(403).json({
+      error: "INVALID_CHECKOUT_TOKEN",
+      message: "Sessão de checkout inválida. Recarregue a página e tente novamente.",
+    });
+    return false;
+  }
+  return true;
+}
 
 function getIp(req: express.Request): string {
   const xf = String(req.get("x-forwarded-for") || "").split(",")[0]?.trim();
@@ -231,7 +329,7 @@ app.use((req, res, next) => {
     return;
   }
 
-  if (!sensitivePublicWritePaths.has(req.path)) {
+  if (!isSensitivePublicWritePath(req.path)) {
     next();
     return;
   }
@@ -267,7 +365,7 @@ app.use((req, res, next) => {
 
 // Emergency anti-abuse limiter for public write endpoints.
 app.use((req, res, next) => {
-  if (!sensitivePublicWritePaths.has(req.path) || req.method !== "POST") {
+  if (!isSensitivePublicWritePath(req.path) || req.method !== "POST") {
     next();
     return;
   }
@@ -278,30 +376,9 @@ app.use((req, res, next) => {
     return;
   }
 
-  if (SECURITY_REQUIRE_CHECKOUT_TOKEN_SECRET && !CHECKOUT_TOKEN_SECRET) {
-    res.status(503).json({
-      error: "SECURITY_MISCONFIGURED",
-      message: "Configuração de segurança incompleta.",
-    });
-    return;
-  }
+  if (!verifyCheckoutTokenOrReject(req, res)) return;
 
-  const checkoutToken = req.get("x-checkout-token") || "";
-  if (!checkoutToken || !verifyCheckoutToken(checkoutToken, req.get("user-agent") || "")) {
-    console.warn("[SECURITY] Missing/invalid checkout token", {
-      path: req.path,
-      ip: getIp(req),
-      origin: req.get("origin"),
-      ua: req.get("user-agent"),
-    });
-    res.status(403).json({
-      error: "INVALID_CHECKOUT_TOKEN",
-      message: "Sessão de checkout inválida. Recarregue a página e tente novamente.",
-    });
-    return;
-  }
-
-  const rule = publicWriteRateRules[req.path];
+  const rule = resolvePublicWriteRule(req.path);
   if (!rule || rule.max <= 0 || rule.windowMs <= 0) {
     next();
     return;
@@ -331,6 +408,52 @@ app.use((req, res, next) => {
       retryAfterSec,
       ua: req.get("user-agent"),
     });
+    res.status(429).json({
+      error: "RATE_LIMITED",
+      message: "Muitas tentativas. Tente novamente em instantes.",
+      retryAfterSec,
+    });
+    return;
+  }
+
+  current.count += 1;
+  next();
+});
+
+// Protection for sensitive public read endpoints that expose customer-linked records.
+app.use((req, res, next) => {
+  if (req.method !== "GET" || !isSensitivePublicReadPath(req.path)) {
+    next();
+    return;
+  }
+
+  if (!verifyCheckoutTokenOrReject(req, res)) return;
+
+  const rule = resolvePublicReadRule(req.path);
+  if (!rule || rule.max <= 0 || rule.windowMs <= 0) {
+    next();
+    return;
+  }
+
+  const now = Date.now();
+  cleanupExpiredRateBuckets(now);
+  for (const [key, bucket] of readRateBuckets.entries()) {
+    if (bucket.resetAt <= now) readRateBuckets.delete(key);
+  }
+
+  const ip = getIp(req);
+  const bucketKey = `${req.path}|${ip}`;
+  const current = readRateBuckets.get(bucketKey);
+
+  if (!current || current.resetAt <= now) {
+    readRateBuckets.set(bucketKey, { count: 1, resetAt: now + rule.windowMs });
+    next();
+    return;
+  }
+
+  if (current.count >= rule.max) {
+    const retryAfterSec = Math.max(1, Math.ceil((current.resetAt - now) / 1000));
+    res.setHeader("Retry-After", String(retryAfterSec));
     res.status(429).json({
       error: "RATE_LIMITED",
       message: "Muitas tentativas. Tente novamente em instantes.",

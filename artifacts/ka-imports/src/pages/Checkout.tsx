@@ -714,7 +714,10 @@ export default function Checkout() {
       const cpf = (getValues("document") as string | undefined)?.replace(/\D/g, "") ?? "";
       if (cpf) {
         try {
-          const res = await fetch(`${import.meta.env.BASE_URL}api/kyc/check-cpf/${cpf}`);
+          const res = await fetch(`${import.meta.env.BASE_URL}api/kyc/check-cpf/${cpf}`, {
+            method: "GET",
+            headers: await getCheckoutSecurityHeaders(),
+          });
           if (res.ok) {
             const data = (await res.json()) as { approved: boolean };
             if (data.approved) {

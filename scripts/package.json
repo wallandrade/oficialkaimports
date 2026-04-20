@@ -6,6 +6,9 @@
   "scripts": {
     "hello": "tsx ./src/hello.ts",
     "patch:costprice": "tsx ./src/patch-orders-costprice.ts",
+    "smoke:tenant": "tsx ./src/smoke-tenant-isolation.ts",
+    "smoke:tenant:write": "tsx ./src/smoke-tenant-isolation-write.ts",
+    "audit:endpoints": "tsx ./src/audit-endpoints-scope.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {

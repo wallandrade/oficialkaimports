@@ -186,7 +186,7 @@ router.post("/coupons/validate", async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /api/admin/coupons  (protected)
 // ---------------------------------------------------------------------------
-router.get("/admin/coupons", requireAdminAuth, async (_req, res) => {
+router.get("/admin/coupons", requireAdminAuth, requirePrimaryAdmin, async (_req, res) => {
   try {
     const coupons = await db.select().from(couponsTable).orderBy(couponsTable.createdAt);
     res.json({ coupons: coupons.map(mapCoupon) });

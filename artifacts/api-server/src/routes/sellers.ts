@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db, sellersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { requireAdminAuth } from "./admin-auth";
+import { requirePrimaryAdmin } from "./admin-auth";
 
 const router: IRouter = Router();
 
@@ -34,7 +34,7 @@ router.get("/sellers/:slug", async (req, res) => {
 });
 
 /** GET /api/admin/sellers — admin only, returns full seller settings */
-router.get("/admin/sellers", requireAdminAuth, async (_req, res) => {
+router.get("/admin/sellers", requirePrimaryAdmin, async (_req, res) => {
   try {
     const rows = await db.select({
       slug: sellersTable.slug,
@@ -54,7 +54,7 @@ router.get("/admin/sellers", requireAdminAuth, async (_req, res) => {
 });
 
 /** POST /api/admin/sellers — admin only, upsert seller */
-router.post("/admin/sellers", requireAdminAuth, async (req, res) => {
+router.post("/admin/sellers", requirePrimaryAdmin, async (req, res) => {
   try {
     const { slug, whatsapp, hasCommission, commissionRate } = req.body as {
       slug?: string;
@@ -101,7 +101,7 @@ router.post("/admin/sellers", requireAdminAuth, async (req, res) => {
 });
 
 /** DELETE /api/admin/sellers/:slug — admin only */
-router.delete("/admin/sellers/:slug", requireAdminAuth, async (req, res) => {
+router.delete("/admin/sellers/:slug", requirePrimaryAdmin, async (req, res) => {
   try {
     const slug = String(req.params.slug);
     await db.delete(sellersTable).where(eq(sellersTable.slug, slug.toLowerCase()));

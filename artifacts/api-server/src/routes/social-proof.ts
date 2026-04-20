@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db, socialProofSettingsTable, socialProofFakeEntriesTable, ordersTable, productsTable } from "@workspace/db";
 import { eq, desc, and, gte, ne } from "drizzle-orm";
-import { requireAdminAuth } from "./admin-auth";
+import { requirePrimaryAdmin } from "./admin-auth";
 
 const router: IRouter = Router();
 
@@ -187,7 +187,7 @@ router.get("/social-proof/feed", async (_req, res) => {
 });
 
 /** GET /api/admin/social-proof/settings */
-router.get("/admin/social-proof/settings", requireAdminAuth, async (_req, res) => {
+router.get("/admin/social-proof/settings", requirePrimaryAdmin, async (_req, res) => {
   try {
     res.json(await getSettings());
   } catch (err) {
@@ -197,7 +197,7 @@ router.get("/admin/social-proof/settings", requireAdminAuth, async (_req, res) =
 });
 
 /** PATCH /api/admin/social-proof/settings */
-router.patch("/admin/social-proof/settings", requireAdminAuth, async (req, res) => {
+router.patch("/admin/social-proof/settings", requirePrimaryAdmin, async (req, res) => {
   try {
     const body = req.body as Partial<typeof socialProofSettingsTable.$inferInsert>;
     await db
@@ -214,7 +214,7 @@ router.patch("/admin/social-proof/settings", requireAdminAuth, async (req, res) 
 });
 
 /** POST /api/admin/social-proof/generate — delete old auto entries and generate fresh ones */
-router.post("/admin/social-proof/generate", requireAdminAuth, async (_req, res) => {
+router.post("/admin/social-proof/generate", requirePrimaryAdmin, async (_req, res) => {
   try {
     const settings = await getSettings();
     let productNames: string[] = [];
@@ -253,7 +253,7 @@ router.post("/admin/social-proof/generate", requireAdminAuth, async (_req, res) 
 });
 
 /** GET /api/admin/social-proof/auto-count — count of stored auto-generated entries */
-router.get("/admin/social-proof/auto-count", requireAdminAuth, async (_req, res) => {
+router.get("/admin/social-proof/auto-count", requirePrimaryAdmin, async (_req, res) => {
   try {
     const rows = await db.select().from(socialProofFakeEntriesTable).where(eq(socialProofFakeEntriesTable.isAuto, true));
     res.json({ count: rows.length });
@@ -264,7 +264,7 @@ router.get("/admin/social-proof/auto-count", requireAdminAuth, async (_req, res)
 });
 
 /** GET /api/admin/social-proof/fake-entries */
-router.get("/admin/social-proof/fake-entries", requireAdminAuth, async (_req, res) => {
+router.get("/admin/social-proof/fake-entries", requirePrimaryAdmin, async (_req, res) => {
   try {
     res.json(await db.select().from(socialProofFakeEntriesTable)
       .where(eq(socialProofFakeEntriesTable.isAuto, false))
@@ -276,7 +276,7 @@ router.get("/admin/social-proof/fake-entries", requireAdminAuth, async (_req, re
 });
 
 /** POST /api/admin/social-proof/fake-entries */
-router.post("/admin/social-proof/fake-entries", requireAdminAuth, async (req, res) => {
+router.post("/admin/social-proof/fake-entries", requirePrimaryAdmin, async (req, res) => {
   try {
     const { firstName, city, state, productName } = req.body as { firstName?: string; city?: string; state?: string; productName?: string };
     if (!firstName || !city || !state || !productName) { res.status(400).json({ error: "MISSING_FIELDS" }); return; }
@@ -290,7 +290,7 @@ router.post("/admin/social-proof/fake-entries", requireAdminAuth, async (req, re
 });
 
 /** PUT /api/admin/social-proof/fake-entries/:id */
-router.put("/admin/social-proof/fake-entries/:id", requireAdminAuth, async (req, res) => {
+router.put("/admin/social-proof/fake-entries/:id", requirePrimaryAdmin, async (req, res) => {
   try {
     const id = parseInt(String(req.params.id), 10);
     const { firstName, city, state, productName } = req.body as { firstName?: string; city?: string; state?: string; productName?: string };
@@ -306,7 +306,7 @@ router.put("/admin/social-proof/fake-entries/:id", requireAdminAuth, async (req,
 });
 
 /** DELETE /api/admin/social-proof/fake-entries/:id */
-router.delete("/admin/social-proof/fake-entries/:id", requireAdminAuth, async (req, res) => {
+router.delete("/admin/social-proof/fake-entries/:id", requirePrimaryAdmin, async (req, res) => {
   try {
     const id = parseInt(String(req.params.id), 10);
     await db.delete(socialProofFakeEntriesTable).where(eq(socialProofFakeEntriesTable.id, id));
@@ -318,7 +318,7 @@ router.delete("/admin/social-proof/fake-entries/:id", requireAdminAuth, async (r
 });
 
 /** GET /api/admin/social-proof/real-entries — preview real sales */
-router.get("/admin/social-proof/real-entries", requireAdminAuth, async (_req, res) => {
+router.get("/admin/social-proof/real-entries", requirePrimaryAdmin, async (_req, res) => {
   try {
     const orders = await db
       .select()

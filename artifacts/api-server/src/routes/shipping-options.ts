@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { db, shippingOptionsTable } from "@workspace/db";
 import { eq, asc } from "drizzle-orm";
 import crypto from "crypto";
-import { requireAdminAuth } from "./admin-auth";
+import { requirePrimaryAdmin } from "./admin-auth";
 
 const router: IRouter = Router();
 
@@ -29,7 +29,7 @@ router.get("/shipping-options", async (_req, res) => {
 // GET /api/admin/shipping-options  (admin)
 // Returns ALL shipping options (active + inactive).
 // ---------------------------------------------------------------------------
-router.get("/admin/shipping-options", requireAdminAuth, async (_req, res) => {
+router.get("/admin/shipping-options", requirePrimaryAdmin, async (_req, res) => {
   try {
     const options = await db
       .select()
@@ -47,7 +47,7 @@ router.get("/admin/shipping-options", requireAdminAuth, async (_req, res) => {
 // POST /api/admin/shipping-options  (admin)
 // Create a new shipping option.
 // ---------------------------------------------------------------------------
-router.post("/admin/shipping-options", requireAdminAuth, async (req, res) => {
+router.post("/admin/shipping-options", requirePrimaryAdmin, async (req, res) => {
   try {
     const { name, description, price, sortOrder } = req.body as {
       name?: string;
@@ -94,7 +94,7 @@ router.post("/admin/shipping-options", requireAdminAuth, async (req, res) => {
 // PATCH /api/admin/shipping-options/:id  (admin)
 // Update an existing shipping option.
 // ---------------------------------------------------------------------------
-router.patch("/admin/shipping-options/:id", requireAdminAuth, async (req, res) => {
+router.patch("/admin/shipping-options/:id", requirePrimaryAdmin, async (req, res) => {
   try {
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
@@ -142,7 +142,7 @@ router.patch("/admin/shipping-options/:id", requireAdminAuth, async (req, res) =
 // ---------------------------------------------------------------------------
 // DELETE /api/admin/shipping-options/:id  (admin)
 // ---------------------------------------------------------------------------
-router.delete("/admin/shipping-options/:id", requireAdminAuth, async (req, res) => {
+router.delete("/admin/shipping-options/:id", requirePrimaryAdmin, async (req, res) => {
   try {
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];

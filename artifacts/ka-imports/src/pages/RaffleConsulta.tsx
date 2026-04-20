@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { formatCurrency, cn } from "@/lib/utils";
 import { Loader2, Search, Ticket, CheckCircle2, Clock, AlertCircle, Copy, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
+import { getCheckoutSecurityHeaders } from "@/lib/checkout-security";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -70,26 +71,39 @@ export default function RaffleConsulta() {
     }
     setLoading(true);
     try {
-      const res = await fetch(`${BASE}/api/raffles/reservations/lookup?query=${encodeURIComponent(val)}`);
+      const res = await fetch(`${BASE}/api/raffles/reservations/lookup?query=${encodeURIComponent(val)}`, {
+        method: "GET",
+        headers: await getCheckoutSecurityHeaders(),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as { message?: string }).message || "Erro ao buscar reservas.");
+      }
       const data = await res.json() as ReservationRow[];
       setResults(Array.isArray(data) ? data : []);
       if (Array.isArray(data) && data.length === 0) {
         toast.info("Nenhuma reserva encontrada.");
       }
-    } catch {
-      toast.error("Erro ao buscar reservas.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao buscar reservas.");
     } finally {
       setLoading(false);
     }
   }
 
   async function handleRefreshPix(reservationId: string, cpf?: string) {
+    const cpfDigits = String(cpf ?? "").replace(/\D/g, "");
+    if (cpfDigits.length !== 11) {
+      toast.error("Informe um CPF válido para gerar PIX.");
+      return;
+    }
+
     setRefreshingPix(reservationId);
     try {
-      const body = cpf ? JSON.stringify({ document: cpf }) : undefined;
+      const body = JSON.stringify({ document: cpfDigits });
       const res = await fetch(`${BASE}/api/raffles/reservations/${reservationId}/refresh-pix`, {
         method: "POST",
-        headers: cpf ? { "Content-Type": "application/json" } : undefined,
+        headers: await getCheckoutSecurityHeaders(),
         body,
       });
       if (!res.ok) {
@@ -101,7 +115,7 @@ export default function RaffleConsulta() {
         prev
           ? prev.map((r) =>
               r.id === reservationId
-                ? { ...r, pixCode: data.pixCode ?? r.pixCode, pixBase64: data.pixBase64 ?? r.pixBase64, pixExpiresAt: data.pixExpiresAt ?? r.pixExpiresAt, isPixExpired: false, clientDocument: cpf ?? r.clientDocument }
+                ? { ...r, pixCode: data.pixCode ?? r.pixCode, pixBase64: data.pixBase64 ?? r.pixBase64, pixExpiresAt: data.pixExpiresAt ?? r.pixExpiresAt, isPixExpired: false, clientDocument: cpfDigits }
                 : r
             )
           : prev
@@ -198,45 +212,29 @@ export default function RaffleConsulta() {
                   {canRefresh && (
                     <div className="space-y-2">
                       {pixExpired ? (
-                        r.clientDocument ? (
+                        <div className="space-y-2">
+                          <p className="text-xs text-muted-foreground">Digite seu CPF para gerar o PIX:</p>
+                          <Input
+                            placeholder="Somente números (11 dígitos)"
+                            inputMode="numeric"
+                            maxLength={14}
+                            value={pendingCpf[r.id] ?? ""}
+                            onChange={(e) => setPendingCpf((prev) => ({ ...prev, [r.id]: e.target.value }))}
+                          />
                           <Button
                             size="sm"
                             className="w-full"
-                            onClick={() => handleRefreshPix(r.id)}
-                            disabled={refreshingPix === r.id}
+                            disabled={refreshingPix === r.id || (pendingCpf[r.id] ?? "").replace(/\D/g, "").length !== 11}
+                            onClick={() => handleRefreshPix(r.id, (pendingCpf[r.id] ?? "").replace(/\D/g, ""))}
                           >
                             {refreshingPix === r.id ? (
                               <Loader2 className="w-4 h-4 animate-spin mr-2" />
                             ) : (
                               <RefreshCw className="w-4 h-4 mr-2" />
                             )}
-                            Gerar novo PIX para pagar
+                            Confirmar e gerar PIX
                           </Button>
-                        ) : (
-                          <div className="space-y-2">
-                            <p className="text-xs text-muted-foreground">Digite seu CPF para gerar o PIX:</p>
-                            <Input
-                              placeholder="Somente números (11 dígitos)"
-                              inputMode="numeric"
-                              maxLength={14}
-                              value={pendingCpf[r.id] ?? ""}
-                              onChange={(e) => setPendingCpf((prev) => ({ ...prev, [r.id]: e.target.value }))}
-                            />
-                            <Button
-                              size="sm"
-                              className="w-full"
-                              disabled={refreshingPix === r.id || (pendingCpf[r.id] ?? "").replace(/\D/g, "").length !== 11}
-                              onClick={() => handleRefreshPix(r.id, (pendingCpf[r.id] ?? "").replace(/\D/g, ""))}
-                            >
-                              {refreshingPix === r.id ? (
-                                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                              ) : (
-                                <RefreshCw className="w-4 h-4 mr-2" />
-                              )}
-                              Confirmar e gerar PIX
-                            </Button>
-                          </div>
-                        )
+                        </div>
                       ) : (
                         <Button
                           size="sm"

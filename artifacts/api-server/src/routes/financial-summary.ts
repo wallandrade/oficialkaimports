@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db, ordersTable, productsTable, sellersTable, siteSettingsTable } from "@workspace/db";
 import { and, eq, gte, inArray, lte } from "drizzle-orm";
-import { requireAdminAuth } from "./admin-auth";
+import { getAdminScope, requireAdminAuth } from "./admin-auth";
 
 const router: IRouter = Router();
 
@@ -37,6 +37,16 @@ function parseOrderProducts(raw: unknown): Array<Record<string, unknown>> {
 // GET /api/admin/financial-summary
 router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
   try {
+    const adminScope = getAdminScope(req);
+    if (!adminScope) {
+      res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
+      return;
+    }
+    if (!adminScope.hasGlobalAccess && !adminScope.sellerCode) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Usuário sem seller vinculado." });
+      return;
+    }
+
     const { dateFrom, dateTo, sellerCode } = req.query as Record<string, string>;
     const conditions = [];
     // Função para converter data local (BRT) para UTC
@@ -49,7 +59,13 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
     if (dateTo) conditions.push(lte(ordersTable.createdAt, toUTC(dateTo, "23", "59", "59")));
     // Considera apenas pedidos pagos
     conditions.push(inArray(ordersTable.status, ["paid", "completed"]));
-    if (sellerCode) {
+    if (!adminScope.hasGlobalAccess) {
+      if (sellerCode && sellerCode !== adminScope.sellerCode) {
+        res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para acessar outro seller." });
+        return;
+      }
+      conditions.push(eq(ordersTable.sellerCode, adminScope.sellerCode!));
+    } else if (sellerCode) {
       conditions.push(eq(ordersTable.sellerCode, sellerCode));
     }
     const orders = await db.select().from(ordersTable).where(and(...conditions));

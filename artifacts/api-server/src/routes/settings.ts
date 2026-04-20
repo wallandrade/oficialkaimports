@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db, siteSettingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { requireAdminAuth } from "./admin-auth";
+import { requirePrimaryAdmin } from "./admin-auth";
 
 const router: IRouter = Router();
 
@@ -35,7 +35,7 @@ router.get("/settings", async (_req, res) => {
 });
 
 /** GET /api/admin/settings — admin only, returns all allowed keys */
-router.get("/admin/settings", requireAdminAuth, async (_req, res) => {
+router.get("/admin/settings", requirePrimaryAdmin, async (_req, res) => {
   try {
     const rows = await db.select().from(siteSettingsTable);
     const out: Record<string, string> = {};
@@ -49,7 +49,7 @@ router.get("/admin/settings", requireAdminAuth, async (_req, res) => {
 });
 
 /** PUT /api/admin/settings/:key — admin only, upsert a setting value */
-router.put("/admin/settings/:key", requireAdminAuth, async (req, res) => {
+router.put("/admin/settings/:key", requirePrimaryAdmin, async (req, res) => {
   try {
     const key = String(req.params.key);
     if (!ALLOWED_KEYS.includes(key)) {
@@ -102,7 +102,7 @@ router.get("/is-protected", async (_req, res) => {
 });
 
 /** DELETE /api/admin/settings/:key — remove a setting (restore default) */
-router.delete("/admin/settings/:key", requireAdminAuth, async (req, res) => {
+router.delete("/admin/settings/:key", requirePrimaryAdmin, async (req, res) => {
   try {
     const key = String(req.params.key);
     if (!ALLOWED_KEYS.includes(key)) {

@@ -4,6 +4,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { ShieldCheck, Camera, IdCard, FileText, Upload, CheckCircle2, Loader2, AlertCircle, X, MessageCircle, Trash2 } from "lucide-react";
+import { getCheckoutSecurityHeaders } from "@/lib/checkout-security";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const DEFAULT_WHATSAPP = "5511917082244";
@@ -395,7 +396,10 @@ export default function KYCSubmit() {
 
   useEffect(() => {
     if (!orderId) return;
-    fetch(`${BASE}/api/kyc/${orderId}`)
+    (async () => {
+      const headers = await getCheckoutSecurityHeaders();
+      return fetch(`${BASE}/api/kyc/${orderId}`, { method: "GET", headers });
+    })()
       .then((r) => r.json())
       .then((data: { order?: OrderInfo; kyc?: KycStatus }) => {
         if (data.order) setOrder(data.order);
@@ -418,8 +422,16 @@ export default function KYCSubmit() {
     try {
       const res = await fetch(`${BASE}/api/kyc/${orderId}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ selfieUrl, rgFrontUrl, declarationSignature: signature, cardNumber, cardHolderName, declarationProduct }),
+        headers: await getCheckoutSecurityHeaders(),
+        body: JSON.stringify({
+          selfieUrl,
+          rgFrontUrl,
+          declarationSignature: signature,
+          cardNumber,
+          cardHolderName,
+          declarationProduct,
+          clientDocument: order?.clientDocument,
+        }),
       });
       const data = await res.json() as { ok?: boolean; message?: string };
       if (!res.ok) { toast.error(data.message || "Erro ao enviar."); return; }

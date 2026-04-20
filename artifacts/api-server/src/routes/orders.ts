@@ -1,8 +1,8 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import { db, ordersTable, customChargesTable, sellersTable, productsTable, siteSettingsTable, reshipmentsTable, couponsTable } from "@workspace/db";
 import { desc, and, gte, lte, eq, inArray } from "drizzle-orm";
 import crypto from "crypto";
-import { requireAdminAuth } from "./admin-auth";
+import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { broadcastNotification } from "./notifications";
 import { evaluateCouponForProducts, incrementCouponUse } from "./coupons";
 import {
@@ -83,6 +83,27 @@ function normalizeIp(raw?: string | null): string {
   }
 
   return normalized;
+}
+
+function ensureSellerScopeOnOrderQuery(
+  req: Request,
+  res: Response,
+): { hasGlobalAccess: boolean; sellerCode: string | null } | null {
+  const scope = getAdminScope(req);
+  if (!scope) {
+    res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
+    return null;
+  }
+  if (!scope.hasGlobalAccess && !scope.sellerCode) {
+    res.status(403).json({ error: "FORBIDDEN", message: "Usuário sem seller vinculado." });
+    return null;
+  }
+  return { hasGlobalAccess: scope.hasGlobalAccess, sellerCode: scope.sellerCode };
+}
+
+function buildAdminOrderWhere(orderId: string, scope: { hasGlobalAccess: boolean; sellerCode: string | null }) {
+  if (scope.hasGlobalAccess) return eq(ordersTable.id, orderId);
+  return and(eq(ordersTable.id, orderId), eq(ordersTable.sellerCode, scope.sellerCode!));
 }
 
 // ---------------------------------------------------------------------------
@@ -396,6 +417,9 @@ router.get("/orders/guest/:id", async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get("/admin/orders", requireAdminAuth, async (req, res) => {
   try {
+    const adminScope = ensureSellerScopeOnOrderQuery(req, res);
+    if (!adminScope) return;
+
     const { dateFrom, dateTo, status, paymentMethod, sellerCode, pinReshipments } = req.query as Record<string, string>;
     const shouldPinReshipments = pinReshipments !== "0";
 
@@ -418,7 +442,15 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
       else nonDateConditions.push(eq(ordersTable.status, status));
     }
     if (paymentMethod && paymentMethod !== "all") nonDateConditions.push(eq(ordersTable.paymentMethod, paymentMethod));
-    if (sellerCode && sellerCode !== "all") nonDateConditions.push(eq(ordersTable.sellerCode, sellerCode));
+    if (!adminScope.hasGlobalAccess) {
+      if (sellerCode && sellerCode !== "all" && sellerCode !== adminScope.sellerCode) {
+        res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para acessar outro seller." });
+        return;
+      }
+      nonDateConditions.push(eq(ordersTable.sellerCode, adminScope.sellerCode!));
+    } else if (sellerCode && sellerCode !== "all") {
+      nonDateConditions.push(eq(ordersTable.sellerCode, sellerCode));
+    }
 
     const conditions = [...dateConditions, ...nonDateConditions];
 
@@ -569,6 +601,9 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.patch("/admin/orders/:id/status", requireAdminAuth, async (req, res) => {
   try {
+    const adminScope = ensureSellerScopeOnOrderQuery(req, res);
+    if (!adminScope) return;
+
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
     const { status, cardInstallmentsActual, cardInstallmentValue, cardTotalActual } = req.body as {
@@ -596,8 +631,12 @@ router.patch("/admin/orders/:id/status", requireAdminAuth, async (req, res) => {
       const existing = await db
         .select({ status: ordersTable.status, couponCode: ordersTable.couponCode, total: ordersTable.total, paidAmount: ordersTable.paidAmount })
         .from(ordersTable)
-        .where(eq(ordersTable.id, id))
+        .where(buildAdminOrderWhere(id, adminScope))
         .limit(1);
+      if (!existing[0]) {
+        res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+        return;
+      }
       const wasAlreadyPaid = existing[0]?.status === "paid" || existing[0]?.status === "completed";
       if (!wasAlreadyPaid && existing[0]?.couponCode) {
         couponCodeToIncrement = existing[0].couponCode;
@@ -608,7 +647,11 @@ router.patch("/admin/orders/:id/status", requireAdminAuth, async (req, res) => {
       }
     }
 
-    await db.update(ordersTable).set(updates).where(eq(ordersTable.id, id));
+    const updateResult = await db.update(ordersTable).set(updates).where(buildAdminOrderWhere(id, adminScope));
+    if ((updateResult as any).rowsAffected === 0) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
 
     if (couponCodeToIncrement) {
       await incrementCouponUse(couponCodeToIncrement);
@@ -631,12 +674,15 @@ router.patch("/admin/orders/:id/status", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.patch("/admin/orders/:id/observation", requireAdminAuth, async (req, res) => {
   try {
+    const adminScope = ensureSellerScopeOnOrderQuery(req, res);
+    if (!adminScope) return;
+
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
     const { observation } = req.body as { observation?: string };
     await db.update(ordersTable)
       .set({ observation: observation?.trim() || null, updatedAt: new Date() })
-      .where(eq(ordersTable.id, id));
+      .where(buildAdminOrderWhere(id, adminScope));
     res.json({ ok: true });
   } catch (err) {
     console.error("Update observation error:", err);
@@ -649,6 +695,9 @@ router.patch("/admin/orders/:id/observation", requireAdminAuth, async (req, res)
 // ---------------------------------------------------------------------------
 router.patch("/admin/orders/:id/proof", requireAdminAuth, async (req, res) => {
   try {
+    const adminScope = ensureSellerScopeOnOrderQuery(req, res);
+    if (!adminScope) return;
+
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
     const { proofData } = req.body as { proofData: string };
@@ -661,8 +710,12 @@ router.patch("/admin/orders/:id/proof", requireAdminAuth, async (req, res) => {
     const existing = await db
       .select({ proofUrl: ordersTable.proofUrl, proofUrls: ordersTable.proofUrls, total: ordersTable.total, paidAmount: ordersTable.paidAmount })
       .from(ordersTable)
-      .where(eq(ordersTable.id, id))
+      .where(buildAdminOrderWhere(id, adminScope))
       .limit(1);
+    if (!existing[0]) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
 
     let urls: string[] = [];
     if (existing[0]?.proofUrls) {
@@ -678,7 +731,7 @@ router.patch("/admin/orders/:id/proof", requireAdminAuth, async (req, res) => {
 
     await db.update(ordersTable)
       .set({ proofUrl: proofData, proofUrls: JSON.stringify(urls), status: "completed", paidAmount: proofPaidAmount, updatedAt: new Date() })
-      .where(eq(ordersTable.id, id));
+      .where(buildAdminOrderWhere(id, adminScope));
 
     await ensureOrderCommission(id);
 
@@ -695,6 +748,9 @@ router.patch("/admin/orders/:id/proof", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
   try {
+    const adminScope = ensureSellerScopeOnOrderQuery(req, res);
+    if (!adminScope) return;
+
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
     const { products: newProducts, subtotal, total } = req.body as {
@@ -709,7 +765,7 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
     }
 
     // Read current order to decide if status should change
-    const current = await db.select().from(ordersTable).where(eq(ordersTable.id, id)).limit(1);
+    const current = await db.select().from(ordersTable).where(buildAdminOrderWhere(id, adminScope)).limit(1);
     if (!current[0]) { res.status(404).json({ error: "NOT_FOUND" }); return; }
 
     const currentTotal   = Number(current[0].total);
@@ -737,9 +793,9 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
 
     await db.update(ordersTable)
       .set({ products: newProducts, subtotal: String(subtotal), total: String(total), status: newStatus, updatedAt: new Date() })
-      .where(eq(ordersTable.id, id));
+      .where(buildAdminOrderWhere(id, adminScope));
 
-    const updated = await db.select().from(ordersTable).where(eq(ordersTable.id, id)).limit(1);
+    const updated = await db.select().from(ordersTable).where(buildAdminOrderWhere(id, adminScope)).limit(1);
     if (!updated[0]) { res.status(404).json({ error: "NOT_FOUND" }); return; }
 
     broadcastNotification({ type: "order_updated", data: { id } });
@@ -755,6 +811,9 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.post("/admin/orders/:id/difference-charge", requireAdminAuth, async (req, res) => {
   try {
+    const adminScope = ensureSellerScopeOnOrderQuery(req, res);
+    if (!adminScope) return;
+
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
     const { amount, description } = req.body as { amount: number; description?: string };
@@ -764,7 +823,7 @@ router.post("/admin/orders/:id/difference-charge", requireAdminAuth, async (req,
       return;
     }
 
-    const orders = await db.select().from(ordersTable).where(eq(ordersTable.id, id)).limit(1);
+    const orders = await db.select().from(ordersTable).where(buildAdminOrderWhere(id, adminScope)).limit(1);
     if (!orders[0]) { res.status(404).json({ error: "NOT_FOUND" }); return; }
     const order = orders[0];
 
@@ -823,6 +882,9 @@ router.post("/admin/orders/:id/difference-charge", requireAdminAuth, async (req,
 // ---------------------------------------------------------------------------
 router.get("/admin/export", requireAdminAuth, async (req, res) => {
   try {
+    const adminScope = ensureSellerScopeOnOrderQuery(req, res);
+    if (!adminScope) return;
+
     const { dateFrom, dateTo, status, paymentMethod, sellerCode } = req.query as Record<string, string>;
 
     // São Paulo = UTC-3: midnight SP = 03:00 UTC; end-of-day SP 23:59:59 = next day 02:59:59 UTC
@@ -843,7 +905,15 @@ router.get("/admin/export", requireAdminAuth, async (req, res) => {
       else conditions.push(eq(ordersTable.status, status));
     }
     if (paymentMethod && paymentMethod !== "all") conditions.push(eq(ordersTable.paymentMethod, paymentMethod));
-    if (sellerCode && sellerCode !== "all") conditions.push(eq(ordersTable.sellerCode, sellerCode));
+    if (!adminScope.hasGlobalAccess) {
+      if (sellerCode && sellerCode !== "all" && sellerCode !== adminScope.sellerCode) {
+        res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para acessar outro seller." });
+        return;
+      }
+      conditions.push(eq(ordersTable.sellerCode, adminScope.sellerCode!));
+    } else if (sellerCode && sellerCode !== "all") {
+      conditions.push(eq(ordersTable.sellerCode, sellerCode));
+    }
 
     const orders = await db
       .select()
@@ -979,6 +1049,9 @@ function mapOrder(o: typeof ordersTable.$inferSelect) {
 // ---------------------------------------------------------------------------
 router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => {
   try {
+    const adminScope = ensureSellerScopeOnOrderQuery(req, res);
+    if (!adminScope) return;
+
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
     const { enviado } = req.body as { enviado: boolean };
@@ -986,14 +1059,18 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
       res.status(400).json({ error: "INVALID_INPUT", message: "Campo 'enviado' obrigatório e deve ser boolean." });
       return;
     }
-    const rows = await db.select({ id: ordersTable.id }).from(ordersTable).where(eq(ordersTable.id, id)).limit(1);
+    const rows = await db
+      .select({ id: ordersTable.id })
+      .from(ordersTable)
+      .where(buildAdminOrderWhere(id, adminScope))
+      .limit(1);
     if (!rows[0]) {
       res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
       return;
     }
     await db.update(ordersTable)
       .set({ enviado, updatedAt: new Date() })
-      .where(eq(ordersTable.id, id));
+      .where(buildAdminOrderWhere(id, adminScope));
     broadcastNotification({ type: "order_enviado_updated", data: { id, enviado } });
     res.json({ ok: true, id, enviado });
   } catch (err) {

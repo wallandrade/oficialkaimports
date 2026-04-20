@@ -553,6 +553,18 @@ function OrderBumpsPanel({ bumps, products, form, setForm, creating, toggling, d
 
 type TabType = "orders" | "charges" | "sellers" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "support" | "inventory" | "webhook" | "configuracoes" | "socialProof" | "raffles";
 
+const PRIMARY_ONLY_TABS = new Set<TabType>([
+  "users",
+  "coupons",
+  "products",
+  "fretes",
+  "orderBumps",
+  "inventory",
+  "socialProof",
+  "raffles",
+  "configuracoes",
+]);
+
 interface AdminRaffle {
   id: string; title: string; description: string | null; imageUrl: string | null;
   totalNumbers: number; pricePerNumber: string; reservationHours: number;
@@ -1558,6 +1570,12 @@ export default function Admin() {
     if (authChecked && tab === "users") fetchUsers();
     if (authChecked && tab === "customers") fetchCustomers();
   }, [tab, authChecked, fetchUsers, fetchCustomers]);
+
+  useEffect(() => {
+    if (!isPrimary && PRIMARY_ONLY_TABS.has(tab)) {
+      setTab("orders");
+    }
+  }, [isPrimary, tab]);
 
   // -------------------------------------------------------------------------
   // Handlers
@@ -2566,19 +2584,21 @@ export default function Admin() {
             { key: "orders",        label: "Pedidos",          icon: "QrCode",      count: orders.length },
             { key: "charges",       label: "Links Pagamento",  icon: "LinkIcon",    count: charges.length },
             { key: "sellers",       label: "Vendedores",       icon: "Tag" },
-            { key: "coupons",       label: "Cupons",           icon: "Ticket",      count: coupons.length },
-            { key: "products",      label: "Produtos",         icon: "ShoppingBag", count: products.length },
-            { key: "fretes",        label: "Fretes",           icon: "Truck",       count: shippingOptions.length },
-            { key: "orderBumps",    label: "Order Bumps",      icon: "Zap",         count: orderBumps.length },
             { key: "kyc",           label: "KYC",              icon: "ShieldCheck", count: kycList.length > 0 ? kycList.filter((k) => k.status === "submitted").length : undefined },
             { key: "customers",     label: "Clientes",         icon: "UserPlus",    count: customerUsers.length || undefined },
             { key: "support",       label: "Suporte",          icon: "MessageCircle", count: supportTickets.filter((t) => t.status === "open").length || undefined },
-            { key: "inventory",     label: "Estoque",          icon: "Package",     count: pendingReshipments.length || undefined },
-            ...(isPrimary ? [{ key: "users", label: "Usuários", icon: "User" }] : []),
-            { key: "socialProof",   label: "Prova Social",     icon: "ShoppingBag" },
-            { key: "raffles",       label: "Rifas",            icon: "Ticket",      count: rafflesList.length || undefined },
+            ...(isPrimary ? [
+              { key: "coupons",       label: "Cupons",           icon: "Ticket",      count: coupons.length },
+              { key: "products",      label: "Produtos",         icon: "ShoppingBag", count: products.length },
+              { key: "fretes",        label: "Fretes",           icon: "Truck",       count: shippingOptions.length },
+              { key: "orderBumps",    label: "Order Bumps",      icon: "Zap",         count: orderBumps.length },
+              { key: "inventory",     label: "Estoque",          icon: "Package",     count: pendingReshipments.length || undefined },
+              { key: "users",         label: "Usuários",         icon: "User" },
+              { key: "socialProof",   label: "Prova Social",     icon: "ShoppingBag" },
+              { key: "raffles",       label: "Rifas",            icon: "Ticket",      count: rafflesList.length || undefined },
+              { key: "configuracoes", label: "Configurações",    icon: "Settings" },
+            ] : []),
             { key: "webhook",       label: "Webhook",          icon: "Link" },
-            { key: "configuracoes", label: "Configurações",    icon: "Settings" },
           ] as Array<{ key: TabType; label: string; icon: string; count?: number }>).map(({ key, label, icon, count }) => (
             <button key={key}
               onClick={() => setTab(key)}
