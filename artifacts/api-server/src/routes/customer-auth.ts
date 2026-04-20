@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import crypto from "crypto";
 import { db, customerUsersTable, ordersTable, affiliatesTable } from "@workspace/db";
-import { eq, sql, desc, inArray } from "drizzle-orm";
+import { eq, sql, desc, inArray, and } from "drizzle-orm";
 import {
   createCustomerSession,
   generateSalt,
@@ -239,6 +239,69 @@ router.get("/admin/customers", requireAdminAuth, async (req, res) => {
   } catch (err) {
     console.error("[Admin] list customers error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao listar clientes." });
+  }
+});
+
+// --------------------------------------------------------------------------
+// POST /api/admin/customers/:id/impersonate — create customer session (admin)
+// --------------------------------------------------------------------------
+router.post("/admin/customers/:id/impersonate", requireAdminAuth, async (req, res) => {
+  try {
+    const customerId = String(req.params.id || "").trim();
+    if (!customerId) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Cliente inválido." });
+      return;
+    }
+
+    const adminScope = getAdminScope(req);
+    if (!adminScope) {
+      res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
+      return;
+    }
+
+    // Impersonação é sensível: permitido apenas para admin com acesso global.
+    if (!adminScope.hasGlobalAccess) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Apenas administrador principal pode usar este recurso." });
+      return;
+    }
+
+    const users = await db
+      .select({ id: customerUsersTable.id, name: customerUsersTable.name, email: customerUsersTable.email })
+      .from(customerUsersTable)
+      .where(eq(customerUsersTable.id, customerId))
+      .limit(1);
+
+    const user = users[0];
+    if (!user) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Cliente não encontrado." });
+      return;
+    }
+
+    const hasOrders = await db
+      .select({ id: ordersTable.id })
+      .from(ordersTable)
+      .where(eq(ordersTable.userId, user.id))
+      .limit(1);
+
+    // Opcionalmente mantemos esse aviso para auditoria operacional.
+    if (hasOrders.length === 0) {
+      console.warn(`[Admin] impersonating customer without linked orders: ${user.id}`);
+    }
+
+    const session = createCustomerSession({
+      userId: user.id,
+      email: user.email,
+      name: user.name,
+    });
+
+    res.json({
+      token: session.token,
+      expiresIn: session.expiresInSeconds,
+      user,
+    });
+  } catch (err) {
+    console.error("[Admin] customer impersonation error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao entrar na conta do cliente." });
   }
 });
 

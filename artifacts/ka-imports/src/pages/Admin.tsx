@@ -718,6 +718,7 @@ export default function Admin() {
   const [inventorySubmitting, setInventorySubmitting] = useState(false);
   const [reshipmentUpdatingId, setReshipmentUpdatingId] = useState<string | null>(null);
   const [customersLoading, setCustomersLoading] = useState(false);
+  const [customerImpersonatingId, setCustomerImpersonatingId] = useState<string | null>(null);
   const [customerSearch, setCustomerSearch] = useState("");
   const [loading, setLoading] = useState(true);
   // Once set to true, the spinner never appears again for orders/charges —
@@ -1058,6 +1059,38 @@ export default function Admin() {
     } catch { /* ignore */ }
     finally { setCustomersLoading(false); }
   }, []);
+
+  const impersonateCustomerAccount = useCallback(async (customer: CustomerUserRecord) => {
+    if (!isPrimary) {
+      toast.error("Apenas administrador principal pode entrar na conta do cliente.");
+      return;
+    }
+
+    setCustomerImpersonatingId(customer.id);
+    try {
+      const res = await fetch(`${BASE}/api/admin/customers/${customer.id}/impersonate`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      const data = await res.json() as {
+        token?: string;
+        message?: string;
+      };
+
+      if (!res.ok || !data.token) {
+        toast.error(data.message || "Não foi possível entrar na conta deste cliente.");
+        return;
+      }
+
+      localStorage.setItem("customerToken", data.token);
+      window.open(`${BASE}/minha-conta/pedidos`, "_blank", "noopener,noreferrer");
+      toast.success(`Entrando na conta de ${customer.name}.`);
+    } catch {
+      toast.error("Erro ao entrar na conta do cliente.");
+    } finally {
+      setCustomerImpersonatingId(null);
+    }
+  }, [isPrimary]);
 
   const fetchSupportTickets = useCallback(async () => {
     setSupportLoading(true);
@@ -2788,6 +2821,9 @@ export default function Admin() {
             search={customerSearch}
             setSearch={setCustomerSearch}
             onRefresh={fetchCustomers}
+            onImpersonate={impersonateCustomerAccount}
+            impersonatingId={customerImpersonatingId}
+            canImpersonate={isPrimary}
           />
         ) : tab === "support" ? (
           <SupportTicketsPanel
@@ -6296,13 +6332,16 @@ function SellersPanel({ siteOrigin, savedSellersList, sellerInput, setSellerInpu
 // CustomersPanel
 // ---------------------------------------------------------------------------
 function CustomersPanel({
-  customers, loading, search, setSearch, onRefresh,
+  customers, loading, search, setSearch, onRefresh, onImpersonate, impersonatingId, canImpersonate,
 }: {
   customers: CustomerUserRecord[];
   loading: boolean;
   search: string;
   setSearch: (v: string) => void;
   onRefresh: () => void;
+  onImpersonate: (customer: CustomerUserRecord) => void;
+  impersonatingId: string | null;
+  canImpersonate: boolean;
 }) {
   const filtered = customers.filter((c) => {
     if (!search.trim()) return true;
@@ -6363,6 +6402,7 @@ function CustomersPanel({
                 <th className="text-left px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">Pedidos</th>
                 <th className="text-left px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">Cód. afiliado</th>
                 <th className="text-left px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">Cadastro em</th>
+                <th className="text-left px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -6384,6 +6424,27 @@ function CustomersPanel({
                     )}
                   </td>
                   <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{formatDateBR(c.createdAt)}</td>
+                  <td className="px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => onImpersonate(c)}
+                      disabled={!canImpersonate || impersonatingId === c.id}
+                      className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg border border-border bg-white hover:bg-muted text-xs font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+                      title={!canImpersonate ? "Apenas administrador principal pode entrar na conta" : "Entrar na conta do cliente"}
+                    >
+                      {impersonatingId === c.id ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          Entrando...
+                        </>
+                      ) : (
+                        <>
+                          <Eye className="w-3.5 h-3.5" />
+                          Entrar na conta
+                        </>
+                      )}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
