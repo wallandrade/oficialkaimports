@@ -20,6 +20,24 @@ export type AdminScope = {
 
 let adminSellerScopeMapCache: Record<string, string> | null = null;
 
+function redactToken(token: string): string {
+  if (!token) return "";
+  if (token.length <= 12) return "[REDACTED]";
+  return `${token.slice(0, 6)}...${token.slice(-4)}`;
+}
+
+function sanitizeHeadersForLog(headers: Request["headers"]): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(headers || {}).map(([key, value]) => {
+      const normalized = key.toLowerCase();
+      if (normalized === "authorization" || normalized === "cookie") {
+        return [key, "[REDACTED]"];
+      }
+      return [key, value];
+    }),
+  );
+}
+
 function normalizeSellerCode(value: unknown): string | null {
   const normalized = String(value ?? "").trim().toLowerCase();
   return normalized || null;
@@ -151,7 +169,7 @@ seedFromEnvIfEmpty().catch(console.error);
 // --------------------------------------------------------------------------
 export async function requireAdminAuth(req: Request, res: Response, next: NextFunction) {
   try {
-    console.log('[requireAdminAuth] INICIO', { headers: req.headers, query: req.query });
+    console.log('[requireAdminAuth] INICIO', { headers: sanitizeHeadersForLog(req.headers), query: req.query });
     const tokenFromQuery = (req.query as Record<string, string>)["token"];
     if (tokenFromQuery && !req.headers.authorization) {
       req.headers.authorization = `Bearer ${tokenFromQuery}`;
@@ -168,7 +186,7 @@ export async function requireAdminAuth(req: Request, res: Response, next: NextFu
     }
     const sessionRows = await db.select().from(adminSessionsTable).where(eq(adminSessionsTable.token, token)).limit(1);
     if (!sessionRows[0]) {
-      console.log('[requireAdminAuth] Sessão não encontrada para token', token);
+      console.log('[requireAdminAuth] Sessão não encontrada para token', redactToken(token));
       res.status(401).json({ error: "UNAUTHORIZED", message: "Acesso não autorizado." });
       return;
     }
@@ -184,7 +202,13 @@ export async function requireAdminAuth(req: Request, res: Response, next: NextFu
 
     // Anexa info da sessão para downstream
     (req as any).adminSession = { ...sessionRows[0], ...scope };
-    console.log('[requireAdminAuth] Sessão OK', (req as any).adminSession);
+    console.log('[requireAdminAuth] Sessão OK', {
+      username: scope.username,
+      isPrimary: scope.isPrimary,
+      hasGlobalAccess: scope.hasGlobalAccess,
+      sellerCode: scope.sellerCode,
+      expiresAt: sessionRows[0].expiresAt,
+    });
     next();
   } catch (err) {
     console.error('[requireAdminAuth] Erro:', err);
@@ -298,7 +322,11 @@ router.post("/admin/logout", async (req, res) => {
 // --------------------------------------------------------------------------
 router.get("/admin/verify", requireAdminAuth, async (req, res) => {
   try {
-    console.log('[admin/verify] INICIO', { adminSession: (req as any).adminSession });
+    console.log('[admin/verify] INICIO', {
+      username: (req as any).adminSession?.username,
+      isPrimary: !!(req as any).adminSession?.isPrimary,
+      sellerCode: (req as any).adminSession?.sellerCode ?? null,
+    });
     const session = (req as any).adminSession;
     res.json({ ok: true, isPrimary: !!session?.isPrimary, username: session?.username ?? "" });
     console.log('[admin/verify] SUCESSO', { username: session?.username });

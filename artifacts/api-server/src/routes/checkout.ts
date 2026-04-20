@@ -207,6 +207,16 @@ router.post("/checkout/pix", async (req, res) => {
       }
       normalizedCouponCode = cleanCouponCode;
       computedDiscountAmount = evaluation.discountAmount;
+
+      console.warn(`[CHECKOUT/PIX:${requestId}] Coupon applied`, {
+        code: cleanCouponCode,
+        orderValue: computedBaseTotal,
+        eligibleSubtotal: evaluation.eligibleSubtotal,
+        discountAmount: evaluation.discountAmount,
+        productsCount: orderProducts.length,
+        purchaseIp,
+        customerEmail: client?.email || null,
+      });
     }
 
     const amount = Math.max(0, computedBaseTotal - computedDiscountAmount);

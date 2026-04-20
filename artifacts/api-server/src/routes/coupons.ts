@@ -155,12 +155,26 @@ router.post("/coupons/validate", async (req, res) => {
     const productList = Array.isArray(products) ? products : [];
     const evaluation = evaluateCouponForProducts(coupon, productList, orderValue);
     if (!evaluation.valid) {
+      console.warn("[COUPON/VALIDATE] rejected", {
+        code: code.trim().toUpperCase(),
+        orderValue: Number(orderValue || 0),
+        eligibleSubtotal: evaluation.eligibleSubtotal,
+        error: evaluation.error || "INVALID_COUPON",
+      });
       res.status(400).json({
         error: evaluation.error || "INVALID_COUPON",
         message: evaluation.message || "Cupom inválido.",
       });
       return;
     }
+
+    console.log("[COUPON/VALIDATE] accepted", {
+      code: coupon.code,
+      orderValue: Number(orderValue || 0),
+      eligibleSubtotal: evaluation.eligibleSubtotal,
+      discountAmount: evaluation.discountAmount,
+      productsCount: productList.length,
+    });
 
     res.json({
       valid:         true,
@@ -251,6 +265,16 @@ router.post("/admin/coupons", requireAdminAuth, requirePrimaryAdmin, async (req,
       isActive:      true,
     });
 
+    console.warn("[COUPON/ADMIN] created", {
+      admin: (req as any).adminSession?.username || "unknown",
+      code: cleanCode,
+      discountType,
+      discountValue: Number(discountValue),
+      minOrderValue: minOrderValue ? Number(minOrderValue) : null,
+      maxUses: maxUses || null,
+      eligibleProductIds: cleanEligibleProductIds,
+    });
+
     const [created] = await db.select().from(couponsTable).where(eq(couponsTable.id, id));
     res.status(201).json(mapCoupon(created!));
   } catch (err) {
@@ -275,6 +299,12 @@ router.patch("/admin/coupons/:id", requireAdminAuth, requirePrimaryAdmin, async 
       .set({ isActive, updatedAt: new Date() })
       .where(eq(couponsTable.id, id));
 
+    console.warn("[COUPON/ADMIN] updated", {
+      admin: (req as any).adminSession?.username || "unknown",
+      id,
+      isActive,
+    });
+
     res.json({ ok: true });
   } catch (err) {
     console.error("Update coupon error:", err);
@@ -289,6 +319,12 @@ router.delete("/admin/coupons/:id", requireAdminAuth, requirePrimaryAdmin, async
   try {
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
+
+    console.warn("[COUPON/ADMIN] deleted", {
+      admin: (req as any).adminSession?.username || "unknown",
+      id,
+    });
+
     await db.delete(couponsTable).where(eq(couponsTable.id, id));
     res.json({ ok: true });
   } catch (err) {
