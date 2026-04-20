@@ -1579,7 +1579,7 @@ export default function Admin() {
 
   const fetchAll = useCallback(() => {
     fetchStatsData();
-    if (tab === "orders")          fetchOrders();
+    if (tab === "orders")          { fetchOrders(); fetchProducts(); }
     else if (tab === "charges")    fetchCharges();
     else if (tab === "users")      fetchUsers();
     else if (tab === "customers")  fetchCustomers();
