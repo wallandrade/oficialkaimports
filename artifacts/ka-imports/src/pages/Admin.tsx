@@ -42,7 +42,7 @@ function isoToSPDate(iso: string) {
   return iso ? iso.slice(0, 10) : "";
 }
 
-type OrderProductLite = { id: string; name: string; quantity: number; price: number; costPrice?: number };
+type OrderProductLite = { id: string; name: string; quantity: number; price: number; costPrice?: number; image?: string | null };
 
 function getOrderProducts(raw: unknown): OrderProductLite[] {
   if (Array.isArray(raw)) return raw as OrderProductLite[];
@@ -2848,6 +2848,11 @@ export default function Admin() {
         ) : tab === "orders" ? (
           <OrdersPanel
             orders={filteredOrders}
+            productImageById={Object.fromEntries(
+              (products as Array<{ id?: string; image?: string | null }>)
+                .map((p) => [String(p?.id || "").trim(), String(p?.image || "").trim()] as const)
+                .filter(([id, image]) => !!id && !!image),
+            )}
             statusUpdating={statusUpdating}
             expandedOrder={expandedOrder}
             setExpandedOrder={setExpandedOrder}
@@ -5502,11 +5507,13 @@ function InventoryPanel({
 }
 
 function OrdersPanel({
+  productImageById,
   orders, statusUpdating, expandedOrder, setExpandedOrder,
   updateOrderStatus, setProofModal, setProofViewer, openWhatsApp,
   onOpenCardPaidModal, updateOrderObservation, isPrimary, onEditOrder, onOpenKycModal,
   onSetOrderEnviado, onSetReshipmentStatus, onRemoveOrder,
 }: {
+  productImageById: Record<string, string>;
   orders: AdminOrder[];
   statusUpdating: string | null;
   expandedOrder: string | null;
@@ -5643,6 +5650,15 @@ function OrdersPanel({
         .map((order) => {
           const isCard     = order.paymentMethod === "card_simulation";
           const isExpanded = expandedOrder === order.id;
+          const orderProducts = getOrderProducts(order.products);
+          const previewProducts = orderProducts.slice(0, 5);
+          const hiddenProductsCount = Math.max(0, orderProducts.length - previewProducts.length);
+          const resolveProductImage = (product: OrderProductLite): string => {
+            const fromSnapshot = String(product?.image || "").trim();
+            if (fromSnapshot) return fromSnapshot;
+            const productId = String(product?.id || "").trim();
+            return productId ? String(productImageById[productId] || "").trim() : "";
+          };
           return (
             <div key={order.id} className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${isCard ? "border-purple-200" : "border-border/60"}`}>
             <div className="p-5 sm:p-6">
@@ -5717,6 +5733,33 @@ function OrdersPanel({
                   <p className="text-xs text-muted-foreground mt-0.5">IP compra: {normalizeIp((order as any).purchaseIp)}</p>
                   {order.addressCity && (
                     <p className="text-xs text-muted-foreground mt-0.5">{order.addressCity}{order.addressState && `/${order.addressState}`}</p>
+                  )}
+                  {previewProducts.length > 0 && (
+                    <div className="mt-2 flex items-center gap-2 flex-wrap">
+                      {previewProducts.map((product, index) => {
+                        const imageSrc = resolveProductImage(product);
+                        return (
+                          <div
+                            key={`${product.id}-${index}`}
+                            title={`${product.quantity}x ${product.name}`}
+                            className="h-11 w-11 rounded-lg overflow-hidden border border-border bg-muted/30 shrink-0"
+                          >
+                            {imageSrc ? (
+                              <img src={imageSrc} alt={product.name} className="h-full w-full object-cover" loading="lazy" />
+                            ) : (
+                              <div className="h-full w-full flex items-center justify-center text-muted-foreground">
+                                <ShoppingBag className="w-4 h-4" />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {hiddenProductsCount > 0 && (
+                        <span className="inline-flex items-center h-11 px-2 rounded-lg border border-border bg-muted text-xs font-semibold text-muted-foreground">
+                          +{hiddenProductsCount}
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
                 <div className="text-right shrink-0">
@@ -5842,12 +5885,25 @@ function OrdersPanel({
                   className="border-t border-border/50 bg-muted/30 px-5 sm:px-6 pb-5 pt-4">
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Produtos</p>
                   <div className="space-y-1">
-                    {getOrderProducts(order.products).map((p, i) => (
-                      <div key={i} className="flex justify-between text-sm">
-                        <span>{p.quantity}x {p.name}</span>
+                    {orderProducts.map((p, i) => {
+                      const imageSrc = resolveProductImage(p);
+                      return (
+                      <div key={i} className="flex items-center justify-between text-sm gap-3">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="h-9 w-9 rounded-md overflow-hidden border border-border bg-muted/30 shrink-0">
+                            {imageSrc ? (
+                              <img src={imageSrc} alt={p.name} className="h-full w-full object-cover" loading="lazy" />
+                            ) : (
+                              <div className="h-full w-full flex items-center justify-center text-muted-foreground">
+                                <ShoppingBag className="w-3.5 h-3.5" />
+                              </div>
+                            )}
+                          </div>
+                          <span className="truncate">{p.quantity}x {p.name}</span>
+                        </div>
                         <span className="font-medium">{formatCurrency(p.price * p.quantity)}</span>
                       </div>
-                    ))}
+                    )})}
                   </div>
                   <div className="mt-3 text-sm space-y-0.5 text-muted-foreground">
                     <p>Subtotal: {formatCurrency(Number(order.subtotal))}</p>
