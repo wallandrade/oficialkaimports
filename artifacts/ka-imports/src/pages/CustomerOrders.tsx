@@ -12,6 +12,7 @@ type CustomerOrder = {
   id: string;
   total: number;
   status: string;
+  enviado?: boolean;
   paymentMethod: string;
   createdAt: string;
   clientName?: string;
@@ -65,6 +66,7 @@ function resolveStoreReferralLink(link: string, code: string): string {
 }
 
 const statusLabel: Record<string, string> = {
+  enviado: "Enviado",
   pending: "Pendente",
   awaiting_payment: "Aguardando pagamento",
   paid: "Pago",
@@ -74,6 +76,8 @@ const statusLabel: Record<string, string> = {
 
 function getStatusColor(status: string): string {
   switch (status) {
+    case "enviado":
+      return "bg-blue-100 text-blue-800 border border-blue-300";
     case "paid":
     case "completed":
       return "bg-green-100 text-green-800 border border-green-300";
@@ -89,6 +93,8 @@ function getStatusColor(status: string): string {
 
 function getStatusIcon(status: string) {
   switch (status) {
+    case "enviado":
+      return <Truck className="w-5 h-5" />;
     case "paid":
     case "completed":
       return <CheckCircle2 className="w-5 h-5" />;
@@ -350,7 +356,7 @@ export default function CustomerOrders() {
                       <div className="rounded-xl border border-border p-3 bg-slate-50/60">
                         <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Entregues</p>
                         <p className="text-2xl font-bold text-green-600 mt-1">
-                          {orders.filter((o) => o.status === "completed").length}
+                          {orders.filter((o) => o.status === "completed" || o.enviado).length}
                         </p>
                       </div>
                       <div className="rounded-xl border border-border p-3 bg-slate-50/60">
@@ -377,13 +383,21 @@ export default function CustomerOrders() {
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      {orders.map((order) => (
+                      {orders.map((order) => {
+                        const displayStatus = order.enviado ? "enviado" : order.status;
+                        const displaySituation = displayStatus === "completed"
+                          ? "Entregue"
+                          : displayStatus === "paid"
+                            ? "Processando"
+                            : (statusLabel[displayStatus] || displayStatus);
+
+                        return (
                         <div key={order.id} className="border border-border rounded-2xl p-5 bg-white hover:shadow-md transition-shadow">
                           {/* Header: ID, Status Badge, Data */}
                           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
                             <div className="flex items-start gap-3">
-                              <div className={`mt-0.5 p-2.5 rounded-xl ${order.status === "completed" || order.status === "paid" ? "bg-green-100" : order.status === "cancelled" ? "bg-red-100" : "bg-yellow-100"}`}>
-                                {getStatusIcon(order.status)}
+                              <div className={`mt-0.5 p-2.5 rounded-xl ${displayStatus === "completed" || displayStatus === "paid" ? "bg-green-100" : displayStatus === "enviado" ? "bg-blue-100" : displayStatus === "cancelled" ? "bg-red-100" : "bg-yellow-100"}`}>
+                                {getStatusIcon(displayStatus)}
                               </div>
                               <div>
                                 <p className="text-xs uppercase tracking-wide text-muted-foreground font-semibold">Pedido ID</p>
@@ -391,9 +405,9 @@ export default function CustomerOrders() {
                               </div>
                             </div>
                             <div className="flex flex-col sm:items-end gap-2">
-                              <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap ${getStatusColor(order.status)}`}>
-                                {getStatusIcon(order.status)}
-                                {statusLabel[order.status] || order.status}
+                              <span className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap ${getStatusColor(displayStatus)}`}>
+                                {getStatusIcon(displayStatus)}
+                                {statusLabel[displayStatus] || displayStatus}
                               </span>
                               <p className="text-xs text-muted-foreground">{formatDateBR(order.createdAt)}</p>
                             </div>
@@ -414,7 +428,7 @@ export default function CustomerOrders() {
                             <div>
                               <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Situação</p>
                               <p className="text-sm font-semibold text-foreground mt-1">
-                                {order.status === "completed" ? "Entregue" : order.status === "paid" ? "Processando" : statusLabel[order.status] || order.status}
+                                {displaySituation}
                               </p>
                             </div>
                           </div>
@@ -437,13 +451,13 @@ export default function CustomerOrders() {
                               <MessageCircle className="w-3.5 h-3.5 mr-1.5" />
                               Suporte
                             </Button>
-                            {(order.status === "completed" || order.status === "paid") && (
+                            {(order.enviado || order.status === "completed") && (
                               <Button
                                 variant="outline"
                                 size="sm"
                                 className="rounded-lg text-xs"
                                 onClick={() => {
-                                  toast.info("Rastreamento disponível em breve.");
+                                  toast.info("Seu pedido já foi enviado. Chame o admin no privado para receber seu código de rastreio.");
                                 }}
                               >
                                 <Truck className="w-3.5 h-3.5 mr-1.5" />
@@ -530,7 +544,8 @@ export default function CustomerOrders() {
                             </div>
                           )}
                         </div>
-                      ))}
+                      );
+                      })}
                     </div>
                   )}
                 </>
