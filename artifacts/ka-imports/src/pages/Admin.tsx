@@ -647,12 +647,16 @@ interface SupportTicketRecord {
 
 interface ReshipmentRecord {
   id: string;
-  orderId: string;
-  supportTicketId: string;
+  source: "support" | "manual" | string;
+  orderId: string | null;
+  supportTicketId: string | null;
   status: "reenvio_aguardando_estoque" | "reenvio_pronto_para_envio" | "reenvio_enviado" | string;
   clientName: string;
+  clientPhone: string | null;
+  clientDocument: string | null;
   products: Array<{ id: string; name: string; quantity: number }>;
   resolvedReason: string | null;
+  notes: string | null;
   authorizedAt: string | null;
   sentAt: string | null;
   createdAt: string | null;
@@ -730,6 +734,22 @@ export default function Admin() {
   const [pendingReshipments, setPendingReshipments] = useState<ReshipmentRecord[]>([]);
   const [inventoryEntryForm, setInventoryEntryForm] = useState({ productId: "", quantity: "", reason: "" });
   const [inventorySubmitting, setInventorySubmitting] = useState(false);
+  const [manualReshipmentForm, setManualReshipmentForm] = useState({
+    clientName: "",
+    clientPhone: "",
+    clientDocument: "",
+    addressCep: "",
+    addressStreet: "",
+    addressNumber: "",
+    addressComplement: "",
+    addressNeighborhood: "",
+    addressCity: "",
+    addressState: "",
+    productId: "",
+    quantity: "",
+    notes: "",
+  });
+  const [manualReshipmentSubmitting, setManualReshipmentSubmitting] = useState(false);
   const [reshipmentUpdatingId, setReshipmentUpdatingId] = useState<string | null>(null);
   const [customersLoading, setCustomersLoading] = useState(false);
   const [customerImpersonatingId, setCustomerImpersonatingId] = useState<string | null>(null);
@@ -1142,6 +1162,86 @@ export default function Admin() {
       setInventoryLoading(false);
     }
   }, [handleUnauthorized]);
+
+  const createManualReshipment = useCallback(async () => {
+    const payload = {
+      clientName: String(manualReshipmentForm.clientName || "").trim(),
+      clientPhone: String(manualReshipmentForm.clientPhone || "").trim(),
+      clientDocument: String(manualReshipmentForm.clientDocument || "").trim(),
+      addressCep: String(manualReshipmentForm.addressCep || "").trim(),
+      addressStreet: String(manualReshipmentForm.addressStreet || "").trim(),
+      addressNumber: String(manualReshipmentForm.addressNumber || "").trim(),
+      addressComplement: String(manualReshipmentForm.addressComplement || "").trim(),
+      addressNeighborhood: String(manualReshipmentForm.addressNeighborhood || "").trim(),
+      addressCity: String(manualReshipmentForm.addressCity || "").trim(),
+      addressState: String(manualReshipmentForm.addressState || "").trim(),
+      productId: String(manualReshipmentForm.productId || "").trim(),
+      quantity: Number(manualReshipmentForm.quantity || 0),
+      notes: String(manualReshipmentForm.notes || "").trim(),
+    };
+
+    if (
+      !payload.clientName ||
+      !payload.clientPhone ||
+      !payload.addressCep ||
+      !payload.addressStreet ||
+      !payload.addressNumber ||
+      !payload.addressNeighborhood ||
+      !payload.addressCity ||
+      !payload.addressState ||
+      !payload.productId ||
+      !Number.isFinite(payload.quantity) ||
+      payload.quantity <= 0
+    ) {
+      toast.error("Preencha todos os campos obrigatórios do reenvio manual.");
+      return;
+    }
+
+    setManualReshipmentSubmitting(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/reshipments/manual`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify(payload),
+      });
+
+      if (res.status === 401) { handleUnauthorized(); return; }
+
+      const data = await res.json().catch(() => ({} as { message?: string; status?: string }));
+      if (!res.ok) {
+        toast.error((data as { message?: string }).message || "Erro ao criar reenvio manual.");
+        return;
+      }
+
+      setManualReshipmentForm({
+        clientName: "",
+        clientPhone: "",
+        clientDocument: "",
+        addressCep: "",
+        addressStreet: "",
+        addressNumber: "",
+        addressComplement: "",
+        addressNeighborhood: "",
+        addressCity: "",
+        addressState: "",
+        productId: "",
+        quantity: "",
+        notes: "",
+      });
+
+      fetchInventoryOverview();
+      const status = String((data as { status?: string }).status || "");
+      if (status === "reenvio_pronto_para_envio") {
+        toast.success("Reenvio manual criado e já pronto para envio.");
+      } else {
+        toast.success("Reenvio manual criado e aguardando estoque.");
+      }
+    } catch {
+      toast.error("Erro ao criar reenvio manual.");
+    } finally {
+      setManualReshipmentSubmitting(false);
+    }
+  }, [fetchInventoryOverview, handleUnauthorized, manualReshipmentForm]);
 
   const fetchCoupons = useCallback(async () => {
     setLoading(true);
@@ -2985,6 +3085,9 @@ export default function Admin() {
             entryForm={inventoryEntryForm}
             setEntryForm={setInventoryEntryForm}
             submitting={inventorySubmitting}
+            manualForm={manualReshipmentForm}
+            setManualForm={setManualReshipmentForm}
+            manualSubmitting={manualReshipmentSubmitting}
             onRefresh={() => { fetchInventoryOverview(); fetchProducts(); }}
             onCreateEntry={async () => {
               const productId = String(inventoryEntryForm.productId || "").trim();
@@ -3018,6 +3121,7 @@ export default function Admin() {
                 setInventorySubmitting(false);
               }
             }}
+            onCreateManualReshipment={createManualReshipment}
           />
         ) : tab === "users" && isPrimary ? (
           <UsersPanel
@@ -5180,8 +5284,12 @@ function InventoryPanel({
   entryForm,
   setEntryForm,
   submitting,
+  manualForm,
+  setManualForm,
+  manualSubmitting,
   onRefresh,
   onCreateEntry,
+  onCreateManualReshipment,
 }: {
   loading: boolean;
   products: Array<{ id: string; name: string }>;
@@ -5191,8 +5299,40 @@ function InventoryPanel({
   entryForm: { productId: string; quantity: string; reason: string };
   setEntryForm: React.Dispatch<React.SetStateAction<{ productId: string; quantity: string; reason: string }>>;
   submitting: boolean;
+  manualForm: {
+    clientName: string;
+    clientPhone: string;
+    clientDocument: string;
+    addressCep: string;
+    addressStreet: string;
+    addressNumber: string;
+    addressComplement: string;
+    addressNeighborhood: string;
+    addressCity: string;
+    addressState: string;
+    productId: string;
+    quantity: string;
+    notes: string;
+  };
+  setManualForm: React.Dispatch<React.SetStateAction<{
+    clientName: string;
+    clientPhone: string;
+    clientDocument: string;
+    addressCep: string;
+    addressStreet: string;
+    addressNumber: string;
+    addressComplement: string;
+    addressNeighborhood: string;
+    addressCity: string;
+    addressState: string;
+    productId: string;
+    quantity: string;
+    notes: string;
+  }>>;
+  manualSubmitting: boolean;
   onRefresh: () => void;
   onCreateEntry: () => void;
+  onCreateManualReshipment: () => void;
 }) {
   return (
     <div className="space-y-4">
@@ -5238,6 +5378,57 @@ function InventoryPanel({
         />
       </div>
 
+      <div className="rounded-2xl border border-border bg-card p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold">Reenvio manual (sem compra no site)</p>
+            <p className="text-xs text-muted-foreground">Cadastre cliente, endereço e produto para envio manual.</p>
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-2">
+          <input className="h-10 rounded-lg border border-border px-3 text-sm" placeholder="Nome do cliente*" value={manualForm.clientName} onChange={(e) => setManualForm((prev) => ({ ...prev, clientName: e.target.value }))} />
+          <input className="h-10 rounded-lg border border-border px-3 text-sm" placeholder="Telefone*" value={manualForm.clientPhone} onChange={(e) => setManualForm((prev) => ({ ...prev, clientPhone: e.target.value }))} />
+          <input className="h-10 rounded-lg border border-border px-3 text-sm" placeholder="CPF (opcional)" value={manualForm.clientDocument} onChange={(e) => setManualForm((prev) => ({ ...prev, clientDocument: e.target.value }))} />
+          <input className="h-10 rounded-lg border border-border px-3 text-sm" placeholder="CEP*" value={manualForm.addressCep} onChange={(e) => setManualForm((prev) => ({ ...prev, addressCep: e.target.value }))} />
+          <input className="h-10 rounded-lg border border-border px-3 text-sm md:col-span-2" placeholder="Rua*" value={manualForm.addressStreet} onChange={(e) => setManualForm((prev) => ({ ...prev, addressStreet: e.target.value }))} />
+          <input className="h-10 rounded-lg border border-border px-3 text-sm" placeholder="Numero*" value={manualForm.addressNumber} onChange={(e) => setManualForm((prev) => ({ ...prev, addressNumber: e.target.value }))} />
+          <input className="h-10 rounded-lg border border-border px-3 text-sm" placeholder="Complemento (opcional)" value={manualForm.addressComplement} onChange={(e) => setManualForm((prev) => ({ ...prev, addressComplement: e.target.value }))} />
+          <input className="h-10 rounded-lg border border-border px-3 text-sm" placeholder="Bairro*" value={manualForm.addressNeighborhood} onChange={(e) => setManualForm((prev) => ({ ...prev, addressNeighborhood: e.target.value }))} />
+          <input className="h-10 rounded-lg border border-border px-3 text-sm" placeholder="Cidade*" value={manualForm.addressCity} onChange={(e) => setManualForm((prev) => ({ ...prev, addressCity: e.target.value }))} />
+          <input className="h-10 rounded-lg border border-border px-3 text-sm" placeholder="UF*" value={manualForm.addressState} onChange={(e) => setManualForm((prev) => ({ ...prev, addressState: e.target.value }))} />
+          <select
+            className="h-10 rounded-lg border border-border px-3 text-sm bg-white"
+            value={manualForm.productId}
+            onChange={(e) => setManualForm((prev) => ({ ...prev, productId: e.target.value }))}
+          >
+            <option value="">Selecione o produto*</option>
+            {products.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          <input
+            type="number"
+            min={1}
+            className="h-10 rounded-lg border border-border px-3 text-sm"
+            placeholder="Quantidade*"
+            value={manualForm.quantity}
+            onChange={(e) => setManualForm((prev) => ({ ...prev, quantity: e.target.value }))}
+          />
+        </div>
+        <textarea
+          className="mt-2 min-h-20 rounded-lg border border-border px-3 py-2 text-sm w-full"
+          placeholder="Observacao (opcional)"
+          value={manualForm.notes}
+          onChange={(e) => setManualForm((prev) => ({ ...prev, notes: e.target.value }))}
+        />
+        <div className="mt-2 flex justify-end">
+          <Button className="h-10" onClick={onCreateManualReshipment} disabled={manualSubmitting}>
+            {manualSubmitting ? "Salvando..." : "Cadastrar Reenvio Manual"}
+          </Button>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <div className="rounded-2xl border border-border bg-card p-4">
           <p className="text-sm font-semibold mb-3">Saldo atual por produto</p>
@@ -5270,7 +5461,9 @@ function InventoryPanel({
               {pendingReshipments.map((item) => (
                 <div key={item.id} className="rounded-lg border border-red-200 bg-red-50/60 p-3">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-red-800 truncate">{item.clientName} · Pedido {item.orderId}</p>
+                    <p className="text-sm font-semibold text-red-800 truncate">
+                      {item.clientName} · {item.source === "manual" ? "Manual" : `Pedido ${item.orderId || "-"}`}
+                    </p>
                   </div>
                   <p className="text-xs text-red-700 mt-1">
                     {item.products.map((p) => `${p.quantity}x ${p.name}`).join(" · ")}

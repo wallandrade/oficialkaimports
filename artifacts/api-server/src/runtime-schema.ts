@@ -495,6 +495,48 @@ async function ensureInventoryTables(databaseName: string): Promise<void> {
   }
 }
 
+async function ensureManualReshipmentsTable(databaseName: string): Promise<void> {
+  if (!(await tableExists("manual_reshipments", databaseName))) {
+    await pool.query(`
+      CREATE TABLE manual_reshipments (
+        id VARCHAR(255) NOT NULL PRIMARY KEY,
+        status VARCHAR(50) NOT NULL DEFAULT 'reenvio_aguardando_estoque',
+        products_snapshot JSON NOT NULL,
+        client_name VARCHAR(255) NOT NULL,
+        client_phone VARCHAR(255) NOT NULL,
+        client_document VARCHAR(32) NULL,
+        address_cep VARCHAR(20) NOT NULL,
+        address_street VARCHAR(255) NOT NULL,
+        address_number VARCHAR(64) NOT NULL,
+        address_complement VARCHAR(255) NULL,
+        address_neighborhood VARCHAR(255) NOT NULL,
+        address_city VARCHAR(255) NOT NULL,
+        address_state VARCHAR(64) NOT NULL,
+        notes TEXT NULL,
+        created_by_username VARCHAR(255) NULL,
+        authorized_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        sent_at TIMESTAMP NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY manual_reshipments_status_idx (status),
+        KEY manual_reshipments_created_at_idx (created_at)
+      )
+    `);
+    return;
+  }
+
+  const indexes = [
+    { name: "manual_reshipments_status_idx", sql: "ALTER TABLE manual_reshipments ADD KEY manual_reshipments_status_idx (status)" },
+    { name: "manual_reshipments_created_at_idx", sql: "ALTER TABLE manual_reshipments ADD KEY manual_reshipments_created_at_idx (created_at)" },
+  ];
+
+  for (const index of indexes) {
+    if (!(await indexExists("manual_reshipments", index.name, databaseName))) {
+      await pool.query(index.sql);
+    }
+  }
+}
+
 export async function ensureRuntimeSchema(): Promise<void> {
   try {
     const databaseName = getDatabaseName();
@@ -513,6 +555,7 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureSupportTicketsTable(databaseName);
     await ensureReshipmentsTable(databaseName);
     await ensureInventoryTables(databaseName);
+    await ensureManualReshipmentsTable(databaseName);
 
     console.log("[RuntimeSchema] Schema sync completed.");
   } catch (error) {

@@ -4,6 +4,7 @@ import {
   db,
   inventoryBalancesTable,
   inventoryMovementsTable,
+  manualReshipmentsTable,
   ordersTable,
   productsTable,
   reshipmentsTable,
@@ -25,6 +26,8 @@ type ReshipmentProduct = {
   name: string;
   quantity: number;
 };
+
+export type ReshipmentSource = "support" | "manual";
 
 function toProducts(raw: unknown): ReshipmentProduct[] {
   const list = Array.isArray(raw)
@@ -191,13 +194,22 @@ export async function releasePendingReshipments(): Promise<number> {
   const pendingRows = await db
     .select({
       id: reshipmentsTable.id,
-      status: reshipmentsTable.status,
       productsSnapshot: reshipmentsTable.productsSnapshot,
       createdAt: reshipmentsTable.createdAt,
     })
     .from(reshipmentsTable)
     .where(eq(reshipmentsTable.status, "reenvio_aguardando_estoque"))
     .orderBy(asc(reshipmentsTable.createdAt));
+
+  const pendingManualRows = await db
+    .select({
+      id: manualReshipmentsTable.id,
+      productsSnapshot: manualReshipmentsTable.productsSnapshot,
+      createdAt: manualReshipmentsTable.createdAt,
+    })
+    .from(manualReshipmentsTable)
+    .where(eq(manualReshipmentsTable.status, "reenvio_aguardando_estoque"))
+    .orderBy(asc(manualReshipmentsTable.createdAt));
 
   let released = 0;
 
@@ -219,7 +231,98 @@ export async function releasePendingReshipments(): Promise<number> {
     released += 1;
   }
 
+  for (const row of pendingManualRows) {
+    const items = toProducts(row.productsSnapshot);
+    if (items.length === 0) continue;
+
+    const productIds = Array.from(new Set(items.map((item) => item.id)));
+    const stockByProduct = await getStockMap(productIds);
+    const canRelease = hasEnoughStock(items, stockByProduct);
+
+    if (!canRelease) continue;
+
+    await reserveForReshipment(row.id, items);
+    await db
+      .update(manualReshipmentsTable)
+      .set({ status: "reenvio_pronto_para_envio", updatedAt: new Date() })
+      .where(eq(manualReshipmentsTable.id, row.id));
+    released += 1;
+  }
+
   return released;
+}
+
+export async function createManualReshipment(params: {
+  clientName: string;
+  clientPhone: string;
+  clientDocument?: string | null;
+  addressCep: string;
+  addressStreet: string;
+  addressNumber: string;
+  addressComplement?: string | null;
+  addressNeighborhood: string;
+  addressCity: string;
+  addressState: string;
+  notes?: string | null;
+  productId: string;
+  quantity: number;
+  createdByUsername?: string | null;
+}): Promise<{ id: string; status: ReshipmentStatus; missingProducts: string[] }> {
+  const productId = String(params.productId || "").trim();
+  const quantity = Number(params.quantity || 0);
+
+  if (!productId || !Number.isFinite(quantity) || quantity <= 0) {
+    throw new Error("Produto e quantidade devem ser válidos.");
+  }
+
+  const [product] = await db
+    .select({ id: productsTable.id, name: productsTable.name, isActive: productsTable.isActive })
+    .from(productsTable)
+    .where(eq(productsTable.id, productId))
+    .limit(1);
+
+  if (!product || !product.isActive) {
+    throw new Error("Produto inválido para reenvio manual.");
+  }
+
+  const items: ReshipmentProduct[] = [{ id: product.id, name: product.name, quantity }];
+  const stockByProduct = await getStockMap([product.id]);
+  const enoughNow = hasEnoughStock(items, stockByProduct);
+  const nextStatus: ReshipmentStatus = enoughNow ? "reenvio_pronto_para_envio" : "reenvio_aguardando_estoque";
+
+  const id = `manual_${crypto.randomBytes(8).toString("hex")}`;
+
+  await db.insert(manualReshipmentsTable).values({
+    id,
+    status: nextStatus,
+    productsSnapshot: items,
+    clientName: String(params.clientName || "").trim(),
+    clientPhone: String(params.clientPhone || "").trim(),
+    clientDocument: String(params.clientDocument || "").trim() || null,
+    addressCep: String(params.addressCep || "").trim(),
+    addressStreet: String(params.addressStreet || "").trim(),
+    addressNumber: String(params.addressNumber || "").trim(),
+    addressComplement: String(params.addressComplement || "").trim() || null,
+    addressNeighborhood: String(params.addressNeighborhood || "").trim(),
+    addressCity: String(params.addressCity || "").trim(),
+    addressState: String(params.addressState || "").trim(),
+    notes: String(params.notes || "").trim() || null,
+    createdByUsername: String(params.createdByUsername || "").trim() || null,
+    authorizedAt: new Date(),
+    sentAt: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+
+  if (enoughNow) {
+    await reserveForReshipment(id, items);
+  }
+
+  return {
+    id,
+    status: nextStatus,
+    missingProducts: enoughNow ? [] : [product.name],
+  };
 }
 
 export async function registerInventoryEntry(params: {
@@ -243,8 +346,9 @@ export async function registerInventoryEntry(params: {
 
 export async function listReshipments(status?: string): Promise<Array<{
   id: string;
-  orderId: string;
-  supportTicketId: string;
+  source: ReshipmentSource;
+  orderId: string | null;
+  supportTicketId: string | null;
   status: string;
   products: ReshipmentProduct[];
   resolvedReason: string | null;
@@ -252,6 +356,9 @@ export async function listReshipments(status?: string): Promise<Array<{
   sentAt: string | null;
   createdAt: string | null;
   clientName: string;
+  clientPhone: string | null;
+  clientDocument: string | null;
+  notes: string | null;
 }>> {
   const rows = await db
     .select({
@@ -265,14 +372,34 @@ export async function listReshipments(status?: string): Promise<Array<{
       sentAt: reshipmentsTable.sentAt,
       createdAt: reshipmentsTable.createdAt,
       clientName: ordersTable.clientName,
+      clientPhone: ordersTable.clientPhone,
+      clientDocument: ordersTable.clientDocument,
     })
     .from(reshipmentsTable)
     .leftJoin(ordersTable, eq(ordersTable.id, reshipmentsTable.orderId))
     .where(status && status !== "all" ? eq(reshipmentsTable.status, status) : undefined)
     .orderBy(asc(reshipmentsTable.createdAt));
 
-  return rows.map((row) => ({
+  const manualRows = await db
+    .select({
+      id: manualReshipmentsTable.id,
+      status: manualReshipmentsTable.status,
+      productsSnapshot: manualReshipmentsTable.productsSnapshot,
+      authorizedAt: manualReshipmentsTable.authorizedAt,
+      sentAt: manualReshipmentsTable.sentAt,
+      createdAt: manualReshipmentsTable.createdAt,
+      clientName: manualReshipmentsTable.clientName,
+      clientPhone: manualReshipmentsTable.clientPhone,
+      clientDocument: manualReshipmentsTable.clientDocument,
+      notes: manualReshipmentsTable.notes,
+    })
+    .from(manualReshipmentsTable)
+    .where(status && status !== "all" ? eq(manualReshipmentsTable.status, status) : undefined)
+    .orderBy(asc(manualReshipmentsTable.createdAt));
+
+  const fromSupport = rows.map((row) => ({
     id: row.id,
+    source: "support" as const,
     orderId: row.orderId,
     supportTicketId: row.supportTicketId,
     status: row.status,
@@ -282,7 +409,33 @@ export async function listReshipments(status?: string): Promise<Array<{
     sentAt: row.sentAt?.toISOString() || null,
     createdAt: row.createdAt?.toISOString() || null,
     clientName: row.clientName || "Cliente",
+    clientPhone: row.clientPhone || null,
+    clientDocument: row.clientDocument || null,
+    notes: null,
   }));
+
+  const fromManual = manualRows.map((row) => ({
+    id: row.id,
+    source: "manual" as const,
+    orderId: null,
+    supportTicketId: null,
+    status: row.status,
+    products: toProducts(row.productsSnapshot),
+    resolvedReason: null,
+    authorizedAt: row.authorizedAt?.toISOString() || null,
+    sentAt: row.sentAt?.toISOString() || null,
+    createdAt: row.createdAt?.toISOString() || null,
+    clientName: row.clientName || "Cliente",
+    clientPhone: row.clientPhone || null,
+    clientDocument: row.clientDocument || null,
+    notes: row.notes || null,
+  }));
+
+  return [...fromSupport, ...fromManual].sort((a, b) => {
+    const ta = Date.parse(a.createdAt || "") || 0;
+    const tb = Date.parse(b.createdAt || "") || 0;
+    return tb - ta;
+  });
 }
 
 export async function setReshipmentStatus(id: string, status: ReshipmentStatus): Promise<boolean> {
@@ -302,6 +455,27 @@ export async function setReshipmentStatus(id: string, status: ReshipmentStatus):
       updatedAt: new Date(),
     })
     .where(eq(reshipmentsTable.id, id));
+
+  return true;
+}
+
+export async function setManualReshipmentStatus(id: string, status: ReshipmentStatus): Promise<boolean> {
+  const rows = await db
+    .select({ id: manualReshipmentsTable.id })
+    .from(manualReshipmentsTable)
+    .where(eq(manualReshipmentsTable.id, id))
+    .limit(1);
+
+  if (!rows[0]) return false;
+
+  await db
+    .update(manualReshipmentsTable)
+    .set({
+      status,
+      sentAt: status === "reenvio_enviado" ? new Date() : null,
+      updatedAt: new Date(),
+    })
+    .where(eq(manualReshipmentsTable.id, id));
 
   return true;
 }

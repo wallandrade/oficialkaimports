@@ -1,12 +1,14 @@
 import { Router, type IRouter } from "express";
 import { and, eq } from "drizzle-orm";
-import { db, ordersTable, reshipmentsTable } from "@workspace/db";
+import { db, manualReshipmentsTable, ordersTable, reshipmentsTable } from "@workspace/db";
 import { getAdminScope, requireAdminAuth, requirePrimaryAdmin } from "./admin-auth";
 import {
+  createManualReshipment,
   getInventoryOverview,
   listReshipments,
   registerInventoryEntry,
   releasePendingReshipments,
+  setManualReshipmentStatus,
   setReshipmentStatus,
 } from "../lib/reshipments";
 import { broadcastNotification } from "./notifications";
@@ -84,6 +86,70 @@ router.post("/admin/inventory/entries", requirePrimaryAdmin, async (req, res) =>
   }
 });
 
+router.post("/admin/reshipments/manual", requirePrimaryAdmin, async (req, res) => {
+  try {
+    const clientName = String(req.body?.clientName ?? "").trim();
+    const clientPhone = String(req.body?.clientPhone ?? "").trim();
+    const clientDocument = String(req.body?.clientDocument ?? "").trim() || null;
+    const addressCep = String(req.body?.addressCep ?? "").trim();
+    const addressStreet = String(req.body?.addressStreet ?? "").trim();
+    const addressNumber = String(req.body?.addressNumber ?? "").trim();
+    const addressComplement = String(req.body?.addressComplement ?? "").trim() || null;
+    const addressNeighborhood = String(req.body?.addressNeighborhood ?? "").trim();
+    const addressCity = String(req.body?.addressCity ?? "").trim();
+    const addressState = String(req.body?.addressState ?? "").trim();
+    const notes = String(req.body?.notes ?? "").trim() || null;
+    const productId = String(req.body?.productId ?? "").trim();
+    const quantity = Number(req.body?.quantity || 0);
+
+    if (
+      !clientName ||
+      !clientPhone ||
+      !addressCep ||
+      !addressStreet ||
+      !addressNumber ||
+      !addressNeighborhood ||
+      !addressCity ||
+      !addressState ||
+      !productId ||
+      !Number.isFinite(quantity) ||
+      quantity <= 0
+    ) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Preencha cliente, endereço e produto/quantidade válidos." });
+      return;
+    }
+
+    const createdByUsername = String((req as any).adminSession?.username || "").trim() || null;
+
+    const created = await createManualReshipment({
+      clientName,
+      clientPhone,
+      clientDocument,
+      addressCep,
+      addressStreet,
+      addressNumber,
+      addressComplement,
+      addressNeighborhood,
+      addressCity,
+      addressState,
+      notes,
+      productId,
+      quantity,
+      createdByUsername,
+    });
+
+    broadcastNotification({
+      type: "support_ticket_reshipment_authorized",
+      data: { id: created.id, orderId: null, clientName },
+    });
+
+    res.status(201).json({ ok: true, ...created });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Erro ao criar reenvio manual.";
+    res.status(400).json({ error: "INVALID_INPUT", message });
+  }
+});
+
 router.get("/admin/reshipments", requireAdminAuth, async (req, res) => {
   try {
     const scope = getReshipmentScope(req, res);
@@ -97,7 +163,9 @@ router.get("/admin/reshipments", requireAdminAuth, async (req, res) => {
         .from(ordersTable)
         .where(eq(ordersTable.sellerCode, scope.sellerCode!));
       const allowedOrderIds = new Set(orderRows.map((row) => row.id));
-      res.json({ reshipments: reshipments.filter((item) => allowedOrderIds.has(item.orderId)) });
+      res.json({
+        reshipments: reshipments.filter((item) => !!item.orderId && allowedOrderIds.has(item.orderId)),
+      });
       return;
     }
 
@@ -130,20 +198,40 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
       .where(eq(reshipmentsTable.id, id))
       .limit(1);
 
-    if (!rows[0]) {
-      res.status(404).json({ error: "NOT_FOUND", message: "Reenvio não encontrado." });
-      return;
-    }
+    if (rows[0]) {
+      if (!(await isOrderInScope(rows[0].orderId, scope))) {
+        res.status(404).json({ error: "NOT_FOUND", message: "Reenvio não encontrado." });
+        return;
+      }
 
-    if (!(await isOrderInScope(rows[0].orderId, scope))) {
-      res.status(404).json({ error: "NOT_FOUND", message: "Reenvio não encontrado." });
-      return;
-    }
+      const updated = await setReshipmentStatus(id, status);
+      if (!updated) {
+        res.status(404).json({ error: "NOT_FOUND", message: "Reenvio não encontrado." });
+        return;
+      }
+    } else {
+      const manualRows = await db
+        .select({ id: manualReshipmentsTable.id })
+        .from(manualReshipmentsTable)
+        .where(eq(manualReshipmentsTable.id, id))
+        .limit(1);
 
-    const updated = await setReshipmentStatus(id, status);
-    if (!updated) {
-      res.status(404).json({ error: "NOT_FOUND", message: "Reenvio não encontrado." });
-      return;
+      if (!manualRows[0]) {
+        res.status(404).json({ error: "NOT_FOUND", message: "Reenvio não encontrado." });
+        return;
+      }
+
+      const adminScope = getAdminScope(req as never);
+      if (!adminScope?.isPrimary) {
+        res.status(403).json({ error: "FORBIDDEN", message: "Somente admin primário pode atualizar reenvio manual." });
+        return;
+      }
+
+      const updatedManual = await setManualReshipmentStatus(id, status);
+      if (!updatedManual) {
+        res.status(404).json({ error: "NOT_FOUND", message: "Reenvio não encontrado." });
+        return;
+      }
     }
 
     broadcastNotification({ type: "reshipment_updated", data: { id, status } });
