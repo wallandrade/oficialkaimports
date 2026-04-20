@@ -166,6 +166,20 @@ function supplierOrderBlock(order: any, sequence: number): string {
   ].join("\n");
 }
 
+function formatRaffleDescriptionPreview(value: string | undefined | null): string {
+  const raw = String(value || "");
+  if (!raw.trim()) return "";
+
+  // Normalize line breaks and avoid very large blank gaps in preview text.
+  return raw
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
