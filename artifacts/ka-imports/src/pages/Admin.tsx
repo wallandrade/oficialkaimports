@@ -7588,7 +7588,7 @@ function ProductsPanel({
   };
 
   const openCreate = () => {
-    setProductForm({ unit: "unidade", isActive: true, isSoldOut: false, sortOrder: 0, costPrice: 0 });
+    setProductForm({ unit: "unidade", isActive: true, isSoldOut: false, isLaunch: false, sortOrder: 0, costPrice: 0 });
     setProductFormOpen(true);
   };
 
@@ -7739,6 +7739,14 @@ function ProductsPanel({
                       {productForm.isSoldOut === true ? <IconLucide name="ToggleRight" className="w-7 h-7 text-destructive" /> : <ToggleLeft className="w-7 h-7" />}
                     </button>
                   </div>
+
+                  {/* Launch */}
+                  <div className="flex items-center gap-3 self-end pb-1">
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Lançamento</label>
+                    <button type="button" onClick={() => setProductForm({ ...productForm, isLaunch: !productForm.isLaunch })} className="text-muted-foreground hover:text-blue-600 transition-colors">
+                      {productForm.isLaunch === true ? <IconLucide name="ToggleRight" className="w-7 h-7 text-blue-600" /> : <ToggleLeft className="w-7 h-7" />}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Image upload */}
@@ -7822,6 +7830,7 @@ function ProductsPanel({
                       <span className="text-xs px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">Custo: {formatCurrency(Number(p.costPrice || 0))}</span>
                       {!p.isActive && <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700">Inativo</span>}
                       {p.isSoldOut && <span className="text-xs px-2 py-0.5 rounded-full bg-red-600 text-white">Esgotado</span>}
+                      {p.isLaunch && <span className="text-xs px-2 py-0.5 rounded-full bg-blue-600 text-white">Lançamento</span>}
                     </div>
                     {p.description && <p className="text-xs text-muted-foreground truncate">{p.description}</p>}
                     <div className="flex items-center gap-3 mt-1">

@@ -31,6 +31,7 @@ function mapProduct(p: typeof productsTable.$inferSelect, includeCostPrice = fal
     image:       p.image ?? null,
     isActive:    p.isActive,
     isSoldOut:   p.isSoldOut,
+    isLaunch:    p.isLaunch,
     sortOrder:   p.sortOrder,
     createdAt:   p.createdAt.toISOString(),
   };
@@ -84,11 +85,11 @@ router.post("/admin/products", requirePrimaryAdmin, async (req, res) => {
   try {
     const {
       name, description, category, unit, price,
-      costPrice, promoPrice, promoEndsAt, image, isActive, isSoldOut, sortOrder,
+      costPrice, promoPrice, promoEndsAt, image, isActive, isSoldOut, isLaunch, sortOrder,
     } = req.body as {
       name: string; description?: string; category: string; unit: string;
       price: number; costPrice?: number | null; promoPrice?: number | null; promoEndsAt?: string | null;
-      image?: string | null; isActive?: boolean; isSoldOut?: boolean; sortOrder?: number;
+      image?: string | null; isActive?: boolean; isSoldOut?: boolean; isLaunch?: boolean; sortOrder?: number;
     };
 
     if (!name?.trim() || !category?.trim() || price == null) {
@@ -110,6 +111,7 @@ router.post("/admin/products", requirePrimaryAdmin, async (req, res) => {
       image:       image || null,
       isActive:    isActive !== false,
       isSoldOut:   isSoldOut === true,
+      isLaunch:    isLaunch === true,
       sortOrder:   sortOrder ?? 0,
     });
 
@@ -128,11 +130,11 @@ router.patch("/admin/products/:id", requirePrimaryAdmin, async (req, res) => {
     if (Array.isArray(id)) id = id[0];
       const {
         name, description, category, unit, price,
-        costPrice, promoPrice, promoEndsAt, image, isActive, isSoldOut, sortOrder,
+        costPrice, promoPrice, promoEndsAt, image, isActive, isSoldOut, isLaunch, sortOrder,
       } = req.body as Partial<{
         name: string; description: string | null; category: string; unit: string;
         price: number; costPrice: number | null; promoPrice: number | null; promoEndsAt: string | null;
-        image: string | null; isActive: boolean; isSoldOut: boolean; sortOrder: number;
+        image: string | null; isActive: boolean; isSoldOut: boolean; isLaunch: boolean; sortOrder: number;
       }>;
 
     const updates: Partial<typeof productsTable.$inferInsert> = { updatedAt: new Date() };
@@ -147,6 +149,7 @@ router.patch("/admin/products/:id", requirePrimaryAdmin, async (req, res) => {
     if (image      !== undefined) updates.image       = image || null;
     if (isActive   !== undefined) updates.isActive    = isActive;
     if (isSoldOut  !== undefined) updates.isSoldOut   = isSoldOut;
+    if (isLaunch   !== undefined) updates.isLaunch    = isLaunch;
     if (sortOrder  !== undefined) updates.sortOrder   = sortOrder;
 
     await db.update(productsTable).set(updates).where(eq(productsTable.id, id));

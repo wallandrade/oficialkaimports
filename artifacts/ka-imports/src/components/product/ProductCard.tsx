@@ -13,6 +13,7 @@ interface ProductCardProps {
 export function ProductCard({ product, sellerSlug }: ProductCardProps) {
   const hasPromo = product.promoPrice != null && product.promoPrice < product.price;
   const isSoldOut = isProductUnavailable(product);
+  const isLaunch = (product as Product & { isLaunch?: boolean }).isLaunch === true;
   const href = sellerSlug ? `/${sellerSlug}/produto/${product.id}` : `/produto/${product.id}`;
   const { addItem, setIsOpen } = useCart();
 
@@ -38,11 +39,15 @@ export function ProductCard({ product, sellerSlug }: ProductCardProps) {
             OFERTA
           </div>
         )}
-        {isSoldOut && (
+        {isSoldOut ? (
           <div className="absolute top-3 right-3 bg-red-600 text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg">
             ESGOTADO
           </div>
-        )}
+        ) : isLaunch ? (
+          <div className="absolute top-3 right-3 bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg">
+            LANCAMENTO
+          </div>
+        ) : null}
       </div>
 
       <div className="p-4 flex flex-col flex-1">

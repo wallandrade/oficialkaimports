@@ -99,6 +99,10 @@ async function ensureProductsColumns(databaseName: string): Promise<void> {
       name: "is_sold_out",
       sql: "ALTER TABLE products ADD COLUMN is_sold_out TINYINT(1) NOT NULL DEFAULT 0",
     },
+    {
+      name: "is_launch",
+      sql: "ALTER TABLE products ADD COLUMN is_launch TINYINT(1) NOT NULL DEFAULT 0",
+    },
   ];
 
   for (const definition of definitions) {
