@@ -12,6 +12,7 @@ export const productsTable = mysqlTable("products", {
   promoEndsAt: datetime("promo_ends_at", { mode: 'date' }),
   image: mediumtext("image"),          // base64 data URI or null
   isActive: boolean("is_active").notNull().default(true),
+  isSoldOut: boolean("is_sold_out").notNull().default(false),
   sortOrder: int("sort_order").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

@@ -95,6 +95,10 @@ async function ensureProductsColumns(databaseName: string): Promise<void> {
       name: "cost_price",
       sql: "ALTER TABLE products ADD COLUMN cost_price DECIMAL(10,2) NOT NULL DEFAULT 0.00",
     },
+    {
+      name: "is_sold_out",
+      sql: "ALTER TABLE products ADD COLUMN is_sold_out TINYINT(1) NOT NULL DEFAULT 0",
+    },
   ];
 
   for (const definition of definitions) {
