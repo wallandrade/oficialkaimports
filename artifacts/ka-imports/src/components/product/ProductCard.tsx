@@ -3,7 +3,7 @@ import { formatCurrency } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import type { Product } from "@workspace/api-client-react";
 import { Link } from "wouter";
-import { useCart } from "@/store/use-cart";
+import { isProductUnavailable, useCart } from "@/store/use-cart";
 
 interface ProductCardProps {
   product: Product;
@@ -12,12 +12,13 @@ interface ProductCardProps {
 
 export function ProductCard({ product, sellerSlug }: ProductCardProps) {
   const hasPromo = product.promoPrice != null && product.promoPrice < product.price;
-  const isSoldOut = (product as Product & { isSoldOut?: boolean }).isSoldOut === true;
+  const isSoldOut = isProductUnavailable(product);
   const href = sellerSlug ? `/${sellerSlug}/produto/${product.id}` : `/produto/${product.id}`;
   const { addItem, setIsOpen } = useCart();
 
   function handleAddToCart(e: React.MouseEvent) {
     e.preventDefault();
+    if (isSoldOut) return;
     addItem(product);
     setIsOpen(true);
   }
@@ -87,9 +88,10 @@ export function ProductCard({ product, sellerSlug }: ProductCardProps) {
               variant="outline"
               className="w-full rounded-xl text-sm"
               onClick={handleAddToCart}
+              disabled={isSoldOut}
             >
               <ShoppingCart className="w-4 h-4 mr-1.5" />
-              Adicionar ao carrinho
+              {isSoldOut ? "Produto esgotado" : "Adicionar ao carrinho"}
             </Button>
           </div>
         </div>

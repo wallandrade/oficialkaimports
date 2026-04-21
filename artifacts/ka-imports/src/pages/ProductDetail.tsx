@@ -3,7 +3,7 @@ import { Link, useLocation, useRoute } from "wouter";
 import { useGetProducts } from "@workspace/api-client-react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
-import { useCart } from "@/store/use-cart";
+import { isProductUnavailable, useCart } from "@/store/use-cart";
 import { formatCurrency } from "@/lib/utils";
 import { ArrowLeft, Loader2, ShoppingCart } from "lucide-react";
 import { toast } from "sonner";
@@ -54,6 +54,7 @@ export default function ProductDetail() {
   );
 
   const hasPromo = !!(product && product.promoPrice != null && product.promoPrice < product.price);
+  const isSoldOut = product ? isProductUnavailable(product) : false;
   const backHref = sellerSlug ? `/${sellerSlug}` : "/";
 
   return (
@@ -107,18 +108,26 @@ export default function ProductDetail() {
                 ) : (
                   <span className="text-3xl font-bold text-primary">{formatCurrency(product.price)}</span>
                 )}
+                {isSoldOut && (
+                  <p className="mt-2 text-sm font-semibold text-destructive">Produto esgotado no momento.</p>
+                )}
               </div>
 
               <Button
                 size="lg"
                 className="w-full text-base"
+                disabled={isSoldOut}
                 onClick={() => {
+                  if (isSoldOut) {
+                    toast.error("Este produto está esgotado e não pode ser adicionado.");
+                    return;
+                  }
                   addItem(product);
                   toast.success("Produto adicionado ao carrinho!");
                 }}
               >
                 <ShoppingCart className="w-5 h-5 mr-2" />
-                Adicionar ao carrinho
+                {isSoldOut ? "Produto esgotado" : "Adicionar ao carrinho"}
               </Button>
             </div>
           </div>

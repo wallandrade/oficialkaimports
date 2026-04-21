@@ -14,7 +14,7 @@ import { CheckoutLayout } from "@/components/layout/CheckoutLayout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useLiveTracking } from "@/hooks/useLiveTracking";
-import { useCart } from "@/store/use-cart";
+import { isProductUnavailable, useCart } from "@/store/use-cart";
 import { getStoredReferralCode } from "@/lib/affiliate";
 import { getCheckoutSecurityHeaders } from "@/lib/checkout-security";
 import { getCustomerAuthHeaders, getCustomerToken } from "@/lib/customer-auth";
@@ -121,6 +121,45 @@ export default function Checkout() {
   const [affiliateCreditLoading, setAffiliateCreditLoading] = useState(false);
   const [useAffiliateCredit, setUseAffiliateCredit] = useState(false);
   const [paymentMethods, setPaymentMethods] = useState({ pix: true, card: true });
+
+  const validateCartAvailability = useCallback(async () => {
+    const nonBumpItems = items.filter((item) => !(item as { isBump?: boolean }).isBump);
+    if (nonBumpItems.length === 0) return true;
+
+    try {
+      const res = await fetch(`${BASE}/api/products`);
+      if (!res.ok) return true;
+      const data = await res.json() as { products?: Array<{
+        id: string;
+        name: string;
+        price: number;
+        promoPrice?: number | null;
+        promoEndsAt?: string | null;
+        image?: string | null;
+        unit?: string;
+        category?: string;
+        description?: string;
+        isActive?: boolean;
+        isSoldOut?: boolean;
+        stock?: number;
+      }> };
+
+      const byId = new Map((data.products ?? []).map((product) => [product.id, product]));
+      const unavailable = nonBumpItems.filter((item) => {
+        const product = byId.get(item.id);
+        return !product || isProductUnavailable(product as Parameters<typeof isProductUnavailable>[0]);
+      });
+
+      if (unavailable.length === 0) return true;
+
+      unavailable.forEach((item) => removeItem(item.id));
+      const names = unavailable.map((item) => item.name).slice(0, 3).join(", ");
+      toast.error(`Removemos itens indisponiveis do carrinho: ${names}.`);
+      return false;
+    } catch {
+      return true;
+    }
+  }, [items, removeItem]);
 
   // Order bumps for checkout
   interface CheckoutBump {
@@ -314,9 +353,13 @@ export default function Checkout() {
     sessionStorage.removeItem("ka_pending_product");
     fetch(`${BASE}/api/products`)
       .then((r) => r.json())
-      .then((data: { products?: Array<{ id: string; name: string; price: number; promoPrice?: number | null; promoEndsAt?: string | null; image?: string | null; unit?: string; category?: string; description?: string; isActive?: boolean; stock?: number }> }) => {
+      .then((data: { products?: Array<{ id: string; name: string; price: number; promoPrice?: number | null; promoEndsAt?: string | null; image?: string | null; unit?: string; category?: string; description?: string; isActive?: boolean; isSoldOut?: boolean; stock?: number }> }) => {
         const found = data.products?.find((p) => p.id === pendingId);
-        if (found) addItem(found as Parameters<typeof addItem>[0]);
+        if (found && !isProductUnavailable(found as Parameters<typeof isProductUnavailable>[0])) {
+          addItem(found as Parameters<typeof addItem>[0]);
+          return;
+        }
+        toast.error("O produto do link de checkout esta indisponivel no momento.");
       })
       .catch(() => {})
       .finally(() => setPendingCheck(false));
@@ -538,6 +581,9 @@ export default function Checkout() {
       return;
     }
 
+    const cartAvailable = await validateCartAvailability();
+    if (!cartAvailable) return;
+
     setIsCheckingOut(true);
     try {
       const clientPayload = {
@@ -711,6 +757,9 @@ export default function Checkout() {
     }
 
     handleSubmit(async () => {
+      const cartAvailable = await validateCartAvailability();
+      if (!cartAvailable) return;
+
       setKycOrderId("");
       setKycWhatsAppUrl("");
       setKycVerified(false);

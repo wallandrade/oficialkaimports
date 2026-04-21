@@ -2,6 +2,20 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { CartItem, Product } from "@workspace/api-client-react";
 
+type ProductAvailability = Product & {
+  isSoldOut?: boolean;
+  isActive?: boolean;
+  stock?: number | null;
+};
+
+export function isProductUnavailable(product: Product): boolean {
+  const candidate = product as ProductAvailability;
+  if (candidate.isSoldOut === true) return true;
+  if (candidate.isActive === false) return true;
+  if (typeof candidate.stock === "number" && candidate.stock <= 0) return true;
+  return false;
+}
+
 type CartItemExtended = CartItem & {
   image?: string;
   regularPrice: number;
@@ -70,6 +84,10 @@ export const useCart = create<CartState>()(
 
       addItem: (product) => {
         set((state) => {
+          if (isProductUnavailable(product)) {
+            return state;
+          }
+
           const existingItem = state.items.find((item) => item.id === product.id);
           const promoActive = product.promoPrice != null && product.promoPrice < product.price;
           const price = promoActive ? product.promoPrice! : product.price;
