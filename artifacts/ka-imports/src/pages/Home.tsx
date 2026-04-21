@@ -142,6 +142,11 @@ export default function Home() {
     });
 
     return filtered.sort((a, b) => {
+      const aIsLaunch = (a as typeof a & { isLaunch?: boolean }).isLaunch === true;
+      const bIsLaunch = (b as typeof b & { isLaunch?: boolean }).isLaunch === true;
+      if (aIsLaunch && !bIsLaunch) return -1;
+      if (!aIsLaunch && bIsLaunch) return 1;
+
       const aHasPromo = a.promoPrice != null && a.promoPrice < a.price;
       const bHasPromo = b.promoPrice != null && b.promoPrice < b.price;
       if (aHasPromo && !bHasPromo) return -1;

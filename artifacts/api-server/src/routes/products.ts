@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, productsTable } from "@workspace/db";
-import { eq, asc } from "drizzle-orm";
+import { eq, asc, desc } from "drizzle-orm";
 import crypto from "crypto";
 import { requirePrimaryAdmin } from "./admin-auth";
 
@@ -53,7 +53,7 @@ router.get("/products", async (_req, res) => {
       .select()
       .from(productsTable)
       .where(eq(productsTable.isActive, true))
-      .orderBy(asc(productsTable.sortOrder), asc(productsTable.createdAt));
+      .orderBy(desc(productsTable.isLaunch), asc(productsTable.sortOrder), asc(productsTable.createdAt));
 
     const products   = rows.map((row) => mapProduct(row));
     const categories = [...new Set(products.map((p) => p.category))];
