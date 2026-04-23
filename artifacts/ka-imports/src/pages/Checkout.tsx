@@ -398,26 +398,27 @@ export default function Checkout() {
   }, [appliedCoupon, couponProductsPayload]);
   const selectedShipping = shippingOptions.find((o) => o.id === selectedShippingId) ?? null;
   const shippingCost = selectedShipping ? Number(selectedShipping.price) : 0;
-  const insuranceAmount = includeInsurance ? subtotal * 0.1 : 0;
-  const baseTotal = subtotal + shippingCost + insuranceAmount;
   const discountAmount = appliedCoupon
     ? appliedCoupon.discountType === "percent"
       ? eligibleProductSubtotal * (appliedCoupon.discountValue / 100)
       : Math.min(appliedCoupon.discountValue, eligibleProductSubtotal)
     : 0;
-  const total = Math.max(0, baseTotal - discountAmount);
+  const insuranceBase = Math.max(0, subtotal - discountAmount);
+  const insuranceAmount = includeInsurance ? insuranceBase * 0.1 : 0;
+  const total = Math.max(0, subtotal + shippingCost + insuranceAmount - discountAmount);
   const affiliateCreditToApply = useAffiliateCredit ? Math.min(affiliateCreditAvailable, total) : 0;
   const payableTotal = Math.max(0, total - affiliateCreditToApply);
 
   // Card payment uses regular (non-promo) prices
   const cardSubtotal = getCardSubtotal();
-  const cardInsuranceAmount = includeInsurance ? cardSubtotal * 0.1 : 0;
-  const cardBaseTotal = cardSubtotal + shippingCost + cardInsuranceAmount;
   const cardDiscountAmount = appliedCoupon
     ? appliedCoupon.discountType === "percent"
       ? eligibleProductSubtotalCard * (appliedCoupon.discountValue / 100)
       : Math.min(appliedCoupon.discountValue, eligibleProductSubtotalCard)
     : 0;
+  const cardInsuranceBase = Math.max(0, cardSubtotal - cardDiscountAmount);
+  const cardInsuranceAmount = includeInsurance ? cardInsuranceBase * 0.1 : 0;
+  const cardBaseTotal = cardSubtotal + shippingCost + cardInsuranceAmount;
   const cardNetTotal = Math.max(0, cardBaseTotal - cardDiscountAmount);
 
   useEffect(() => {
