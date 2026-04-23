@@ -53,7 +53,18 @@ router.get("/products", async (_req, res) => {
       .select()
       .from(productsTable)
       .where(eq(productsTable.isActive, true))
-      .orderBy(asc(productsTable.sortOrder), desc(productsTable.isLaunch), asc(productsTable.createdAt));
+      .orderBy(desc(productsTable.isLaunch), asc(productsTable.createdAt));
+
+    // Products with explicit positive position (1,2,3...) come first.
+    // Zero/negative means "no manual position" and is pushed to the end.
+    rows.sort((a, b) => {
+      const aSort = a.sortOrder > 0 ? a.sortOrder : Number.MAX_SAFE_INTEGER;
+      const bSort = b.sortOrder > 0 ? b.sortOrder : Number.MAX_SAFE_INTEGER;
+      if (aSort !== bSort) return aSort - bSort;
+
+      if (a.isLaunch !== b.isLaunch) return a.isLaunch ? -1 : 1;
+      return a.createdAt.getTime() - b.createdAt.getTime();
+    });
 
     const products   = rows.map((row) => mapProduct(row));
     const categories = [...new Set(products.map((p) => p.category))];

@@ -142,8 +142,16 @@ export default function Home() {
     });
 
     return filtered.sort((a, b) => {
-      const sortDiff = (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+      const aSort = (a.sortOrder ?? 0) > 0 ? (a.sortOrder ?? 0) : Number.MAX_SAFE_INTEGER;
+      const bSort = (b.sortOrder ?? 0) > 0 ? (b.sortOrder ?? 0) : Number.MAX_SAFE_INTEGER;
+      const sortDiff = aSort - bSort;
       if (sortDiff !== 0) return sortDiff;
+
+      const aIsLaunch = (a as typeof a & { isLaunch?: boolean }).isLaunch === true;
+      const bIsLaunch = (b as typeof b & { isLaunch?: boolean }).isLaunch === true;
+      if (aIsLaunch && !bIsLaunch) return -1;
+      if (!aIsLaunch && bIsLaunch) return 1;
+
       return String(a.createdAt).localeCompare(String(b.createdAt));
     });
   }, [data, searchQuery, activeCategories, nameFilter]);
