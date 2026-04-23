@@ -53,7 +53,7 @@ router.get("/products", async (_req, res) => {
       .select()
       .from(productsTable)
       .where(eq(productsTable.isActive, true))
-      .orderBy(desc(productsTable.isLaunch), asc(productsTable.sortOrder), asc(productsTable.createdAt));
+      .orderBy(asc(productsTable.sortOrder), desc(productsTable.isLaunch), asc(productsTable.createdAt));
 
     const products   = rows.map((row) => mapProduct(row));
     const categories = [...new Set(products.map((p) => p.category))];

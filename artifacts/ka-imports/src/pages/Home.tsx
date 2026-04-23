@@ -142,16 +142,9 @@ export default function Home() {
     });
 
     return filtered.sort((a, b) => {
-      const aIsLaunch = (a as typeof a & { isLaunch?: boolean }).isLaunch === true;
-      const bIsLaunch = (b as typeof b & { isLaunch?: boolean }).isLaunch === true;
-      if (aIsLaunch && !bIsLaunch) return -1;
-      if (!aIsLaunch && bIsLaunch) return 1;
-
-      const aHasPromo = a.promoPrice != null && a.promoPrice < a.price;
-      const bHasPromo = b.promoPrice != null && b.promoPrice < b.price;
-      if (aHasPromo && !bHasPromo) return -1;
-      if (!aHasPromo && bHasPromo) return 1;
-      return 0;
+      const sortDiff = (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+      if (sortDiff !== 0) return sortDiff;
+      return String(a.createdAt).localeCompare(String(b.createdAt));
     });
   }, [data, searchQuery, activeCategories, nameFilter]);
 
