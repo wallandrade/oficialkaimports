@@ -2913,6 +2913,15 @@ export default function Admin() {
                 .map((p) => [String(p?.id || "").trim(), String(p?.image || "").trim()] as const)
                 .filter(([id, image]) => !!id && !!image),
             )}
+            productCostById={Object.fromEntries(
+              (products as Array<{ id?: string; costPrice?: number | null }>)
+                .map((p) => [String(p?.id || "").trim(), Number(p?.costPrice || 0)] as const)
+                .filter(([id]) => !!id),
+            )}
+            getCommissionRate={getCommissionRate}
+            gatewayFeePercent={Number(settings["gateway_fee_percent"] || 0)}
+            gatewayFeeFixed={Number(settings["gateway_fee_fixed"] || 0)}
+            gatewayFeeMin={Number(settings["gateway_fee_min"] || 0)}
             statusUpdating={statusUpdating}
             expandedOrder={expandedOrder}
             setExpandedOrder={setExpandedOrder}
@@ -5620,12 +5629,22 @@ function InventoryPanel({
 
 function OrdersPanel({
   productImageById,
+  productCostById,
+  getCommissionRate,
+  gatewayFeePercent,
+  gatewayFeeFixed,
+  gatewayFeeMin,
   orders, statusUpdating, expandedOrder, setExpandedOrder,
   updateOrderStatus, setProofModal, setProofViewer, openWhatsApp,
   onOpenCardPaidModal, updateOrderObservation, isPrimary, onEditOrder, onOpenKycModal,
   onSetOrderEnviado, onSetReshipmentStatus, onRemoveOrder,
 }: {
   productImageById: Record<string, string>;
+  productCostById: Record<string, number>;
+  getCommissionRate: (sellerCode?: string | null, snapshot?: number | null) => number;
+  gatewayFeePercent: number;
+  gatewayFeeFixed: number;
+  gatewayFeeMin: number;
   orders: AdminOrder[];
   statusUpdating: string | null;
   expandedOrder: string | null;
@@ -5773,6 +5792,19 @@ function OrdersPanel({
           const isCard     = order.paymentMethod === "card_simulation";
           const isExpanded = expandedOrder === order.id;
           const orderProducts = getOrderProducts(order.products);
+          const grossAmount = Number(order.cardTotalActual ?? order.total) || 0;
+          const orderProductsCost = orderProducts.reduce((sum, item) => {
+            const qty = Number(item.quantity) || 0;
+            const unitCost = item.costPrice != null
+              ? Number(item.costPrice)
+              : Number(productCostById[String(item.id || "").trim()] || 0);
+            return sum + qty * unitCost;
+          }, 0);
+          const commissionRate = getCommissionRate(order.sellerCode, order.sellerCommissionRateSnapshot);
+          const commissionAmount = grossAmount * (commissionRate / 100);
+          const gatewayFeeRaw = grossAmount * (gatewayFeePercent / 100) + gatewayFeeFixed;
+          const gatewayFee = grossAmount > 0 ? Math.max(gatewayFeeRaw, gatewayFeeMin) : 0;
+          const estimatedProfit = grossAmount - orderProductsCost - commissionAmount - gatewayFee;
           const previewProducts = orderProducts.slice(0, 5);
           const hiddenProductsCount = Math.max(0, orderProducts.length - previewProducts.length);
           const resolveProductImage = (product: OrderProductLite): string => {
@@ -5902,6 +5934,12 @@ function OrdersPanel({
                 </div>
                 <div className="text-right shrink-0">
                   <p className="text-2xl font-bold text-primary">{formatCurrency(order.total)}</p>
+                  <p
+                    className={`text-xs font-semibold mt-1 ${estimatedProfit >= 0 ? "text-emerald-700" : "text-red-600"}`}
+                    title="Lucro estimado = total - custo dos produtos - comissão - taxa do gateway"
+                  >
+                    Lucro est.: {formatCurrency(estimatedProfit)}
+                  </p>
                 </div>
               </div>
 
