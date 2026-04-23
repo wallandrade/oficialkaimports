@@ -398,6 +398,7 @@ export default function Checkout() {
   }, [appliedCoupon, couponProductsPayload]);
   const selectedShipping = shippingOptions.find((o) => o.id === selectedShippingId) ?? null;
   const shippingCost = selectedShipping ? Number(selectedShipping.price) : 0;
+  const baseTotal = subtotal + shippingCost + (includeInsurance ? subtotal * 0.1 : 0);
   const discountAmount = appliedCoupon
     ? appliedCoupon.discountType === "percent"
       ? eligibleProductSubtotal * (appliedCoupon.discountValue / 100)
