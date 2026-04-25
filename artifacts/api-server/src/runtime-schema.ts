@@ -545,6 +545,20 @@ async function ensureManualReshipmentsTable(databaseName: string): Promise<void>
   }
 }
 
+async function ensureProductCostHistoryTable(databaseName: string): Promise<void> {
+  if (await tableExists("product_cost_history", databaseName)) return;
+
+  await pool.query(`
+    CREATE TABLE product_cost_history (
+      id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
+      product_id VARCHAR(255) NOT NULL,
+      cost_price DECIMAL(10,2) NOT NULL,
+      changed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY product_cost_history_product_id_idx (product_id)
+    )
+  `);
+}
+
 export async function ensureRuntimeSchema(): Promise<void> {
   try {
     const databaseName = getDatabaseName();
@@ -564,6 +578,7 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureReshipmentsTable(databaseName);
     await ensureInventoryTables(databaseName);
     await ensureManualReshipmentsTable(databaseName);
+    await ensureProductCostHistoryTable(databaseName);
 
     console.log("[RuntimeSchema] Schema sync completed.");
   } catch (error) {

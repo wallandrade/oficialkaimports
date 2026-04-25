@@ -7588,7 +7588,29 @@ function ProductsPanel({
   const [expandedLinks, setExpandedLinks] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const [productSearch, setProductSearch] = useState("");
+  const [costHistoryProductId, setCostHistoryProductId] = useState<string | null>(null);
+  const [costHistoryProductName, setCostHistoryProductName] = useState("");
+  const [costHistory, setCostHistory] = useState<Array<{ id: number; costPrice: number; changedAt: string }>>([]);
+  const [costHistoryLoading, setCostHistoryLoading] = useState(false);
   const siteOrigin = window.location.origin;
+
+  const openCostHistory = async (productId: string, productName: string) => {
+    setCostHistoryProductId(productId);
+    setCostHistoryProductName(productName);
+    setCostHistory([]);
+    setCostHistoryLoading(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/products/${productId}/cost-history`, { headers: authHeaders() });
+      if (res.ok) {
+        const data = await res.json() as { history: Array<{ id: number; costPrice: number; changedAt: string }> };
+        setCostHistory(data.history);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setCostHistoryLoading(false);
+    }
+  };
 
   const normalizedProductSearch = productSearch.trim().toLowerCase();
   const visibleProducts = products.filter((p) => p.name.toLowerCase().includes(normalizedProductSearch));
@@ -7715,9 +7737,21 @@ function ProductsPanel({
                     </div>
                   </div>
 
-                  {/* Promo price */}
+                  {/* Cost price */}
                   <div>
-                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1 block">Preço de Custo (R$)</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Preço de Custo (R$)</label>
+                      {productForm._editing && productForm.id && (
+                        <button
+                          type="button"
+                          onClick={() => openCostHistory(productForm.id!, productForm.name || "")}
+                          className="flex items-center gap-1 text-xs text-primary hover:underline"
+                          title="Ver histórico de custo"
+                        >
+                          <Clock className="w-3 h-3" />Histórico
+                        </button>
+                      )}
+                    </div>
                     <div className="relative">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-semibold select-none">R$</span>
                       <PriceInput
@@ -7945,6 +7979,47 @@ function ProductsPanel({
               </div>
             );
           })}
+        </div>
+      )}
+      {/* Cost Price History Modal */}
+      {costHistoryProductId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)" }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[80vh]">
+            <div className="flex items-center justify-between px-6 py-4 border-b">
+              <div>
+                <h3 className="text-base font-bold">Histórico de Custo</h3>
+                <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[260px]">{costHistoryProductName}</p>
+              </div>
+              <button type="button" onClick={() => setCostHistoryProductId(null)} className="text-muted-foreground hover:text-foreground">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              {costHistoryLoading ? (
+                <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+              ) : costHistory.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">Nenhuma alteração registrada ainda.<br />O histórico é gerado a cada vez que o preço de custo é alterado e salvo.</p>
+              ) : (
+                <div className="space-y-0">
+                  {costHistory.map((entry, idx) => (
+                    <div key={entry.id} className="flex items-start gap-3">
+                      <div className="flex flex-col items-center">
+                        <div className={`w-2.5 h-2.5 rounded-full mt-1 flex-shrink-0 ${idx === 0 ? "bg-primary" : "bg-gray-300"}`} />
+                        {idx < costHistory.length - 1 && <div className="w-0.5 flex-1 bg-gray-200 my-1" style={{ minHeight: 24 }} />}
+                      </div>
+                      <div className="pb-4">
+                        <p className="text-sm font-semibold text-foreground">{formatCurrency(entry.costPrice)}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(entry.changedAt).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                        </p>
+                        {idx === 0 && <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-medium">Última alteração</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

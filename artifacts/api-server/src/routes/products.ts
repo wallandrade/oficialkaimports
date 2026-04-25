@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, productsTable } from "@workspace/db";
+import { db, productsTable, productCostHistoryTable } from "@workspace/db";
 import { eq, asc, desc } from "drizzle-orm";
 import crypto from "crypto";
 import { requirePrimaryAdmin } from "./admin-auth";
@@ -163,6 +163,17 @@ router.patch("/admin/products/:id", requirePrimaryAdmin, async (req, res) => {
     if (isLaunch   !== undefined) updates.isLaunch    = isLaunch;
     if (sortOrder  !== undefined) updates.sortOrder   = sortOrder;
 
+    // Record cost price history when costPrice changes
+    if (costPrice !== undefined) {
+      const [current] = await db.select({ costPrice: productsTable.costPrice }).from(productsTable).where(eq(productsTable.id, id));
+      if (current && Number(current.costPrice) !== Number(costPrice ?? 0)) {
+        await db.insert(productCostHistoryTable).values({
+          productId: id,
+          costPrice: String(Number(costPrice ?? 0)),
+        });
+      }
+    }
+
     await db.update(productsTable).set(updates).where(eq(productsTable.id, id));
 
     const [updated] = await db.select().from(productsTable).where(eq(productsTable.id, id));
@@ -170,6 +181,23 @@ router.patch("/admin/products/:id", requirePrimaryAdmin, async (req, res) => {
     res.json(mapProduct(updated, true));
   } catch (err) {
     console.error("Update product error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR" });
+  }
+});
+
+/** GET /api/admin/products/:id/cost-history */
+router.get("/admin/products/:id/cost-history", requirePrimaryAdmin, async (req, res) => {
+  try {
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
+    const rows = await db
+      .select()
+      .from(productCostHistoryTable)
+      .where(eq(productCostHistoryTable.productId, id))
+      .orderBy(desc(productCostHistoryTable.changedAt));
+    res.json({ history: rows.map((r) => ({ id: r.id, costPrice: Number(r.costPrice), changedAt: r.changedAt.toISOString() })) });
+  } catch (err) {
+    console.error("Cost history error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR" });
   }
 });
