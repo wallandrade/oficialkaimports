@@ -732,7 +732,15 @@ export default function Admin() {
   const [inventoryBalances, setInventoryBalances] = useState<InventoryBalanceRecord[]>([]);
   const [inventoryMovements, setInventoryMovements] = useState<InventoryMovementRecord[]>([]);
   const [pendingReshipments, setPendingReshipments] = useState<ReshipmentRecord[]>([]);
-  const [inventoryEntryForm, setInventoryEntryForm] = useState({ productId: "", quantity: "", reason: "", movementType: "entry" as "entry" | "exit" });
+  const [inventoryEntryForm, setInventoryEntryForm] = useState({
+    productId: "",
+    quantity: "",
+    reason: "",
+    movementType: "entry" as "entry" | "exit",
+    entrySource: "purchase" as "purchase" | "customer_return",
+    clientName: "",
+    trackingCode: "",
+  });
   const [inventorySubmitting, setInventorySubmitting] = useState(false);
   const [manualReshipmentForm, setManualReshipmentForm] = useState({
     clientName: "",
@@ -3170,6 +3178,9 @@ export default function Admin() {
               const quantity = Number(inventoryEntryForm.quantity || 0);
               const reason = String(inventoryEntryForm.reason || "").trim();
               const movementType = inventoryEntryForm.movementType === "exit" ? "exit" : "entry";
+              const entrySource = inventoryEntryForm.entrySource === "customer_return" ? "customer_return" : "purchase";
+              const clientName = String(inventoryEntryForm.clientName || "").trim();
+              const trackingCode = String(inventoryEntryForm.trackingCode || "").trim();
               if (!productId || !Number.isFinite(quantity) || quantity <= 0) {
                 toast.error("Selecione o produto e informe quantidade válida.");
                 return;
@@ -3179,14 +3190,14 @@ export default function Admin() {
                 const res = await fetch(`${BASE}/api/admin/inventory/entries`, {
                   method: "POST",
                   headers: authHeaders(),
-                  body: JSON.stringify({ productId, quantity, reason, movementType }),
+                  body: JSON.stringify({ productId, quantity, reason, movementType, entrySource, clientName, trackingCode }),
                 });
                 const data = await res.json() as { releasedCount?: number; message?: string };
                 if (!res.ok) {
                   toast.error(data?.message || "Erro ao registrar entrada de estoque.");
                   return;
                 }
-                setInventoryEntryForm((prev) => ({ ...prev, productId: "", quantity: "", reason: "" }));
+                setInventoryEntryForm((prev) => ({ ...prev, productId: "", quantity: "", reason: "", clientName: "", trackingCode: "" }));
                 fetchInventoryOverview();
                 fetchOrders(true);
                 const released = Number(data?.releasedCount || 0);
@@ -5427,8 +5438,24 @@ function InventoryPanel({
   balances: InventoryBalanceRecord[];
   movements: InventoryMovementRecord[];
   pendingReshipments: ReshipmentRecord[];
-  entryForm: { productId: string; quantity: string; reason: string; movementType: "entry" | "exit" };
-  setEntryForm: React.Dispatch<React.SetStateAction<{ productId: string; quantity: string; reason: string; movementType: "entry" | "exit" }>>;
+  entryForm: {
+    productId: string;
+    quantity: string;
+    reason: string;
+    movementType: "entry" | "exit";
+    entrySource: "purchase" | "customer_return";
+    clientName: string;
+    trackingCode: string;
+  };
+  setEntryForm: React.Dispatch<React.SetStateAction<{
+    productId: string;
+    quantity: string;
+    reason: string;
+    movementType: "entry" | "exit";
+    entrySource: "purchase" | "customer_return";
+    clientName: string;
+    trackingCode: string;
+  }>>;
   submitting: boolean;
   manualForm: {
     clientName: string;
@@ -5471,7 +5498,7 @@ function InventoryPanel({
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold">Estoque e Reenvios</p>
-            <p className="text-xs text-muted-foreground">Registre entrada ou saída de estoque. Entradas liberam reenvios automaticamente.</p>
+            <p className="text-xs text-muted-foreground">Registre entrada ou saída de estoque. Entradas por compra ou devolução liberam reenvios automaticamente.</p>
           </div>
           <Button variant="outline" size="sm" onClick={onRefresh} className="gap-1.5">
             <RefreshCw className="w-3.5 h-3.5" />Atualizar
@@ -5509,6 +5536,34 @@ function InventoryPanel({
             {submitting ? "Salvando..." : entryForm.movementType === "exit" ? "Dar Saída" : "Dar Entrada"}
           </Button>
         </div>
+        {entryForm.movementType === "entry" && (
+          <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-2">
+            <select
+              className="h-10 rounded-lg border border-border px-3 text-sm bg-white"
+              value={entryForm.entrySource}
+              onChange={(e) => setEntryForm((prev) => ({ ...prev, entrySource: e.target.value === "customer_return" ? "customer_return" : "purchase" }))}
+            >
+              <option value="purchase">Entrada por compra</option>
+              <option value="customer_return">Produto voltando (cliente)</option>
+            </select>
+            {entryForm.entrySource === "customer_return" && (
+              <>
+                <input
+                  className="h-10 rounded-lg border border-border px-3 text-sm"
+                  placeholder="Nome do cliente (opcional)"
+                  value={entryForm.clientName}
+                  onChange={(e) => setEntryForm((prev) => ({ ...prev, clientName: e.target.value }))}
+                />
+                <input
+                  className="h-10 rounded-lg border border-border px-3 text-sm"
+                  placeholder="Código de rastreio (opcional)"
+                  value={entryForm.trackingCode}
+                  onChange={(e) => setEntryForm((prev) => ({ ...prev, trackingCode: e.target.value }))}
+                />
+              </>
+            )}
+          </div>
+        )}
         <input
           className="mt-2 h-10 rounded-lg border border-border px-3 text-sm w-full"
           placeholder="Motivo (opcional)"

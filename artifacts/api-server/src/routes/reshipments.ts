@@ -66,6 +66,9 @@ router.post("/admin/inventory/entries", requirePrimaryAdmin, async (req, res) =>
     const productId = String(req.body?.productId ?? "").trim();
     const quantity = Number(req.body?.quantity || 0);
     const movementType = String(req.body?.movementType ?? "entry").trim().toLowerCase();
+    const entrySource = String(req.body?.entrySource ?? "purchase").trim().toLowerCase();
+    const clientName = String(req.body?.clientName ?? "").trim();
+    const trackingCode = String(req.body?.trackingCode ?? "").trim();
     const reason = String(req.body?.reason ?? "").trim();
 
     if (!productId || !Number.isFinite(quantity) || quantity <= 0) {
@@ -75,6 +78,11 @@ router.post("/admin/inventory/entries", requirePrimaryAdmin, async (req, res) =>
 
     if (movementType !== "entry" && movementType !== "exit") {
       res.status(400).json({ error: "INVALID_INPUT", message: "Tipo de movimentação inválido." });
+      return;
+    }
+
+    if (movementType === "entry" && entrySource !== "purchase" && entrySource !== "customer_return") {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Origem da entrada inválida." });
       return;
     }
 
@@ -93,10 +101,20 @@ router.post("/admin/inventory/entries", requirePrimaryAdmin, async (req, res) =>
       }
     }
 
+    const resolvedReason = reason || (() => {
+      if (movementType === "exit") return "Saida manual de estoque";
+      if (entrySource === "customer_return") {
+        const byClient = clientName ? ` · Cliente: ${clientName}` : "";
+        const withTracking = trackingCode ? ` · Rastreio: ${trackingCode}` : "";
+        return `Entrada de produto retornado${byClient}${withTracking}`;
+      }
+      return "Entrada por compra de estoque";
+    })();
+
     await registerInventoryEntry({
       productId,
       quantity: signedQuantity,
-      reason: reason || (movementType === "exit" ? "Saida manual de estoque" : "Entrada manual de estoque"),
+      reason: resolvedReason,
     });
 
     const releasedCount = movementType === "entry" ? await releasePendingReshipments() : 0;
