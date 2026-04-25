@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { db, productsTable, productCostHistoryTable } from "@workspace/db";
-import { eq, asc, desc } from "drizzle-orm";
+import { db, productsTable, productCostHistoryTable, ordersTable } from "@workspace/db";
+import { eq, asc, desc, gte } from "drizzle-orm";
 import crypto from "crypto";
 import { requirePrimaryAdmin } from "./admin-auth";
 
@@ -163,14 +163,42 @@ router.patch("/admin/products/:id", requirePrimaryAdmin, async (req, res) => {
     if (isLaunch   !== undefined) updates.isLaunch    = isLaunch;
     if (sortOrder  !== undefined) updates.sortOrder   = sortOrder;
 
-    // Record cost price history when costPrice changes
+    // Record cost price history and backfill recent orders when costPrice changes
     if (costPrice !== undefined) {
       const [current] = await db.select({ costPrice: productsTable.costPrice }).from(productsTable).where(eq(productsTable.id, id));
-      if (current && Number(current.costPrice) !== Number(costPrice ?? 0)) {
+      const newCost = Number(costPrice ?? 0);
+      if (current && Number(current.costPrice) !== newCost) {
+        // 1. Gravar histórico
         await db.insert(productCostHistoryTable).values({
           productId: id,
-          costPrice: String(Number(costPrice ?? 0)),
+          costPrice: String(newCost),
         });
+
+        // 2. Atualizar costPrice nos pedidos das últimas 24h que contêm este produto
+        const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const recentOrders = await db
+          .select({ id: ordersTable.id, products: ordersTable.products })
+          .from(ordersTable)
+          .where(gte(ordersTable.createdAt, since));
+
+        for (const order of recentOrders) {
+          let items: Array<Record<string, unknown>>;
+          try {
+            items = Array.isArray(order.products)
+              ? (order.products as Array<Record<string, unknown>>)
+              : JSON.parse(String(order.products));
+          } catch {
+            continue;
+          }
+          const hasProduct = items.some((item) => String(item.id ?? item.productId ?? "").trim() === id);
+          if (!hasProduct) continue;
+          const patched = items.map((item) =>
+            String(item.id ?? item.productId ?? "").trim() === id
+              ? { ...item, costPrice: newCost }
+              : item,
+          );
+          await db.update(ordersTable).set({ products: patched }).where(eq(ordersTable.id, order.id));
+        }
       }
     }
 
