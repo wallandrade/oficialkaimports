@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { and, eq } from "drizzle-orm";
-import { db, manualReshipmentsTable, ordersTable, reshipmentsTable } from "@workspace/db";
+import { db, inventoryBalancesTable, manualReshipmentsTable, ordersTable, reshipmentsTable } from "@workspace/db";
 import { getAdminScope, requireAdminAuth, requirePrimaryAdmin } from "./admin-auth";
 import {
   createManualReshipment,
@@ -65,15 +65,41 @@ router.post("/admin/inventory/entries", requirePrimaryAdmin, async (req, res) =>
   try {
     const productId = String(req.body?.productId ?? "").trim();
     const quantity = Number(req.body?.quantity || 0);
-    const reason = String(req.body?.reason ?? "").trim() || "Entrada manual de estoque";
+    const movementType = String(req.body?.movementType ?? "entry").trim().toLowerCase();
+    const reason = String(req.body?.reason ?? "").trim();
 
     if (!productId || !Number.isFinite(quantity) || quantity <= 0) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Produto e quantidade devem ser válidos." });
       return;
     }
 
-    await registerInventoryEntry({ productId, quantity, reason });
-    const releasedCount = await releasePendingReshipments();
+    if (movementType !== "entry" && movementType !== "exit") {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Tipo de movimentação inválido." });
+      return;
+    }
+
+    const signedQuantity = movementType === "exit" ? -quantity : quantity;
+
+    if (signedQuantity < 0) {
+      const [balance] = await db
+        .select({ quantity: inventoryBalancesTable.quantity })
+        .from(inventoryBalancesTable)
+        .where(eq(inventoryBalancesTable.productId, productId))
+        .limit(1);
+      const current = Number(balance?.quantity || 0);
+      if (current < quantity) {
+        res.status(400).json({ error: "INSUFFICIENT_STOCK", message: `Saldo insuficiente. Disponível: ${current}.` });
+        return;
+      }
+    }
+
+    await registerInventoryEntry({
+      productId,
+      quantity: signedQuantity,
+      reason: reason || (movementType === "exit" ? "Saida manual de estoque" : "Entrada manual de estoque"),
+    });
+
+    const releasedCount = movementType === "entry" ? await releasePendingReshipments() : 0;
 
     if (releasedCount > 0) {
       broadcastNotification({ type: "reshipment_stock_released", data: { releasedCount } });

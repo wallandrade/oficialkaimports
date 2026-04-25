@@ -732,7 +732,7 @@ export default function Admin() {
   const [inventoryBalances, setInventoryBalances] = useState<InventoryBalanceRecord[]>([]);
   const [inventoryMovements, setInventoryMovements] = useState<InventoryMovementRecord[]>([]);
   const [pendingReshipments, setPendingReshipments] = useState<ReshipmentRecord[]>([]);
-  const [inventoryEntryForm, setInventoryEntryForm] = useState({ productId: "", quantity: "", reason: "" });
+  const [inventoryEntryForm, setInventoryEntryForm] = useState({ productId: "", quantity: "", reason: "", movementType: "entry" as "entry" | "exit" });
   const [inventorySubmitting, setInventorySubmitting] = useState(false);
   const [manualReshipmentForm, setManualReshipmentForm] = useState({
     clientName: "",
@@ -3169,6 +3169,7 @@ export default function Admin() {
               const productId = String(inventoryEntryForm.productId || "").trim();
               const quantity = Number(inventoryEntryForm.quantity || 0);
               const reason = String(inventoryEntryForm.reason || "").trim();
+              const movementType = inventoryEntryForm.movementType === "exit" ? "exit" : "entry";
               if (!productId || !Number.isFinite(quantity) || quantity <= 0) {
                 toast.error("Selecione o produto e informe quantidade válida.");
                 return;
@@ -3178,21 +3179,25 @@ export default function Admin() {
                 const res = await fetch(`${BASE}/api/admin/inventory/entries`, {
                   method: "POST",
                   headers: authHeaders(),
-                  body: JSON.stringify({ productId, quantity, reason }),
+                  body: JSON.stringify({ productId, quantity, reason, movementType }),
                 });
                 const data = await res.json() as { releasedCount?: number; message?: string };
                 if (!res.ok) {
                   toast.error(data?.message || "Erro ao registrar entrada de estoque.");
                   return;
                 }
-                setInventoryEntryForm({ productId: "", quantity: "", reason: "" });
+                setInventoryEntryForm((prev) => ({ ...prev, productId: "", quantity: "", reason: "" }));
                 fetchInventoryOverview();
                 fetchOrders(true);
                 const released = Number(data?.releasedCount || 0);
-                if (released > 0) toast.success(`Entrada registrada. ${released} reenvio(s) liberado(s).`);
-                else toast.success("Entrada de estoque registrada.");
+                if (movementType === "entry") {
+                  if (released > 0) toast.success(`Entrada registrada. ${released} reenvio(s) liberado(s).`);
+                  else toast.success("Entrada de estoque registrada.");
+                } else {
+                  toast.success("Saida de estoque registrada.");
+                }
               } catch {
-                toast.error("Erro ao registrar entrada de estoque.");
+                toast.error(movementType === "entry" ? "Erro ao registrar entrada de estoque." : "Erro ao registrar saída de estoque.");
               } finally {
                 setInventorySubmitting(false);
               }
@@ -5422,8 +5427,8 @@ function InventoryPanel({
   balances: InventoryBalanceRecord[];
   movements: InventoryMovementRecord[];
   pendingReshipments: ReshipmentRecord[];
-  entryForm: { productId: string; quantity: string; reason: string };
-  setEntryForm: React.Dispatch<React.SetStateAction<{ productId: string; quantity: string; reason: string }>>;
+  entryForm: { productId: string; quantity: string; reason: string; movementType: "entry" | "exit" };
+  setEntryForm: React.Dispatch<React.SetStateAction<{ productId: string; quantity: string; reason: string; movementType: "entry" | "exit" }>>;
   submitting: boolean;
   manualForm: {
     clientName: string;
@@ -5466,14 +5471,22 @@ function InventoryPanel({
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold">Estoque e Reenvios</p>
-            <p className="text-xs text-muted-foreground">Dê entrada de estoque e libere reenvios automaticamente.</p>
+            <p className="text-xs text-muted-foreground">Registre entrada ou saída de estoque. Entradas liberam reenvios automaticamente.</p>
           </div>
           <Button variant="outline" size="sm" onClick={onRefresh} className="gap-1.5">
             <RefreshCw className="w-3.5 h-3.5" />Atualizar
           </Button>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-2">
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-5 gap-2">
+          <select
+            className="h-10 rounded-lg border border-border px-3 text-sm bg-white"
+            value={entryForm.movementType}
+            onChange={(e) => setEntryForm((prev) => ({ ...prev, movementType: e.target.value === "exit" ? "exit" : "entry" }))}
+          >
+            <option value="entry">Entrada</option>
+            <option value="exit">Saída</option>
+          </select>
           <select
             className="h-10 rounded-lg border border-border px-3 text-sm bg-white md:col-span-2"
             value={entryForm.productId}
@@ -5493,7 +5506,7 @@ function InventoryPanel({
             onChange={(e) => setEntryForm((prev) => ({ ...prev, quantity: e.target.value }))}
           />
           <Button className="h-10" onClick={onCreateEntry} disabled={submitting}>
-            {submitting ? "Salvando..." : "Dar Entrada"}
+            {submitting ? "Salvando..." : entryForm.movementType === "exit" ? "Dar Saída" : "Dar Entrada"}
           </Button>
         </div>
         <input

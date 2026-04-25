@@ -333,12 +333,14 @@ export async function registerInventoryEntry(params: {
 }): Promise<void> {
   await changeBalance(params.productId, params.quantity);
 
+  const isExit = Number(params.quantity) < 0;
+
   await db.insert(inventoryMovementsTable).values({
     id: crypto.randomBytes(8).toString("hex"),
     productId: params.productId,
-    type: "entry",
+    type: isExit ? "exit" : "entry",
     quantity: params.quantity,
-    reason: params.reason || "Entrada manual de estoque",
+    reason: params.reason || (isExit ? "Saida manual de estoque" : "Entrada manual de estoque"),
     referenceId: params.referenceId || null,
     createdAt: new Date(),
   });
