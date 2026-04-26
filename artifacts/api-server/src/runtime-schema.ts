@@ -461,6 +461,9 @@ async function ensureInventoryTables(databaseName: string): Promise<void> {
         id VARCHAR(255) NOT NULL PRIMARY KEY,
         product_id VARCHAR(255) NOT NULL,
         type VARCHAR(32) NOT NULL DEFAULT 'entry',
+        entry_source VARCHAR(32) NULL,
+        client_name VARCHAR(255) NULL,
+        tracking_code VARCHAR(255) NULL,
         quantity INT NOT NULL,
         reason VARCHAR(255) NULL,
         reference_id VARCHAR(255) NULL,
@@ -473,6 +476,9 @@ async function ensureInventoryTables(databaseName: string): Promise<void> {
   } else {
     const definitions = [
       { name: "type", sql: "ALTER TABLE inventory_movements ADD COLUMN type VARCHAR(32) NOT NULL DEFAULT 'entry'" },
+      { name: "entry_source", sql: "ALTER TABLE inventory_movements ADD COLUMN entry_source VARCHAR(32) NULL" },
+      { name: "client_name", sql: "ALTER TABLE inventory_movements ADD COLUMN client_name VARCHAR(255) NULL" },
+      { name: "tracking_code", sql: "ALTER TABLE inventory_movements ADD COLUMN tracking_code VARCHAR(255) NULL" },
       { name: "reason", sql: "ALTER TABLE inventory_movements ADD COLUMN reason VARCHAR(255) NULL" },
       { name: "reference_id", sql: "ALTER TABLE inventory_movements ADD COLUMN reference_id VARCHAR(255) NULL" },
     ];

@@ -115,6 +115,9 @@ router.post("/admin/inventory/entries", requirePrimaryAdmin, async (req, res) =>
       productId,
       quantity: signedQuantity,
       reason: resolvedReason,
+      entrySource: movementType === "entry" ? (entrySource === "customer_return" ? "customer_return" : "purchase") : undefined,
+      clientName: movementType === "entry" && entrySource === "customer_return" ? clientName || null : null,
+      trackingCode: movementType === "entry" && entrySource === "customer_return" ? trackingCode || null : null,
     });
 
     const releasedCount = movementType === "entry" ? await releasePendingReshipments() : 0;

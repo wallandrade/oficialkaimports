@@ -330,6 +330,9 @@ export async function registerInventoryEntry(params: {
   quantity: number;
   reason?: string;
   referenceId?: string;
+  entrySource?: "purchase" | "customer_return";
+  clientName?: string | null;
+  trackingCode?: string | null;
 }): Promise<void> {
   await changeBalance(params.productId, params.quantity);
 
@@ -339,6 +342,9 @@ export async function registerInventoryEntry(params: {
     id: crypto.randomBytes(8).toString("hex"),
     productId: params.productId,
     type: isExit ? "exit" : "entry",
+    entrySource: params.entrySource || null,
+    clientName: params.clientName || null,
+    trackingCode: params.trackingCode || null,
     quantity: params.quantity,
     reason: params.reason || (isExit ? "Saida manual de estoque" : "Entrada manual de estoque"),
     referenceId: params.referenceId || null,
@@ -484,7 +490,18 @@ export async function setManualReshipmentStatus(id: string, status: ReshipmentSt
 
 export async function getInventoryOverview(): Promise<{
   balances: Array<{ productId: string; productName: string; quantity: number }>;
-  movements: Array<{ id: string; productId: string; productName: string; type: string; quantity: number; reason: string | null; createdAt: string }>;
+  movements: Array<{
+    id: string;
+    productId: string;
+    productName: string;
+    type: string;
+    entrySource: string | null;
+    clientName: string | null;
+    trackingCode: string | null;
+    quantity: number;
+    reason: string | null;
+    createdAt: string;
+  }>;
 }> {
   const [balancesRows, productsRows, movementsRows] = await Promise.all([
     db
@@ -517,6 +534,9 @@ export async function getInventoryOverview(): Promise<{
         productId: row.productId,
         productName: productNameMap.get(row.productId) || row.productId,
         type: row.type,
+        entrySource: row.entrySource || null,
+        clientName: row.clientName || null,
+        trackingCode: row.trackingCode || null,
         quantity: Number(row.quantity) || 0,
         reason: row.reason || null,
         createdAt: row.createdAt?.toISOString() || new Date().toISOString(),

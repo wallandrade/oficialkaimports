@@ -673,6 +673,9 @@ interface InventoryMovementRecord {
   productId: string;
   productName: string;
   type: string;
+  entrySource?: string | null;
+  clientName?: string | null;
+  trackingCode?: string | null;
   quantity: number;
   reason: string | null;
   createdAt: string;
@@ -5678,10 +5681,24 @@ function InventoryPanel({
         ) : (
           <div className="space-y-2 max-h-80 overflow-auto pr-1">
             {movements.map((mv) => (
-              <div key={mv.id} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 gap-2">
+              <div key={mv.id} className="flex items-start justify-between rounded-lg border border-border px-3 py-2 gap-2">
                 <div className="min-w-0">
-                  <p className="text-sm font-medium truncate">{mv.productName}</p>
-                  <p className="text-xs text-muted-foreground truncate">{mv.reason || "Movimentação"} · {formatDateBR(mv.createdAt)}</p>
+                  <p className="text-sm font-medium">{mv.productName}</p>
+                  <p className="text-xs text-muted-foreground">{mv.reason || "Movimentação"} · {formatDateBR(mv.createdAt)}</p>
+                  {mv.type === "entry" && mv.entrySource === "customer_return" && (mv.clientName || mv.trackingCode) && (
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      {mv.clientName && (
+                        <span className="text-[11px] px-2 py-0.5 rounded-full border border-sky-200 bg-sky-50 text-sky-700">
+                          Cliente: {mv.clientName}
+                        </span>
+                      )}
+                      {mv.trackingCode && (
+                        <span className="text-[11px] px-2 py-0.5 rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700">
+                          Rastreio: {mv.trackingCode}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${mv.quantity >= 0 ? "bg-green-100 text-green-800 border-green-200" : "bg-red-100 text-red-800 border-red-200"}`}>
                   {mv.quantity >= 0 ? "+" : ""}{mv.quantity}
