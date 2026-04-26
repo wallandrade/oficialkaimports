@@ -2441,24 +2441,36 @@ export default function Admin() {
       return;
     }
 
-    const totals = new Map<string, number>();
+    const totals = new Map<string, { label: string; qty: number; productId: string | null }>();
     for (const order of ordersParaEnviar) {
       for (const p of getOrderProducts(order.products)) {
         const name = (p.name || "Produto").trim();
-        const key  = name.toLowerCase();
-        totals.set(key, (totals.get(key) ?? 0) + (Number(p.quantity) || 0));
-        // preserve original casing from first occurrence
-        if (!totals.has("__label__" + key)) {
-          totals.set("__label__" + key, name as any);
-        }
+        const productId = String((p as { id?: string })?.id || "").trim() || null;
+        const key = productId ? `id:${productId}` : `name:${name.toLowerCase()}`;
+        const prev = totals.get(key);
+        totals.set(key, {
+          label: prev?.label || name,
+          qty: (prev?.qty || 0) + (Number(p.quantity) || 0),
+          productId,
+        });
       }
     }
 
-    const lines = [...totals.entries()]
-      .filter(([k]) => !k.startsWith("__label__"))
-      .map(([k, qty]) => `- ${qty}x ${totals.get("__label__" + k) ?? k}`);
+    const costById = new Map(products.map((p) => [String(p.id), Number((p as { costPrice?: number | null }).costPrice || 0)] as const));
+    const costByName = new Map(products.map((p) => [String(p.name || "").trim().toLowerCase(), Number((p as { costPrice?: number | null }).costPrice || 0)] as const));
 
-    const text = `Lista de Compra - ${ordersParaEnviar.length} pedido${ordersParaEnviar.length !== 1 ? "s" : ""}\n\n${lines.join("\n")}`;
+    const lines = [...totals.values()]
+      .sort((a, b) => a.label.localeCompare(b.label, "pt-BR"))
+      .map((item) => `- ${item.qty}x ${item.label}`);
+
+    const estimatedTotalCost = [...totals.values()].reduce((sum, item) => {
+      const unitCost = item.productId ? costById.get(item.productId) : undefined;
+      const fallback = costByName.get(item.label.trim().toLowerCase());
+      const effectiveCost = unitCost ?? fallback ?? 0;
+      return sum + (item.qty * effectiveCost);
+    }, 0);
+
+    const text = `Lista de Compra - ${ordersParaEnviar.length} pedido${ordersParaEnviar.length !== 1 ? "s" : ""}\n\n${lines.join("\n")}\n\nValor total estimado de custo: ${formatCurrency(estimatedTotalCost)}`;
 
     try {
       const mode = await copyText(text);
