@@ -93,6 +93,7 @@ function useSiteBanners() {
     try { return JSON.parse(localStorage.getItem("siteSettings") || "{}") as Record<string, string>; } catch { return {}; }
   };
   const [banners, setBanners] = useState<Record<string, string>>(getCached);
+  const [isLoaded, setIsLoaded] = useState(false);
   useEffect(() => {
     fetch(`${BASE}/api/settings`)
       .then((r) => r.json())
@@ -100,9 +101,10 @@ function useSiteBanners() {
         localStorage.setItem("siteSettings", JSON.stringify(data));
         setBanners(data);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setIsLoaded(true));
   }, []);
-  return banners;
+  return { banners, isLoaded };
 }
 
 export default function Home() {
@@ -113,7 +115,7 @@ export default function Home() {
   const [nameFilter, setNameFilter] = useState("");
   const searchString = useSearch();
   const searchQuery = new URLSearchParams(searchString).get("q") || "";
-  const banners = useSiteBanners();
+  const { banners, isLoaded: bannersLoaded } = useSiteBanners();
 
   useLiveTracking("catalog");
 
@@ -164,25 +166,36 @@ export default function Home() {
     setNameFilter,
     setActiveCategories,
   };
+  const hasHeroBanner = Boolean(banners["banner_desktop"] || banners["banner_mobile"]);
+  const shouldRenderHero = hasHeroBanner || !bannersLoaded;
 
   return (
     <AppLayout>
-      {/* Hero Banner — only shown when configured in admin */}
-      {(banners["banner_desktop"] || banners["banner_mobile"]) && (
-        <section className="w-full relative overflow-hidden">
-          {banners["banner_mobile"] && (
-            <img
-              src={banners["banner_mobile"]}
-              alt="KA Imports Banner"
-              className="block sm:hidden w-full h-[180px] object-cover object-center"
-            />
-          )}
-          {banners["banner_desktop"] && (
-            <img
-              src={banners["banner_desktop"]}
-              alt="KA Imports Premium Banner"
-              className={`${banners["banner_mobile"] ? "hidden sm:block" : "block"} w-full h-[260px] md:h-[380px] object-cover object-center`}
-            />
+      {shouldRenderHero && (
+        <section className="w-full relative overflow-hidden bg-muted/20 min-h-[180px] sm:min-h-[260px] md:min-h-[380px]">
+          {hasHeroBanner ? (
+            <picture>
+              {banners["banner_mobile"] ? (
+                <source media="(max-width: 639px)" srcSet={banners["banner_mobile"]} />
+              ) : null}
+              {banners["banner_desktop"] ? (
+                <img
+                  src={banners["banner_desktop"]}
+                  alt="KA Imports Premium Banner"
+                  fetchPriority="high"
+                  className="block w-full h-[180px] sm:h-[260px] md:h-[380px] object-cover object-center"
+                />
+              ) : banners["banner_mobile"] ? (
+                <img
+                  src={banners["banner_mobile"]}
+                  alt="KA Imports Banner"
+                  fetchPriority="high"
+                  className="block w-full h-[180px] sm:h-[260px] md:h-[380px] object-cover object-center"
+                />
+              ) : null}
+            </picture>
+          ) : (
+            <div className="w-full h-[180px] sm:h-[260px] md:h-[380px] bg-muted/30 animate-pulse" aria-hidden="true" />
           )}
         </section>
       )}
@@ -303,7 +316,7 @@ export default function Home() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: Math.min(i * 0.03, 0.3) }}
                   >
-                    <ProductCard product={product} sellerSlug={sellerSlug} />
+                    <ProductCard product={product} sellerSlug={sellerSlug} priority={i < 4} />
                   </motion.div>
                 ))}
               </motion.div>

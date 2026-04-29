@@ -8,9 +8,10 @@ import { isProductUnavailable, useCart } from "@/store/use-cart";
 interface ProductCardProps {
   product: Product;
   sellerSlug?: string;
+  priority?: boolean;
 }
 
-export function ProductCard({ product, sellerSlug }: ProductCardProps) {
+export function ProductCard({ product, sellerSlug, priority = false }: ProductCardProps) {
   const hasPromo = product.promoPrice != null && product.promoPrice < product.price;
   const isSoldOut = isProductUnavailable(product);
   const isLaunch = (product as Product & { isLaunch?: boolean }).isLaunch === true;
@@ -30,8 +31,9 @@ export function ProductCard({ product, sellerSlug }: ProductCardProps) {
         <img
           src={product.image || "https://placehold.co/400x400/1a2b4a/ffffff?text=KA+Imports"}
           alt={product.name}
-          loading="lazy"
+          loading={priority ? "eager" : "lazy"}
           decoding="async"
+          fetchPriority={priority ? "high" : "auto"}
           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
         />
         {hasPromo && (
