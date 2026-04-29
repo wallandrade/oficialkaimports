@@ -3,6 +3,7 @@ import { db, productsTable, productCostHistoryTable, ordersTable } from "@worksp
 import { eq, asc, desc, gte } from "drizzle-orm";
 import crypto from "crypto";
 import { requirePrimaryAdmin } from "./admin-auth";
+import { isR2Configured, uploadProductImageToR2 } from "../lib/r2";
 
 const router: IRouter = Router();
 
@@ -95,6 +96,44 @@ router.get("/admin/products", requirePrimaryAdmin, async (_req, res) => {
     res.json({ products: rows.map((row) => mapProduct(row, true)) });
   } catch (err) {
     console.error("Admin products error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR" });
+  }
+});
+
+/** POST /api/admin/products/upload-image */
+router.post("/admin/products/upload-image", requirePrimaryAdmin, async (req, res) => {
+  try {
+    const { imageData, productId } = req.body as {
+      imageData?: string;
+      productId?: string | null;
+    };
+
+    if (!imageData?.startsWith("data:image/")) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Envie uma imagem válida em JPG, PNG, WebP ou GIF." });
+      return;
+    }
+
+    if (!isR2Configured()) {
+      res.status(503).json({
+        error: "R2_NOT_CONFIGURED",
+        message: "Cloudflare R2 não está configurado no servidor.",
+      });
+      return;
+    }
+
+    const imageUrl = await uploadProductImageToR2({ dataUrl: imageData, productId });
+    res.status(201).json({ imageUrl });
+  } catch (err) {
+    console.error("Upload product image error:", err);
+    const code = err instanceof Error ? err.message : "INTERNAL_ERROR";
+    if (code === "INVALID_IMAGE_DATA_URL" || code === "UNSUPPORTED_IMAGE_TYPE" || code === "EMPTY_IMAGE") {
+      res.status(400).json({ error: code, message: "Imagem inválida para upload." });
+      return;
+    }
+    if (code === "CLOUDFLARE_R2_NOT_CONFIGURED") {
+      res.status(503).json({ error: code, message: "Cloudflare R2 não está configurado no servidor." });
+      return;
+    }
     res.status(500).json({ error: "INTERNAL_ERROR" });
   }
 });

@@ -10,7 +10,7 @@ export const productsTable = mysqlTable("products", {
   costPrice: decimal("cost_price", { precision: 10, scale: 2 }).notNull().default("0.00"),
   promoPrice: decimal("promo_price", { precision: 10, scale: 2 }),
   promoEndsAt: datetime("promo_ends_at", { mode: 'date' }),
-  image: mediumtext("image"),          // base64 data URI or null
+  image: mediumtext("image"),          // public URL in R2/CDN, with legacy base64 values still supported during migration
   isActive: boolean("is_active").notNull().default(true),
   isSoldOut: boolean("is_sold_out").notNull().default(false),
   isLaunch: boolean("is_launch").notNull().default(false),

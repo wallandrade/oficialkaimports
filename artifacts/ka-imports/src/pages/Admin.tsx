@@ -7685,6 +7685,7 @@ function ProductsPanel({
   const [expandedLinks, setExpandedLinks] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const [productSearch, setProductSearch] = useState("");
+  const [productImageUploading, setProductImageUploading] = useState(false);
   const [costHistoryProductId, setCostHistoryProductId] = useState<string | null>(null);
   const [costHistoryProductName, setCostHistoryProductName] = useState("");
   const [costHistory, setCostHistory] = useState<Array<{ id: number; costPrice: number; changedAt: string }>>([]);
@@ -7728,7 +7729,7 @@ function ProductsPanel({
       const src = ev.target?.result as string;
       if (!src) return;
       const img = new Image();
-      img.onload = () => {
+      img.onload = async () => {
         const MAX = 800;
         const scale = img.width > MAX ? MAX / img.width : 1;
         const canvas = document.createElement("canvas");
@@ -7737,7 +7738,28 @@ function ProductsPanel({
         const ctx = canvas.getContext("2d");
         if (!ctx) { setProductForm({ ...productForm, image: src }); return; }
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        setProductForm({ ...productForm, image: canvas.toDataURL("image/jpeg", 0.82) });
+        const compressedImage = canvas.toDataURL("image/jpeg", 0.82);
+
+        try {
+          setProductImageUploading(true);
+          const res = await fetch(`${BASE}/api/admin/products/upload-image`, {
+            method: "POST",
+            headers: authHeaders(),
+            body: JSON.stringify({ imageData: compressedImage, productId: productForm.id ?? null }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || !data?.imageUrl) {
+            throw new Error(data?.message || "Falha ao enviar imagem para o Cloudflare R2.");
+          }
+          setProductForm({ ...productForm, image: data.imageUrl });
+          toast.success("Imagem enviada para o R2.");
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Falha ao enviar imagem para o Cloudflare R2.";
+          toast.error(message);
+        } finally {
+          setProductImageUploading(false);
+          e.target.value = "";
+        }
       };
       img.src = src;
     };
@@ -7920,7 +7942,7 @@ function ProductsPanel({
 
                 {/* Image upload */}
                 <div>
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 block">Imagem do Produto <span className="font-normal normal-case text-muted-foreground">— opcional, máx. 3MB</span></label>
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 block">Imagem do Produto <span className="font-normal normal-case text-muted-foreground">— armazenada no Cloudflare R2</span></label>
                   <div className="flex gap-4 items-start">
                     {productForm.image ? (
                       <div className="relative w-24 h-24 rounded-xl overflow-hidden border-2 border-border flex-shrink-0">
@@ -7935,10 +7957,10 @@ function ProductsPanel({
                       </div>
                     )}
                     <label className="flex-1 flex flex-col items-center justify-center h-24 rounded-xl border-2 border-dashed border-border hover:border-primary cursor-pointer transition-colors bg-muted/20 hover:bg-primary/5">
-                      <input type="file" accept="image/*" className="hidden" ref={fileRef} onChange={handleImageUpload} />
-                      <Upload className="w-6 h-6 text-muted-foreground mb-1" />
-                      <p className="text-sm font-medium text-muted-foreground">Clique para selecionar imagem</p>
-                      <p className="text-xs text-muted-foreground">JPG, PNG, WebP · máx. 3MB</p>
+                      <input type="file" accept="image/*" className="hidden" ref={fileRef} onChange={handleImageUpload} disabled={productImageUploading} />
+                      {productImageUploading ? <Loader2 className="w-6 h-6 text-muted-foreground mb-1 animate-spin" /> : <Upload className="w-6 h-6 text-muted-foreground mb-1" />}
+                      <p className="text-sm font-medium text-muted-foreground">{productImageUploading ? "Enviando para o R2..." : "Clique para selecionar imagem"}</p>
+                      <p className="text-xs text-muted-foreground">JPG, PNG, WebP · otimizada antes do upload</p>
                     </label>
                   </div>
                 </div>
@@ -7946,7 +7968,7 @@ function ProductsPanel({
 
               <div className="flex gap-3 px-8 pb-8">
                 <Button variant="outline" className="flex-1" onClick={() => { setProductFormOpen(false); setProductForm({}); }}>Cancelar</Button>
-                <Button className="flex-1 gap-2" disabled={productSaving || !productForm.name?.trim() || !productForm.category?.trim() || !productForm.price} onClick={onSave}>
+                <Button className="flex-1 gap-2" disabled={productSaving || productImageUploading || !productForm.name?.trim() || !productForm.category?.trim() || !productForm.price} onClick={onSave}>
                   {productSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
                   {productForm._editing ? "Salvar alterações" : "Criar produto"}
                 </Button>

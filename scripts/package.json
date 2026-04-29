@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "hello": "tsx ./src/hello.ts",
+    "migrate:product-images:r2": "tsx ./src/migrate-product-images-to-r2.ts",
     "patch:costprice": "tsx ./src/patch-orders-costprice.ts",
     "smoke:tenant": "tsx ./src/smoke-tenant-isolation.ts",
     "smoke:tenant:write": "tsx ./src/smoke-tenant-isolation-write.ts",
@@ -12,6 +13,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "^3.916.0",
     "@types/node": "catalog:",
     "tsx": "catalog:"
   }
