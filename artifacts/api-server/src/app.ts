@@ -280,14 +280,29 @@ if (SECURITY_REQUIRE_CHECKOUT_TOKEN_SECRET && !CHECKOUT_TOKEN_SECRET) {
   console.error("[SECURITY] SECURITY_REQUIRE_CHECKOUT_TOKEN_SECRET=true, mas CHECKOUT_TOKEN_SECRET não está definido.");
 }
 
-// Log global de todas as requisições
+// Selective logging middleware - only log sensitive paths and errors
+const VERBOSE_LOG_PATHS = new Set([
+  "/api/orders",
+  "/api/admin",
+  "/api/checkout/pix",
+  "/api/kyc",
+  "/api/raffles/reservations",
+  "/api/custom-charges",
+]);
+
 app.use((req, res, next) => {
-  const safeHeaders = {
-    ...req.headers,
-    authorization: req.headers.authorization ? "[REDACTED]" : undefined,
-    cookie: req.headers.cookie ? "[REDACTED]" : undefined,
-  };
-  console.log(`[REQ] ${req.method} ${req.originalUrl} | headers:`, safeHeaders);
+  // Only log if it's a sensitive path or if we're in development
+  const shouldLog = process.env.NODE_ENV === "development" || 
+                   Array.from(VERBOSE_LOG_PATHS).some(path => req.path.startsWith(path));
+  
+  if (shouldLog) {
+    const safeHeaders = {
+      ...req.headers,
+      authorization: req.headers.authorization ? "[REDACTED]" : undefined,
+      cookie: req.headers.cookie ? "[REDACTED]" : undefined,
+    };
+    console.log(`[REQ] ${req.method} ${req.originalUrl} | headers:`, safeHeaders);
+  }
   next();
 });
 

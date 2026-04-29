@@ -68,10 +68,18 @@ router.get("/products", async (_req, res) => {
 
     const products   = rows.map((row) => mapProduct(row));
     const categories = [...new Set(products.map((p) => p.category))];
+    
+    // Log successful response
+    console.log(`[API] GET /api/products - Found ${products.length} active products, ${categories.length} categories`);
+    
     res.json({ products, categories });
   } catch (err) {
-    console.error("Products error:", err);
-    res.json({ products: [], categories: [] });
+    console.error("[API] GET /api/products - Database error:", err);
+    // Return proper error response instead of empty data
+    res.status(500).json({ 
+      error: "DATABASE_ERROR",
+      message: "Falha ao carregar produtos. Tente novamente em alguns instantes."
+    });
   }
 });
 

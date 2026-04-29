@@ -76,8 +76,14 @@ const NotFound            = lazy(() => import("@/pages/not-found"));
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      retry: 1,
+      retry: (failureCount, error: any) => {
+        // Don't retry on 4xx errors, only on network errors and 5xx
+        if (error?.status >= 400 && error?.status < 500) return false;
+        return failureCount < 3;
+      },
       refetchOnWindowFocus: false,
+      staleTime: 60 * 1000, // 1 minute - keep data fresh but reduce requests
+      gcTime: 5 * 60 * 1000, // 5 minutes - keep cached data longer
     },
   },
 });

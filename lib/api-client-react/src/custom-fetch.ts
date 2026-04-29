@@ -315,12 +315,26 @@ export async function customFetch<T = unknown>(
   const resolvedUrl = resolveUrl(input);
   const requestInfo = { method, url: resolvedUrl };
 
-  const response = await fetch(resolvedUrl, { ...init, method, headers });
+  // Add timeout to prevent hanging requests (15 seconds default)
+  const controller = new AbortController();
+  const timeoutMs = 15000;
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-  if (!response.ok) {
-    const errorData = await parseErrorBody(response, method);
-    throw new ApiError(response, errorData, requestInfo);
+  try {
+    const response = await fetch(resolvedUrl, { 
+      ...init, 
+      method, 
+      headers,
+      signal: controller.signal 
+    });
+
+    if (!response.ok) {
+      const errorData = await parseErrorBody(response, method);
+      throw new ApiError(response, errorData, requestInfo);
+    }
+
+    return (await parseSuccessBody(response, responseType, requestInfo)) as T;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  return (await parseSuccessBody(response, responseType, requestInfo)) as T;
 }
