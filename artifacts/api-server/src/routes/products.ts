@@ -3,7 +3,7 @@ import { db, productsTable, productCostHistoryTable, ordersTable } from "@worksp
 import { eq, asc, desc, gte } from "drizzle-orm";
 import crypto from "crypto";
 import { requirePrimaryAdmin } from "./admin-auth";
-import { isR2Configured, uploadProductImageToR2 } from "../lib/r2";
+import { getR2MissingConfig, isR2Configured, uploadProductImageToR2 } from "../lib/r2";
 
 const router: IRouter = Router();
 
@@ -114,9 +114,11 @@ router.post("/admin/products/upload-image", requirePrimaryAdmin, async (req, res
     }
 
     if (!isR2Configured()) {
+      const missing = getR2MissingConfig();
       res.status(503).json({
         error: "R2_NOT_CONFIGURED",
         message: "Cloudflare R2 não está configurado no servidor.",
+        missing,
       });
       return;
     }
@@ -131,7 +133,11 @@ router.post("/admin/products/upload-image", requirePrimaryAdmin, async (req, res
       return;
     }
     if (code === "CLOUDFLARE_R2_NOT_CONFIGURED") {
-      res.status(503).json({ error: code, message: "Cloudflare R2 não está configurado no servidor." });
+      res.status(503).json({
+        error: code,
+        message: "Cloudflare R2 não está configurado no servidor.",
+        missing: getR2MissingConfig(),
+      });
       return;
     }
     res.status(500).json({ error: "INTERNAL_ERROR" });

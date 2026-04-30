@@ -43,6 +43,16 @@ export function isR2Configured(): boolean {
   return !!(R2_ACCOUNT_ID && R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY && R2_BUCKET_NAME && R2_PUBLIC_BASE_URL);
 }
 
+export function getR2MissingConfig(): string[] {
+  const missing: string[] = [];
+  if (!R2_ACCOUNT_ID) missing.push("CLOUDFLARE_R2_ACCOUNT_ID");
+  if (!R2_ACCESS_KEY_ID) missing.push("CLOUDFLARE_R2_ACCESS_KEY_ID");
+  if (!R2_SECRET_ACCESS_KEY) missing.push("CLOUDFLARE_R2_SECRET_ACCESS_KEY");
+  if (!R2_BUCKET_NAME) missing.push("CLOUDFLARE_R2_BUCKET_NAME");
+  if (!R2_PUBLIC_BASE_URL) missing.push("CLOUDFLARE_R2_PUBLIC_BASE_URL");
+  return missing;
+}
+
 export function parseImageDataUrl(dataUrl: string): { buffer: Buffer; mimeType: string } {
   const match = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
   if (!match) {
