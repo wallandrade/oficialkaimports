@@ -507,88 +507,38 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
 
     const reshipmentByOrder = await getReshipmentByOrderIds(orders.map((o) => o.id));
 
-    const docs = Array.from(new Set(orders.map((o) => String(o.clientDocument || "").trim()).filter(Boolean)));
-    const historyRows = docs.length > 0
-      ? await db
-          .select({
-            id: ordersTable.id,
-            clientDocument: ordersTable.clientDocument,
-            purchaseIp: ordersTable.purchaseIp,
-          })
-          .from(ordersTable)
-          .where(inArray(ordersTable.clientDocument, docs))
-      : [];
-
-    const historyByDoc = new Map<string, Array<{ id: string; purchaseIp: string | null }>>();
-    for (const row of historyRows) {
-      const key = String(row.clientDocument || "").trim();
-      if (!historyByDoc.has(key)) historyByDoc.set(key, []);
-      historyByDoc.get(key)!.push({ id: row.id, purchaseIp: row.purchaseIp });
-    }
-
     const enriched = orders.map((order) => {
-      const docKey = String(order.clientDocument || "").trim();
-      const history = historyByDoc.get(docKey) || [];
-      const currentIp = normalizeIp(order.purchaseIp);
-      const otherHistory = history.filter((h) => h.id !== order.id);
-      const otherKnownIps = otherHistory
-        .map((h) => normalizeIp(h.purchaseIp))
-        .filter((ip) => ip !== "");
-      const sameIpFound = currentIp !== "" && otherKnownIps.includes(currentIp);
-
-      const ipIsProxy  = !!(order as any).ipIsProxy;
-      const ipCity     = String((order as any).ipCity  || "").trim().toLowerCase();
-      const ipRegion   = String((order as any).ipRegion || "").trim().toLowerCase();
-      const addrCity   = String(order.addressCity   || "").trim().toLowerCase();
-      const addrState  = String(order.addressState  || "").trim().toLowerCase();
-      const hasGeo     = ipCity !== "" || ipRegion !== "";
-
-      const reasons: string[] = [];
-      let score = 0;
-
-      // Proxy / datacenter / VPN
-      if (ipIsProxy) {
-        score += 3;
-        reasons.push("VPN/proxy detectado");
-      }
-
-      // Histórico de IP do mesmo CPF
-      if (!currentIp) {
-        score += 1;
-        reasons.push("IP ausente");
-      } else if (otherKnownIps.length === 0) {
-        // Primeiro pedido — sem histórico, neutro
-        reasons.push("Primeiro pedido deste CPF");
-      } else if (sameIpFound) {
-        score -= 2;
-        reasons.push("IP já usado por este CPF");
-      } else {
-        score += 2;
-        reasons.push("IP inédito para CPF com histórico");
-      }
-
-      // Comparação geo IP vs endereço do pedido
-      if (hasGeo && addrCity) {
-        const cityMatch   = ipCity   !== "" && addrCity   !== "" && addrCity.includes(ipCity);
-        const regionMatch = ipRegion !== "" && addrState  !== "" && ipRegion.includes(addrState);
-
-        if (cityMatch) {
-          score -= 1;
-          reasons.push(`Cidade IP bate (${(order as any).ipCity})`);
-        } else if (regionMatch) {
-          reasons.push(`Estado IP bate, cidade diverge (IP: ${(order as any).ipCity}, pedido: ${order.addressCity})`);
-        } else {
-          score += 1;
-          reasons.push(`Localização diverge (IP: ${(order as any).ipCity || (order as any).ipRegion}, pedido: ${order.addressCity}/${order.addressState})`);
-        }
-      }
+      const ipCity   = String((order as any).ipCity   || "").trim().toLowerCase();
+      const ipRegion = String((order as any).ipRegion || "").trim().toLowerCase();
+      const addrCity = String(order.addressCity  || "").trim().toLowerCase();
+      const addrState= String(order.addressState || "").trim().toLowerCase();
+      const hasGeo   = ipCity !== "" || ipRegion !== "";
+      const hasAddr  = addrCity !== "" || addrState !== "";
 
       let purchaseRisk: "low" | "medium" | "high";
-      if (score <= 0)      purchaseRisk = "low";
-      else if (score <= 2) purchaseRisk = "medium";
-      else                 purchaseRisk = "high";
+      let purchaseRiskReason: string;
 
-      const purchaseRiskReason = reasons.length > 0 ? reasons.join(" · ") : "Sem dados suficientes.";
+      if (!hasGeo || !hasAddr) {
+        // Sem dados de geolocalização ou endereço — não é possível comparar
+        purchaseRisk = "medium";
+        purchaseRiskReason = !hasGeo
+          ? "Geolocalização do IP indisponível"
+          : "Endereço do pedido não informado";
+      } else {
+        const cityMatch  = ipCity   !== "" && addrCity  !== "" && (addrCity.includes(ipCity)  || ipCity.includes(addrCity));
+        const stateMatch = ipRegion !== "" && addrState !== "" && (ipRegion.includes(addrState) || addrState.includes(ipRegion));
+
+        if (cityMatch) {
+          purchaseRisk = "low";
+          purchaseRiskReason = `Cidade do IP bate com o endereço (${(order as any).ipCity} / ${order.addressCity})`;
+        } else if (stateMatch) {
+          purchaseRisk = "medium";
+          purchaseRiskReason = `Estado bate, cidade diverge (IP: ${(order as any).ipCity || ipRegion}, pedido: ${order.addressCity})`;
+        } else {
+          purchaseRisk = "high";
+          purchaseRiskReason = `Localização não bate com o endereço (IP: ${(order as any).ipCity || (order as any).ipRegion}, pedido: ${order.addressCity}/${order.addressState})`;
+        }
+      }
 
       return {
         ...mapOrder(order),
