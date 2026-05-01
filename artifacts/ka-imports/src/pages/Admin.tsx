@@ -7747,9 +7747,12 @@ function ProductsPanel({
             headers: authHeaders(),
             body: JSON.stringify({ imageData: compressedImage, productId: productForm.id ?? null }),
           });
-          const data = await res.json().catch(() => ({}));
+          const data = await res.json().catch(() => ({})) as { message?: string; missing?: string[]; imageUrl?: string };
           if (!res.ok || !data?.imageUrl) {
-            throw new Error(data?.message || "Falha ao enviar imagem para o Cloudflare R2.");
+            const missingText = Array.isArray(data?.missing) && data.missing.length > 0
+              ? ` Faltando: ${data.missing.join(", ")}.`
+              : "";
+            throw new Error((data?.message || "Falha ao enviar imagem para o Cloudflare R2.") + missingText);
           }
           setProductForm({ ...productForm, image: data.imageUrl });
           toast.success("Imagem enviada para o R2.");
