@@ -404,7 +404,7 @@ export default function Checkout() {
       ? eligibleProductSubtotal * (appliedCoupon.discountValue / 100)
       : Math.min(appliedCoupon.discountValue, eligibleProductSubtotal)
     : 0;
-  const insuranceBase = Math.max(0, subtotal - discountAmount);
+  const insuranceBase = Math.max(0, subtotal);
   const insuranceAmount = includeInsurance ? insuranceBase * 0.1 : 0;
   const total = Math.max(0, subtotal + shippingCost + insuranceAmount - discountAmount);
   const affiliateCreditToApply = useAffiliateCredit ? Math.min(affiliateCreditAvailable, total) : 0;
@@ -417,7 +417,7 @@ export default function Checkout() {
       ? eligibleProductSubtotalCard * (appliedCoupon.discountValue / 100)
       : Math.min(appliedCoupon.discountValue, eligibleProductSubtotalCard)
     : 0;
-  const cardInsuranceBase = Math.max(0, cardSubtotal - cardDiscountAmount);
+  const cardInsuranceBase = Math.max(0, cardSubtotal);
   const cardInsuranceAmount = includeInsurance ? cardInsuranceBase * 0.1 : 0;
   const cardBaseTotal = cardSubtotal + shippingCost + cardInsuranceAmount;
   const cardNetTotal = Math.max(0, cardBaseTotal - cardDiscountAmount);
