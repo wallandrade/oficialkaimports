@@ -7808,16 +7808,16 @@ function ProductsPanel({
       <AnimatePresence>
         {productFormOpen && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto"
+            className="fixed inset-0 bg-black/50 z-50 flex items-start sm:items-center justify-center px-3 py-3 sm:p-4 overflow-y-auto"
             onClick={(e) => { if (e.target === e.currentTarget) { setProductFormOpen(false); setProductForm({}); } }}>
             <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl my-4">
-              <div className="flex items-center justify-between px-8 pt-8 pb-4 border-b">
+              className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl w-full max-w-2xl max-h-[calc(100dvh-1.5rem)] sm:max-h-[90vh] flex flex-col overflow-hidden my-auto">
+              <div className="flex items-center justify-between px-4 sm:px-8 pt-4 sm:pt-8 pb-3 sm:pb-4 border-b shrink-0">
                 <h3 className="text-xl font-bold">{productForm._editing ? "Editar Produto" : "Novo Produto"}</h3>
                 <Button size="icon" variant="ghost" onClick={() => { setProductFormOpen(false); setProductForm({}); }}><X className="w-5 h-5" /></Button>
               </div>
 
-              <div className="p-8 space-y-4">
+              <div className="flex-1 overflow-y-auto px-4 sm:px-8 py-4 sm:py-6 space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {/* Name */}
                   <div className="sm:col-span-2">
@@ -7946,7 +7946,7 @@ function ProductsPanel({
                 {/* Image upload */}
                 <div>
                   <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 block">Imagem do Produto <span className="font-normal normal-case text-muted-foreground">— armazenada no Cloudflare R2</span></label>
-                  <div className="flex gap-4 items-start">
+                  <div className="flex flex-col sm:flex-row gap-4 items-start">
                     {productForm.image ? (
                       <div className="relative w-24 h-24 rounded-xl overflow-hidden border-2 border-border flex-shrink-0">
                         <img src={productForm.image} alt="preview" className="w-full h-full object-cover" />
@@ -7959,7 +7959,7 @@ function ProductsPanel({
                         <ImageOff className="w-8 h-8" />
                       </div>
                     )}
-                    <label className="flex-1 flex flex-col items-center justify-center h-24 rounded-xl border-2 border-dashed border-border hover:border-primary cursor-pointer transition-colors bg-muted/20 hover:bg-primary/5">
+                    <label className="w-full sm:flex-1 flex flex-col items-center justify-center min-h-24 rounded-xl border-2 border-dashed border-border hover:border-primary cursor-pointer transition-colors bg-muted/20 hover:bg-primary/5 px-4 py-3 text-center">
                       <input type="file" accept="image/*" className="hidden" ref={fileRef} onChange={handleImageUpload} disabled={productImageUploading} />
                       {productImageUploading ? <Loader2 className="w-6 h-6 text-muted-foreground mb-1 animate-spin" /> : <Upload className="w-6 h-6 text-muted-foreground mb-1" />}
                       <p className="text-sm font-medium text-muted-foreground">{productImageUploading ? "Enviando para o R2..." : "Clique para selecionar imagem"}</p>
@@ -7969,7 +7969,7 @@ function ProductsPanel({
                 </div>
               </div>
 
-              <div className="flex gap-3 px-8 pb-8">
+              <div className="flex flex-col-reverse sm:flex-row gap-3 px-4 sm:px-8 pb-4 sm:pb-8 pt-3 border-t shrink-0 bg-white">
                 <Button variant="outline" className="flex-1" onClick={() => { setProductFormOpen(false); setProductForm({}); }}>Cancelar</Button>
                 <Button className="flex-1 gap-2" disabled={productSaving || productImageUploading || !productForm.name?.trim() || !productForm.category?.trim() || !productForm.price} onClick={onSave}>
                   {productSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
