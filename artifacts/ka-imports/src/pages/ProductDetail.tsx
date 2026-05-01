@@ -95,10 +95,6 @@ export default function ProductDetail() {
                 <h1 className="text-3xl font-bold text-foreground mt-2 leading-tight">{product.name}</h1>
               </div>
 
-              <p className="text-muted-foreground leading-relaxed whitespace-pre-line">
-                {product.description || "Sem descrição para este produto."}
-              </p>
-
               <div className="rounded-2xl border border-border bg-card p-4">
                 {hasPromo ? (
                   <div className="flex items-end gap-3">
@@ -129,6 +125,10 @@ export default function ProductDetail() {
                 <ShoppingCart className="w-5 h-5 mr-2" />
                 {isSoldOut ? "Produto esgotado" : "Adicionar ao carrinho"}
               </Button>
+
+              <p className="text-muted-foreground leading-relaxed whitespace-pre-line">
+                {product.description || "Sem descrição para este produto."}
+              </p>
             </div>
           </div>
         )}
