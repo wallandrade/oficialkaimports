@@ -9,11 +9,15 @@ import { sql } from "drizzle-orm";
 // Run lightweight column migrations on startup (safe to run repeatedly)
 (async () => {
   try {
-    await db.execute(sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS brand VARCHAR(255) NULL`);
-    console.log("[STARTUP] Migration: brand column ensured on products table");
+    await db.execute(sql`ALTER TABLE products ADD COLUMN brand VARCHAR(255) NULL`);
+    console.log("[STARTUP] Migration: brand column added to products table");
   } catch (e: any) {
-    // ER_DUP_FIELDNAME = column already exists (older MySQL that doesn't support IF NOT EXISTS)
-    if (e?.errno !== 1060) console.error("[STARTUP] Migration error:", e?.message ?? e);
+    if (e?.errno === 1060) {
+      // ER_DUP_FIELDNAME — coluna já existe, tudo certo
+      console.log("[STARTUP] Migration: brand column already exists, skipping");
+    } else {
+      console.error("[STARTUP] Migration error:", e?.message ?? e);
+    }
   }
 })();
 
