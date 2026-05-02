@@ -158,6 +158,28 @@ export default function Home() {
     });
   }, [data, searchQuery, activeCategories, nameFilter]);
 
+  const groupedFilteredProducts = useMemo(() => {
+    const order = data?.categories ?? [];
+    const groups = new Map<string, typeof filteredProducts>();
+
+    filteredProducts.forEach((product) => {
+      const category = String(product.category || "Sem categoria");
+      const current = groups.get(category) ?? [];
+      current.push(product);
+      groups.set(category, current);
+    });
+
+    const orderedCategories = [
+      ...order.filter((cat) => groups.has(cat)),
+      ...Array.from(groups.keys()).filter((cat) => !order.includes(cat)),
+    ];
+
+    return orderedCategories.map((category) => ({
+      category,
+      products: groups.get(category) ?? [],
+    }));
+  }, [data?.categories, filteredProducts]);
+
   const filterProps: FilterContentProps = {
     categories: data?.categories ?? [],
     activeCategories,
@@ -304,20 +326,32 @@ export default function Home() {
               </div>
             ) : (
               <motion.div
-                className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-4 sm:gap-6 items-stretch"
+                className="space-y-8 sm:space-y-10"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
               >
-                {filteredProducts.map((product, i) => (
-                  <motion.div
-                    key={product.id}
-                    className="flex"
-                    initial={{ opacity: 0, y: 16 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: Math.min(i * 0.03, 0.3) }}
-                  >
-                    <ProductCard product={product} sellerSlug={sellerSlug} priority={i < 4} />
-                  </motion.div>
+                {groupedFilteredProducts.map((group, groupIndex) => (
+                  <section key={group.category}>
+                    <h3 className="text-lg sm:text-xl font-bold text-foreground mb-4 sm:mb-5">
+                      {group.category}
+                    </h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-4 sm:gap-6 items-stretch">
+                      {group.products.map((product, productIndex) => {
+                        const absoluteIndex = groupIndex * 12 + productIndex;
+                        return (
+                          <motion.div
+                            key={product.id}
+                            className="flex"
+                            initial={{ opacity: 0, y: 16 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: Math.min(absoluteIndex * 0.02, 0.3) }}
+                          >
+                            <ProductCard product={product} sellerSlug={sellerSlug} priority={absoluteIndex < 4} />
+                          </motion.div>
+                        );
+                      })}
+                    </div>
+                  </section>
                 ))}
               </motion.div>
             )}
