@@ -283,6 +283,19 @@ export default function Home() {
               )}
             </div>
 
+            {((data as any)?.brands ?? []).length > 0 && (
+              <select
+                value={activeBrand}
+                onChange={(e) => setActiveBrand(e.target.value)}
+                className="w-full h-11 px-4 rounded-2xl border border-input bg-white text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:border-primary cursor-pointer"
+              >
+                <option value="">Todas as marcas</option>
+                {((data as any)?.brands ?? []).map((brand: string) => (
+                  <option key={`mobile-brand-${brand}`} value={brand}>{brand}</option>
+                ))}
+              </select>
+            )}
+
             {/* Chips de categoria */}
             <div className="flex gap-2 overflow-x-auto py-1" style={{ scrollbarWidth: "none" }}>
               <button
@@ -295,19 +308,6 @@ export default function Home() {
               >
                 Todas
               </button>
-              {((data as any)?.brands ?? []).map((brand: string) => (
-                <button
-                  key={`brand-${brand}`}
-                  onClick={() => setActiveBrand(activeBrand === brand ? "" : brand)}
-                  className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-semibold border transition-colors ${
-                    activeBrand === brand
-                      ? "bg-primary text-white border-primary shadow-sm"
-                      : "bg-white text-muted-foreground border-border hover:border-primary/50"
-                  }`}
-                >
-                  {brand}
-                </button>
-              ))}
               {(data?.categories ?? []).map((cat) => (
                 <button
                   key={cat}
