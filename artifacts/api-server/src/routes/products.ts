@@ -25,6 +25,7 @@ function mapProduct(p: typeof productsTable.$inferSelect, includeCostPrice = fal
     name:        p.name,
     description: p.description ?? "",
     category:    p.category,
+    brand:       p.brand ?? null,
     unit:        p.unit,
     price,
     promoPrice,
@@ -69,11 +70,12 @@ router.get("/products", async (_req, res) => {
 
     const products   = rows.map((row) => mapProduct(row));
     const categories = [...new Set(products.map((p) => p.category))];
+    const brands     = [...new Set(products.map((p) => p.brand).filter((b): b is string => Boolean(b)))];
     
     // Log successful response
     console.log(`[API] GET /api/products - Found ${products.length} active products, ${categories.length} categories`);
     
-    res.json({ products, categories });
+    res.json({ products, categories, brands });
   } catch (err) {
     console.error("[API] GET /api/products - Database error:", err);
     // Return proper error response instead of empty data
@@ -148,10 +150,10 @@ router.post("/admin/products/upload-image", requirePrimaryAdmin, async (req, res
 router.post("/admin/products", requirePrimaryAdmin, async (req, res) => {
   try {
     const {
-      name, description, category, unit, price,
+      name, description, category, brand, unit, price,
       costPrice, promoPrice, promoEndsAt, image, isActive, isSoldOut, isLaunch, sortOrder,
     } = req.body as {
-      name: string; description?: string; category: string; unit: string;
+      name: string; description?: string; category: string; brand?: string | null; unit: string;
       price: number; costPrice?: number | null; promoPrice?: number | null; promoEndsAt?: string | null;
       image?: string | null; isActive?: boolean; isSoldOut?: boolean; isLaunch?: boolean; sortOrder?: number;
     };
@@ -167,6 +169,7 @@ router.post("/admin/products", requirePrimaryAdmin, async (req, res) => {
       name:        name.trim(),
       description: description?.trim() || null,
       category:    category.trim(),
+      brand:       brand?.trim() || null,
       unit:        unit || "unidade",
       price:       String(price),
       costPrice:   String(Number(costPrice ?? 0)),
@@ -193,10 +196,10 @@ router.patch("/admin/products/:id", requirePrimaryAdmin, async (req, res) => {
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
       const {
-        name, description, category, unit, price,
+        name, description, category, brand, unit, price,
         costPrice, promoPrice, promoEndsAt, image, isActive, isSoldOut, isLaunch, sortOrder,
       } = req.body as Partial<{
-        name: string; description: string | null; category: string; unit: string;
+        name: string; description: string | null; category: string; brand: string | null; unit: string;
         price: number; costPrice: number | null; promoPrice: number | null; promoEndsAt: string | null;
         image: string | null; isActive: boolean; isSoldOut: boolean; isLaunch: boolean; sortOrder: number;
       }>;
@@ -205,6 +208,7 @@ router.patch("/admin/products/:id", requirePrimaryAdmin, async (req, res) => {
     if (name       !== undefined) updates.name        = name?.trim();
     if (description !== undefined) updates.description = description?.trim() || null;
     if (category   !== undefined) updates.category    = category?.trim();
+    if (brand      !== undefined) updates.brand       = brand?.trim() || null;
     if (unit       !== undefined) updates.unit        = unit;
     if (price      !== undefined) updates.price       = String(price);
     if (costPrice  !== undefined) updates.costPrice   = String(Number(costPrice ?? 0));

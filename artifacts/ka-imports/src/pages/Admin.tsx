@@ -7837,6 +7837,12 @@ function ProductsPanel({
                     <input value={productForm.category || ""} onChange={(e) => setProductForm({ ...productForm, category: e.target.value })} placeholder="Ex: Canetas, Kits, Destaque..." className={inp2} />
                   </div>
 
+                  {/* Brand */}
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1 block">Marca</label>
+                    <input value={(productForm as any).brand || ""} onChange={(e) => setProductForm({ ...productForm, brand: e.target.value } as any)} placeholder="Ex: Tirzec, Lipoless..." className={inp2} />
+                  </div>
+
                   {/* Unit */}
                   <div>
                     <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1 block">Unidade</label>

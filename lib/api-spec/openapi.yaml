@@ -52,9 +52,14 @@ paths:
                     type: array
                     items:
                       type: string
+                  brands:
+                    type: array
+                    items:
+                      type: string
                 required:
                   - products
                   - categories
+                  - brands
 
   /pix/generate:
     post:
@@ -203,6 +208,9 @@ components:
           type: string
         category:
           type: string
+        brand:
+          type: string
+          nullable: true
       required:
         - id
         - name

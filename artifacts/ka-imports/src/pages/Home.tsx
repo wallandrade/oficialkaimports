@@ -17,6 +17,9 @@ interface FilterContentProps {
   nameFilter: string;
   setNameFilter: (v: string) => void;
   setActiveCategories: (v: string[]) => void;
+  brands: string[];
+  activeBrand: string;
+  setActiveBrand: (v: string) => void;
 }
 
 function FilterContent({
@@ -26,6 +29,9 @@ function FilterContent({
   nameFilter,
   setNameFilter,
   setActiveCategories,
+  brands,
+  activeBrand,
+  setActiveBrand,
 }: FilterContentProps) {
   return (
     <div className="space-y-6">
@@ -77,9 +83,27 @@ function FilterContent({
           )}
         </div>
       </div>
-      {(activeCategories.length > 0 || nameFilter) && (
+      {brands.length > 0 && (
+        <>
+          <div className="border-t border-border/50" />
+          <div>
+            <h3 className="font-bold text-sm text-foreground mb-3 uppercase tracking-wider">Marca</h3>
+            <select
+              value={activeBrand}
+              onChange={(e) => setActiveBrand(e.target.value)}
+              className="w-full h-10 px-3 rounded-xl border border-input bg-white text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:border-primary cursor-pointer"
+            >
+              <option value="">Todas as marcas</option>
+              {brands.map((b) => (
+                <option key={b} value={b}>{b}</option>
+              ))}
+            </select>
+          </div>
+        </>
+      )}
+      {(activeCategories.length > 0 || nameFilter || activeBrand) && (
         <div className="border-t border-border/50 pt-5">
-          <Button variant="ghost" className="w-full text-muted-foreground text-sm h-10 hover:bg-destructive/10 hover:text-destructive transition-colors rounded-xl" onClick={() => { setActiveCategories([]); setNameFilter(""); }}>
+          <Button variant="ghost" className="w-full text-muted-foreground text-sm h-10 hover:bg-destructive/10 hover:text-destructive transition-colors rounded-xl" onClick={() => { setActiveCategories([]); setNameFilter(""); setActiveBrand(""); }}>
             Limpar Filtros
           </Button>
         </div>
@@ -113,6 +137,7 @@ export default function Home() {
   const sellerSlug = sellerParams?.seller?.toLowerCase();
   const [activeCategories, setActiveCategories] = useState<string[]>([]);
   const [nameFilter, setNameFilter] = useState("");
+  const [activeBrand, setActiveBrand] = useState("");
   const searchString = useSearch();
   const searchQuery = new URLSearchParams(searchString).get("q") || "";
   const { banners, isLoaded: bannersLoaded } = useSiteBanners();
@@ -139,8 +164,11 @@ export default function Home() {
       const matchesName =
         !nameFilter.trim() ||
         product.name.toLowerCase().includes(nameFilter.trim().toLowerCase());
+      const matchesBrand =
+        !activeBrand ||
+        ((product as any).brand || "").toLowerCase() === activeBrand.toLowerCase();
 
-      return matchesSearch && matchesCategory && matchesName;
+      return matchesSearch && matchesCategory && matchesName && matchesBrand;
     });
 
     return filtered.sort((a, b) => {
@@ -156,7 +184,7 @@ export default function Home() {
 
       return String(a.createdAt).localeCompare(String(b.createdAt));
     });
-  }, [data, searchQuery, activeCategories, nameFilter]);
+  }, [data, searchQuery, activeCategories, nameFilter, activeBrand]);
 
   const groupedFilteredProducts = useMemo(() => {
     const order = data?.categories ?? [];
@@ -187,6 +215,9 @@ export default function Home() {
     nameFilter,
     setNameFilter,
     setActiveCategories,
+    brands: (data as any)?.brands ?? [],
+    activeBrand,
+    setActiveBrand,
   };
   const hasHeroBanner = Boolean(banners["banner_desktop"] || banners["banner_mobile"]);
   const shouldRenderHero = hasHeroBanner || !bannersLoaded;
@@ -322,7 +353,7 @@ export default function Home() {
               <div className="text-center py-20 bg-muted/30 rounded-3xl border border-border/50">
                 <h3 className="text-xl font-bold text-foreground mb-3">Nenhum produto encontrado</h3>
                 <p className="text-muted-foreground mb-6">Tente alterar os filtros ou o termo da busca.</p>
-                <Button className="rounded-xl px-6" onClick={() => { setActiveCategories([]); setNameFilter(""); window.history.pushState({}, "", "/"); }}>Limpar todos os filtros</Button>
+                <Button className="rounded-xl px-6" onClick={() => { setActiveCategories([]); setNameFilter(""); setActiveBrand(""); window.history.pushState({}, "", "/"); }}>Limpar todos os filtros</Button>
               </div>
             ) : (
               <motion.div

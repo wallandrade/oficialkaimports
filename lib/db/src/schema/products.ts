@@ -11,6 +11,7 @@ export const productsTable = mysqlTable("products", {
   promoPrice: decimal("promo_price", { precision: 10, scale: 2 }),
   promoEndsAt: datetime("promo_ends_at", { mode: 'date' }),
   image: mediumtext("image"),          // public URL in R2/CDN, with legacy base64 values still supported during migration
+  brand: varchar("brand", { length: 255 }),
   isActive: boolean("is_active").notNull().default(true),
   isSoldOut: boolean("is_sold_out").notNull().default(false),
   isLaunch: boolean("is_launch").notNull().default(false),
