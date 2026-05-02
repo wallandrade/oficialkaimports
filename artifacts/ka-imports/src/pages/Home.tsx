@@ -286,15 +286,28 @@ export default function Home() {
             {/* Chips de categoria */}
             <div className="flex gap-2 overflow-x-auto py-1" style={{ scrollbarWidth: "none" }}>
               <button
-                onClick={() => setActiveCategories([])}
+                onClick={() => { setActiveCategories([]); setActiveBrand(""); }}
                 className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-semibold border transition-colors ${
-                  activeCategories.length === 0
+                  activeCategories.length === 0 && !activeBrand
                     ? "bg-primary text-white border-primary shadow-sm"
                     : "bg-white text-muted-foreground border-border hover:border-primary/50"
                 }`}
               >
                 Todas
               </button>
+              {((data as any)?.brands ?? []).map((brand: string) => (
+                <button
+                  key={`brand-${brand}`}
+                  onClick={() => setActiveBrand(activeBrand === brand ? "" : brand)}
+                  className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-semibold border transition-colors ${
+                    activeBrand === brand
+                      ? "bg-primary text-white border-primary shadow-sm"
+                      : "bg-white text-muted-foreground border-border hover:border-primary/50"
+                  }`}
+                >
+                  {brand}
+                </button>
+              ))}
               {(data?.categories ?? []).map((cat) => (
                 <button
                   key={cat}
