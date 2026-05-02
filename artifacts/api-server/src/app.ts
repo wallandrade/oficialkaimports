@@ -3,6 +3,19 @@ import cors from "cors";
 import router from "./routes";
 import { exec } from "child_process";
 import crypto from "crypto";
+import { db } from "@workspace/db";
+import { sql } from "drizzle-orm";
+
+// Run lightweight column migrations on startup (safe to run repeatedly)
+(async () => {
+  try {
+    await db.execute(sql`ALTER TABLE products ADD COLUMN IF NOT EXISTS brand VARCHAR(255) NULL`);
+    console.log("[STARTUP] Migration: brand column ensured on products table");
+  } catch (e: any) {
+    // ER_DUP_FIELDNAME = column already exists (older MySQL that doesn't support IF NOT EXISTS)
+    if (e?.errno !== 1060) console.error("[STARTUP] Migration error:", e?.message ?? e);
+  }
+})();
 
 const DEFAULT_ALLOWED_ORIGINS = [
   "https://ka-imports.com",
