@@ -2458,19 +2458,74 @@ export default function Admin() {
 
     const costById = new Map(products.map((p) => [String(p.id), Number((p as { costPrice?: number | null }).costPrice || 0)] as const));
     const costByName = new Map(products.map((p) => [String(p.name || "").trim().toLowerCase(), Number((p as { costPrice?: number | null }).costPrice || 0)] as const));
+    const productNameById = new Map(products.map((p) => [String(p.id), String(p.name || "").trim()] as const));
 
-    const lines = [...totals.values()]
+    let balancesSnapshot = inventoryBalances;
+    if (isPrimary && balancesSnapshot.length === 0) {
+      try {
+        const res = await fetch(`${BASE}/api/admin/inventory/overview`, { headers: authHeaders() });
+        if (res.ok) {
+          const data = await res.json() as { balances?: InventoryBalanceRecord[] };
+          if (Array.isArray(data?.balances)) {
+            balancesSnapshot = data.balances;
+            setInventoryBalances(data.balances);
+          }
+        }
+      } catch {
+        // keep current snapshot and continue
+      }
+    }
+
+    const stockById = new Map(
+      balancesSnapshot.map((row) => [String(row.productId || "").trim(), Number(row.quantity || 0)] as const),
+    );
+    const stockByName = new Map(
+      balancesSnapshot.map((row) => [String(row.productName || "").trim().toLowerCase(), Number(row.quantity || 0)] as const),
+    );
+
+    const breakdown = [...totals.values()]
       .sort((a, b) => a.label.localeCompare(b.label, "pt-BR"))
-      .map((item) => `- ${item.qty}x ${item.label}`);
+      .map((item) => {
+        const normalizedName = item.label.trim().toLowerCase();
+        const fallbackName = item.productId ? (productNameById.get(item.productId)?.trim().toLowerCase() || "") : "";
+        const available = item.productId
+          ? (stockById.get(item.productId) ?? stockByName.get(fallbackName) ?? stockByName.get(normalizedName) ?? 0)
+          : (stockByName.get(normalizedName) ?? 0);
+        const fromStock = Math.min(Math.max(available, 0), item.qty);
+        const toBuy = Math.max(0, item.qty - fromStock);
+        return { ...item, fromStock, toBuy };
+      });
 
-    const estimatedTotalCost = [...totals.values()].reduce((sum, item) => {
+    const buyLines = breakdown
+      .filter((item) => item.toBuy > 0)
+      .map((item) => `- ${item.toBuy}x ${item.label}`);
+
+    const stockLines = breakdown
+      .filter((item) => item.fromStock > 0)
+      .map((item) => `- ${item.fromStock}x ${item.label}`);
+
+    const estimatedTotalCost = breakdown.reduce((sum, item) => {
       const unitCost = item.productId ? costById.get(item.productId) : undefined;
       const fallback = costByName.get(item.label.trim().toLowerCase());
       const effectiveCost = unitCost ?? fallback ?? 0;
-      return sum + (item.qty * effectiveCost);
+      return sum + (item.toBuy * effectiveCost);
     }, 0);
 
-    const text = `Lista de Compra - ${ordersParaEnviar.length} pedido${ordersParaEnviar.length !== 1 ? "s" : ""}\n\n${lines.join("\n")}\n\nValor total estimado de custo: ${formatCurrency(estimatedTotalCost)}`;
+    const stockSectionLabel = balancesSnapshot.length > 0
+      ? "Itens ja cobertos por estoque (nao comprar):"
+      : "Itens ja cobertos por estoque (nao comprar):\n- Estoque nao carregado";
+
+    const text = [
+      `Lista de Compra - ${ordersParaEnviar.length} pedido${ordersParaEnviar.length !== 1 ? "s" : ""}`,
+      "",
+      "Comprar agora:",
+      buyLines.length ? buyLines.join("\n") : "- Nada para comprar",
+      "",
+      stockSectionLabel,
+      stockLines.length ? stockLines.join("\n") : "- Nenhum item coberto",
+      "",
+      `Valor total estimado de custo (somente compra): ${formatCurrency(estimatedTotalCost)}`,
+    ].join("\n");
 
     try {
       const mode = await copyText(text);
@@ -5697,7 +5752,7 @@ function InventoryPanel({
                 <div className="min-w-0">
                   <p className="text-sm font-medium">{mv.productName}</p>
                   <p className="text-xs text-muted-foreground">Motivo: {mv.reason || "Movimentação"} · {formatDateBR(mv.createdAt)}</p>
-                  {mv.type === "entry" && mv.entrySource === "customer_return" && (mv.clientName || mv.trackingCode) && (
+                  {(mv.clientName || mv.trackingCode) && (
                     <div className="mt-1 flex flex-wrap gap-1.5">
                       {mv.clientName && (
                         <span className="text-[11px] px-2 py-0.5 rounded-full border border-sky-200 bg-sky-50 text-sky-700">
@@ -5863,12 +5918,16 @@ function OrdersPanel({
         setEnviando(prev => ({ ...prev, [orderId]: false }));
         return;
       }
-      if (!res.ok) throw new Error("Erro ao atualizar status de envio");
+      if (!res.ok) {
+        const data = await res.json() as { message?: string };
+        throw new Error(data?.message || "Erro ao atualizar status de envio");
+      }
       onSetOrderEnviado(orderId, novoValor);
       setEnviados(prev => ({ ...prev, [orderId]: novoValor }));
       toast.success(novoValor ? "Pedido marcado como enviado!" : "Pedido marcado como pendente!");
     } catch (err) {
-      toast.error("Erro ao atualizar status de envio!");
+      const message = err instanceof Error && err.message ? err.message : "Erro ao atualizar status de envio!";
+      toast.error(message);
     } finally {
       setEnviando(prev => ({ ...prev, [orderId]: false }));
     }

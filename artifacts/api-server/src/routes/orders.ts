@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { db, ordersTable, customChargesTable, sellersTable, productsTable, siteSettingsTable, reshipmentsTable, couponsTable } from "@workspace/db";
+import { db, ordersTable, customChargesTable, sellersTable, productsTable, siteSettingsTable, reshipmentsTable, couponsTable, inventoryBalancesTable } from "@workspace/db";
 import { desc, and, gte, lte, eq, inArray, isNull, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
@@ -18,7 +18,7 @@ import {
   registerAffiliateLead,
   resolveAffiliateByCode,
 } from "../lib/affiliates";
-import { getReshipmentByOrderIds } from "../lib/reshipments";
+import { getReshipmentByOrderIds, registerInventoryEntry } from "../lib/reshipments";
 import { lookupIpGeo } from "../lib/ip-geo";
 
 const router: IRouter = Router();
@@ -104,6 +104,45 @@ function ensureSellerScopeOnOrderQuery(
 function buildAdminOrderWhere(orderId: string, scope: { hasGlobalAccess: boolean; sellerCode: string | null }) {
   if (scope.hasGlobalAccess) return eq(ordersTable.id, orderId);
   return and(eq(ordersTable.id, orderId), eq(ordersTable.sellerCode, scope.sellerCode!));
+}
+
+function parseOrderItemsForInventory(raw: unknown): Array<{ productId: string | null; productName: string; quantity: number }> {
+  const parsed = Array.isArray(raw)
+    ? raw
+    : typeof raw === "string"
+      ? (() => {
+          try {
+            const value = JSON.parse(raw);
+            return Array.isArray(value) ? value : [];
+          } catch {
+            return [];
+          }
+        })()
+      : [];
+
+  const items = parsed
+    .map((item) => {
+      const row = item as { id?: unknown; name?: unknown; quantity?: unknown };
+      return {
+        productId: String(row?.id || "").trim() || null,
+        productName: String(row?.name || "Produto").trim() || "Produto",
+        quantity: Number(row?.quantity || 0),
+      };
+    })
+    .filter((item) => Number.isFinite(item.quantity) && item.quantity > 0);
+
+  const grouped = new Map<string, { productId: string | null; productName: string; quantity: number }>();
+  for (const item of items) {
+    const key = item.productId ? `id:${item.productId}` : `name:${item.productName.toLowerCase()}`;
+    const prev = grouped.get(key);
+    grouped.set(key, {
+      productId: prev?.productId || item.productId,
+      productName: prev?.productName || item.productName,
+      quantity: (prev?.quantity || 0) + item.quantity,
+    });
+  }
+
+  return [...grouped.values()];
 }
 
 async function attachLegacyGuestOrdersToCustomer(userId: string, email: string): Promise<void> {
@@ -1062,14 +1101,93 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
       return;
     }
     const rows = await db
-      .select({ id: ordersTable.id })
+      .select({
+        id: ordersTable.id,
+        products: ordersTable.products,
+        clientName: ordersTable.clientName,
+        enviado: ordersTable.enviado,
+      })
       .from(ordersTable)
       .where(buildAdminOrderWhere(id, adminScope))
       .limit(1);
-    if (!rows[0]) {
+    const order = rows[0];
+    if (!order) {
       res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
       return;
     }
+
+    const wasEnviado = !!order.enviado;
+
+    if (enviado !== wasEnviado) {
+      const orderItems = parseOrderItemsForInventory(order.products);
+      if (orderItems.length > 0) {
+        const missingIds = orderItems.filter((item) => !item.productId);
+        let resolvedItems = orderItems;
+
+        if (missingIds.length > 0) {
+          const productRows = await db
+            .select({ id: productsTable.id, name: productsTable.name })
+            .from(productsTable);
+          const productIdByName = new Map(productRows.map((row) => [String(row.name || "").trim().toLowerCase(), row.id] as const));
+          resolvedItems = orderItems.map((item) => {
+            if (item.productId) return item;
+            const byName = productIdByName.get(item.productName.trim().toLowerCase()) || null;
+            return { ...item, productId: byName };
+          });
+        }
+
+        const stillMissingIds = resolvedItems.filter((item) => !item.productId);
+        if (stillMissingIds.length > 0) {
+          const names = stillMissingIds.map((item) => item.productName).join(", ");
+          res.status(400).json({
+            error: "INVENTORY_PRODUCT_MAPPING_ERROR",
+            message: `Não foi possível mapear os produtos no estoque: ${names}.`,
+          });
+          return;
+        }
+
+        const productIds = resolvedItems.map((item) => item.productId!).filter(Boolean);
+        const balanceRows = productIds.length > 0
+          ? await db
+              .select({ productId: inventoryBalancesTable.productId, quantity: inventoryBalancesTable.quantity })
+              .from(inventoryBalancesTable)
+              .where(inArray(inventoryBalancesTable.productId, productIds))
+          : [];
+
+        const stockByProduct = new Map<string, number>();
+        for (const row of balanceRows as Array<{ productId: string; quantity: number }>) {
+          stockByProduct.set(String(row.productId), Number(row.quantity) || 0);
+        }
+
+        if (enviado) {
+          const insufficient = resolvedItems.filter((item) => (stockByProduct.get(item.productId!) || 0) < item.quantity);
+          if (insufficient.length > 0) {
+            const details = insufficient
+              .map((item) => `${item.productName} (precisa ${item.quantity}, disponível ${stockByProduct.get(item.productId!) || 0})`)
+              .join("; ");
+            res.status(400).json({
+              error: "INSUFFICIENT_STOCK",
+              message: `Estoque insuficiente para envio: ${details}.`,
+            });
+            return;
+          }
+        }
+
+        for (const item of resolvedItems) {
+          const qty = enviado ? -item.quantity : item.quantity;
+          await registerInventoryEntry({
+            productId: item.productId!,
+            quantity: qty,
+            reason: enviado
+              ? `Saída por envio do pedido ${id}`
+              : `Estorno de saída do pedido ${id}`,
+            referenceId: id,
+            clientName: order.clientName || null,
+          });
+        }
+      }
+    }
+
     await db.update(ordersTable)
       .set({ enviado, updatedAt: new Date() })
       .where(buildAdminOrderWhere(id, adminScope));
