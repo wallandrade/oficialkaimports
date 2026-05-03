@@ -5562,6 +5562,41 @@ function InventoryPanel({
   onCreateEntry: () => void;
   onCreateManualReshipment: () => void;
 }) {
+  const [entryProductQuery, setEntryProductQuery] = useState("");
+  const [manualProductQuery, setManualProductQuery] = useState("");
+
+  useEffect(() => {
+    if (!entryForm.productId) {
+      setEntryProductQuery("");
+      return;
+    }
+    const selected = products.find((p) => p.id === entryForm.productId);
+    if (selected) setEntryProductQuery(selected.name);
+  }, [entryForm.productId, products]);
+
+  useEffect(() => {
+    if (!manualForm.productId) {
+      setManualProductQuery("");
+      return;
+    }
+    const selected = products.find((p) => p.id === manualForm.productId);
+    if (selected) setManualProductQuery(selected.name);
+  }, [manualForm.productId, products]);
+
+  const applyEntryProductQuery = (rawValue: string) => {
+    const value = rawValue.trim();
+    setEntryProductQuery(rawValue);
+    const selected = products.find((p) => p.name.trim().toLowerCase() === value.toLowerCase());
+    setEntryForm((prev) => ({ ...prev, productId: selected?.id || "" }));
+  };
+
+  const applyManualProductQuery = (rawValue: string) => {
+    const value = rawValue.trim();
+    setManualProductQuery(rawValue);
+    const selected = products.find((p) => p.name.trim().toLowerCase() === value.toLowerCase());
+    setManualForm((prev) => ({ ...prev, productId: selected?.id || "" }));
+  };
+
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border border-border bg-card p-4">
@@ -5584,16 +5619,20 @@ function InventoryPanel({
             <option value="entry">Entrada</option>
             <option value="exit">Saída</option>
           </select>
-          <select
-            className="h-10 rounded-lg border border-border px-3 text-sm bg-white md:col-span-2"
-            value={entryForm.productId}
-            onChange={(e) => setEntryForm((prev) => ({ ...prev, productId: e.target.value }))}
-          >
-            <option value="">Selecione o produto</option>
-            {products.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
+          <div className="md:col-span-2">
+            <input
+              list="inventory-entry-products"
+              className="h-10 w-full rounded-lg border border-border px-3 text-sm bg-white"
+              placeholder="Pesquise e selecione o produto"
+              value={entryProductQuery}
+              onChange={(e) => applyEntryProductQuery(e.target.value)}
+            />
+            <datalist id="inventory-entry-products">
+              {products.map((p) => (
+                <option key={p.id} value={p.name} />
+              ))}
+            </datalist>
+          </div>
           <input
             type="number"
             min={1}
@@ -5661,16 +5700,20 @@ function InventoryPanel({
           <input className="h-10 rounded-lg border border-border px-3 text-sm" placeholder="Bairro*" value={manualForm.addressNeighborhood} onChange={(e) => setManualForm((prev) => ({ ...prev, addressNeighborhood: e.target.value }))} />
           <input className="h-10 rounded-lg border border-border px-3 text-sm" placeholder="Cidade*" value={manualForm.addressCity} onChange={(e) => setManualForm((prev) => ({ ...prev, addressCity: e.target.value }))} />
           <input className="h-10 rounded-lg border border-border px-3 text-sm" placeholder="UF*" value={manualForm.addressState} onChange={(e) => setManualForm((prev) => ({ ...prev, addressState: e.target.value }))} />
-          <select
-            className="h-10 rounded-lg border border-border px-3 text-sm bg-white"
-            value={manualForm.productId}
-            onChange={(e) => setManualForm((prev) => ({ ...prev, productId: e.target.value }))}
-          >
-            <option value="">Selecione o produto*</option>
-            {products.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
+          <div>
+            <input
+              list="inventory-manual-products"
+              className="h-10 w-full rounded-lg border border-border px-3 text-sm bg-white"
+              placeholder="Pesquise e selecione o produto*"
+              value={manualProductQuery}
+              onChange={(e) => applyManualProductQuery(e.target.value)}
+            />
+            <datalist id="inventory-manual-products">
+              {products.map((p) => (
+                <option key={p.id} value={p.name} />
+              ))}
+            </datalist>
+          </div>
           <input
             type="number"
             min={1}
