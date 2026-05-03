@@ -25,6 +25,26 @@ function normalizePhone(raw: string | null | undefined): string {
   return String(raw ?? "").replace(/\D/g, "");
 }
 
+function normalizeReservationStatus(raw: string | null | undefined): string {
+  return String(raw ?? "").trim().toLowerCase();
+}
+
+function parseMoneyLike(raw: unknown): number {
+  const text = String(raw ?? "").trim();
+  if (!text) return 0;
+
+  // Accept values like "149.90", "149,90" and even "R$ 149,90".
+  const cleaned = text.replace(/[^\d,.-]/g, "");
+  if (!cleaned) return 0;
+
+  const normalized = cleaned.includes(",")
+    ? cleaned.replace(/\./g, "").replace(",", ".")
+    : cleaned;
+
+  const value = Number(normalized);
+  return Number.isFinite(value) ? value : 0;
+}
+
 type RaffleRankingEntry = {
   clientName: string;
   clientPhone: string;
@@ -555,16 +575,47 @@ router.get("/admin/raffles", requireAdminAuth, async (_req, res) => {
         status: rafflesTable.status,
         createdAt: rafflesTable.createdAt,
         updatedAt: rafflesTable.updatedAt,
-        totalPaidAmount: sql<string>`COALESCE((
-          SELECT SUM(CAST(rr.total_amount AS DECIMAL(12,2)))
-          FROM raffle_reservations rr
-          WHERE rr.raffle_id = ${rafflesTable.id}
-            AND LOWER(rr.status) IN ('paid', 'completed', 'approved', 'confirmed')
-        ), 0)`,
       })
       .from(rafflesTable)
       .orderBy(sql`created_at DESC`);
-    res.json(raffles);
+
+    if (raffles.length === 0) {
+      res.json([]);
+      return;
+    }
+
+    const reservations = await db
+      .select({
+        raffleId: raffleReservationsTable.raffleId,
+        status: raffleReservationsTable.status,
+        totalAmount: raffleReservationsTable.totalAmount,
+      })
+      .from(raffleReservationsTable)
+      .where(inArray(raffleReservationsTable.raffleId, raffles.map((r) => r.id)));
+
+    const paidStatuses = new Set([
+      "paid",
+      "completed",
+      "approved",
+      "confirmed",
+      "pago",
+      "success",
+      "succeeded",
+    ]);
+
+    const totalPaidByRaffle = new Map<string, number>();
+    for (const row of reservations) {
+      if (!paidStatuses.has(normalizeReservationStatus(row.status))) continue;
+      const current = totalPaidByRaffle.get(row.raffleId) ?? 0;
+      totalPaidByRaffle.set(row.raffleId, current + parseMoneyLike(row.totalAmount));
+    }
+
+    const payload = raffles.map((raffle) => ({
+      ...raffle,
+      totalPaidAmount: (totalPaidByRaffle.get(raffle.id) ?? 0).toFixed(2),
+    }));
+
+    res.json(payload);
   } catch (err) {
     console.error("[Raffles] GET admin list error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao listar rifas." });
