@@ -559,7 +559,7 @@ router.get("/admin/raffles", requireAdminAuth, async (_req, res) => {
           SELECT SUM(CAST(rr.total_amount AS DECIMAL(12,2)))
           FROM raffle_reservations rr
           WHERE rr.raffle_id = ${rafflesTable.id}
-            AND rr.status = 'paid'
+            AND LOWER(rr.status) IN ('paid', 'completed', 'approved', 'confirmed')
         ), 0)`,
       })
       .from(rafflesTable)
