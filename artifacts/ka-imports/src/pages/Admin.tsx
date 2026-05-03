@@ -5504,7 +5504,7 @@ function InventoryPanel({
   onCreateManualReshipment,
 }: {
   loading: boolean;
-  products: Array<{ id: string; name: string }>;
+  products: Array<{ id: string; name: string; image?: string | null }>;
   balances: InventoryBalanceRecord[];
   movements: InventoryMovementRecord[];
   pendingReshipments: ReshipmentRecord[];
@@ -5745,14 +5745,26 @@ function InventoryPanel({
             <p className="text-sm text-muted-foreground">Nenhum saldo registrado ainda.</p>
           ) : (
             <div className="space-y-2 max-h-72 overflow-auto pr-1">
-              {balances.map((row) => (
-                <div key={row.productId} className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
-                  <span className="text-sm truncate pr-2">{row.productName}</span>
-                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${row.quantity > 0 ? "bg-green-100 text-green-800 border-green-200" : "bg-red-100 text-red-700 border-red-200"}`}>
-                    {row.quantity} un
-                  </span>
-                </div>
-              ))}
+              {balances.map((row) => {
+                const prod = products.find((p) => p.id === row.productId);
+                return (
+                  <div key={row.productId} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {prod?.image ? (
+                        <img src={prod.image} alt={row.productName} className="h-8 w-8 rounded-md object-cover shrink-0 border border-border" loading="lazy" />
+                      ) : (
+                        <div className="h-8 w-8 rounded-md bg-muted shrink-0 border border-border flex items-center justify-center">
+                          <IconLucide name="Package" className="w-4 h-4 text-muted-foreground" />
+                        </div>
+                      )}
+                      <span className="text-sm truncate">{row.productName}</span>
+                    </div>
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border shrink-0 ${row.quantity > 0 ? "bg-green-100 text-green-800 border-green-200" : "bg-red-100 text-red-700 border-red-200"}`}>
+                      {row.quantity} un
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
