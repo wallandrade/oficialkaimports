@@ -5,6 +5,17 @@ function formatDateBR(date: string | Date | undefined | null): string {
   if (isNaN(d.getTime())) return "";
   return d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
 }
+
+function formatTimeBR(date: string | Date | undefined | null): string {
+  if (!date) return "";
+  const d = typeof date === "string" ? new Date(date) : date;
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "America/Sao_Paulo",
+  });
+}
 // Funções utilitárias para recuperar dados do localStorage
 function getIsPrimary() {
   return localStorage.getItem("adminIsPrimary") === "true";
