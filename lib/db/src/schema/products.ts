@@ -1,5 +1,12 @@
 import { mysqlTable, varchar, text, mediumtext, decimal, int, boolean, timestamp, datetime } from "drizzle-orm/mysql-core";
 
+export interface BulkDiscountTier {
+  minQty: number;
+  maxQty: number | null;
+  unitPrice: number;
+  label?: string | null;
+}
+
 export const productsTable = mysqlTable("products", {
   id: varchar("id", { length: 255 }).primaryKey(),
   name: varchar("name", { length: 255 }).notNull(),
@@ -10,6 +17,8 @@ export const productsTable = mysqlTable("products", {
   costPrice: decimal("cost_price", { precision: 10, scale: 2 }).notNull().default("0.00"),
   promoPrice: decimal("promo_price", { precision: 10, scale: 2 }),
   promoEndsAt: datetime("promo_ends_at", { mode: 'date' }),
+  bulkDiscountEnabled: boolean("bulk_discount_enabled").notNull().default(false),
+  bulkDiscountTiers: mediumtext("bulk_discount_tiers"),
   image: mediumtext("image"),          // public URL in R2/CDN, with legacy base64 values still supported during migration
   brand: varchar("brand", { length: 255 }),
   isActive: boolean("is_active").notNull().default(true),

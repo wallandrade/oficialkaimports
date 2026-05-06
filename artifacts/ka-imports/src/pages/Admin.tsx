@@ -7806,6 +7806,63 @@ function ProductsPanel({
   onToggle: (id: string, isActive: boolean) => void;
   sellers: Array<{ slug: string; whatsapp: string }>;
 }) {
+  type BulkDiscountTier = {
+    minQty: number;
+    maxQty: number | null;
+    unitPrice: number;
+    label?: string | null;
+  };
+
+  const normalizeBulkDiscountTiers = (raw: unknown): BulkDiscountTier[] => {
+    if (!Array.isArray(raw)) return [];
+    const tiers = raw
+      .map((tier) => {
+        const item = tier as Record<string, unknown>;
+        const minQty = Number(item.minQty);
+        const maxQtyRaw = item.maxQty;
+        const maxQty = maxQtyRaw == null ? null : Number(maxQtyRaw);
+        const unitPrice = Number(item.unitPrice);
+        const label = item.label == null ? null : String(item.label);
+
+        if (!Number.isFinite(minQty) || minQty < 1) return null;
+        if (maxQty !== null && (!Number.isFinite(maxQty) || maxQty < minQty)) return null;
+        if (!Number.isFinite(unitPrice) || unitPrice <= 0) return null;
+
+        return { minQty, maxQty, unitPrice, label };
+      })
+      .filter((tier): tier is BulkDiscountTier => Boolean(tier));
+
+    return tiers.sort((a, b) => a.minQty - b.minQty);
+  };
+
+  const upsertFixedTier = (
+    currentTiers: BulkDiscountTier[],
+    quantity: number,
+    unitPrice: number | undefined,
+  ): BulkDiscountTier[] => {
+    const normalized = [...currentTiers]
+      .filter((tier) => tier.minQty !== quantity)
+      .filter((tier) => !(quantity >= 4 && tier.maxQty === null));
+
+    if (unitPrice == null || !Number.isFinite(unitPrice) || unitPrice <= 0) {
+      return normalized.sort((a, b) => a.minQty - b.minQty);
+    }
+
+    normalized.push({
+      minQty: quantity,
+      maxQty: quantity >= 4 ? null : quantity,
+      unitPrice,
+      label: quantity >= 4 ? "4cx+" : `${quantity}cx`,
+    });
+
+    return normalized.sort((a, b) => a.minQty - b.minQty);
+  };
+
+  const getFixedTierPrice = (currentTiers: BulkDiscountTier[], quantity: number): number | null => {
+    const tier = currentTiers.find((t) => t.minQty === quantity && (quantity < 4 ? t.maxQty === quantity : t.maxQty === null));
+    return tier ? Number(tier.unitPrice) : null;
+  };
+
   const fileRef = useRef<HTMLInputElement>(null);
   const [expandedLinks, setExpandedLinks] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
@@ -7895,16 +7952,17 @@ function ProductsPanel({
   };
 
   const openCreate = () => {
-    setProductForm({ unit: "unidade", isActive: true, isSoldOut: false, isLaunch: false, sortOrder: 0, costPrice: 0 });
+    setProductForm({ unit: "unidade", isActive: true, isSoldOut: false, isLaunch: false, sortOrder: 0, costPrice: 0, bulkDiscountEnabled: false, bulkDiscountTiers: [] } as any);
     setProductFormOpen(true);
   };
 
   const openEdit = (p: AdminProduct) => {
-    setProductForm({ ...p, _editing: true });
+    setProductForm({ ...(p as any), bulkDiscountTiers: normalizeBulkDiscountTiers((p as any).bulkDiscountTiers), _editing: true } as any);
     setProductFormOpen(true);
   };
 
   const UNITS = ["unidade", "caixa", "caneta", "frasco", "par", "kit"];
+  const currentTiers = normalizeBulkDiscountTiers((productForm as any).bulkDiscountTiers);
 
   return (
     <div className="space-y-6">
@@ -8043,6 +8101,51 @@ function ProductsPanel({
                         }} className={`${inp2} cursor-pointer`} />
                   </div>
 
+                  <div className="sm:col-span-2 rounded-2xl border border-border bg-muted/20 p-4 space-y-3">
+                    <div>
+                      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Desconto Progressivo por Quantidade</label>
+                      <p className="text-xs text-muted-foreground mt-1">Configure os preços unitários para 1cx, 2cx, 3cx e 4cx+.</p>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Ativar estratégia</label>
+                      <button
+                        type="button"
+                        onClick={() => setProductForm({ ...(productForm as any), bulkDiscountEnabled: !(productForm as any).bulkDiscountEnabled } as any)}
+                        className="text-muted-foreground hover:text-emerald-600 transition-colors"
+                      >
+                        {(productForm as any).bulkDiscountEnabled === true
+                          ? <IconLucide name="ToggleRight" className="w-7 h-7 text-emerald-600" />
+                          : <ToggleLeft className="w-7 h-7" />}
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {[1, 2, 3, 4].map((qty) => {
+                        const value = getFixedTierPrice(currentTiers, qty);
+                        return (
+                          <div key={qty}>
+                            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1 block">
+                              {qty >= 4 ? "4cx+" : `${qty}cx`} (R$ por unidade)
+                            </label>
+                            <div className="relative">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-semibold select-none">R$</span>
+                              <PriceInput
+                                value={value}
+                                onChange={(n) => {
+                                  const next = upsertFixedTier(currentTiers, qty, n);
+                                  setProductForm({ ...(productForm as any), bulkDiscountTiers: next } as any);
+                                }}
+                                placeholder={qty >= 4 ? "849,00" : "899,00"}
+                                className={`${inp2} pl-9`}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   {/* Sort order */}
                   <div>
                     <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1 block">Ordem de exibição</label>
@@ -8153,6 +8256,7 @@ function ProductsPanel({
                       <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground capitalize">{p.unit}</span>
                       <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">{p.category}</span>
                       <span className="text-xs px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">Custo: {formatCurrency(Number(p.costPrice || 0))}</span>
+                      {(p as any).bulkDiscountEnabled === true && <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Promo progressiva ativa</span>}
                       {!p.isActive && <span className="text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-700">Inativo</span>}
                       {p.isSoldOut && <span className="text-xs px-2 py-0.5 rounded-full bg-red-600 text-white">Esgotado</span>}
                       {p.isLaunch && <span className="text-xs px-2 py-0.5 rounded-full bg-blue-600 text-white">Lançamento</span>}
@@ -8170,6 +8274,18 @@ function ProductsPanel({
                         </span>
                       )}
                     </div>
+                    {normalizeBulkDiscountTiers((p as any).bulkDiscountTiers).length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {normalizeBulkDiscountTiers((p as any).bulkDiscountTiers).map((tier) => {
+                          const label = tier.maxQty == null ? `${tier.minQty}cx+` : `${tier.minQty}cx`;
+                          return (
+                            <span key={`${p.id}-${label}`} className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+                              {label}: {formatCurrency(tier.unitPrice)}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
 
                   {/* Actions */}

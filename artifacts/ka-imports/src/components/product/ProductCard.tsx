@@ -15,6 +15,9 @@ export function ProductCard({ product, sellerSlug, priority = false }: ProductCa
   const hasPromo = product.promoPrice != null && product.promoPrice < product.price;
   const isSoldOut = isProductUnavailable(product);
   const isLaunch = (product as Product & { isLaunch?: boolean }).isLaunch === true;
+  const bulkDiscountEnabled = (product as Product & { bulkDiscountEnabled?: boolean }).bulkDiscountEnabled === true;
+  const bulkDiscountTiers = (product as Product & { bulkDiscountTiers?: unknown }).bulkDiscountTiers;
+  const hasBulkDiscount = bulkDiscountEnabled && Array.isArray(bulkDiscountTiers) && bulkDiscountTiers.length > 0;
   const href = sellerSlug ? `/${sellerSlug}/produto/${product.id}` : `/produto/${product.id}`;
   const { addItem, setIsOpen } = useCart();
 
@@ -56,6 +59,11 @@ export function ProductCard({ product, sellerSlug, priority = false }: ProductCa
         <div className="mb-1 text-xs font-semibold text-secondary tracking-wider uppercase">
           {product.category}
         </div>
+        {hasBulkDiscount && (
+          <div className="mb-2 inline-flex items-center rounded-full bg-emerald-100 text-emerald-700 text-[11px] font-semibold px-2.5 py-1">
+            Desconto progressivo
+          </div>
+        )}
         <h3 className="font-bold text-foreground text-base mb-1 line-clamp-2 leading-tight">
           {product.name}
         </h3>

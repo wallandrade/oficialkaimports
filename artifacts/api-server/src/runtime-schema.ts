@@ -103,6 +103,14 @@ async function ensureProductsColumns(databaseName: string): Promise<void> {
       name: "is_launch",
       sql: "ALTER TABLE products ADD COLUMN is_launch TINYINT(1) NOT NULL DEFAULT 0",
     },
+    {
+      name: "bulk_discount_enabled",
+      sql: "ALTER TABLE products ADD COLUMN bulk_discount_enabled TINYINT(1) NOT NULL DEFAULT 0",
+    },
+    {
+      name: "bulk_discount_tiers",
+      sql: "ALTER TABLE products ADD COLUMN bulk_discount_tiers MEDIUMTEXT NULL",
+    },
   ];
 
   for (const definition of definitions) {

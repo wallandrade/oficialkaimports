@@ -2,6 +2,13 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { CartItem, Product } from "@workspace/api-client-react";
 
+type BulkDiscountTier = {
+  minQty: number;
+  maxQty: number | null;
+  unitPrice: number;
+  label?: string | null;
+};
+
 type ProductAvailability = Product & {
   isSoldOut?: boolean;
   isActive?: boolean;
@@ -18,17 +25,53 @@ export function isProductUnavailable(product: Product): boolean {
 
 type CartItemExtended = CartItem & {
   image?: string;
+  baseUnitPrice: number;
   regularPrice: number;
+  bulkDiscountTiers?: BulkDiscountTier[];
   isBump?: boolean;
   bumpForProductId?: string;
   bumpOfferId?: string;
 };
 
+function getBaseUnitPrice(product: Product): number {
+  const promoActive = product.promoPrice != null && product.promoPrice < product.price;
+  return promoActive ? product.promoPrice! : product.price;
+}
+
+function parseBulkDiscountTiers(raw: unknown): BulkDiscountTier[] {
+  if (!Array.isArray(raw)) return [];
+
+  const normalized = raw
+    .map((tier) => {
+      const item = tier as Record<string, unknown>;
+      const minQty = Number(item.minQty);
+      const maxQtyRaw = item.maxQty;
+      const maxQty = maxQtyRaw == null ? null : Number(maxQtyRaw);
+      const unitPrice = Number(item.unitPrice);
+      const label = item.label == null ? null : String(item.label);
+
+      if (!Number.isFinite(minQty) || minQty < 1) return null;
+      if (maxQty !== null && (!Number.isFinite(maxQty) || maxQty < minQty)) return null;
+      if (!Number.isFinite(unitPrice) || unitPrice <= 0) return null;
+
+      return { minQty, maxQty, unitPrice, label };
+    })
+    .filter((tier): tier is BulkDiscountTier => Boolean(tier));
+
+  return normalized.sort((a, b) => a.minQty - b.minQty);
+}
+
+function getTierUnitPrice(baseUnitPrice: number, quantity: number, tiers: BulkDiscountTier[]): number {
+  if (tiers.length === 0) return baseUnitPrice;
+  const match = tiers.find((tier) => quantity >= tier.minQty && (tier.maxQty == null || quantity <= tier.maxQty));
+  return match?.unitPrice ?? baseUnitPrice;
+}
+
 interface CartState {
   items: CartItemExtended[];
   isOpen: boolean;
   setIsOpen: (isOpen: boolean) => void;
-  addItem: (product: Product) => void;
+  addItem: (product: Product, options?: { quantity?: number; unitPrice?: number }) => void;
   addBumpItem: (
     bumpOfferId: string,
     product: { id: string; name: string; price: number; image?: string },
@@ -70,6 +113,7 @@ export const useCart = create<CartState>()(
                 id: cartId,
                 name: product.name,
                 price: bumpedPrice,
+                baseUnitPrice: product.price,
                 regularPrice: product.price,
                 quantity: bumpedQty,
                 image: product.image,
@@ -82,27 +126,39 @@ export const useCart = create<CartState>()(
         });
       },
 
-      addItem: (product) => {
+      addItem: (product, options) => {
         set((state) => {
           if (isProductUnavailable(product)) {
             return state;
           }
 
+          const addQuantity = Math.max(1, Number(options?.quantity ?? 1) || 1);
+          const bulkDiscountTiers = parseBulkDiscountTiers((product as Product & { bulkDiscountTiers?: unknown }).bulkDiscountTiers);
+          const baseUnitPrice = getBaseUnitPrice(product);
+
           const existingItem = state.items.find((item) => item.id === product.id);
-          const promoActive = product.promoPrice != null && product.promoPrice < product.price;
-          const price = promoActive ? product.promoPrice! : product.price;
           const regularPrice = product.price;
 
           if (existingItem) {
+            const nextQuantity = existingItem.quantity + addQuantity;
+            const nextPrice = options?.unitPrice ?? getTierUnitPrice(baseUnitPrice, nextQuantity, existingItem.bulkDiscountTiers ?? bulkDiscountTiers);
             return {
               items: state.items.map((item) =>
                 item.id === product.id
-                  ? { ...item, quantity: item.quantity + 1 }
+                  ? {
+                    ...item,
+                    quantity: nextQuantity,
+                    price: nextPrice,
+                    baseUnitPrice,
+                    bulkDiscountTiers: existingItem.bulkDiscountTiers ?? bulkDiscountTiers,
+                  }
                   : item
               ),
               isOpen: true,
             };
           }
+
+          const initialPrice = options?.unitPrice ?? getTierUnitPrice(baseUnitPrice, addQuantity, bulkDiscountTiers);
 
           return {
             items: [
@@ -110,10 +166,12 @@ export const useCart = create<CartState>()(
               {
                 id: product.id,
                 name: product.name,
-                price,
+                price: initialPrice,
+                baseUnitPrice,
                 regularPrice,
-                quantity: 1,
+                quantity: addQuantity,
                 image: product.image,
+                bulkDiscountTiers,
               } as CartItemExtended,
             ],
             isOpen: true,
@@ -134,7 +192,13 @@ export const useCart = create<CartState>()(
       updateQuantity: (itemId, quantity) => {
         set((state) => ({
           items: state.items.map((item) =>
-            item.id === itemId ? { ...item, quantity: Math.max(1, quantity) } : item
+            item.id === itemId
+              ? {
+                ...item,
+                quantity: Math.max(1, quantity),
+                price: getTierUnitPrice(Number(item.baseUnitPrice ?? item.price), Math.max(1, quantity), item.bulkDiscountTiers ?? []),
+              }
+              : item
           ),
         }));
       },

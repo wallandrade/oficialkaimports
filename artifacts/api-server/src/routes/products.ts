@@ -7,6 +7,13 @@ import { getR2MissingConfig, isR2Configured, uploadProductImageToR2 } from "../l
 
 const router: IRouter = Router();
 
+type BulkDiscountTierInput = {
+  minQty: number;
+  maxQty: number | null;
+  unitPrice: number;
+  label?: string | null;
+};
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 /** Resolve effective price respecting promo expiry */
@@ -18,8 +25,63 @@ function resolvePrice(p: typeof productsTable.$inferSelect) {
   return { price: Number(p.price), promoPrice: Number(p.promoPrice) };
 }
 
+function parseBulkDiscountTiers(raw: unknown): BulkDiscountTierInput[] {
+  if (!raw) return [];
+
+  try {
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (!Array.isArray(parsed)) return [];
+
+    const tiers = parsed
+      .map((tier) => {
+        const item = tier as Record<string, unknown>;
+        const minQty = Number(item.minQty);
+        const maxQtyRaw = item.maxQty;
+        const maxQty = maxQtyRaw == null ? null : Number(maxQtyRaw);
+        const unitPrice = Number(item.unitPrice);
+        const label = item.label == null ? null : String(item.label);
+
+        if (!Number.isFinite(minQty) || minQty < 1) return null;
+        if (maxQty !== null && (!Number.isFinite(maxQty) || maxQty < minQty)) return null;
+        if (!Number.isFinite(unitPrice) || unitPrice <= 0) return null;
+
+        return { minQty, maxQty, unitPrice, label };
+      })
+      .filter((tier): tier is BulkDiscountTierInput => Boolean(tier));
+
+    return tiers.sort((a, b) => a.minQty - b.minQty);
+  } catch {
+    return [];
+  }
+}
+
+function validateBulkDiscountTiers(tiers: BulkDiscountTierInput[]): { ok: true } | { ok: false; message: string } {
+  if (tiers.length === 0) return { ok: true };
+
+  const sorted = [...tiers].sort((a, b) => a.minQty - b.minQty);
+  let previousMax: number | null = null;
+
+  for (let i = 0; i < sorted.length; i += 1) {
+    const tier = sorted[i];
+    if (!tier) continue;
+
+    if (previousMax !== null && tier.minQty <= previousMax) {
+      return { ok: false, message: "As faixas progressivas não podem se sobrepor." };
+    }
+
+    if (tier.maxQty === null && i !== sorted.length - 1) {
+      return { ok: false, message: "A faixa sem limite máximo deve ser a última." };
+    }
+
+    previousMax = tier.maxQty;
+  }
+
+  return { ok: true };
+}
+
 function mapProduct(p: typeof productsTable.$inferSelect, includeCostPrice = false) {
   const { price, promoPrice } = resolvePrice(p);
+  const bulkDiscountTiers = parseBulkDiscountTiers(p.bulkDiscountTiers);
   const product = {
     id:          p.id,
     name:        p.name,
@@ -30,6 +92,8 @@ function mapProduct(p: typeof productsTable.$inferSelect, includeCostPrice = fal
     price,
     promoPrice,
     promoEndsAt: p.promoEndsAt?.toISOString() ?? null,
+    bulkDiscountEnabled: Boolean(p.bulkDiscountEnabled),
+    bulkDiscountTiers,
     image:       p.image ?? null,
     isActive:    p.isActive,
     isSoldOut:   p.isSoldOut,
@@ -151,15 +215,24 @@ router.post("/admin/products", requirePrimaryAdmin, async (req, res) => {
   try {
     const {
       name, description, category, brand, unit, price,
-      costPrice, promoPrice, promoEndsAt, image, isActive, isSoldOut, isLaunch, sortOrder,
+      costPrice, promoPrice, promoEndsAt, bulkDiscountEnabled, bulkDiscountTiers, image, isActive, isSoldOut, isLaunch, sortOrder,
     } = req.body as {
       name: string; description?: string; category: string; brand?: string | null; unit: string;
       price: number; costPrice?: number | null; promoPrice?: number | null; promoEndsAt?: string | null;
+      bulkDiscountEnabled?: boolean;
+      bulkDiscountTiers?: BulkDiscountTierInput[] | null;
       image?: string | null; isActive?: boolean; isSoldOut?: boolean; isLaunch?: boolean; sortOrder?: number;
     };
 
     if (!name?.trim() || !category?.trim() || price == null) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Nome, categoria e preço são obrigatórios." });
+      return;
+    }
+
+    const normalizedTiers = parseBulkDiscountTiers(bulkDiscountTiers);
+    const validation = validateBulkDiscountTiers(normalizedTiers);
+    if (!validation.ok) {
+      res.status(400).json({ error: "INVALID_INPUT", message: validation.message });
       return;
     }
 
@@ -175,6 +248,8 @@ router.post("/admin/products", requirePrimaryAdmin, async (req, res) => {
       costPrice:   String(Number(costPrice ?? 0)),
       promoPrice:  promoPrice ? String(promoPrice) : null,
       promoEndsAt: promoEndsAt ? new Date(promoEndsAt) : null,
+      bulkDiscountEnabled: bulkDiscountEnabled === true,
+      bulkDiscountTiers: normalizedTiers.length > 0 ? JSON.stringify(normalizedTiers) : null,
       image:       image || null,
       isActive:    isActive !== false,
       isSoldOut:   isSoldOut === true,
@@ -197,10 +272,12 @@ router.patch("/admin/products/:id", requirePrimaryAdmin, async (req, res) => {
     if (Array.isArray(id)) id = id[0];
       const {
         name, description, category, brand, unit, price,
-        costPrice, promoPrice, promoEndsAt, image, isActive, isSoldOut, isLaunch, sortOrder,
+        costPrice, promoPrice, promoEndsAt, bulkDiscountEnabled, bulkDiscountTiers, image, isActive, isSoldOut, isLaunch, sortOrder,
       } = req.body as Partial<{
         name: string; description: string | null; category: string; brand: string | null; unit: string;
         price: number; costPrice: number | null; promoPrice: number | null; promoEndsAt: string | null;
+        bulkDiscountEnabled: boolean;
+        bulkDiscountTiers: BulkDiscountTierInput[] | null;
         image: string | null; isActive: boolean; isSoldOut: boolean; isLaunch: boolean; sortOrder: number;
       }>;
 
@@ -214,6 +291,16 @@ router.patch("/admin/products/:id", requirePrimaryAdmin, async (req, res) => {
     if (costPrice  !== undefined) updates.costPrice   = String(Number(costPrice ?? 0));
     if (promoPrice !== undefined) updates.promoPrice  = promoPrice ? String(promoPrice) : null;
     if (promoEndsAt !== undefined) updates.promoEndsAt = promoEndsAt ? new Date(promoEndsAt) : null;
+    if (bulkDiscountEnabled !== undefined) updates.bulkDiscountEnabled = bulkDiscountEnabled;
+    if (bulkDiscountTiers !== undefined) {
+      const normalizedTiers = parseBulkDiscountTiers(bulkDiscountTiers);
+      const validation = validateBulkDiscountTiers(normalizedTiers);
+      if (!validation.ok) {
+        res.status(400).json({ error: "INVALID_INPUT", message: validation.message });
+        return;
+      }
+      updates.bulkDiscountTiers = normalizedTiers.length > 0 ? JSON.stringify(normalizedTiers) : null;
+    }
     if (image      !== undefined) updates.image       = image || null;
     if (isActive   !== undefined) updates.isActive    = isActive;
     if (isSoldOut  !== undefined) updates.isSoldOut   = isSoldOut;
