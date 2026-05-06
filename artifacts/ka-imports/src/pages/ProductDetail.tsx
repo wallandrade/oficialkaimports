@@ -5,7 +5,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { isProductUnavailable, useCart } from "@/store/use-cart";
 import { formatCurrency } from "@/lib/utils";
-import { ArrowLeft, Loader2, ShoppingCart, Package } from "lucide-react";
+import { ArrowLeft, Loader2, ShoppingCart } from "lucide-react";
 import { toast } from "sonner";
 
 type BulkDiscountTier = {
@@ -93,9 +93,21 @@ export default function ProductDetail() {
     () => parseBulkDiscountTiers((product as { bulkDiscountTiers?: unknown } | null)?.bulkDiscountTiers),
     [product],
   );
+  const oneBoxTier = useMemo(
+    () => tierForQuantity(1, bulkDiscountTiers),
+    [bulkDiscountTiers],
+  );
+  const progressiveUnitPrice = oneBoxTier?.unitPrice ?? null;
+  const shouldUseProgressiveUnitPrice = isBulkDiscountEnabled && progressiveUnitPrice != null;
+  const displayUnitPrice = product
+    ? (shouldUseProgressiveUnitPrice
+      ? progressiveUnitPrice!
+      : (hasPromo ? product.promoPrice! : product.price))
+    : 0;
+
   const progressiveOptions = useMemo(() => {
     if (!product || !isBulkDiscountEnabled || bulkDiscountTiers.length === 0) return [];
-    const basePrice = hasPromo ? product.promoPrice! : product.price;
+    const basePrice = displayUnitPrice;
 
     return [1, 2, 3, 4].map((quantity) => {
       const tier = tierForQuantity(quantity, bulkDiscountTiers);
@@ -108,7 +120,7 @@ export default function ProductDetail() {
         totalPrice: unitPrice * quantity,
       };
     });
-  }, [product, bulkDiscountTiers, hasPromo, isBulkDiscountEnabled]);
+  }, [product, bulkDiscountTiers, displayUnitPrice, isBulkDiscountEnabled]);
   const isSoldOut = product ? isProductUnavailable(product) : false;
   const backHref = sellerSlug ? `/${sellerSlug}` : "/";
 
@@ -151,13 +163,15 @@ export default function ProductDetail() {
               </div>
 
               <div className="rounded-2xl border border-border bg-card p-4">
-                {hasPromo ? (
+                {shouldUseProgressiveUnitPrice ? (
+                  <span className="text-3xl font-bold text-primary">{formatCurrency(displayUnitPrice)}</span>
+                ) : hasPromo ? (
                   <div className="flex items-end gap-3">
                     <span className="text-lg text-muted-foreground line-through">{formatCurrency(product.price)}</span>
                     <span className="text-3xl font-bold text-primary">{formatCurrency(product.promoPrice!)}</span>
                   </div>
                 ) : (
-                  <span className="text-3xl font-bold text-primary">{formatCurrency(product.price)}</span>
+                  <span className="text-3xl font-bold text-primary">{formatCurrency(displayUnitPrice)}</span>
                 )}
                 {isSoldOut && (
                   <p className="mt-2 text-sm font-semibold text-destructive">Produto esgotado no momento.</p>
@@ -169,9 +183,21 @@ export default function ProductDetail() {
                   {progressiveOptions.map((option) => (
                     <div key={option.quantity} className="rounded-2xl border border-border bg-card p-3 sm:p-4">
                       <div className="flex items-center justify-between gap-2 mb-3">
-                        <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-primary text-sm font-semibold">
-                          <Package className="w-4 h-4" />
-                          {option.quantityLabel}
+                        <div className="flex items-center gap-2">
+                          <div className="flex -space-x-2">
+                            {Array.from({ length: option.quantity }).map((_, index) => (
+                              <div key={`${option.quantityLabel}-${index}`} className="w-8 h-8 rounded-full border border-white shadow-sm overflow-hidden bg-muted">
+                                <img
+                                  src={product.image || "https://placehold.co/120x120/1a2b4a/ffffff?text=KA"}
+                                  alt={`${product.name} ${index + 1}`}
+                                  className="w-full h-full object-cover"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                          <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-1 text-primary text-sm font-semibold">
+                            {option.quantityLabel}
+                          </span>
                         </div>
                         <div className="text-right">
                           <p className="text-sm text-muted-foreground">{formatCurrency(option.unitPrice)} cada</p>

@@ -11,13 +11,49 @@ interface ProductCardProps {
   priority?: boolean;
 }
 
+type BulkDiscountTier = {
+  minQty: number;
+  maxQty: number | null;
+  unitPrice: number;
+};
+
+function parseBulkDiscountTiers(raw: unknown): BulkDiscountTier[] {
+  if (!Array.isArray(raw)) return [];
+
+  const tiers = raw
+    .map((tier) => {
+      const item = tier as Record<string, unknown>;
+      const minQty = Number(item.minQty);
+      const maxQtyRaw = item.maxQty;
+      const maxQty = maxQtyRaw == null ? null : Number(maxQtyRaw);
+      const unitPrice = Number(item.unitPrice);
+
+      if (!Number.isFinite(minQty) || minQty < 1) return null;
+      if (maxQty !== null && (!Number.isFinite(maxQty) || maxQty < minQty)) return null;
+      if (!Number.isFinite(unitPrice) || unitPrice <= 0) return null;
+
+      return { minQty, maxQty, unitPrice };
+    })
+    .filter((tier): tier is BulkDiscountTier => Boolean(tier));
+
+  return tiers.sort((a, b) => a.minQty - b.minQty);
+}
+
+function getTierForQuantity(quantity: number, tiers: BulkDiscountTier[]): BulkDiscountTier | null {
+  return tiers.find((tier) => quantity >= tier.minQty && (tier.maxQty == null || quantity <= tier.maxQty)) ?? null;
+}
+
 export function ProductCard({ product, sellerSlug, priority = false }: ProductCardProps) {
   const hasPromo = product.promoPrice != null && product.promoPrice < product.price;
   const isSoldOut = isProductUnavailable(product);
   const isLaunch = (product as Product & { isLaunch?: boolean }).isLaunch === true;
   const bulkDiscountEnabled = (product as Product & { bulkDiscountEnabled?: boolean }).bulkDiscountEnabled === true;
-  const bulkDiscountTiers = (product as Product & { bulkDiscountTiers?: unknown }).bulkDiscountTiers;
-  const hasBulkDiscount = bulkDiscountEnabled && Array.isArray(bulkDiscountTiers) && bulkDiscountTiers.length > 0;
+  const bulkDiscountTiers = parseBulkDiscountTiers((product as Product & { bulkDiscountTiers?: unknown }).bulkDiscountTiers);
+  const oneBoxTier = getTierForQuantity(1, bulkDiscountTiers);
+  const hasBulkDiscount = bulkDiscountEnabled && bulkDiscountTiers.length > 0;
+  const displayUnitPrice = hasBulkDiscount && oneBoxTier
+    ? oneBoxTier.unitPrice
+    : (hasPromo ? product.promoPrice! : product.price);
   const href = sellerSlug ? `/${sellerSlug}/produto/${product.id}` : `/produto/${product.id}`;
   const { addItem, setIsOpen } = useCart();
 
@@ -73,18 +109,18 @@ export function ProductCard({ product, sellerSlug, priority = false }: ProductCa
 
         <div className="mt-auto">
           <div className="flex flex-col mb-3">
-            {hasPromo ? (
+            {!hasBulkDiscount && hasPromo ? (
               <>
                 <span className="text-xs text-muted-foreground line-through decoration-destructive/50">
                   {formatCurrency(product.price)}
                 </span>
                 <span className="font-bold text-xl text-primary">
-                  {formatCurrency(product.promoPrice!)}
+                  {formatCurrency(displayUnitPrice)}
                 </span>
               </>
             ) : (
               <span className="font-bold text-xl text-primary">
-                {formatCurrency(product.price)}
+                {formatCurrency(displayUnitPrice)}
               </span>
             )}
           </div>

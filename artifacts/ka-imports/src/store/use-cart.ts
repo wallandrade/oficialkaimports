@@ -34,6 +34,12 @@ type CartItemExtended = CartItem & {
 };
 
 function getBaseUnitPrice(product: Product): number {
+  const bulkEnabled = (product as Product & { bulkDiscountEnabled?: boolean }).bulkDiscountEnabled === true;
+  if (bulkEnabled) {
+    const tiers = parseBulkDiscountTiers((product as Product & { bulkDiscountTiers?: unknown }).bulkDiscountTiers);
+    const oneBoxTier = tiers.find((tier) => tier.minQty <= 1 && (tier.maxQty == null || tier.maxQty >= 1));
+    if (oneBoxTier) return oneBoxTier.unitPrice;
+  }
   const promoActive = product.promoPrice != null && product.promoPrice < product.price;
   return promoActive ? product.promoPrice! : product.price;
 }
