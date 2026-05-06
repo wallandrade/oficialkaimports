@@ -245,37 +245,15 @@ router.post("/checkout/pix", async (req, res) => {
     const orderId = crypto.randomBytes(8).toString("hex");
 
     const productItems = Array.isArray(products) ? products : [];
+    if (productItems.length === 0) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Carrinho vazio." });
+      return;
+    }
+
     const productIds = Array.from(new Set(productItems.map((p) => String(p?.id || "")).filter(Boolean)));
-    let productRows = new Map<string, {
-      id: string;
-      name: string;
-      price: string;
-      promoPrice: string | null;
-      promoEndsAt: Date | null;
-      bulkDiscountEnabled: boolean;
-      bulkDiscountTiers: string | null;
-      isActive: boolean;
-      isSoldOut: boolean;
-      stock: number | null;
-      costPrice: string | null;
-    }>();
+    let productRows = new Map<string, typeof productsTable.$inferSelect>();
     if (productIds.length > 0) {
-      const rows = await db
-        .select({
-          id: productsTable.id,
-          name: productsTable.name,
-          price: productsTable.price,
-          promoPrice: productsTable.promoPrice,
-          promoEndsAt: productsTable.promoEndsAt,
-          bulkDiscountEnabled: productsTable.bulkDiscountEnabled,
-          bulkDiscountTiers: productsTable.bulkDiscountTiers,
-          isActive: productsTable.isActive,
-          isSoldOut: productsTable.isSoldOut,
-          stock: productsTable.stock,
-          costPrice: productsTable.costPrice,
-        })
-        .from(productsTable)
-        .where(inArray(productsTable.id, productIds));
+      const rows = await db.select().from(productsTable).where(inArray(productsTable.id, productIds));
       productRows = new Map(rows.map((row) => [row.id, row]));
     }
 
