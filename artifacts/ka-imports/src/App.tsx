@@ -24,6 +24,29 @@ class AppErrorBoundary extends Component<
     return { hasError: true };
   }
   componentDidCatch(error: Error, info: { componentStack: string }) {
+    const message = error?.message ?? "";
+    const isChunkLoadError = /ChunkLoadError|Loading chunk [\d]+ failed|Failed to fetch dynamically imported module|Importing a module script failed/i.test(message);
+
+    if (isChunkLoadError) {
+      try {
+        const reloadFlag = "ka_chunk_reload_once";
+        const alreadyReloaded = sessionStorage.getItem(reloadFlag) === "1";
+        if (!alreadyReloaded) {
+          sessionStorage.setItem(reloadFlag, "1");
+          window.location.reload();
+          return;
+        }
+      } catch {
+        // Ignore storage access errors and fall back to error UI.
+      }
+    } else {
+      try {
+        sessionStorage.removeItem("ka_chunk_reload_once");
+      } catch {
+        // Ignore storage access errors.
+      }
+    }
+
     console.error("[ErrorBoundary] Uncaught error:", error, info.componentStack);
   }
   render() {
@@ -166,6 +189,11 @@ function AppInner() {
 
   useEffect(() => {
     captureReferralFromCurrentUrl();
+    try {
+      sessionStorage.removeItem("ka_chunk_reload_once");
+    } catch {
+      // Ignore storage access errors.
+    }
   }, [location]);
 
   return (
