@@ -16,6 +16,87 @@ import { lookupIpGeo } from "../lib/ip-geo";
 
 const router: IRouter = Router();
 
+type BulkDiscountTierInput = {
+  minQty: number;
+  maxQty: number | null;
+  unitPrice: number;
+};
+
+type CheckoutProductInput = {
+  id: string;
+  name?: string;
+  quantity: number;
+  price: number;
+  isBump?: boolean;
+};
+
+function parseBulkDiscountTiers(raw: unknown): BulkDiscountTierInput[] {
+  if (!raw) return [];
+
+  try {
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (!Array.isArray(parsed)) return [];
+
+    const tiers = parsed
+      .map((tier) => {
+        const item = tier as Record<string, unknown>;
+        const minQty = Number(item.minQty);
+        const maxQtyRaw = item.maxQty;
+        const maxQty = maxQtyRaw == null ? null : Number(maxQtyRaw);
+        const unitPrice = Number(item.unitPrice);
+
+        if (!Number.isFinite(minQty) || minQty < 1) return null;
+        if (maxQty !== null && (!Number.isFinite(maxQty) || maxQty < minQty)) return null;
+        if (!Number.isFinite(unitPrice) || unitPrice <= 0) return null;
+
+        return { minQty, maxQty, unitPrice };
+      })
+      .filter((tier): tier is BulkDiscountTierInput => Boolean(tier));
+
+    return tiers.sort((a, b) => a.minQty - b.minQty);
+  } catch {
+    return [];
+  }
+}
+
+function isProductUnavailable(product: {
+  isActive: boolean;
+  isSoldOut: boolean;
+  stock: number | null;
+}): boolean {
+  if (product.isActive === false) return true;
+  if (product.isSoldOut === true) return true;
+  if (typeof product.stock === "number" && product.stock <= 0) return true;
+  return false;
+}
+
+function resolveBaseUnitPrice(product: {
+  price: string;
+  promoPrice: string | null;
+  promoEndsAt: Date | null;
+}): number {
+  const regularPrice = Number(product.price || 0);
+  const promoPrice = product.promoPrice == null ? null : Number(product.promoPrice);
+  if (!Number.isFinite(promoPrice) || promoPrice == null || promoPrice <= 0) return regularPrice;
+  if (product.promoEndsAt && new Date() > product.promoEndsAt) return regularPrice;
+  return promoPrice;
+}
+
+function resolveUnitPriceForQuantity(product: {
+  price: string;
+  promoPrice: string | null;
+  promoEndsAt: Date | null;
+  bulkDiscountEnabled: boolean;
+  bulkDiscountTiers: string | null;
+}, quantity: number): number {
+  const base = resolveBaseUnitPrice(product);
+  if (!product.bulkDiscountEnabled) return base;
+  const tiers = parseBulkDiscountTiers(product.bulkDiscountTiers);
+  if (tiers.length === 0) return base;
+  const tier = tiers.find((item) => quantity >= item.minQty && (item.maxQty == null || quantity <= item.maxQty));
+  return tier?.unitPrice ?? base;
+}
+
 function normalizeIp(raw?: string | null): string {
   return String(raw || "")
     .trim()
@@ -117,7 +198,7 @@ router.post("/checkout/pix", async (req, res) => {
         cep?: string; street?: string; number?: string; complement?: string;
         neighborhood?: string; city?: string; state?: string;
       };
-      products?: Array<{ id: string; name: string; quantity: number; price: number }>;
+      products?: CheckoutProductInput[];
       shippingType?: string;
       includeInsurance?: boolean;
       shippingCost?: number;
@@ -165,22 +246,92 @@ router.post("/checkout/pix", async (req, res) => {
 
     const productItems = Array.isArray(products) ? products : [];
     const productIds = Array.from(new Set(productItems.map((p) => String(p?.id || "")).filter(Boolean)));
-    let productCostMap = new Map<string, number>();
+    let productRows = new Map<string, {
+      id: string;
+      name: string;
+      price: string;
+      promoPrice: string | null;
+      promoEndsAt: Date | null;
+      bulkDiscountEnabled: boolean;
+      bulkDiscountTiers: string | null;
+      isActive: boolean;
+      isSoldOut: boolean;
+      stock: number | null;
+      costPrice: string | null;
+    }>();
     if (productIds.length > 0) {
-      const costRows = await db
-        .select({ id: productsTable.id, costPrice: productsTable.costPrice })
+      const rows = await db
+        .select({
+          id: productsTable.id,
+          name: productsTable.name,
+          price: productsTable.price,
+          promoPrice: productsTable.promoPrice,
+          promoEndsAt: productsTable.promoEndsAt,
+          bulkDiscountEnabled: productsTable.bulkDiscountEnabled,
+          bulkDiscountTiers: productsTable.bulkDiscountTiers,
+          isActive: productsTable.isActive,
+          isSoldOut: productsTable.isSoldOut,
+          stock: productsTable.stock,
+          costPrice: productsTable.costPrice,
+        })
         .from(productsTable)
         .where(inArray(productsTable.id, productIds));
-      productCostMap = new Map(costRows.map((row) => [row.id, Number(row.costPrice || 0)]));
+      productRows = new Map(rows.map((row) => [row.id, row]));
     }
-    // Garante que todos os campos necessários estejam presentes e costPrice correto
-    const orderProducts = productItems.map((p) => ({
-      id: p.id,
-      name: p.name,
-      quantity: Number(p.quantity) || 0,
-      price: Number(p.price) || 0,
-      costPrice: productCostMap.get(String(p.id)) ?? 0,
-    }));
+
+    const unavailableProducts: string[] = [];
+    const priceChanges: Array<{ id: string; name: string; sentPrice: number; currentPrice: number }> = [];
+    const orderProducts = productItems
+      .map((item) => {
+        const productId = String(item.id || "").trim();
+        const quantity = Number(item.quantity) || 0;
+        if (!productId || quantity <= 0) return null;
+
+        const current = productRows.get(productId);
+        if (!current || isProductUnavailable(current)) {
+          unavailableProducts.push(productId);
+          return null;
+        }
+
+        const sentUnitPrice = Number(item.price) || 0;
+        const isBump = item.isBump === true;
+        const serverUnitPrice = isBump ? sentUnitPrice : resolveUnitPriceForQuantity(current, quantity);
+
+        if (!isBump && Math.abs(sentUnitPrice - serverUnitPrice) > 0.001) {
+          priceChanges.push({
+            id: productId,
+            name: current.name,
+            sentPrice: sentUnitPrice,
+            currentPrice: serverUnitPrice,
+          });
+        }
+
+        return {
+          id: productId,
+          name: String(item.name || current.name || "Produto"),
+          quantity,
+          price: serverUnitPrice,
+          costPrice: Number(current.costPrice || 0),
+        };
+      })
+      .filter((item): item is { id: string; name: string; quantity: number; price: number; costPrice: number } => Boolean(item));
+
+    if (unavailableProducts.length > 0) {
+      res.status(400).json({
+        error: "UNAVAILABLE_PRODUCT",
+        message: "Um ou mais produtos não estão mais disponíveis.",
+      });
+      return;
+    }
+
+    if (priceChanges.length > 0) {
+      res.status(409).json({
+        error: "PRICE_CHANGED",
+        message: "Os preços do carrinho foram atualizados. Revise e tente novamente.",
+        items: priceChanges,
+      });
+      return;
+    }
 
     const computedSubtotal = orderProducts.reduce((acc, p) => acc + (Number(p.quantity) || 0) * (Number(p.price) || 0), 0);
     const computedShippingCost = Math.max(0, Number(shippingCost) || 0);

@@ -89,7 +89,7 @@ type CheckoutFormData = z.infer<typeof checkoutSchema>;
 
 export default function Checkout() {
   const [, setLocation] = useLocation();
-  const { items, getSubtotal, getCardSubtotal, clearCart, addBumpItem, removeItem, updateQuantity, setIsOpen } = useCart();
+  const { items, getSubtotal, getCardSubtotal, clearCart, addItem, addBumpItem, removeItem, updateQuantity, setIsOpen } = useCart();
 
   // Garante que o carrinho lateral não abre no checkout
   useEffect(() => { setIsOpen(false); }, [setIsOpen]);
@@ -160,6 +160,48 @@ export default function Checkout() {
       return true;
     }
   }, [items, removeItem]);
+
+  const syncCartWithLatestProducts = useCallback(async () => {
+    const previousItems = [...items];
+
+    try {
+      const res = await fetch(`${BASE}/api/products`);
+      if (!res.ok) return false;
+
+      const data = await res.json() as { products?: Array<{
+        id: string;
+        name: string;
+        price: number;
+        promoPrice?: number | null;
+        promoEndsAt?: string | null;
+        image?: string | null;
+        unit?: string;
+        category?: string;
+        description?: string;
+        isActive?: boolean;
+        isSoldOut?: boolean;
+        stock?: number;
+      }> };
+
+      const byId = new Map((data.products ?? []).map((product) => [product.id, product]));
+
+      clearCart();
+      for (const item of previousItems) {
+        const isBump = (item as { isBump?: boolean }).isBump === true;
+        if (isBump) continue;
+
+        const product = byId.get(item.id);
+        if (!product || isProductUnavailable(product as Parameters<typeof isProductUnavailable>[0])) continue;
+
+        addItem(product as Parameters<typeof addItem>[0], { quantity: item.quantity });
+      }
+
+      setAppliedCoupon(null);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [items, clearCart, addItem]);
 
   // Order bumps for checkout
   interface CheckoutBump {
@@ -346,7 +388,6 @@ export default function Checkout() {
   }, []);
 
   // Handle pending product added via seller checkout link (/{seller}?product={id})
-  const { addItem } = useCart();
   useEffect(() => {
     const pendingId = sessionStorage.getItem("ka_pending_product");
     if (!pendingId) { setPendingCheck(false); return; }
@@ -610,6 +651,7 @@ export default function Checkout() {
         name: item.name,
         quantity: item.quantity,
         price: item.price,
+        isBump: (item as { isBump?: boolean }).isBump === true,
       }));
 
       const affiliateCode = getStoredReferralCode();
@@ -636,6 +678,7 @@ export default function Checkout() {
       });
 
       const result = await resp.json() as {
+        error?: string;
         orderId?: string;
         transactionId?: string;
         status?: string;
@@ -650,6 +693,12 @@ export default function Checkout() {
       };
 
       if (!resp.ok) {
+        if (result.error === "PRICE_CHANGED") {
+          const synced = await syncCartWithLatestProducts();
+          toast.error(result.message || "Os preços mudaram e o carrinho foi atualizado.");
+          if (synced) toast.info("Revise os novos valores e finalize novamente.");
+          return;
+        }
         toast.error(result.message || "Erro ao gerar pagamento PIX. Verifique os dados e tente novamente.");
         return;
       }
@@ -801,6 +850,7 @@ export default function Checkout() {
       name: i.name,
       quantity: i.quantity,
       price: (i as { regularPrice?: number }).regularPrice ?? i.price,
+      isBump: (i as { isBump?: boolean }).isBump === true,
     }));
     const affiliateCode = getStoredReferralCode();
 
@@ -868,7 +918,14 @@ export default function Checkout() {
           setKycWhatsAppUrl(waUrl);
           setCardModalStep("kyc_link");
         },
-        onError: () => {
+        onError: async (error) => {
+          const apiError = error as { data?: { error?: string; message?: string } };
+          if (apiError?.data?.error === "PRICE_CHANGED") {
+            const synced = await syncCartWithLatestProducts();
+            toast.error(apiError?.data?.message || "Os preços mudaram e o carrinho foi atualizado.");
+            if (synced) toast.info("Revise os novos valores e tente novamente.");
+            return;
+          }
           toast.error("Erro ao registrar pedido. Tente novamente.");
         },
       }
