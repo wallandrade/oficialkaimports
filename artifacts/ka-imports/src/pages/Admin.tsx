@@ -2160,15 +2160,20 @@ export default function Admin() {
     try {
       const subtotal = editItems.reduce((s, p) => s + p.price * p.quantity, 0);
       const shippingCost = editOrderModal.shippingCost;
-      const insuranceAmount = editOrderModal.includeInsurance ? editOrderModal.insuranceAmount : 0;
+      const insuranceAmount = editOrderModal.includeInsurance ? Math.max(0, subtotal) * 0.1 : 0;
       const discountAmount = editOrderModal.discountAmount || 0;
       const total = Math.max(0, subtotal + shippingCost + insuranceAmount - discountAmount);
+      const nextOrderSnapshot = {
+        ...editOrderModal,
+        products: editItems,
+        subtotal,
+        insuranceAmount,
+        total,
+      };
       const res = await fetch(`${BASE}/api/admin/orders/${editOrderModal.id}/edit`, {
         method: "PATCH", headers: authHeaders(),
         body: JSON.stringify({
           products: editItems,
-          subtotal,
-          total,
           address: {
             cep: editAddress.cep,
             street: editAddress.street,
@@ -2192,7 +2197,7 @@ export default function Admin() {
         const diff = total - paidAmount;
         if (diff > 0.01) {
           // New total exceeds what was paid → offer diff PIX for the exact difference
-          setDiffOrder({ order: { ...editOrderModal, products: editItems, subtotal, total }, diff, isPaid: true });
+          setDiffOrder({ order: nextOrderSnapshot, diff, isPaid: true });
           setDiffPixResult(null);
         }
         // If diff <= 0 → backend already reverted status to "paid", nothing to do
@@ -2201,7 +2206,7 @@ export default function Admin() {
         const diff = total - originalTotal;
         if (diff > 0.01 && isPixOrder) {
           // Unpaid PIX order with total increase → generate new PIX for full new total
-          setDiffOrder({ order: { ...editOrderModal, products: editItems, subtotal, total }, diff: total, isPaid: false });
+          setDiffOrder({ order: nextOrderSnapshot, diff: total, isPaid: false });
           setDiffPixResult(null);
         }
         // Unpaid card order: just save, no PIX needed
@@ -5002,7 +5007,8 @@ export default function Admin() {
                   {/* Totals preview */}
                   {editItems.length > 0 && (() => {
                     const subtotal = editItems.reduce((s, p) => s + p.price * p.quantity, 0);
-                    const total = Math.max(0, subtotal + editOrderModal.shippingCost + (editOrderModal.includeInsurance ? editOrderModal.insuranceAmount : 0) - (editOrderModal.discountAmount || 0));
+                    const insuranceAmount = editOrderModal.includeInsurance ? Math.max(0, subtotal) * 0.1 : 0;
+                    const total = Math.max(0, subtotal + editOrderModal.shippingCost + insuranceAmount - (editOrderModal.discountAmount || 0));
                     const hasPaidAmount = (editOrderModal.paidAmount ?? 0) > 0;
                     const refValue = hasPaidAmount ? (editOrderModal.paidAmount ?? 0) : editOrderModal.total;
                     const diff = total - refValue;
@@ -5010,7 +5016,7 @@ export default function Admin() {
                       <div className="p-3 rounded-lg bg-muted/40 border border-border/50 text-sm space-y-1">
                         <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
                         <div className="flex justify-between"><span className="text-muted-foreground">Frete</span><span>{formatCurrency(editOrderModal.shippingCost)}</span></div>
-                        {editOrderModal.includeInsurance && <div className="flex justify-between"><span className="text-muted-foreground">Seguro</span><span>{formatCurrency(editOrderModal.insuranceAmount)}</span></div>}
+                        {editOrderModal.includeInsurance && <div className="flex justify-between"><span className="text-muted-foreground">Seguro</span><span>{formatCurrency(insuranceAmount)}</span></div>}
                         {(editOrderModal.discountAmount || 0) > 0 && <div className="flex justify-between text-green-700"><span>Desconto</span><span>-{formatCurrency(editOrderModal.discountAmount!)}</span></div>}
                         <div className="flex justify-between font-bold border-t border-border/50 pt-1 mt-1"><span>Novo Total</span><span>{formatCurrency(total)}</span></div>
                         {hasPaidAmount && (

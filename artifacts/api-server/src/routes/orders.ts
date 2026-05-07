@@ -894,10 +894,8 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
 
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
-    const { products: newProducts, subtotal, total, address } = req.body as {
+    const { products: newProducts, address } = req.body as {
       products: Array<{ id: string; name: string; quantity: number; price: number }>;
-      subtotal: number;
-      total: number;
       address?: {
         cep?: string | null;
         street?: string | null;
@@ -922,6 +920,16 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
     const currentStatus  = current[0].status;
     const paidAmount     = current[0].paidAmount ? Number(current[0].paidAmount) : null;
     const isPaid         = currentStatus === "paid" || currentStatus === "completed";
+
+    const computedSubtotal = newProducts.reduce((sum, product) => {
+      const quantity = Number(product?.quantity) || 0;
+      const price = Number(product?.price) || 0;
+      return sum + quantity * price;
+    }, 0);
+    const computedShippingCost = Math.max(0, Number(current[0].shippingCost) || 0);
+    const computedDiscountAmount = Math.max(0, Number(current[0].discountAmount) || 0);
+    const computedInsuranceAmount = current[0].includeInsurance ? Math.max(0, computedSubtotal) * 0.1 : 0;
+    const total = Math.max(0, computedSubtotal + computedShippingCost + computedInsuranceAmount - computedDiscountAmount);
 
     let newStatus: string;
     if (paidAmount !== null) {
@@ -951,7 +959,8 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
 
     const updates: Partial<typeof ordersTable.$inferInsert> = {
       products: newProducts,
-      subtotal: String(subtotal),
+      subtotal: String(computedSubtotal),
+      insuranceAmount: String(computedInsuranceAmount),
       total: String(total),
       status: newStatus,
       updatedAt: new Date(),
