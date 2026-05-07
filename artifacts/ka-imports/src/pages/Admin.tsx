@@ -2202,16 +2202,20 @@ export default function Admin() {
         }
         // If diff <= 0 → backend already reverted status to "paid", nothing to do
       } else {
-        // No paidAmount recorded — check status to decide whether order was actually paid
+        // No paidAmount recorded — determine if the order was ever paid
         const diff = total - originalTotal;
-        const isAlreadyPaid = editOrderModal.status === "paid" || editOrderModal.status === "completed";
+        // "Never paid" = still in initial pending state with no proof of payment at all.
+        // awaiting_payment means a previous diff PIX was generated but not yet confirmed —
+        // the original payment already happened, so we still only charge the difference.
+        const hasProof = !!(editOrderModal.proofUrl || (editOrderModal.proofUrls && editOrderModal.proofUrls.length > 0));
+        const neverPaid = editOrderModal.status === "pending" && !hasProof;
         if (diff > 0.01 && isPixOrder) {
-          if (isAlreadyPaid) {
-            // Order was paid (paidAmount not recorded) → PIX only for the difference
-            setDiffOrder({ order: nextOrderSnapshot, diff, isPaid: true });
-          } else {
-            // Truly unpaid PIX order → generate new PIX for the full new total
+          if (neverPaid) {
+            // Truly unpaid PIX order → generate PIX for the full new total
             setDiffOrder({ order: nextOrderSnapshot, diff: total, isPaid: false });
+          } else {
+            // Order was at some point paid (or diff is pending) → PIX only for the difference
+            setDiffOrder({ order: nextOrderSnapshot, diff, isPaid: true });
           }
           setDiffPixResult(null);
         }
