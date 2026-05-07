@@ -921,10 +921,26 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
     const paidAmount     = current[0].paidAmount ? Number(current[0].paidAmount) : null;
     const isPaid         = currentStatus === "paid" || currentStatus === "completed";
 
-    const computedSubtotal = newProducts.reduce((sum, product) => {
-      const quantity = Number(product?.quantity) || 0;
-      const price = Number(product?.price) || 0;
-      return sum + quantity * price;
+    // Fetch catalog products to resolve prices with bulk-discount tiers
+    const editProductIds = Array.from(new Set(newProducts.map((p) => String(p?.id || "")).filter(Boolean)));
+    let editProductRows = new Map<string, typeof productsTable.$inferSelect>();
+    if (editProductIds.length > 0) {
+      const rows = await db.select().from(productsTable).where(inArray(productsTable.id, editProductIds));
+      editProductRows = new Map(rows.map((row) => [row.id, row]));
+    }
+
+    // Resolve final products with correct tier prices
+    const resolvedProducts = newProducts.map((item) => {
+      const productId = String(item?.id || "").trim();
+      const quantity = Number(item?.quantity) || 0;
+      const catalogProduct = editProductRows.get(productId);
+      // If product exists in catalog, recalculate price with tiers; otherwise keep sent price (manual/bump items)
+      const price = catalogProduct ? resolveUnitPriceForQuantity(catalogProduct, quantity) : Number(item?.price) || 0;
+      return { id: productId, name: String(item?.name || "Produto"), quantity, price };
+    }).filter((item) => item.id && item.quantity > 0);
+
+    const computedSubtotal = resolvedProducts.reduce((sum, product) => {
+      return sum + product.quantity * product.price;
     }, 0);
     const computedShippingCost = Math.max(0, Number(current[0].shippingCost) || 0);
     const computedDiscountAmount = Math.max(0, Number(current[0].discountAmount) || 0);
@@ -958,7 +974,7 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
     const nextAddressState = address?.state !== undefined ? String(address.state || "").trim() || null : undefined;
 
     const updates: Partial<typeof ordersTable.$inferInsert> = {
-      products: newProducts,
+      products: resolvedProducts,
       subtotal: String(computedSubtotal),
       insuranceAmount: String(computedInsuranceAmount),
       total: String(total),

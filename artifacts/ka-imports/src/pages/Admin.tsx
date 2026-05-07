@@ -1963,6 +1963,43 @@ export default function Admin() {
     window.open(`https://wa.me/${p.startsWith("55") ? p : "55" + p}?text=${encodeURIComponent(msg)}`, "_blank");
   };
 
+  // --------------------------------------------------------------------------
+  // Bulk-discount tier resolver (mirrors server-side resolveUnitPriceForQuantity)
+  // --------------------------------------------------------------------------
+  function resolveEditItemPrice(catalogProduct: AdminProduct, quantity: number): number {
+    const p = catalogProduct as any;
+    const now = new Date();
+    const regularPrice = Number(p.price || 0);
+    const rawPromo = p.promoPrice == null ? null : Number(p.promoPrice);
+    const promoEndsAt = p.promoEndsAt ? new Date(p.promoEndsAt) : null;
+    const base =
+      rawPromo != null && rawPromo > 0 && (promoEndsAt == null || now <= promoEndsAt)
+        ? rawPromo
+        : regularPrice;
+
+    if (!p.bulkDiscountEnabled) return base;
+
+    let tiers: Array<{ minQty: number; maxQty: number | null; unitPrice: number }> = [];
+    try {
+      const raw = typeof p.bulkDiscountTiers === "string"
+        ? JSON.parse(p.bulkDiscountTiers)
+        : p.bulkDiscountTiers;
+      if (Array.isArray(raw)) {
+        tiers = raw
+          .map((t: any) => ({
+            minQty: Number(t.minQty),
+            maxQty: t.maxQty == null ? null : Number(t.maxQty),
+            unitPrice: Number(t.unitPrice),
+          }))
+          .filter((t) => Number.isFinite(t.minQty) && t.minQty >= 1 && Number.isFinite(t.unitPrice) && t.unitPrice > 0)
+          .sort((a, b) => a.minQty - b.minQty);
+      }
+    } catch { /* ignore */ }
+
+    const tier = tiers.find((t) => quantity >= t.minQty && (t.maxQty == null || quantity <= t.maxQty));
+    return tier ? tier.unitPrice : base;
+  }
+
   // Order editing
   const openEditOrder = async (order: AdminOrder) => {
     setEditOrderModal(order);
@@ -4919,9 +4956,12 @@ export default function Admin() {
                                 onClick={() => {
                                   const exists = editItems.find((i) => i.id === p.id);
                                   if (exists) {
-                                    setEditItems((prev) => prev.map((i) => i.id === p.id ? { ...i, quantity: i.quantity + 1 } : i));
+                                    const newQty = exists.quantity + 1;
+                                    const newPrice = resolveEditItemPrice(p, newQty);
+                                    setEditItems((prev) => prev.map((i) => i.id === p.id ? { ...i, quantity: newQty, price: newPrice } : i));
                                   } else {
-                                    setEditItems((prev) => [...prev, { id: p.id, name: p.name, quantity: 1, price: p.promoPrice ?? p.price }]);
+                                    const newPrice = resolveEditItemPrice(p, 1);
+                                    setEditItems((prev) => [...prev, { id: p.id, name: p.name, quantity: 1, price: newPrice }]);
                                   }
                                   setEditProductSearch("");
                                 }}>
@@ -4952,10 +4992,21 @@ export default function Admin() {
                             </div>
                             <div className="flex items-center gap-1">
                               <button className="w-7 h-7 rounded-lg border border-border hover:bg-muted flex items-center justify-center text-base"
-                                onClick={() => setEditItems((prev) => prev.map((i, j) => j === idx && i.quantity > 1 ? { ...i, quantity: i.quantity - 1 } : i))}>−</button>
+                                onClick={() => {
+                                  if (item.quantity <= 1) return;
+                                  const newQty = item.quantity - 1;
+                                  const catalog = editCatalog.find((c) => c.id === item.id);
+                                  const newPrice = catalog ? resolveEditItemPrice(catalog, newQty) : item.price;
+                                  setEditItems((prev) => prev.map((i, j) => j === idx ? { ...i, quantity: newQty, price: newPrice } : i));
+                                }}>−</button>
                               <span className="w-6 text-center text-sm font-medium">{item.quantity}</span>
                               <button className="w-7 h-7 rounded-lg border border-border hover:bg-muted flex items-center justify-center text-base"
-                                onClick={() => setEditItems((prev) => prev.map((i, j) => j === idx ? { ...i, quantity: i.quantity + 1 } : i))}>+</button>
+                                onClick={() => {
+                                  const newQty = item.quantity + 1;
+                                  const catalog = editCatalog.find((c) => c.id === item.id);
+                                  const newPrice = catalog ? resolveEditItemPrice(catalog, newQty) : item.price;
+                                  setEditItems((prev) => prev.map((i, j) => j === idx ? { ...i, quantity: newQty, price: newPrice } : i));
+                                }}>+</button>
                               <button className="w-7 h-7 ml-1 rounded-lg hover:bg-red-50 text-red-500 flex items-center justify-center"
                                 onClick={() => setEditItems((prev) => prev.filter((_, j) => j !== idx))}><X className="w-4 h-4" /></button>
                             </div>
