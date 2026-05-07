@@ -2202,11 +2202,17 @@ export default function Admin() {
         }
         // If diff <= 0 → backend already reverted status to "paid", nothing to do
       } else {
-        // Order was never formally paid (no paidAmount recorded)
+        // No paidAmount recorded — check status to decide whether order was actually paid
         const diff = total - originalTotal;
+        const isAlreadyPaid = editOrderModal.status === "paid" || editOrderModal.status === "completed";
         if (diff > 0.01 && isPixOrder) {
-          // Unpaid PIX order with total increase → generate new PIX for full new total
-          setDiffOrder({ order: nextOrderSnapshot, diff: total, isPaid: false });
+          if (isAlreadyPaid) {
+            // Order was paid (paidAmount not recorded) → PIX only for the difference
+            setDiffOrder({ order: nextOrderSnapshot, diff, isPaid: true });
+          } else {
+            // Truly unpaid PIX order → generate new PIX for the full new total
+            setDiffOrder({ order: nextOrderSnapshot, diff: total, isPaid: false });
+          }
           setDiffPixResult(null);
         }
         // Unpaid card order: just save, no PIX needed
