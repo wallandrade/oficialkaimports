@@ -1831,12 +1831,11 @@ export default function Checkout() {
 
               <div className="space-y-4 mb-6 max-h-72 overflow-y-auto pr-2">
                 {items.filter((item) => !(item as { isBump?: boolean }).isBump).map((item) => {
-                  const bumpItem = items.find(
+                  const bumpItems = items.filter(
                     (i) => !!(i as { isBump?: boolean }).isBump &&
                       (i as { bumpForProductId?: string }).bumpForProductId === item.id
-                  ) as ({ quantity: number; price: number; id: string } | undefined);
+                  ) as Array<{ quantity: number; price: number; id: string; name: string; image?: string }>;
                   const mainTotal = item.price * item.quantity;
-                  const bumpTotal = bumpItem ? bumpItem.price * bumpItem.quantity : 0;
                   return (
                     <div key={item.id} className="space-y-2 rounded-xl p-2">
                       <div className="flex gap-3 items-start">
@@ -1868,12 +1867,12 @@ export default function Checkout() {
                         </div>
                       </div>
 
-                      {bumpItem && (
-                        <div className="ml-12 rounded-xl border border-emerald-200 bg-emerald-50/70 p-2.5">
+                      {bumpItems.map((bumpItem) => (
+                        <div key={bumpItem.id} className="ml-12 rounded-xl border border-emerald-200 bg-emerald-50/70 p-2.5">
                           <div className="flex gap-2.5 items-start">
                             <div className="w-10 h-10 rounded-lg bg-white overflow-hidden shrink-0 border border-emerald-100">
                               <img
-                                src={(bumpItem as typeof bumpItem & { image?: string }).image ?? (item as typeof item & { image?: string }).image}
+                                src={bumpItem.image ?? (item as typeof item & { image?: string }).image}
                                 alt={bumpItem.name}
                                 className="w-full h-full object-cover"
                               />
@@ -1928,7 +1927,7 @@ export default function Checkout() {
                             </button>
                           </div>
                         </div>
-                      )}
+                      ))}
                     </div>
                   );
                 })}
