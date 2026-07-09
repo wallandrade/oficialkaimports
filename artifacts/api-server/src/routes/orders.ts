@@ -1773,9 +1773,10 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
 
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
-    const { products: newProducts, address, discountAmount } = req.body as {
+    const { products: newProducts, address, discountAmount, clientName } = req.body as {
       products: Array<{ id: string; name: string; quantity: number; price: number }>;
       discountAmount?: number;
+      clientName?: string;
       address?: {
         cep?: string | null;
         street?: string | null;
@@ -1786,6 +1787,12 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
         state?: string | null;
       };
     };
+
+    const nextClientName = clientName !== undefined ? String(clientName || "").trim() : undefined;
+    if (nextClientName !== undefined && !nextClientName) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Nome do cliente inválido." });
+      return;
+    }
 
     if (!newProducts || !Array.isArray(newProducts) || newProducts.length === 0) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Produtos inválidos." });
@@ -1872,6 +1879,7 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
     if (nextAddressNeighborhood !== undefined) updates.addressNeighborhood = nextAddressNeighborhood;
     if (nextAddressCity !== undefined) updates.addressCity = nextAddressCity;
     if (nextAddressState !== undefined) updates.addressState = nextAddressState;
+    if (nextClientName !== undefined) updates.clientName = nextClientName;
 
     await db.update(ordersTable)
       .set(updates)

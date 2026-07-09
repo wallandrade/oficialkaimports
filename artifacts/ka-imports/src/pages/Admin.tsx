@@ -1161,6 +1161,7 @@ export default function Admin() {
     city: "",
     state: "",
   });
+  const [editClientName, setEditClientName] = useState("");
   const [editDiscount, setEditDiscount] = useState(0);
   const [editProductSearch, setEditProductSearch] = useState("");
   const [editSaving, setEditSaving] = useState(false);
@@ -2702,6 +2703,7 @@ export default function Admin() {
   const openEditOrder = async (order: AdminOrder) => {
     setEditOrderModal(order);
     setEditItems(getOrderProducts(order.products).map((p) => ({ id: p.id, name: p.name, quantity: p.quantity, price: p.price })));
+    setEditClientName(String(order.clientName || ""));
     setEditDiscount(order.discountAmount || 0);
     setEditAddress({
       cep: String(order.addressCep || ""),
@@ -2899,6 +2901,8 @@ export default function Admin() {
 
   const saveEditOrder = async () => {
     if (!editOrderModal || editItems.length === 0) { toast.error("Adicione ao menos um produto."); return; }
+    const normalizedClientName = String(editClientName || "").trim();
+    if (!normalizedClientName) { toast.error("Informe o nome do cliente."); return; }
     setEditSaving(true);
     const originalTotal = editOrderModal.total;
     try {
@@ -2909,6 +2913,7 @@ export default function Admin() {
       const total = Math.max(0, subtotal + shippingCost + insuranceAmount - discountAmount);
       const nextOrderSnapshot = {
         ...editOrderModal,
+        clientName: normalizedClientName,
         products: editItems,
         subtotal,
         insuranceAmount,
@@ -2917,6 +2922,7 @@ export default function Admin() {
       const res = await fetch(`${BASE}/api/admin/orders/${editOrderModal.id}/edit`, {
         method: "PATCH", headers: authHeaders(),
         body: JSON.stringify({
+          clientName: normalizedClientName,
           products: editItems,
           discountAmount: discountAmount,
           address: {
@@ -6070,6 +6076,16 @@ export default function Admin() {
                         ))}
                       </div>
                     )}
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block mb-2">Dados do cliente</label>
+                    <input
+                      value={editClientName}
+                      onChange={(e) => setEditClientName(e.target.value)}
+                      placeholder="Nome do cliente"
+                      className="w-full h-9 px-3 rounded-lg border border-border bg-muted/30 text-sm outline-none focus:border-primary"
+                    />
                   </div>
 
                   <div>
