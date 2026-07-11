@@ -1586,6 +1586,7 @@ export default function Admin() {
       return;
     }
 
+    const customerWindow = window.open("about:blank", "_blank");
     setCustomerImpersonatingId(customer.id);
     try {
       const res = await fetch(`${BASE}/api/admin/customers/${customer.id}/impersonate`, {
@@ -1598,14 +1599,20 @@ export default function Admin() {
       };
 
       if (!res.ok || !data.token) {
+        if (customerWindow && !customerWindow.closed) customerWindow.close();
         toast.error(data.message || "Não foi possível entrar na conta deste cliente.");
         return;
       }
 
       localStorage.setItem("customerToken", data.token);
-      window.open(`${BASE}/minha-conta/pedidos`, "_blank", "noopener,noreferrer");
+      if (customerWindow && !customerWindow.closed) {
+        customerWindow.location.href = `${BASE}/minha-conta/pedidos`;
+      } else {
+        window.open(`${BASE}/minha-conta/pedidos`, "_blank");
+      }
       toast.success(`Entrando na conta de ${customer.name}.`);
     } catch {
+      if (customerWindow && !customerWindow.closed) customerWindow.close();
       toast.error("Erro ao entrar na conta do cliente.");
     } finally {
       setCustomerImpersonatingId(null);
