@@ -7,7 +7,6 @@ import { useEffect } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 import { SitePasswordGate } from "@/components/SitePasswordGate";
 import SocialProofWidget from "@/components/SocialProofWidget";
-import { FloatingTelegramButton } from "@/components/FloatingTelegramButton";
 import { captureReferralFromCurrentUrl } from "@/lib/affiliate";
 import { reportClientError } from "@/lib/client-error-reporting";
 import Home from "@/pages/Home";
@@ -227,7 +226,6 @@ function AppInner() {
         <Router />
       </SitePasswordGate>
       {!isAdmin && <SocialProofWidget />}
-      <FloatingTelegramButton />
     </AppErrorBoundary>
   );
 }
