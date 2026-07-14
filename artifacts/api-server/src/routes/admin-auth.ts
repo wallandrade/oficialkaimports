@@ -5,8 +5,12 @@ import { lt, eq } from "drizzle-orm";
 
 const router: IRouter = Router();
 const TOKEN_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
+const IS_PRODUCTION = String(process.env.NODE_ENV || "").toLowerCase() === "production";
 const ADMIN_AUTH_VERBOSE_LOGS = String(process.env.ADMIN_AUTH_VERBOSE_LOGS || "false").toLowerCase() === "true";
 const ADMIN_ALLOW_QUERY_TOKEN = String(process.env.ADMIN_ALLOW_QUERY_TOKEN || "true").toLowerCase() === "true";
+const ADMIN_LOGIN_RATE_WINDOW_MS = Number(process.env.ADMIN_LOGIN_RATE_WINDOW_MS || 10 * 60 * 1000);
+const ADMIN_LOGIN_RATE_MAX_ATTEMPTS = Number(process.env.ADMIN_LOGIN_RATE_MAX_ATTEMPTS || 8);
+const ADMIN_LOGIN_RATE_BLOCK_MS = Number(process.env.ADMIN_LOGIN_RATE_BLOCK_MS || 15 * 60 * 1000);
 const ADMIN_SESSION_COOKIE_NAME = String(process.env.ADMIN_SESSION_COOKIE_NAME || "admin_session").trim();
 const ADMIN_SESSION_COOKIE_SAMESITE = (() => {
   const raw = String(process.env.ADMIN_SESSION_COOKIE_SAMESITE || (process.env.NODE_ENV === "production" ? "none" : "lax")).trim().toLowerCase();
@@ -32,6 +36,50 @@ export type AdminScope = {
 };
 
 let adminSellerScopeMapCache: Record<string, string> | null = null;
+const adminLoginRateBuckets = new Map<string, { count: number; resetAt: number; blockedUntil: number }>();
+
+function respondInternalError(res: Response, message: string, err: unknown) {
+  if (!IS_PRODUCTION) {
+    res.status(500).json({ error: "INTERNAL_ERROR", message, details: String(err) });
+    return;
+  }
+  res.status(500).json({ error: "INTERNAL_ERROR", message });
+}
+
+function getRequestIp(req: Request): string {
+  const xf = String(req.headers["x-forwarded-for"] || "").split(",")[0]?.trim();
+  return xf || req.ip || "unknown";
+}
+
+function cleanupExpiredAdminLoginBuckets(now: number): void {
+  for (const [key, bucket] of adminLoginRateBuckets.entries()) {
+    if (bucket.blockedUntil <= now && bucket.resetAt <= now) {
+      adminLoginRateBuckets.delete(key);
+    }
+  }
+}
+
+function getAdminLoginBucket(ip: string, now: number): { count: number; resetAt: number; blockedUntil: number } {
+  const existing = adminLoginRateBuckets.get(ip);
+  if (!existing || existing.resetAt <= now) {
+    const fresh = { count: 0, resetAt: now + ADMIN_LOGIN_RATE_WINDOW_MS, blockedUntil: 0 };
+    adminLoginRateBuckets.set(ip, fresh);
+    return fresh;
+  }
+  return existing;
+}
+
+function registerAdminLoginFailure(ip: string, now: number): void {
+  const bucket = getAdminLoginBucket(ip, now);
+  bucket.count += 1;
+  if (bucket.count >= ADMIN_LOGIN_RATE_MAX_ATTEMPTS) {
+    bucket.blockedUntil = Math.max(bucket.blockedUntil, now + ADMIN_LOGIN_RATE_BLOCK_MS);
+  }
+}
+
+function clearAdminLoginFailures(ip: string): void {
+  adminLoginRateBuckets.delete(ip);
+}
 
 function redactToken(token: string): string {
   if (!token) return "";
@@ -272,7 +320,7 @@ export async function requireAdminAuth(req: Request, res: Response, next: NextFu
     next();
   } catch (err) {
     console.error('[requireAdminAuth] Erro:', err);
-    res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Erro interno na autenticação', details: String(err) });
+    respondInternalError(res, "Erro interno na autenticação.", err);
   }
 }
 
@@ -307,6 +355,21 @@ export async function getSessionInfo(req: Request) {
 // --------------------------------------------------------------------------
 router.post("/admin/login", async (req, res) => {
   const { username, password } = req.body as { username?: string; password?: string };
+  const ip = getRequestIp(req);
+  const now = Date.now();
+
+  cleanupExpiredAdminLoginBuckets(now);
+  const bucket = getAdminLoginBucket(ip, now);
+  if (bucket.blockedUntil > now) {
+    const retryAfterSec = Math.max(1, Math.ceil((bucket.blockedUntil - now) / 1000));
+    res.setHeader("Retry-After", String(retryAfterSec));
+    res.status(429).json({
+      error: "RATE_LIMITED",
+      message: "Muitas tentativas de login. Tente novamente em instantes.",
+      retryAfterSec,
+    });
+    return;
+  }
 
   if (!username || !password) {
     res.status(400).json({ error: "INVALID_INPUT", message: "Usuário e senha são obrigatórios." });
@@ -330,15 +393,19 @@ router.post("/admin/login", async (req, res) => {
     }
 
     if (!user) {
+      registerAdminLoginFailure(ip, now);
       res.status(401).json({ error: "INVALID_CREDENTIALS", message: "Usuário ou senha incorretos." });
       return;
     }
 
     const hash = hashPassword(password, user.salt);
     if (hash !== user.passwordHash) {
+      registerAdminLoginFailure(ip, now);
       res.status(401).json({ error: "INVALID_CREDENTIALS", message: "Usuário ou senha incorretos." });
       return;
     }
+
+    clearAdminLoginFailures(ip);
 
     await purgeExpiredSessions();
     const token = crypto.randomBytes(32).toString("hex");
@@ -361,7 +428,7 @@ router.post("/admin/login", async (req, res) => {
     res.json({ token, expiresIn: TOKEN_TTL_MS / 1000, isPrimary: user.isPrimary, username: user.username, sellerCode });
   } catch (err) {
     console.error("[AdminAuth] login error:", err, JSON.stringify(err, Object.getOwnPropertyNames(err)));
-    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao autenticar.", details: String(err) });
+    respondInternalError(res, "Erro ao autenticar.", err);
   }
 });
 
@@ -369,17 +436,31 @@ router.post("/admin/login", async (req, res) => {
 // POST /api/admin/logout
 // --------------------------------------------------------------------------
 router.post("/admin/logout", async (req, res) => {
-  const token = getTokenFromRequest(req);
-  if (token) {
+  try {
+    const token = getTokenFromRequest(req);
+    if (!token) {
+      res.status(401).json({ error: "UNAUTHORIZED", message: "Acesso não autorizado." });
+      return;
+    }
+
+    const sessionRows = await db.select().from(adminSessionsTable).where(eq(adminSessionsTable.token, token)).limit(1);
+    if (!sessionRows[0]) {
+      res.status(401).json({ error: "UNAUTHORIZED", message: "Acesso não autorizado." });
+      return;
+    }
+
     await db.delete(adminSessionsTable).where(eq(adminSessionsTable.token, token));
+    res.clearCookie(ADMIN_SESSION_COOKIE_NAME, {
+      httpOnly: true,
+      secure: ADMIN_SESSION_COOKIE_SECURE,
+      sameSite: ADMIN_SESSION_COOKIE_SAMESITE,
+      path: "/api",
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[AdminAuth] logout error:", err);
+    respondInternalError(res, "Erro ao encerrar sessão.", err);
   }
-  res.clearCookie(ADMIN_SESSION_COOKIE_NAME, {
-    httpOnly: true,
-    secure: ADMIN_SESSION_COOKIE_SECURE,
-    sameSite: ADMIN_SESSION_COOKIE_SAMESITE,
-    path: "/api",
-  });
-  res.json({ ok: true });
 });
 
 // --------------------------------------------------------------------------
@@ -397,7 +478,7 @@ router.get("/admin/verify", requireAdminAuth, async (req, res) => {
     console.log('[admin/verify] SUCESSO', { username: session?.username });
   } catch (err) {
     console.error('[admin/verify] Erro:', err);
-    res.status(500).json({ error: 'INTERNAL_ERROR', message: 'Erro interno no endpoint /admin/verify', details: String(err) });
+    respondInternalError(res, "Erro interno no endpoint /admin/verify.", err);
   }
 });
 
