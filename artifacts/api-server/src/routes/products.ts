@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, productsTable, productCostHistoryTable, ordersTable } from "@workspace/db";
+import { db, productsTable, productCostHistoryTable, ordersTable, siteSettingsTable } from "@workspace/db";
 import { eq, asc, desc, gte } from "drizzle-orm";
 import crypto from "crypto";
 import { requirePrimaryAdmin } from "./admin-auth";
@@ -18,6 +18,32 @@ type ProductVariantGroupInput = {
   name: string;
   options: string[];
 };
+
+type ProductBackupEntry = {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  brand: string | null;
+  unit: string;
+  price: number;
+  costPrice: number;
+  promoPrice: number | null;
+  promoEndsAt: string | null;
+  bulkDiscountEnabled: boolean;
+  bulkDiscountTiers: BulkDiscountTierInput[];
+  variantGroups: ProductVariantGroupInput[];
+  image: string | null;
+  isActive: boolean;
+  isSoldOut: boolean;
+  isLaunch: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+const PRODUCT_BACKUP_VERSION = 1;
+const ADMIN_SAVED_BRANDS_KEY = "admin_saved_brands";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -110,6 +136,117 @@ function parseVariantGroups(raw: unknown): ProductVariantGroupInput[] {
   }
 }
 
+function parseSavedBrands(raw: unknown): string[] {
+  if (!raw) return [];
+
+  try {
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (!Array.isArray(parsed)) return [];
+
+    return Array.from(
+      new Set(
+        parsed
+          .map((item) => String(item ?? "").trim())
+          .filter(Boolean),
+      ),
+    ).sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
+  } catch {
+    return [];
+  }
+}
+
+function toIsoStringOrNow(value: unknown): string {
+  const parsed = value ? new Date(String(value)) : new Date();
+  if (Number.isNaN(parsed.getTime())) return new Date().toISOString();
+  return parsed.toISOString();
+}
+
+function mapProductForBackup(p: typeof productsTable.$inferSelect): ProductBackupEntry {
+  return {
+    id: p.id,
+    name: p.name,
+    description: p.description ?? "",
+    category: p.category,
+    brand: p.brand ?? null,
+    unit: p.unit,
+    price: Number(p.price),
+    costPrice: Number(p.costPrice ?? 0),
+    promoPrice: p.promoPrice == null ? null : Number(p.promoPrice),
+    promoEndsAt: p.promoEndsAt?.toISOString() ?? null,
+    bulkDiscountEnabled: Boolean(p.bulkDiscountEnabled),
+    bulkDiscountTiers: parseBulkDiscountTiers(p.bulkDiscountTiers),
+    variantGroups: parseVariantGroups(p.variantGroups),
+    image: p.image ?? null,
+    isActive: Boolean(p.isActive),
+    isSoldOut: Boolean(p.isSoldOut),
+    isLaunch: Boolean(p.isLaunch),
+    sortOrder: Number(p.sortOrder ?? 0),
+    createdAt: p.createdAt.toISOString(),
+    updatedAt: p.updatedAt.toISOString(),
+  };
+}
+
+function normalizeBackupProduct(raw: unknown, index: number): ProductBackupEntry {
+  const item = raw as Record<string, unknown>;
+  const id = String(item.id ?? "").trim();
+  const name = String(item.name ?? "").trim();
+  const category = String(item.category ?? "").trim();
+  const unit = String(item.unit ?? "unidade").trim() || "unidade";
+  const price = Number(item.price);
+  const costPrice = Number(item.costPrice ?? 0);
+  const promoPriceRaw = item.promoPrice;
+  const promoPrice = promoPriceRaw == null || promoPriceRaw === "" ? null : Number(promoPriceRaw);
+  const sortOrder = Number(item.sortOrder ?? 0);
+
+  if (!id) {
+    throw new Error(`Produto #${index + 1} sem ID.`);
+  }
+  if (!name || !category) {
+    throw new Error(`Produto ${id} sem nome ou categoria.`);
+  }
+  if (!Number.isFinite(price) || price <= 0) {
+    throw new Error(`Produto ${id} com preço inválido.`);
+  }
+  if (!Number.isFinite(costPrice) || costPrice < 0) {
+    throw new Error(`Produto ${id} com custo inválido.`);
+  }
+  if (promoPrice !== null && (!Number.isFinite(promoPrice) || promoPrice <= 0)) {
+    throw new Error(`Produto ${id} com preço promocional inválido.`);
+  }
+  if (!Number.isFinite(sortOrder)) {
+    throw new Error(`Produto ${id} com ordem inválida.`);
+  }
+
+  const bulkDiscountTiers = parseBulkDiscountTiers(item.bulkDiscountTiers);
+  const validation = validateBulkDiscountTiers(bulkDiscountTiers);
+  if (!validation.ok) {
+    throw new Error(`Produto ${id}: ${validation.message}`);
+  }
+
+  return {
+    id,
+    name,
+    description: String(item.description ?? "").trim(),
+    category,
+    brand: item.brand == null ? null : String(item.brand).trim() || null,
+    unit,
+    price,
+    costPrice,
+    promoPrice,
+    promoEndsAt: item.promoEndsAt ? toIsoStringOrNow(item.promoEndsAt) : null,
+    bulkDiscountEnabled: item.bulkDiscountEnabled === true,
+    bulkDiscountTiers,
+    variantGroups: parseVariantGroups(item.variantGroups),
+    image: item.image == null ? null : String(item.image).trim() || null,
+    isActive: item.isActive !== false,
+    isSoldOut: item.isSoldOut === true,
+    isLaunch: item.isLaunch === true,
+    sortOrder,
+    createdAt: toIsoStringOrNow(item.createdAt),
+    updatedAt: toIsoStringOrNow(item.updatedAt),
+  };
+}
+
 function mapProduct(p: typeof productsTable.$inferSelect, includeCostPrice = false) {
   const { price, promoPrice } = resolvePrice(p);
   const bulkDiscountTiers = parseBulkDiscountTiers(p.bulkDiscountTiers);
@@ -196,6 +333,151 @@ router.get("/admin/products", requirePrimaryAdmin, async (_req, res) => {
   } catch (err) {
     console.error("Admin products error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR" });
+  }
+});
+
+/** GET /api/admin/products/backup */
+router.get("/admin/products/backup", requirePrimaryAdmin, async (_req, res) => {
+  try {
+    const rows = await db
+      .select()
+      .from(productsTable)
+      .orderBy(asc(productsTable.sortOrder), asc(productsTable.createdAt));
+
+    const settingsRows = await db
+      .select()
+      .from(siteSettingsTable)
+      .where(eq(siteSettingsTable.key, ADMIN_SAVED_BRANDS_KEY));
+
+    const savedBrands = parseSavedBrands(settingsRows[0]?.value ?? "[]");
+    const exportedAt = new Date().toISOString();
+    const payload = {
+      version: PRODUCT_BACKUP_VERSION,
+      exportedAt,
+      productCount: rows.length,
+      savedBrands,
+      products: rows.map((row) => mapProductForBackup(row)),
+    };
+
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="produtos-backup-${exportedAt.slice(0, 10)}.json"`);
+    res.json(payload);
+  } catch (err) {
+    console.error("Product backup export error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR" });
+  }
+});
+
+/** POST /api/admin/products/restore */
+router.post("/admin/products/restore", requirePrimaryAdmin, async (req, res) => {
+  try {
+    const { mode, backup } = req.body as {
+      mode?: "merge" | "replace";
+      backup?: unknown;
+    };
+
+    const normalizedMode = mode === "replace" ? "replace" : "merge";
+    if (!backup || typeof backup !== "object") {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Arquivo de backup inválido." });
+      return;
+    }
+
+    const payload = backup as Record<string, unknown>;
+    const rawProducts = Array.isArray(payload.products) ? payload.products : null;
+    if (!rawProducts) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Backup sem lista de produtos." });
+      return;
+    }
+
+    const products = rawProducts.map((item, index) => normalizeBackupProduct(item, index));
+    const hasSavedBrands = Object.prototype.hasOwnProperty.call(payload, "savedBrands");
+    const savedBrands = hasSavedBrands ? parseSavedBrands(payload.savedBrands) : [];
+
+    await db.transaction(async (tx) => {
+      if (normalizedMode === "replace") {
+        await tx.delete(productsTable);
+      }
+
+      for (const product of products) {
+        await tx
+          .insert(productsTable)
+          .values({
+            id: product.id,
+            name: product.name,
+            description: product.description || null,
+            category: product.category,
+            brand: product.brand,
+            unit: product.unit,
+            price: String(product.price),
+            costPrice: String(product.costPrice),
+            promoPrice: product.promoPrice == null ? null : String(product.promoPrice),
+            promoEndsAt: product.promoEndsAt ? new Date(product.promoEndsAt) : null,
+            bulkDiscountEnabled: product.bulkDiscountEnabled === true,
+            bulkDiscountTiers: product.bulkDiscountTiers.length > 0 ? JSON.stringify(product.bulkDiscountTiers) : null,
+            variantGroups: product.variantGroups.length > 0 ? JSON.stringify(product.variantGroups) : null,
+            image: product.image,
+            isActive: product.isActive !== false,
+            isSoldOut: product.isSoldOut === true,
+            isLaunch: product.isLaunch === true,
+            sortOrder: product.sortOrder,
+            createdAt: new Date(product.createdAt),
+            updatedAt: new Date(product.updatedAt),
+          })
+          .onDuplicateKeyUpdate({
+            set: {
+              name: product.name,
+              description: product.description || null,
+              category: product.category,
+              brand: product.brand,
+              unit: product.unit,
+              price: String(product.price),
+              costPrice: String(product.costPrice),
+              promoPrice: product.promoPrice == null ? null : String(product.promoPrice),
+              promoEndsAt: product.promoEndsAt ? new Date(product.promoEndsAt) : null,
+              bulkDiscountEnabled: product.bulkDiscountEnabled === true,
+              bulkDiscountTiers: product.bulkDiscountTiers.length > 0 ? JSON.stringify(product.bulkDiscountTiers) : null,
+              variantGroups: product.variantGroups.length > 0 ? JSON.stringify(product.variantGroups) : null,
+              image: product.image,
+              isActive: product.isActive !== false,
+              isSoldOut: product.isSoldOut === true,
+              isLaunch: product.isLaunch === true,
+              sortOrder: product.sortOrder,
+              updatedAt: new Date(product.updatedAt),
+            },
+          });
+      }
+
+      if (hasSavedBrands) {
+        if (savedBrands.length === 0) {
+          await tx.delete(siteSettingsTable).where(eq(siteSettingsTable.key, ADMIN_SAVED_BRANDS_KEY));
+        } else {
+          await tx
+            .insert(siteSettingsTable)
+            .values({
+              key: ADMIN_SAVED_BRANDS_KEY,
+              value: JSON.stringify(savedBrands),
+              updatedAt: new Date(),
+            })
+            .onDuplicateKeyUpdate({
+              set: {
+                value: JSON.stringify(savedBrands),
+                updatedAt: new Date(),
+              },
+            });
+        }
+      }
+    });
+
+    res.json({
+      ok: true,
+      mode: normalizedMode,
+      imported: products.length,
+      savedBrands: savedBrands.length,
+    });
+  } catch (err) {
+    console.error("Product backup restore error:", err);
+    const message = err instanceof Error ? err.message : "Falha ao restaurar backup.";
+    res.status(400).json({ error: "INVALID_INPUT", message });
   }
 });
 

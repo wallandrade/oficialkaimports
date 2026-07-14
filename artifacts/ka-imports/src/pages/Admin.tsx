@@ -11177,10 +11177,14 @@ function ProductsPanel({
   const currentVariantGroups = normalizeVariantGroups((productForm as any).variantGroups);
 
   const fileRef = useRef<HTMLInputElement>(null);
+  const backupFileRef = useRef<HTMLInputElement>(null);
   const [expandedLinks, setExpandedLinks] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const [productSearch, setProductSearch] = useState("");
   const [productImageUploading, setProductImageUploading] = useState(false);
+  const [productBackupExporting, setProductBackupExporting] = useState(false);
+  const [productBackupImporting, setProductBackupImporting] = useState(false);
+  const [pendingRestoreMode, setPendingRestoreMode] = useState<"merge" | "replace">("merge");
   const [costHistoryProductId, setCostHistoryProductId] = useState<string | null>(null);
   const [costHistoryProductName, setCostHistoryProductName] = useState("");
   const [costHistory, setCostHistory] = useState<Array<{ id: number; costPrice: number; changedAt: string }>>([]);
@@ -11238,22 +11242,26 @@ function ProductsPanel({
     });
   }, [normalizeOptions]);
 
+  const loadSavedBrands = React.useCallback(async () => {
+    const res = await fetch(`${BASE}/api/admin/settings`, { headers: authHeaders() });
+    if (!res.ok) return;
+    const data = await res.json() as Record<string, string>;
+    const raw = String(data?.admin_saved_brands || "").trim();
+    if (!raw) {
+      setSavedBrandOptions([]);
+      return;
+    }
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return;
+    const normalized = normalizeOptions(parsed.map((item) => String(item || "")));
+    setSavedBrandOptions(normalized);
+  }, [normalizeOptions]);
+
   React.useEffect(() => {
     let active = true;
     (async () => {
       try {
-        const res = await fetch(`${BASE}/api/admin/settings`, { headers: authHeaders() });
-        if (!res.ok) return;
-        const data = await res.json() as Record<string, string>;
-        const raw = String(data?.admin_saved_brands || "").trim();
-        if (!raw) {
-          if (active) setSavedBrandOptions([]);
-          return;
-        }
-        const parsed = JSON.parse(raw) as unknown;
-        if (!Array.isArray(parsed)) return;
-        const normalized = normalizeOptions(parsed.map((item) => String(item || "")));
-        if (active) setSavedBrandOptions(normalized);
+        await loadSavedBrands();
       } catch {
         // ignore saved brands loading failures
       }
@@ -11262,7 +11270,81 @@ function ProductsPanel({
     return () => {
       active = false;
     };
-  }, [normalizeOptions]);
+  }, [loadSavedBrands]);
+
+  const handleBackupDownload = async () => {
+    setProductBackupExporting(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/products/backup`, { headers: authHeaders() });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({} as { message?: string }));
+        toast.error(err.message || "Erro ao gerar backup dos produtos.");
+        return;
+      }
+
+      const blob = await res.blob();
+      const disposition = res.headers.get("content-disposition") || "";
+      const match = disposition.match(/filename="?([^";]+)"?/i);
+      const filename = match?.[1] || `produtos-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      toast.success("Backup dos produtos baixado com sucesso!");
+    } catch {
+      toast.error("Erro ao gerar backup dos produtos.");
+    } finally {
+      setProductBackupExporting(false);
+    }
+  };
+
+  const openRestorePicker = (mode: "merge" | "replace") => {
+    if (mode === "replace") {
+      const confirmed = window.confirm("Isso vai substituir todo o catálogo atual pelo conteúdo do backup. Deseja continuar?");
+      if (!confirmed) return;
+    }
+
+    setPendingRestoreMode(mode);
+    backupFileRef.current?.click();
+  };
+
+  const handleBackupRestore = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setProductBackupImporting(true);
+    try {
+      const raw = await file.text();
+      const backup = JSON.parse(raw) as unknown;
+      const res = await fetch(`${BASE}/api/admin/products/restore`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ mode: pendingRestoreMode, backup }),
+      });
+      const data = await res.json().catch(() => ({} as { message?: string; imported?: number; mode?: string }));
+      if (!res.ok) {
+        toast.error(data.message || "Erro ao restaurar backup dos produtos.");
+        return;
+      }
+
+      await Promise.all([onRefreshProducts(), loadSavedBrands()]);
+      const importedCount = Number(data.imported || 0);
+      toast.success(
+        pendingRestoreMode === "replace"
+          ? `Backup restaurado com substituição total. ${importedCount} produto(s) carregado(s).`
+          : `Backup restaurado. ${importedCount} produto(s) atualizado(s)/adicionado(s).`,
+      );
+    } catch {
+      toast.error("Arquivo de backup inválido.");
+    } finally {
+      event.target.value = "";
+      setProductBackupImporting(false);
+    }
+  };
 
   const openCostHistory = async (productId: string, productName: string) => {
     setCostHistoryProductId(productId);
@@ -11506,6 +11588,25 @@ function ProductsPanel({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 justify-end">
+          <input
+            ref={backupFileRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={handleBackupRestore}
+          />
+          <Button variant="outline" onClick={handleBackupDownload} disabled={productBackupExporting || productBackupImporting} className="gap-2">
+            {productBackupExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            Backup JSON
+          </Button>
+          <Button variant="outline" onClick={() => openRestorePicker("merge")} disabled={productBackupExporting || productBackupImporting} className="gap-2">
+            {productBackupImporting && pendingRestoreMode === "merge" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+            Restaurar backup
+          </Button>
+          <Button variant="outline" onClick={() => openRestorePicker("replace")} disabled={productBackupExporting || productBackupImporting} className="gap-2 border-red-200 text-red-700 hover:bg-red-50">
+            {productBackupImporting && pendingRestoreMode === "replace" ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+            Substituir por backup
+          </Button>
           <Button variant="outline" onClick={copyAllProductCosts} className="gap-2">
             <Copy className="w-4 h-4" />Copiar custo
           </Button>
