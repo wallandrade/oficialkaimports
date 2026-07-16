@@ -1307,10 +1307,64 @@ export default function Admin() {
   const swRef  = useRef<ServiceWorkerRegistration | null>(null);
   // Live Visitors Tracking
   const [liveStats, setLiveStats] = useState({ catalog: 0, checkout: 0 });
+  const [exchangeNow, setExchangeNow] = useState<{
+    usdBrl: number | null;
+    brlPyg: number | null;
+    updatedAt: string | null;
+    source: string;
+    error: string | null;
+    loading: boolean;
+  }>({
+    usdBrl: null,
+    brlPyg: null,
+    updatedAt: null,
+    source: "AwesomeAPI",
+    error: null,
+    loading: false,
+  });
 
   // -------------------- FIM DOS useState --------------------
 
   // Agora sim, pode declarar os useCallback, useEffect, etc, que dependem dos states acima
+  const fetchExchangeNow = useCallback(async (showLoader = false) => {
+    if (showLoader) {
+      setExchangeNow((prev) => ({ ...prev, loading: true, error: null }));
+    }
+    try {
+      const res = await fetch("https://economia.awesomeapi.com.br/json/last/USD-BRL,BRL-PYG", { cache: "no-store" });
+      if (!res.ok) throw new Error("exchange_fetch_failed");
+
+      const data = await res.json() as {
+        USDBRL?: { bid?: string | number; timestamp?: string | number };
+        BRLPYG?: { bid?: string | number; timestamp?: string | number };
+      };
+
+      const usdBrl = Number(data?.USDBRL?.bid);
+      const brlPyg = Number(data?.BRLPYG?.bid);
+      if (!Number.isFinite(usdBrl) || !Number.isFinite(brlPyg)) {
+        throw new Error("exchange_invalid_payload");
+      }
+
+      const apiTsSeconds = Number(data?.USDBRL?.timestamp || data?.BRLPYG?.timestamp || 0);
+      const updatedAt = apiTsSeconds > 0 ? new Date(apiTsSeconds * 1000).toISOString() : new Date().toISOString();
+
+      setExchangeNow((prev) => ({
+        ...prev,
+        usdBrl,
+        brlPyg,
+        updatedAt,
+        error: null,
+      }));
+    } catch {
+      setExchangeNow((prev) => ({
+        ...prev,
+        error: "Não foi possível atualizar a cotação agora.",
+      }));
+    } finally {
+      setExchangeNow((prev) => ({ ...prev, loading: false }));
+    }
+  }, []);
+
   const fetchFinancialSummary = React.useCallback(async () => {
     setFinancialSummaryLoading(true);
     try {
@@ -2425,6 +2479,15 @@ export default function Admin() {
   useEffect(() => {
     if (authChecked) fetchStatsData();
   }, [authChecked, statsDateFrom, statsDateTo, statsSeller, fetchStatsData]);
+
+  useEffect(() => {
+    if (!authChecked || (tab !== "orders" && tab !== "charges")) return;
+    fetchExchangeNow(true);
+    const id = window.setInterval(() => {
+      fetchExchangeNow(false);
+    }, 60 * 60 * 1000);
+    return () => window.clearInterval(id);
+  }, [authChecked, tab, fetchExchangeNow]);
 
   // Fallback auto-refresh every 20s — catches any SSE events that were missed
   // (e.g. SSE reconnect gap, network blip, gateway delay)
@@ -3546,6 +3609,34 @@ export default function Admin() {
 
         {/* ── Dashboard Stats ─────────────────────────────────────────────── */}
         <div className="bg-white rounded-2xl border border-border/60 shadow-sm p-5 mb-6">
+          <div className="mb-4 rounded-xl border border-sky-200 bg-gradient-to-r from-sky-50 to-blue-50 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-sky-700">Cotação Agora</p>
+                <p className="text-sm font-bold text-sky-900 mt-0.5">
+                  1 USD = {exchangeNow.usdBrl === null ? "--" : `R$ ${exchangeNow.usdBrl.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`}
+                  <span className="mx-2 text-sky-400">•</span>
+                  1 BRL = {exchangeNow.brlPyg === null ? "--" : `Gs ${exchangeNow.brlPyg.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`}
+                </p>
+                <p className="text-xs text-sky-700/80 mt-1">
+                  Atualiza automaticamente a cada 1 hora.
+                  {exchangeNow.updatedAt && ` Última atualização: ${formatDateBR(exchangeNow.updatedAt)} ${formatTimeBR(exchangeNow.updatedAt)}`}
+                </p>
+                {exchangeNow.error && <p className="text-xs text-red-600 mt-1">{exchangeNow.error}</p>}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => fetchExchangeNow(true)}
+                className="gap-2 border-sky-300 text-sky-700 hover:bg-sky-100"
+              >
+                <RefreshCw className={`w-4 h-4 ${exchangeNow.loading ? "animate-spin" : ""}`} />
+                Atualizar cotação
+              </Button>
+            </div>
+          </div>
+
           {/* Filter row */}
           <div className="flex flex-wrap items-center gap-3 mb-5">
             <div className="flex items-center gap-2">
