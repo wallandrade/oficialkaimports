@@ -1307,63 +1307,112 @@ export default function Admin() {
   const swRef  = useRef<ServiceWorkerRegistration | null>(null);
   // Live Visitors Tracking
   const [liveStats, setLiveStats] = useState({ catalog: 0, checkout: 0 });
-  const [exchangeNow, setExchangeNow] = useState<{
+  type ExchangeSourceKey = "awesome" | "openErApi";
+  type ExchangeSourceState = {
+    label: string;
     usdBrl: number | null;
     brlPyg: number | null;
     updatedAt: string | null;
-    source: string;
     error: string | null;
     loading: boolean;
-  }>({
-    usdBrl: null,
-    brlPyg: null,
-    updatedAt: null,
-    source: "AwesomeAPI",
-    error: null,
-    loading: false,
+    mode: string;
+  };
+  const [selectedExchangeSource, setSelectedExchangeSource] = useState<ExchangeSourceKey>("awesome");
+  const [exchangeSources, setExchangeSources] = useState<Record<ExchangeSourceKey, ExchangeSourceState>>({
+    awesome: {
+      label: "AwesomeAPI",
+      usdBrl: null,
+      brlPyg: null,
+      updatedAt: null,
+      error: null,
+      loading: false,
+      mode: "Compra (bid)",
+    },
+    openErApi: {
+      label: "open.er-api",
+      usdBrl: null,
+      brlPyg: null,
+      updatedAt: null,
+      error: null,
+      loading: false,
+      mode: "Mercado (mid)",
+    },
   });
 
   // -------------------- FIM DOS useState --------------------
 
   // Agora sim, pode declarar os useCallback, useEffect, etc, que dependem dos states acima
-  const fetchExchangeNow = useCallback(async (showLoader = false) => {
+  const fetchExchangeBySource = useCallback(async (source: ExchangeSourceKey, showLoader = false) => {
     if (showLoader) {
-      setExchangeNow((prev) => ({ ...prev, loading: true, error: null }));
+      setExchangeSources((prev) => ({
+        ...prev,
+        [source]: { ...prev[source], loading: true, error: null },
+      }));
     }
+
     try {
-      const res = await fetch(`https://economia.awesomeapi.com.br/json/last/USD-BRL,BRL-PYG?t=${Date.now()}`, { cache: "no-store" });
+      if (source === "awesome") {
+        const res = await fetch(`https://economia.awesomeapi.com.br/json/last/USD-BRL,BRL-PYG?t=${Date.now()}`, { cache: "no-store" });
+        if (!res.ok) throw new Error("exchange_fetch_failed");
+
+        const data = await res.json() as {
+          USDBRL?: { bid?: string | number; timestamp?: string | number };
+          BRLPYG?: { bid?: string | number; timestamp?: string | number };
+        };
+
+        const usdBrl = Number(data?.USDBRL?.bid);
+        const brlPyg = Number(data?.BRLPYG?.bid);
+        if (!Number.isFinite(usdBrl) || !Number.isFinite(brlPyg)) throw new Error("exchange_invalid_payload");
+
+        const apiTsSeconds = Number(data?.USDBRL?.timestamp || data?.BRLPYG?.timestamp || 0);
+        const updatedAt = apiTsSeconds > 0 ? new Date(apiTsSeconds * 1000).toISOString() : new Date().toISOString();
+
+        setExchangeSources((prev) => ({
+          ...prev,
+          [source]: { ...prev[source], usdBrl, brlPyg, updatedAt, error: null },
+        }));
+        return;
+      }
+
+      const res = await fetch(`https://open.er-api.com/v6/latest/USD?t=${Date.now()}`, { cache: "no-store" });
       if (!res.ok) throw new Error("exchange_fetch_failed");
 
       const data = await res.json() as {
-        USDBRL?: { bid?: string | number; timestamp?: string | number };
-        BRLPYG?: { bid?: string | number; timestamp?: string | number };
+        rates?: Record<string, number>;
+        time_last_update_unix?: number;
       };
 
-      const usdBrl = Number(data?.USDBRL?.bid);
-      const brlPyg = Number(data?.BRLPYG?.bid);
-      if (!Number.isFinite(usdBrl) || !Number.isFinite(brlPyg)) {
-        throw new Error("exchange_invalid_payload");
-      }
+      const usdBrl = Number(data?.rates?.BRL);
+      const usdPyg = Number(data?.rates?.PYG);
+      const brlPyg = Number.isFinite(usdBrl) && usdBrl > 0 ? usdPyg / usdBrl : Number.NaN;
+      if (!Number.isFinite(usdBrl) || !Number.isFinite(brlPyg)) throw new Error("exchange_invalid_payload");
 
-      const apiTsSeconds = Number(data?.USDBRL?.timestamp || data?.BRLPYG?.timestamp || 0);
+      const apiTsSeconds = Number(data?.time_last_update_unix || 0);
       const updatedAt = apiTsSeconds > 0 ? new Date(apiTsSeconds * 1000).toISOString() : new Date().toISOString();
 
-      setExchangeNow((prev) => ({
+      setExchangeSources((prev) => ({
         ...prev,
-        usdBrl,
-        brlPyg,
-        updatedAt,
-        error: null,
+        [source]: { ...prev[source], usdBrl, brlPyg, updatedAt, error: null },
       }));
     } catch {
-      setExchangeNow((prev) => ({
+      setExchangeSources((prev) => ({
         ...prev,
-        error: "Não foi possível atualizar a cotação agora.",
+        [source]: { ...prev[source], error: "Não foi possível atualizar esta fonte." },
       }));
     } finally {
-      setExchangeNow((prev) => ({ ...prev, loading: false }));
+      setExchangeSources((prev) => ({
+        ...prev,
+        [source]: { ...prev[source], loading: false },
+      }));
     }
   }, []);
+
+  const fetchExchangeNow = useCallback(async (showLoader = false) => {
+    await Promise.all([
+      fetchExchangeBySource("awesome", showLoader),
+      fetchExchangeBySource("openErApi", showLoader),
+    ]);
+  }, [fetchExchangeBySource]);
 
   const fetchFinancialSummary = React.useCallback(async () => {
     setFinancialSummaryLoading(true);
@@ -3525,6 +3574,7 @@ export default function Admin() {
       .filter(Boolean),
   ));
   const availableWhatsappGroups = Array.from(new Set([...ORDER_WHATSAPP_GROUP_OPTIONS, ...orderGroups]));
+  const selectedExchange = exchangeSources[selectedExchangeSource];
 
   // =========================================================================
   // RENDER
@@ -3614,26 +3664,43 @@ export default function Admin() {
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-sky-700">Cotação Agora</p>
                 <p className="text-sm font-bold text-sky-900 mt-0.5">
-                  1 USD = {exchangeNow.usdBrl === null ? "--" : `R$ ${exchangeNow.usdBrl.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`}
+                  1 USD = {selectedExchange.usdBrl === null ? "--" : `R$ ${selectedExchange.usdBrl.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`}
                   <span className="mx-2 text-sky-400">•</span>
-                  1 BRL = {exchangeNow.brlPyg === null ? "--" : `Gs ${exchangeNow.brlPyg.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`}
+                  1 BRL = {selectedExchange.brlPyg === null ? "--" : `Gs ${selectedExchange.brlPyg.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`}
                 </p>
                 <p className="text-xs text-sky-700/80 mt-1">
                   Atualiza automaticamente a cada 1 minuto.
-                  {exchangeNow.updatedAt && ` Última atualização: ${formatDateBR(exchangeNow.updatedAt)} ${formatTimeBR(exchangeNow.updatedAt)}`}
+                  {selectedExchange.updatedAt && ` Última atualização: ${formatDateBR(selectedExchange.updatedAt)} ${formatTimeBR(selectedExchange.updatedAt)}`}
                 </p>
-                {exchangeNow.error && <p className="text-xs text-red-600 mt-1">{exchangeNow.error}</p>}
+                <p className="text-[11px] text-sky-800/80 mt-1">
+                  Fonte ativa: <strong>{selectedExchange.label}</strong> ({selectedExchange.mode})
+                </p>
+                <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-sky-800/80">
+                  <span>Awesome: {exchangeSources.awesome.usdBrl === null ? "--" : `R$ ${exchangeSources.awesome.usdBrl.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`}</span>
+                  <span>open.er-api: {exchangeSources.openErApi.usdBrl === null ? "--" : `R$ ${exchangeSources.openErApi.usdBrl.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`}</span>
+                </div>
+                {selectedExchange.error && <p className="text-xs text-red-600 mt-1">{selectedExchange.error}</p>}
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => fetchExchangeNow(true)}
-                className="gap-2 border-sky-300 text-sky-700 hover:bg-sky-100"
-              >
-                <RefreshCw className={`w-4 h-4 ${exchangeNow.loading ? "animate-spin" : ""}`} />
-                Atualizar cotação
-              </Button>
+              <div className="flex items-center gap-2">
+                <select
+                  value={selectedExchangeSource}
+                  onChange={(e) => setSelectedExchangeSource(e.target.value as ExchangeSourceKey)}
+                  className="h-9 rounded-xl border border-sky-300 bg-white px-3 text-xs text-sky-900"
+                >
+                  <option value="awesome">AwesomeAPI</option>
+                  <option value="openErApi">open.er-api</option>
+                </select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fetchExchangeNow(true)}
+                  className="gap-2 border-sky-300 text-sky-700 hover:bg-sky-100"
+                >
+                  <RefreshCw className={`w-4 h-4 ${(exchangeSources.awesome.loading || exchangeSources.openErApi.loading) ? "animate-spin" : ""}`} />
+                  Atualizar cotação
+                </Button>
+              </div>
             </div>
           </div>
 
