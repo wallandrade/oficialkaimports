@@ -1331,7 +1331,7 @@ export default function Admin() {
       setExchangeNow((prev) => ({ ...prev, loading: true, error: null }));
     }
     try {
-      const res = await fetch("https://economia.awesomeapi.com.br/json/last/USD-BRL,BRL-PYG", { cache: "no-store" });
+      const res = await fetch(`https://economia.awesomeapi.com.br/json/last/USD-BRL,BRL-PYG?t=${Date.now()}`, { cache: "no-store" });
       if (!res.ok) throw new Error("exchange_fetch_failed");
 
       const data = await res.json() as {
@@ -2481,13 +2481,13 @@ export default function Admin() {
   }, [authChecked, statsDateFrom, statsDateTo, statsSeller, fetchStatsData]);
 
   useEffect(() => {
-    if (!authChecked || (tab !== "orders" && tab !== "charges")) return;
+    if (!authChecked) return;
     fetchExchangeNow(true);
     const id = window.setInterval(() => {
       fetchExchangeNow(false);
-    }, 60 * 60 * 1000);
+    }, 60 * 1000);
     return () => window.clearInterval(id);
-  }, [authChecked, tab, fetchExchangeNow]);
+  }, [authChecked, fetchExchangeNow]);
 
   // Fallback auto-refresh every 20s — catches any SSE events that were missed
   // (e.g. SSE reconnect gap, network blip, gateway delay)
@@ -3619,7 +3619,7 @@ export default function Admin() {
                   1 BRL = {exchangeNow.brlPyg === null ? "--" : `Gs ${exchangeNow.brlPyg.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`}
                 </p>
                 <p className="text-xs text-sky-700/80 mt-1">
-                  Atualiza automaticamente a cada 1 hora.
+                  Atualiza automaticamente a cada 1 minuto.
                   {exchangeNow.updatedAt && ` Última atualização: ${formatDateBR(exchangeNow.updatedAt)} ${formatTimeBR(exchangeNow.updatedAt)}`}
                 </p>
                 {exchangeNow.error && <p className="text-xs text-red-600 mt-1">{exchangeNow.error}</p>}
