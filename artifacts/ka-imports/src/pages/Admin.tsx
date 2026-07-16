@@ -8588,8 +8588,11 @@ function OrdersPanel({
           }, 0);
           const commissionRate = getCommissionRate(order.sellerCode, order.sellerCommissionRateSnapshot);
           const commissionAmount = grossAmount * (commissionRate / 100);
+          const isWhatsAppPix = order.paymentMethod === "whatsapp_pix";
           const gatewayFeeRaw = grossAmount * (gatewayFeePercent / 100) + gatewayFeeFixed;
-          const gatewayFee = grossAmount > 0 ? Math.max(gatewayFeeRaw, gatewayFeeMin) : 0;
+          const gatewayFee = isWhatsAppPix
+            ? 0
+            : (grossAmount > 0 ? Math.max(gatewayFeeRaw, gatewayFeeMin) : 0);
           const estimatedProfit = grossAmount - orderProductsCost - commissionAmount - gatewayFee;
           const reshipmentTrackingCode = String(order?.reshipment?.ticketTrackingCode || "").trim();
           const previewProducts = orderProducts.slice(0, 5);
@@ -8766,7 +8769,7 @@ function OrdersPanel({
                   <p className="text-2xl font-bold text-primary">{formatCurrency(order.total)}</p>
                   <p
                     className={`text-xs font-semibold mt-1 ${estimatedProfit >= 0 ? "text-emerald-700" : "text-red-600"}`}
-                    title="Lucro estimado = total - custo dos produtos - comissão - taxa do gateway"
+                    title="Lucro estimado = total - custo dos produtos - comissão - taxa do gateway (exceto WhatsApp)"
                   >
                     Lucro est.: {formatCurrency(estimatedProfit)}
                   </p>
