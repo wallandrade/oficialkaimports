@@ -337,7 +337,7 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
                       alt="KA Imports Logo"
                       loading="eager"
                       fetchPriority="high"
-                      className="h-full w-auto max-h-[56px] md:max-h-[64px] object-contain"
+                      className="h-full w-full object-cover"
                     />
                   ) : null}
                 </div>

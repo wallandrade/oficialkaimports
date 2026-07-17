@@ -40,7 +40,7 @@ export function CheckoutLayout({ children }: { children: ReactNode }) {
                   className="overflow-hidden rounded-2xl h-12 border border-primary/10 bg-white/80 px-3 py-1.5"
                   style={{ width: `${logoScale}px`, maxWidth: "48vw" }}
                 >
-                  <img src={logo} alt="KA Imports" className="h-full w-auto max-h-[48px] object-contain" />
+                  <img src={logo} alt="KA Imports" className="h-full w-full object-cover" />
                 </div>
               )}
               <span className="font-display font-bold text-lg tracking-tight text-primary">KA IMPORTS</span>
