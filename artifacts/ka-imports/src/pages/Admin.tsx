@@ -1109,8 +1109,8 @@ export default function Admin() {
   const [commissionPaymentsCreating, setCommissionPaymentsCreating] = useState(false);
   const [commissionPaymentsPayingId, setCommissionPaymentsPayingId] = useState<string | null>(null);
   const [commissionSellerFilter, setCommissionSellerFilter] = useState("all");
-  const [commissionDateFrom, setCommissionDateFrom] = useState(todayStr());
-  const [commissionDateTo, setCommissionDateTo] = useState(todayStr());
+  const [commissionDateFrom, setCommissionDateFrom] = useState("");
+  const [commissionDateTo, setCommissionDateTo] = useState("");
   const [commissionSelectedOrderIds, setCommissionSelectedOrderIds] = useState<string[]>([]);
   const [commissionPaymentMethod, setCommissionPaymentMethod] = useState("pix");
   const [commissionPaymentNotes, setCommissionPaymentNotes] = useState("");
