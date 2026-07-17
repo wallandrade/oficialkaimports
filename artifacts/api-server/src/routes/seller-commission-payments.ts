@@ -36,17 +36,20 @@ function toIso(value: Date | string | null | undefined): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-function normalizeDate(value: string | undefined): Date | null {
-  if (!value) return null;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
 function normalizeDateKey(value: string | undefined): string | null {
   const raw = String(value || "").trim();
   if (!raw) return null;
   const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   return match ? match[0] : raw.slice(0, 10);
+}
+
+function normalizeDate(value: string | undefined, boundary: "start" | "end" = "start"): Date | null {
+  const dateKey = normalizeDateKey(value);
+  if (!dateKey) return null;
+  const time = boundary === "end" ? "23:59:59.999" : "00:00:00.000";
+  // Interpreta o dia no fuso de Sao Paulo (UTC-3) para evitar incluir pedidos do dia seguinte.
+  const parsed = new Date(`${dateKey}T${time}-03:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 function calcCommission(order: CommissionOrderRow): number {
@@ -73,12 +76,10 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
 
     const activeSellerCode = scope.hasGlobalAccess ? effectiveSellerCode : (scope.sellerCode || "");
     const dateConditions = [];
-    if (dateFrom) {
-      dateConditions.push(gte(ordersTable.createdAt, new Date(`${dateFrom}T00:00:00.000Z`)));
-    }
-    if (dateTo) {
-      dateConditions.push(lte(ordersTable.createdAt, new Date(`${dateTo}T23:59:59.999Z`)));
-    }
+    const startDate = normalizeDate(dateFrom, "start");
+    const endDate = normalizeDate(dateTo, "end");
+    if (startDate) dateConditions.push(gte(ordersTable.createdAt, startDate));
+    if (endDate) dateConditions.push(lte(ordersTable.createdAt, endDate));
 
     const pendingConditions = [
       inArray(ordersTable.status, ["paid", "completed"]),
@@ -178,8 +179,8 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
     }
 
     const dateConditions = [];
-    const startDate = normalizeDate(dateFrom);
-    const endDate = normalizeDate(dateTo);
+    const startDate = normalizeDate(dateFrom, "start");
+    const endDate = normalizeDate(dateTo, "end");
     if (startDate) dateConditions.push(gte(ordersTable.createdAt, startDate));
     if (endDate) dateConditions.push(lte(ordersTable.createdAt, endDate));
 
