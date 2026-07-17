@@ -156,6 +156,7 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
   const isLoggedIn = Boolean(getCustomerToken());
   const siteSettings = usePublicSiteSettings();
   const logo = siteSettings.logo ?? null;
+  const logoScale = Math.min(240, Math.max(100, Number(siteSettings.logo_scale ?? 180) || 180));
   const allProducts = useProducts();
   const currentPath = typeof window !== "undefined"
     ? window.location.pathname
@@ -326,14 +327,17 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
                 </button>
               )}
               <Link href={sellerHomeHref} className="flex items-center gap-2 group cursor-pointer">
-                <div className="overflow-hidden rounded-2xl h-10 w-10 md:h-11 md:w-11 border border-primary/10 group-hover:border-primary/30 transition-colors bg-white/80 flex items-center justify-center shrink-0 p-1">
+                <div
+                  className="overflow-hidden rounded-2xl h-10 md:h-11 border border-primary/10 group-hover:border-primary/30 transition-colors bg-white/80 flex items-center justify-center shrink-0 px-2 py-1"
+                  style={{ width: `${logoScale}px`, maxWidth: "48vw" }}
+                >
                   {logo ? (
                     <img
                       src={logo}
                       alt="KA Imports Logo"
                       loading="eager"
                       fetchPriority="high"
-                      className="w-full h-full object-contain"
+                      className="h-full w-auto object-contain"
                     />
                   ) : null}
                 </div>

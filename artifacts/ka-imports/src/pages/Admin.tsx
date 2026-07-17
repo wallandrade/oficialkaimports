@@ -12242,15 +12242,27 @@ type ImageResizeMode = "auto" | "contain" | "cover";
 function ImageUploadCard({
   title, description, settingKey, currentSrc, loading,
   targetWidth, targetHeight, showResizeModeSelector = false,
+  currentScale,
+  onScaleSave,
   onSave, onDelete,
 }: {
   title: string; description: string; settingKey: string;
   currentSrc?: string; loading: boolean;
   targetWidth?: number; targetHeight?: number; showResizeModeSelector?: boolean;
+  currentScale?: number;
+  onScaleSave?: (value: number) => void;
   onSave: (key: string, value: string) => void;
   onDelete: (key: string) => void;
 }) {
   const [resizeMode, setResizeMode] = useState<ImageResizeMode>("cover");
+  const [logoScale, setLogoScale] = useState(Number.isFinite(Number(currentScale)) ? Number(currentScale) : 180);
+  const isLogoCard = settingKey === "logo";
+
+  useEffect(() => {
+    if (isLogoCard) {
+      setLogoScale(Number.isFinite(Number(currentScale)) ? Number(currentScale) : 180);
+    }
+  }, [currentScale, isLogoCard]);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -12297,6 +12309,11 @@ function ImageUploadCard({
     reader.readAsDataURL(file);
   };
 
+  const handleLogoScaleChange = (value: number) => {
+    setLogoScale(value);
+    onScaleSave?.(value);
+  };
+
   return (
     <div className={`bg-white border border-border/60 rounded-2xl p-6 shadow-sm ${settingKey === "logo" ? "shadow-[0_8px_24px_rgba(0,0,0,0.04)]" : ""}`}>
       <h3 className="text-base font-bold mb-0.5">{title}</h3>
@@ -12322,15 +12339,43 @@ function ImageUploadCard({
         </div>
       )}
 
+      {isLogoCard && (
+        <div className="mb-4 rounded-xl border border-dashed border-amber-200 bg-amber-50/60 p-3">
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">Tamanho da logo</p>
+            <span className="text-sm font-bold text-amber-800">{logoScale}%</span>
+          </div>
+          <input
+            type="range"
+            min={100}
+            max={240}
+            step={1}
+            value={logoScale}
+            onChange={(e) => handleLogoScaleChange(Number(e.target.value))}
+            className="w-full h-2 rounded-full appearance-none cursor-pointer accent-amber-600"
+          />
+          <div className="mt-2 flex items-center justify-between text-[11px] text-amber-700/80">
+            <span>Menor</span>
+            <span>Maior</span>
+          </div>
+        </div>
+      )}
+
       {/* Preview */}
       {currentSrc ? (
         <div className="relative mb-4">
-          <div className={`w-full rounded-2xl border bg-gradient-to-b from-white to-amber-50/20 flex items-center justify-center overflow-hidden ${settingKey === "logo" ? "h-36 sm:h-40 p-4" : "max-h-48 p-2"}`}>
-            <img
-              src={currentSrc}
-              alt={title}
-              className={`w-full h-full object-contain ${settingKey === "logo" ? "max-h-32 sm:max-h-36" : "max-h-48"}`}
-            />
+          <div className={`w-full rounded-2xl border bg-gradient-to-b from-white to-amber-50/20 flex items-center justify-center overflow-hidden ${isLogoCard ? "h-36 sm:h-40 p-4" : "max-h-48 p-2"}`}>
+            {isLogoCard ? (
+              <div style={{ width: `${logoScale}px`, maxWidth: "100%" }} className="flex items-center justify-center">
+                <img src={currentSrc} alt={title} className="w-full h-auto object-contain" />
+              </div>
+            ) : (
+              <img
+                src={currentSrc}
+                alt={title}
+                className={`w-full h-full object-contain ${isLogoCard ? "max-h-32 sm:max-h-36" : "max-h-48"}`}
+              />
+            )}
           </div>
           <button
             onClick={() => onDelete(settingKey)}
@@ -12341,14 +12386,14 @@ function ImageUploadCard({
           </button>
         </div>
       ) : (
-        <div className={`w-full rounded-2xl border-2 border-dashed border-border bg-muted/20 flex flex-col items-center justify-center mb-4 text-muted-foreground ${settingKey === "logo" ? "h-36 sm:h-40" : "h-32"}`}>
+        <div className={`w-full rounded-2xl border-2 border-dashed border-border bg-muted/20 flex flex-col items-center justify-center mb-4 text-muted-foreground ${isLogoCard ? "h-36 sm:h-40" : "h-32"}`}>
           <ImageOff className="w-8 h-8 mb-1.5" />
           <p className="text-sm font-medium">Sem imagem</p>
           <p className="text-xs">Padrão do sistema em uso</p>
         </div>
       )}
 
-      <label className={`flex items-center justify-center gap-2 w-full h-11 rounded-xl cursor-pointer text-sm font-semibold transition-colors ${loading ? "bg-muted text-muted-foreground cursor-not-allowed" : settingKey === "logo" ? "bg-amber-600 text-white hover:bg-amber-700" : "bg-primary text-white hover:bg-primary/90"}`}>
+      <label className={`flex items-center justify-center gap-2 w-full h-11 rounded-xl cursor-pointer text-sm font-semibold transition-colors ${loading ? "bg-muted text-muted-foreground cursor-not-allowed" : isLogoCard ? "bg-amber-600 text-white hover:bg-amber-700" : "bg-primary text-white hover:bg-primary/90"}`}>
         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
         {currentSrc ? "Trocar imagem" : "Carregar imagem"}
         <input type="file" accept="image/*" className="hidden" onChange={handleFile} disabled={loading} />
@@ -12421,7 +12466,9 @@ function ConfiguracoesPanel({ settings, loading, clientErrors, clientErrorsLoadi
             description="Exibido no cabeçalho e rodapé da loja. Recomendado: quadrado ou retangular, fundo transparente."
             settingKey="logo"
             currentSrc={settings["logo"]}
+            currentScale={Number(settings["logo_scale"] ?? 180)}
             loading={!!loading["logo"]}
+            onScaleSave={(value) => onSave("logo_scale", String(value))}
             onSave={onSave}
             onDelete={onDelete}
           />

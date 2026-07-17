@@ -16,6 +16,14 @@ function useSiteLogo() {
 
 export function CheckoutLayout({ children }: { children: ReactNode }) {
   const logo = useSiteLogo();
+  const logoScale = (() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem("siteSettings") || "{}");
+      return Math.min(240, Math.max(100, Number(cached.logo_scale ?? 180) || 180));
+    } catch {
+      return 180;
+    }
+  })();
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -28,8 +36,11 @@ export function CheckoutLayout({ children }: { children: ReactNode }) {
             </Link>
             <div className="flex-1 flex items-center justify-center gap-2">
               {logo && (
-                <div className="overflow-hidden rounded-2xl h-9 w-9 border border-primary/10 bg-white/80 p-1">
-                  <img src={logo} alt="KA Imports" className="w-full h-full object-contain" />
+                <div
+                  className="overflow-hidden rounded-2xl h-9 border border-primary/10 bg-white/80 px-2 py-1"
+                  style={{ width: `${logoScale}px`, maxWidth: "48vw" }}
+                >
+                  <img src={logo} alt="KA Imports" className="h-full w-auto object-contain" />
                 </div>
               )}
               <span className="font-display font-bold text-lg tracking-tight text-primary">KA IMPORTS</span>
