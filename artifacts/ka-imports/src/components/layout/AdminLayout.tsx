@@ -13,11 +13,7 @@ export function AdminLayout({ children }: { children: ReactNode }) {
           <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center flex-shrink-0">
             <ShieldCheck className="w-4 h-4 text-white" />
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="font-bold text-foreground text-sm">KA Imports</span>
-            <span className="text-muted-foreground text-xs">·</span>
-            <span className="text-primary text-xs font-semibold">Painel Admin</span>
-          </div>
+          <span className="text-primary text-xs font-semibold">Painel Admin</span>
           <div className="ml-auto">
             <Link
               href={`${BASE}/`}

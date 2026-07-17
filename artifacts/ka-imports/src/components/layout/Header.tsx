@@ -341,9 +341,6 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
                     />
                   ) : null}
                 </div>
-                <span className="font-display font-bold text-xl tracking-tight text-primary hidden sm:block">
-                  KA IMPORTS
-                </span>
               </Link>
             </div>
 

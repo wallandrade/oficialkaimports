@@ -43,7 +43,6 @@ export function CheckoutLayout({ children }: { children: ReactNode }) {
                   <img src={logo} alt="KA Imports" className="h-full w-full object-cover" />
                 </div>
               )}
-              <span className="font-display font-bold text-lg tracking-tight text-primary">KA IMPORTS</span>
             </div>
             <div className="w-16" />
           </div>
