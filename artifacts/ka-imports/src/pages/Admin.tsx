@@ -12320,17 +12320,14 @@ function ImageUploadCard({
           const cropWidth = hasTrimBounds ? (right - left + 1) : width;
           const cropHeight = hasTrimBounds ? (bottom - top + 1) : height;
 
-          canvas.width = targetWidth || cropWidth;
-          canvas.height = targetHeight || cropHeight;
+          const maxWidth = fallbackMaxWidth;
+          const scale = cropWidth > maxWidth ? maxWidth / cropWidth : 1;
+          canvas.width = Math.max(1, Math.round(cropWidth * scale));
+          canvas.height = Math.max(1, Math.round(cropHeight * scale));
           ctx.fillStyle = "#ffffff";
           ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-          const scale = Math.min(canvas.width / cropWidth, canvas.height / cropHeight);
-          const drawWidth = Math.round(cropWidth * scale);
-          const drawHeight = Math.round(cropHeight * scale);
-          const offsetX = Math.round((canvas.width - drawWidth) / 2);
-          const offsetY = Math.round((canvas.height - drawHeight) / 2);
-          ctx.drawImage(sourceCanvas, cropX, cropY, cropWidth, cropHeight, offsetX, offsetY, drawWidth, drawHeight);
+          ctx.drawImage(sourceCanvas, cropX, cropY, cropWidth, cropHeight, 0, 0, canvas.width, canvas.height);
           return true;
         };
 
