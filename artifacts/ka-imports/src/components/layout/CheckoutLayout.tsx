@@ -28,8 +28,8 @@ export function CheckoutLayout({ children }: { children: ReactNode }) {
             </Link>
             <div className="flex-1 flex items-center justify-center gap-2">
               {logo && (
-                <div className="overflow-hidden rounded-full h-8 w-8 border border-primary/10">
-                  <img src={logo} alt="KA Imports" className="w-full h-full object-cover" />
+                <div className="overflow-hidden rounded-2xl h-9 w-9 border border-primary/10 bg-white/80 p-1">
+                  <img src={logo} alt="KA Imports" className="w-full h-full object-contain" />
                 </div>
               )}
               <span className="font-display font-bold text-lg tracking-tight text-primary">KA IMPORTS</span>

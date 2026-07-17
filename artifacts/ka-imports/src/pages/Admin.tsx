@@ -12298,7 +12298,7 @@ function ImageUploadCard({
   };
 
   return (
-    <div className="bg-white border border-border/60 rounded-2xl p-6 shadow-sm">
+    <div className={`bg-white border border-border/60 rounded-2xl p-6 shadow-sm ${settingKey === "logo" ? "shadow-[0_8px_24px_rgba(0,0,0,0.04)]" : ""}`}>
       <h3 className="text-base font-bold mb-0.5">{title}</h3>
       <p className="text-muted-foreground text-sm mb-4">{description}</p>
 
@@ -12325,24 +12325,30 @@ function ImageUploadCard({
       {/* Preview */}
       {currentSrc ? (
         <div className="relative mb-4">
-          <img src={currentSrc} alt={title} className="w-full max-h-48 object-contain rounded-xl border bg-muted/20" />
+          <div className={`w-full rounded-2xl border bg-gradient-to-b from-white to-amber-50/20 flex items-center justify-center overflow-hidden ${settingKey === "logo" ? "h-36 sm:h-40 p-4" : "max-h-48 p-2"}`}>
+            <img
+              src={currentSrc}
+              alt={title}
+              className={`w-full h-full object-contain ${settingKey === "logo" ? "max-h-32 sm:max-h-36" : "max-h-48"}`}
+            />
+          </div>
           <button
             onClick={() => onDelete(settingKey)}
             disabled={loading}
-            className="absolute top-2 right-2 bg-red-500 hover:bg-red-600 text-white rounded-lg p-1.5 shadow"
+            className="absolute top-2 right-2 bg-red-500 hover:bg-red-600 text-white rounded-lg p-1.5 shadow-md"
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
           </button>
         </div>
       ) : (
-        <div className="w-full h-32 rounded-xl border-2 border-dashed border-border bg-muted/20 flex flex-col items-center justify-center mb-4 text-muted-foreground">
+        <div className={`w-full rounded-2xl border-2 border-dashed border-border bg-muted/20 flex flex-col items-center justify-center mb-4 text-muted-foreground ${settingKey === "logo" ? "h-36 sm:h-40" : "h-32"}`}>
           <ImageOff className="w-8 h-8 mb-1.5" />
           <p className="text-sm font-medium">Sem imagem</p>
           <p className="text-xs">Padrão do sistema em uso</p>
         </div>
       )}
 
-      <label className={`flex items-center justify-center gap-2 w-full h-10 rounded-xl cursor-pointer text-sm font-semibold transition-colors ${loading ? "bg-muted text-muted-foreground cursor-not-allowed" : "bg-primary text-white hover:bg-primary/90"}`}>
+      <label className={`flex items-center justify-center gap-2 w-full h-11 rounded-xl cursor-pointer text-sm font-semibold transition-colors ${loading ? "bg-muted text-muted-foreground cursor-not-allowed" : settingKey === "logo" ? "bg-amber-600 text-white hover:bg-amber-700" : "bg-primary text-white hover:bg-primary/90"}`}>
         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
         {currentSrc ? "Trocar imagem" : "Carregar imagem"}
         <input type="file" accept="image/*" className="hidden" onChange={handleFile} disabled={loading} />

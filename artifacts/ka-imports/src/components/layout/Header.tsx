@@ -326,14 +326,14 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
                 </button>
               )}
               <Link href={sellerHomeHref} className="flex items-center gap-2 group cursor-pointer">
-                <div className="overflow-hidden rounded-full h-9 w-9 md:h-10 md:w-10 border-2 border-primary/10 group-hover:border-primary/30 transition-colors bg-muted/30 flex items-center justify-center shrink-0">
+                <div className="overflow-hidden rounded-2xl h-10 w-10 md:h-11 md:w-11 border border-primary/10 group-hover:border-primary/30 transition-colors bg-white/80 flex items-center justify-center shrink-0 p-1">
                   {logo ? (
                     <img
                       src={logo}
                       alt="KA Imports Logo"
                       loading="eager"
                       fetchPriority="high"
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-contain"
                     />
                   ) : null}
                 </div>
