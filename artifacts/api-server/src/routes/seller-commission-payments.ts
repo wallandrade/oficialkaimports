@@ -104,7 +104,9 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
       return;
     }
 
-    const activeSellerCode = scope.hasGlobalAccess ? effectiveSellerCode : (scope.sellerCode || "");
+    const activeSellerCode = scope.hasGlobalAccess
+      ? effectiveSellerCode
+      : normalizeSellerCode(scope.sellerCode);
     const sellerCommissionMap = await loadSellerCommissionMap();
     const dateConditions = [];
     if (dateFrom) {
@@ -152,7 +154,7 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
 
     const batchConditions = [];
     if (activeSellerCode) {
-      batchConditions.push(eq(sellerCommissionPaymentsTable.sellerCode, activeSellerCode));
+      batchConditions.push(eq(sql`lower(${sellerCommissionPaymentsTable.sellerCode})`, activeSellerCode));
     }
 
     const batchRows = await db
@@ -205,7 +207,9 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
       return;
     }
 
-    const targetSellerCode = scope.hasGlobalAccess ? effectiveSellerCode : (scope.sellerCode || "");
+    const targetSellerCode = scope.hasGlobalAccess
+      ? effectiveSellerCode
+      : normalizeSellerCode(scope.sellerCode);
     if (!targetSellerCode) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Selecione um vendedor." });
       return;
