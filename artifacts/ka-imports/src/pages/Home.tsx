@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { useSearch, useRoute, Link } from "wouter";
+import { useSearch, useRoute, useLocation, Link } from "wouter";
 import { useGetProducts } from "@workspace/api-client-react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ProductCard } from "@/components/product/ProductCard";
@@ -133,8 +133,11 @@ function useSiteBanners() {
 
 export default function Home() {
   const { data, isLoading, isError } = useGetProducts();
+  const [locationPath] = useLocation();
   const [, sellerParams] = useRoute("/:seller");
-  const sellerSlug = sellerParams?.seller?.toLowerCase();
+  const currentSegments = locationPath.split("?")[0].split("/").filter(Boolean);
+  const sellerFromPath = currentSegments.length === 1 ? currentSegments[0].toLowerCase() : "";
+  const sellerSlug = sellerFromPath || sellerParams?.seller?.toLowerCase();
   const offersHref = sellerSlug
     ? `${BASE}/${encodeURIComponent(sellerSlug)}/ofertas`
     : `${BASE}/ofertas`;
