@@ -4139,6 +4139,13 @@ export default function Admin() {
                 const data = await res.json() as { id?: string; message?: string };
                 if (!res.ok) { toast.error(data.message || "Erro ao criar cobrança."); return; }
                 toast.success("Cobrança criada e PIX gerado!");
+                setCreateChargeOpen(false);
+                setCreateChargeForm({ name: "", email: "", phone: "", document: "", amountRaw: "", description: "", cep: "", street: "", number: "", complement: "", neighborhood: "", city: "", state: "" });
+                fetchCharges();
+              } catch { toast.error("Erro de conexão."); }
+              finally { setCreateChargeSubmitting(false); }
+            }}
+          />
         ) : tab === "commissions" ? (
           <CommissionPaymentsPanel
             sellers={sellers}
@@ -4162,13 +4169,6 @@ export default function Admin() {
             setPaymentMethod={setCommissionPaymentMethod}
             paymentNotes={commissionPaymentNotes}
             setPaymentNotes={setCommissionPaymentNotes}
-          />
-                setCreateChargeOpen(false);
-                setCreateChargeForm({ name: "", email: "", phone: "", document: "", amountRaw: "", description: "", cep: "", street: "", number: "", complement: "", neighborhood: "", city: "", state: "" });
-                fetchCharges();
-              } catch { toast.error("Erro de conexão."); }
-              finally { setCreateChargeSubmitting(false); }
-            }}
           />
         ) : tab === "coupons" ? (
           <CouponsPanel
