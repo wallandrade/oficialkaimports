@@ -6,6 +6,16 @@ function formatDateBR(date: string | Date | undefined | null): string {
   return d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
 }
 
+function formatDateOnlyBR(date: string | Date | undefined | null): string {
+  if (!date) return "";
+  const d = typeof date === "string" ? new Date(date) : date;
+  if (isNaN(d.getTime())) return "";
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const year = d.getUTCFullYear();
+  return `${day}/${month}/${year}`;
+}
+
 function formatTimeBR(date: string | Date | undefined | null): string {
   if (!date) return "";
   const d = typeof date === "string" ? new Date(date) : date;
@@ -10342,8 +10352,8 @@ function CommissionPaymentsPanel({
                 </div>
                 {batch.notes ? <p className="text-xs text-muted-foreground">Obs.: {batch.notes}</p> : null}
                 <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  {batch.periodStart ? <span className="px-2 py-1 rounded-full border border-border bg-muted/30">De {formatDateBR(batch.periodStart)}</span> : null}
-                  {batch.periodEnd ? <span className="px-2 py-1 rounded-full border border-border bg-muted/30">Até {formatDateBR(batch.periodEnd)}</span> : null}
+                  {batch.periodStart ? <span className="px-2 py-1 rounded-full border border-border bg-muted/30">De {formatDateOnlyBR(batch.periodStart)}</span> : null}
+                  {batch.periodEnd ? <span className="px-2 py-1 rounded-full border border-border bg-muted/30">Até {formatDateOnlyBR(batch.periodEnd)}</span> : null}
                   {batch.paidAt ? <span className="px-2 py-1 rounded-full border border-border bg-green-50 text-green-700">Pago em {formatDateBR(batch.paidAt)}</span> : null}
                 </div>
                 {batch.status !== "paid" && (
