@@ -61,6 +61,14 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
       sql: "ALTER TABLE orders ADD COLUMN seller_commission_rate_snapshot DECIMAL(5,2) NULL",
     },
     {
+      name: "seller_commission_batch_id",
+      sql: "ALTER TABLE orders ADD COLUMN seller_commission_batch_id VARCHAR(255) NULL",
+    },
+    {
+      name: "seller_commission_paid_at",
+      sql: "ALTER TABLE orders ADD COLUMN seller_commission_paid_at TIMESTAMP NULL",
+    },
+    {
       name: "whatsapp_group",
       sql: "ALTER TABLE orders ADD COLUMN whatsapp_group VARCHAR(64) NULL",
     },
@@ -274,6 +282,31 @@ async function ensureAffiliatesTables(databaseName: string): Promise<void> {
       )
     `);
   }
+}
+
+async function ensureSellerCommissionPaymentsTable(databaseName: string): Promise<void> {
+  if (await tableExists("seller_commission_payments", databaseName)) return;
+
+  await pool.query(`
+    CREATE TABLE seller_commission_payments (
+      id VARCHAR(255) NOT NULL PRIMARY KEY,
+      seller_code VARCHAR(255) NOT NULL,
+      order_ids JSON NOT NULL,
+      period_start TIMESTAMP NULL,
+      period_end TIMESTAMP NULL,
+      total_amount DECIMAL(10,2) NOT NULL,
+      order_count INT NOT NULL,
+      status VARCHAR(32) NOT NULL DEFAULT 'open',
+      payment_method VARCHAR(64) NULL,
+      paid_at TIMESTAMP NULL,
+      notes TEXT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY seller_commission_payments_seller_code_idx (seller_code),
+      KEY seller_commission_payments_status_idx (status),
+      KEY seller_commission_payments_created_at_idx (created_at)
+    )
+  `);
 }
 
 async function ensureRaffleTables(databaseName: string): Promise<void> {
@@ -718,6 +751,7 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureOrderBumpsColumns(databaseName);
     await ensureCustomerUsersTable(databaseName);
     await ensureAffiliatesTables(databaseName);
+    await ensureSellerCommissionPaymentsTable(databaseName);
     await ensureRaffleTables(databaseName);
     await ensureSupportTicketsTable(databaseName);
     await ensureReshipmentsTable(databaseName);

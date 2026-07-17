@@ -838,7 +838,7 @@ function OrderBumpsPanel({ bumps, products, form, setForm, creating, toggling, d
   );
 }
 
-type TabType = "orders" | "charges" | "sellers" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "socialProof" | "raffles";
+type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "socialProof" | "raffles";
 
 const PRIMARY_ONLY_TABS = new Set<TabType>([
   "users",
@@ -977,6 +977,33 @@ interface InventoryMovementRecord {
   createdAt: string;
 }
 
+interface SellerCommissionPendingOrder {
+  id: string;
+  sellerCode: string | null;
+  clientName: string;
+  total: number;
+  status: string;
+  createdAt: string | null;
+  sellerCommissionRateSnapshot: number;
+  commissionAmount: number;
+}
+
+interface SellerCommissionPaymentBatch {
+  id: string;
+  sellerCode: string;
+  orderIds: string[];
+  periodStart: string | null;
+  periodEnd: string | null;
+  totalAmount: number;
+  orderCount: number;
+  status: string;
+  paymentMethod: string | null;
+  paidAt: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface SocialProofSettings {
   id: number;
   enabled: boolean;
@@ -1059,6 +1086,17 @@ export default function Admin() {
   const [charges, setCharges] = useState<CustomCharge[]>([]);
   const [sellerAllOrders, setSellerAllOrders] = useState<AdminOrder[]>([]);
   const [sellerAllCharges, setSellerAllCharges] = useState<CustomCharge[]>([]);
+  const [commissionPendingOrders, setCommissionPendingOrders] = useState<SellerCommissionPendingOrder[]>([]);
+  const [commissionBatches, setCommissionBatches] = useState<SellerCommissionPaymentBatch[]>([]);
+  const [commissionPaymentsLoading, setCommissionPaymentsLoading] = useState(false);
+  const [commissionPaymentsCreating, setCommissionPaymentsCreating] = useState(false);
+  const [commissionPaymentsPayingId, setCommissionPaymentsPayingId] = useState<string | null>(null);
+  const [commissionSellerFilter, setCommissionSellerFilter] = useState("all");
+  const [commissionDateFrom, setCommissionDateFrom] = useState(todayStr());
+  const [commissionDateTo, setCommissionDateTo] = useState(todayStr());
+  const [commissionSelectedOrderIds, setCommissionSelectedOrderIds] = useState<string[]>([]);
+  const [commissionPaymentMethod, setCommissionPaymentMethod] = useState("pix");
+  const [commissionPaymentNotes, setCommissionPaymentNotes] = useState("");
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>([]);
   const [customerUsers, setCustomerUsers] = useState<CustomerUserRecord[]>([]);
   const [recurringCustomers, setRecurringCustomers] = useState<RecurringCustomerRecord[]>([]);
@@ -1517,6 +1555,92 @@ export default function Admin() {
       setSellerAllCharges(chgData.charges || []);
     } catch { /* silent */ }
   }, [handleUnauthorized]);
+
+  const fetchCommissionPayments = useCallback(async () => {
+    setCommissionPaymentsLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (commissionSellerFilter !== "all") params.set("sellerCode", commissionSellerFilter);
+      if (commissionDateFrom) params.set("dateFrom", commissionDateFrom);
+      if (commissionDateTo) params.set("dateTo", commissionDateTo);
+      const res = await fetch(`${BASE}/api/admin/seller-commission-payments?${params.toString()}`, { headers: authHeaders(), cache: "no-store" });
+      if (res.status === 401) { handleUnauthorized(); return; }
+      if (!res.ok) return;
+      const data = await res.json() as {
+        pendingOrders: SellerCommissionPendingOrder[];
+        batches: SellerCommissionPaymentBatch[];
+      };
+      setCommissionPendingOrders(data.pendingOrders || []);
+      setCommissionBatches(data.batches || []);
+      setCommissionSelectedOrderIds((data.pendingOrders || []).map((order) => order.id));
+      const uniqueSellerCodes = Array.from(new Set((data.pendingOrders || []).map((order) => String(order.sellerCode || "").trim()).filter(Boolean)));
+      if (commissionSellerFilter === "all" && uniqueSellerCodes.length === 1) {
+        setCommissionSellerFilter(uniqueSellerCodes[0]);
+      }
+    } catch { /* silent */ }
+    finally { setCommissionPaymentsLoading(false); }
+  }, [commissionSellerFilter, commissionDateFrom, commissionDateTo, handleUnauthorized]);
+
+  const createCommissionPaymentBatch = useCallback(async () => {
+    if (commissionSelectedOrderIds.length === 0) {
+      toast.error("Selecione ao menos um pedido elegível.");
+      return;
+    }
+    if (commissionSellerFilter === "all") {
+      toast.error("Selecione um vendedor para criar o lote.");
+      return;
+    }
+
+    setCommissionPaymentsCreating(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/seller-commission-payments`, {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sellerCode: commissionSellerFilter,
+          dateFrom: commissionDateFrom,
+          dateTo: commissionDateTo,
+          orderIds: commissionSelectedOrderIds,
+        }),
+      });
+      if (res.status === 401) { handleUnauthorized(); return; }
+      const data = await res.json().catch(() => null) as { error?: string; message?: string; batch?: SellerCommissionPaymentBatch } | null;
+      if (!res.ok) {
+        toast.error(data?.message || "Erro ao criar lote de comissão.");
+        return;
+      }
+      toast.success("Lote de comissão criado.");
+      setCommissionPaymentNotes("");
+      await fetchCommissionPayments();
+    } catch {
+      toast.error("Erro ao criar lote de comissão.");
+    } finally {
+      setCommissionPaymentsCreating(false);
+    }
+  }, [commissionSelectedOrderIds, commissionSellerFilter, commissionDateFrom, commissionDateTo, handleUnauthorized, fetchCommissionPayments]);
+
+  const markCommissionBatchPaid = useCallback(async (batchId: string) => {
+    setCommissionPaymentsPayingId(batchId);
+    try {
+      const res = await fetch(`${BASE}/api/admin/seller-commission-payments/${batchId}/pay`, {
+        method: "PATCH",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ paymentMethod: commissionPaymentMethod, notes: commissionPaymentNotes }),
+      });
+      if (res.status === 401) { handleUnauthorized(); return; }
+      if (!res.ok) {
+        const data = await res.json().catch(() => null) as { message?: string } | null;
+        toast.error(data?.message || "Erro ao marcar lote como pago.");
+        return;
+      }
+      toast.success("Lote marcado como pago.");
+      await fetchCommissionPayments();
+    } catch {
+      toast.error("Erro ao marcar lote como pago.");
+    } finally {
+      setCommissionPaymentsPayingId(null);
+    }
+  }, [commissionPaymentMethod, commissionPaymentNotes, handleUnauthorized, fetchCommissionPayments]);
 
   const fetchStatsData = useCallback(async () => {
     setStatsLoading(true);
@@ -2222,10 +2346,11 @@ export default function Admin() {
     else if (tab === "fretes")     fetchShippingOptions();
     else if (tab === "orderBumps") { fetchProducts(); fetchOrderBumpsData(); }
     else if (tab === "kyc")        fetchKycList();
+    else if (tab === "commissions") { fetchCommissionPayments(); }
     else if (tab === "socialProof") { fetchSocialProof(); fetchProducts(); }
     else if (tab === "raffles")    fetchRaffles();
     else setLoading(false);
-  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchSellers, fetchSellerData, fetchShippingOptions, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchSocialProof, fetchRaffles]);
+  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchSellers, fetchSellerData, fetchShippingOptions, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchCommissionPayments, fetchSocialProof, fetchRaffles]);
 
   // -------------------------------------------------------------------------
   // SSE
@@ -2420,6 +2545,12 @@ export default function Admin() {
   useEffect(() => {
     if (authChecked) fetchAll();
   }, [dateFrom, dateTo, statusFilter, methodFilter, sellerFilter, tab, fetchAll, authChecked]);
+
+  useEffect(() => {
+    if (authChecked && tab === "commissions") {
+      fetchCommissionPayments();
+    }
+  }, [authChecked, tab, commissionSellerFilter, commissionDateFrom, commissionDateTo, fetchCommissionPayments]);
 
   // Stats panel: independent fetch triggered by its own filters
   useEffect(() => {
@@ -3792,6 +3923,7 @@ export default function Admin() {
             { key: "orders",        label: "Pedidos",          icon: "QrCode",      count: orders.length },
             { key: "charges",       label: "Links Pagamento",  icon: "LinkIcon",    count: charges.length },
             { key: "sellers",       label: "Vendedores",       icon: "Tag" },
+            { key: "commissions",   label: "Comissões",        icon: "DollarSign",  count: commissionPendingOrders.length || undefined },
             { key: "kyc",           label: "KYC",              icon: "ShieldCheck", count: kycList.length > 0 ? kycList.filter((k) => k.status === "submitted").length : undefined },
             { key: "customers",     label: "Clientes",         icon: "UserPlus",    count: customerUsers.length || undefined },
             { key: "recurringCustomers", label: "Clientes recorrentes", icon: "RefreshCw", count: recurringCustomers.length || undefined },
@@ -4007,6 +4139,30 @@ export default function Admin() {
                 const data = await res.json() as { id?: string; message?: string };
                 if (!res.ok) { toast.error(data.message || "Erro ao criar cobrança."); return; }
                 toast.success("Cobrança criada e PIX gerado!");
+        ) : tab === "commissions" ? (
+          <CommissionPaymentsPanel
+            sellers={sellers}
+            pendingOrders={commissionPendingOrders}
+            batches={commissionBatches}
+            loading={commissionPaymentsLoading}
+            sellerFilter={commissionSellerFilter}
+            setSellerFilter={setCommissionSellerFilter}
+            dateFrom={commissionDateFrom}
+            setDateFrom={setCommissionDateFrom}
+            dateTo={commissionDateTo}
+            setDateTo={setCommissionDateTo}
+            selectedOrderIds={commissionSelectedOrderIds}
+            setSelectedOrderIds={setCommissionSelectedOrderIds}
+            onRefresh={fetchCommissionPayments}
+            onCreateBatch={createCommissionPaymentBatch}
+            onMarkPaid={markCommissionBatchPaid}
+            creating={commissionPaymentsCreating}
+            payingId={commissionPaymentsPayingId}
+            paymentMethod={commissionPaymentMethod}
+            setPaymentMethod={setCommissionPaymentMethod}
+            paymentNotes={commissionPaymentNotes}
+            setPaymentNotes={setCommissionPaymentNotes}
+          />
                 setCreateChargeOpen(false);
                 setCreateChargeForm({ name: "", email: "", phone: "", document: "", amountRaw: "", description: "", cep: "", street: "", number: "", complement: "", neighborhood: "", city: "", state: "" });
                 fetchCharges();
@@ -9980,6 +10136,229 @@ function SellersPanel({ siteOrigin, savedSellersList, sellerInput, setSellerInpu
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function CommissionPaymentsPanel({
+  sellers,
+  pendingOrders,
+  batches,
+  loading,
+  sellerFilter,
+  setSellerFilter,
+  dateFrom,
+  setDateFrom,
+  dateTo,
+  setDateTo,
+  selectedOrderIds,
+  setSelectedOrderIds,
+  onRefresh,
+  onCreateBatch,
+  onMarkPaid,
+  creating,
+  payingId,
+  paymentMethod,
+  setPaymentMethod,
+  paymentNotes,
+  setPaymentNotes,
+}: {
+  sellers: SavedSellerItem[];
+  pendingOrders: SellerCommissionPendingOrder[];
+  batches: SellerCommissionPaymentBatch[];
+  loading: boolean;
+  sellerFilter: string;
+  setSellerFilter: (v: string) => void;
+  dateFrom: string;
+  setDateFrom: (v: string) => void;
+  dateTo: string;
+  setDateTo: (v: string) => void;
+  selectedOrderIds: string[];
+  setSelectedOrderIds: React.Dispatch<React.SetStateAction<string[]>>;
+  onRefresh: () => void;
+  onCreateBatch: () => void;
+  onMarkPaid: (batchId: string) => void;
+  creating: boolean;
+  payingId: string | null;
+  paymentMethod: string;
+  setPaymentMethod: (v: string) => void;
+  paymentNotes: string;
+  setPaymentNotes: (v: string) => void;
+}) {
+  const selectedSet = new Set(selectedOrderIds);
+  const selectedOrders = pendingOrders.filter((order) => selectedSet.has(order.id));
+  const pendingTotal = pendingOrders.reduce((sum, order) => sum + order.commissionAmount, 0);
+  const selectedTotal = selectedOrders.reduce((sum, order) => sum + order.commissionAmount, 0);
+  const paidBatches = batches.filter((batch) => batch.status === "paid");
+  const openBatches = batches.filter((batch) => batch.status !== "paid");
+  const allSelected = pendingOrders.length > 0 && selectedOrderIds.length === pendingOrders.length;
+
+  const toggleOrder = (orderId: string) => {
+    setSelectedOrderIds((prev) => prev.includes(orderId) ? prev.filter((id) => id !== orderId) : [...prev, orderId]);
+  };
+
+  const sellerOptions = sellers.length > 0 ? sellers : [];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-bold text-foreground">Controle de comissões</h2>
+          <p className="text-sm text-muted-foreground">Selecione os pedidos elegíveis, crie o lote e marque o pagamento quando o repasse for feito.</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onRefresh} className="h-10 px-3 rounded-xl border-2 border-border bg-white hover:bg-muted text-sm flex items-center gap-1.5">
+            <RefreshCw className="w-4 h-4" /> Atualizar
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground font-semibold">Pendências</p>
+          <p className="mt-1 text-2xl font-bold text-foreground">{pendingOrders.length}</p>
+        </div>
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground font-semibold">Total pendente</p>
+          <p className="mt-1 text-2xl font-bold text-amber-700">{formatCurrency(pendingTotal)}</p>
+        </div>
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground font-semibold">Lotes abertos</p>
+          <p className="mt-1 text-2xl font-bold text-blue-700">{openBatches.length}</p>
+        </div>
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <p className="text-xs uppercase tracking-wide text-muted-foreground font-semibold">Lotes pagos</p>
+          <p className="mt-1 text-2xl font-bold text-green-700">{paidBatches.length}</p>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <select value={sellerFilter} onChange={(e) => setSellerFilter(e.target.value)} className="h-10 rounded-xl border border-border bg-white px-3 text-sm">
+            <option value="all">Todos os vendedores</option>
+            {sellerOptions.map((seller) => (
+              <option key={seller.slug} value={seller.slug}>{seller.slug}</option>
+            ))}
+          </select>
+          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="h-10 rounded-xl border border-border bg-white px-3 text-sm" />
+          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="h-10 rounded-xl border border-border bg-white px-3 text-sm" />
+          <button type="button" onClick={() => setSelectedOrderIds(pendingOrders.map((order) => order.id))} className="h-10 rounded-xl border border-border bg-white px-3 text-sm hover:bg-muted">
+            Selecionar todos
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span className="px-2 py-1 rounded-full border border-border bg-muted/40">Selecionados: {selectedOrderIds.length}</span>
+          <span className="px-2 py-1 rounded-full border border-border bg-muted/40">Total selecionado: {formatCurrency(selectedTotal)}</span>
+          <span className="px-2 py-1 rounded-full border border-border bg-muted/40">{sellerFilter === "all" ? "Selecione um vendedor para criar lote" : "Pronto para criar lote"}</span>
+        </div>
+
+        <div className="flex flex-col md:flex-row md:items-end gap-3">
+          <div className="flex-1">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Forma de pagamento</p>
+            <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className="h-10 w-full rounded-xl border border-border bg-white px-3 text-sm">
+              <option value="pix">PIX</option>
+              <option value="transferencia">Transferência</option>
+              <option value="dinheiro">Dinheiro</option>
+              <option value="outro">Outro</option>
+            </select>
+          </div>
+          <div className="flex-[2]">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Observação</p>
+            <input value={paymentNotes} onChange={(e) => setPaymentNotes(e.target.value)} placeholder="Ex: fechamento quinzenal" className="h-10 w-full rounded-xl border border-border bg-white px-3 text-sm" />
+          </div>
+          <Button onClick={onCreateBatch} disabled={creating || selectedOrderIds.length === 0 || sellerFilter === "all"} className="h-10 min-w-[180px]">
+            {creating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <DollarSign className="w-4 h-4 mr-2" />}
+            Criar lote
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <div>
+              <p className="text-sm font-semibold">Pedidos elegíveis</p>
+              <p className="text-xs text-muted-foreground">Pedidos pagos com comissão ainda não vinculada a lote.</p>
+            </div>
+            {pendingOrders.length > 0 && (
+              <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+                <input type="checkbox" checked={allSelected} onChange={() => setSelectedOrderIds(allSelected ? [] : pendingOrders.map((order) => order.id))} />
+                Marcar todos
+              </label>
+            )}
+          </div>
+          <div className="max-h-[420px] overflow-auto space-y-2 pr-1">
+            {loading ? (
+              <div className="py-10 text-center text-sm text-muted-foreground">Carregando comissões...</div>
+            ) : pendingOrders.length === 0 ? (
+              <div className="py-10 text-center text-sm text-muted-foreground">Nenhuma comissão pendente encontrada.</div>
+            ) : pendingOrders.map((order) => {
+              const checked = selectedSet.has(order.id);
+              return (
+                <button
+                  key={order.id}
+                  type="button"
+                  onClick={() => toggleOrder(order.id)}
+                  className={`w-full text-left rounded-xl border px-3 py-2.5 flex items-start gap-3 transition-colors ${checked ? "border-blue-200 bg-blue-50" : "border-border bg-white hover:bg-muted/30"}`}
+                >
+                  <input type="checkbox" checked={checked} onChange={() => toggleOrder(order.id)} className="mt-1" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-semibold truncate">{order.clientName}</p>
+                      <span className="text-xs font-semibold text-amber-700">{formatCurrency(order.commissionAmount)}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5">Pedido {order.id} · {order.sellerCode || "sem vendedor"} · {formatDateBR(order.createdAt || "")}</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">Comissão {order.sellerCommissionRateSnapshot.toFixed(2)}% sobre {formatCurrency(order.total)}</p>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <div>
+              <p className="text-sm font-semibold">Lotes de comissão</p>
+              <p className="text-xs text-muted-foreground">Histórico de repasses por vendedor.</p>
+            </div>
+            <span className="text-xs text-muted-foreground">{batches.length} lote(s)</span>
+          </div>
+          <div className="max-h-[420px] overflow-auto space-y-2 pr-1">
+            {batches.length === 0 ? (
+              <div className="py-10 text-center text-sm text-muted-foreground">Nenhum lote criado ainda.</div>
+            ) : batches.map((batch) => (
+              <div key={batch.id} className="rounded-xl border border-border bg-white p-3 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold">{batch.sellerCode}</p>
+                    <p className="text-xs text-muted-foreground">{batch.orderCount} pedido(s) · {formatCurrency(batch.totalAmount)}</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">Criado em {formatDateBR(batch.createdAt)}</p>
+                  </div>
+                  <span className={`text-xs font-semibold px-2 py-1 rounded-full border ${batch.status === "paid" ? "bg-green-100 text-green-700 border-green-200" : "bg-amber-100 text-amber-700 border-amber-200"}`}>
+                    {batch.status === "paid" ? "Pago" : "Aberto"}
+                  </span>
+                </div>
+                {batch.notes ? <p className="text-xs text-muted-foreground">Obs.: {batch.notes}</p> : null}
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  {batch.periodStart ? <span className="px-2 py-1 rounded-full border border-border bg-muted/30">De {formatDateBR(batch.periodStart)}</span> : null}
+                  {batch.periodEnd ? <span className="px-2 py-1 rounded-full border border-border bg-muted/30">Até {formatDateBR(batch.periodEnd)}</span> : null}
+                  {batch.paidAt ? <span className="px-2 py-1 rounded-full border border-border bg-green-50 text-green-700">Pago em {formatDateBR(batch.paidAt)}</span> : null}
+                </div>
+                {batch.status !== "paid" && (
+                  <div className="flex justify-end">
+                    <Button size="sm" onClick={() => onMarkPaid(batch.id)} disabled={payingId === batch.id}>
+                      {payingId === batch.id ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CheckCircle className="w-4 h-4 mr-2" />}
+                      Marcar pago
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

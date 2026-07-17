@@ -48,6 +48,8 @@ export const ordersTable = mysqlTable("orders", {
   cardInstallmentValue: decimal("card_installment_value", { precision: 10, scale: 2 }),
   cardTotalActual: decimal("card_total_actual", { precision: 10, scale: 2 }),
   paidAmount: decimal("paid_amount", { precision: 10, scale: 2 }),
+  sellerCommissionBatchId: varchar("seller_commission_batch_id", { length: 255 }),
+  sellerCommissionPaidAt: timestamp("seller_commission_paid_at"),
   pixCode: mediumtext("pix_code"),
   pixBase64: mediumtext("pix_base64"),
   enviado: boolean("enviado").notNull().default(false),
