@@ -12280,7 +12280,67 @@ function ImageUploadCard({
         const ctx = canvas.getContext("2d");
         if (!ctx) { onSave(settingKey, src); return; }
 
+        const drawContainWithTrimmedEdges = () => {
+          const sourceCanvas = document.createElement("canvas");
+          sourceCanvas.width = img.width;
+          sourceCanvas.height = img.height;
+          const sourceCtx = sourceCanvas.getContext("2d");
+          if (!sourceCtx) return false;
+          sourceCtx.drawImage(img, 0, 0);
+
+          const imageData = sourceCtx.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+          const { data, width, height } = imageData;
+          let left = width;
+          let top = height;
+          let right = -1;
+          let bottom = -1;
+          const isVisiblePixel = (index: number) => {
+            const alpha = data[index + 3] ?? 0;
+            if (alpha < 8) return false;
+            const red = data[index] ?? 0;
+            const green = data[index + 1] ?? 0;
+            const blue = data[index + 2] ?? 0;
+            return !(red > 248 && green > 248 && blue > 248);
+          };
+
+          for (let y = 0; y < height; y += 1) {
+            for (let x = 0; x < width; x += 1) {
+              const index = (y * width + x) * 4;
+              if (!isVisiblePixel(index)) continue;
+              if (x < left) left = x;
+              if (y < top) top = y;
+              if (x > right) right = x;
+              if (y > bottom) bottom = y;
+            }
+          }
+
+          const hasTrimBounds = right >= left && bottom >= top;
+          const cropX = hasTrimBounds ? left : 0;
+          const cropY = hasTrimBounds ? top : 0;
+          const cropWidth = hasTrimBounds ? (right - left + 1) : width;
+          const cropHeight = hasTrimBounds ? (bottom - top + 1) : height;
+
+          canvas.width = targetWidth || cropWidth;
+          canvas.height = targetHeight || cropHeight;
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          const scale = Math.min(canvas.width / cropWidth, canvas.height / cropHeight);
+          const drawWidth = Math.round(cropWidth * scale);
+          const drawHeight = Math.round(cropHeight * scale);
+          const offsetX = Math.round((canvas.width - drawWidth) / 2);
+          const offsetY = Math.round((canvas.height - drawHeight) / 2);
+          ctx.drawImage(sourceCanvas, cropX, cropY, cropWidth, cropHeight, offsetX, offsetY, drawWidth, drawHeight);
+          return true;
+        };
+
         if (targetWidth && targetHeight && effectiveMode !== "auto") {
+          if (effectiveMode === "contain" && !isLogoCard && drawContainWithTrimmedEdges()) {
+            const compressed = canvas.toDataURL("image/jpeg", 0.82);
+            onSave(settingKey, compressed);
+            return;
+          }
+
           canvas.width = targetWidth;
           canvas.height = targetHeight;
           ctx.fillStyle = "#ffffff";
