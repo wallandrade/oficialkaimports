@@ -144,6 +144,12 @@ export default function Home() {
   const searchString = useSearch();
   const searchQuery = new URLSearchParams(searchString).get("q") || "";
   const { banners, isLoaded: bannersLoaded } = useSiteBanners();
+  const catalogBannerProductId = String(banners["catalog_banner_product_id"] || "").trim();
+  const catalogBannerHref = catalogBannerProductId
+    ? (sellerSlug
+      ? `/${encodeURIComponent(sellerSlug)}/produto/${encodeURIComponent(catalogBannerProductId)}`
+      : `${BASE}/produto/${encodeURIComponent(catalogBannerProductId)}`)
+    : "";
 
   useLiveTracking("catalog");
 
@@ -282,26 +288,51 @@ export default function Home() {
       {hasCatalogBanner && (
         <section className="w-full bg-background border-b border-border/40">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-5 sm:pt-6">
-            <picture className="block w-full">
-              {banners["catalog_banner_mobile"] ? (
-                <source media="(max-width: 639px)" srcSet={banners["catalog_banner_mobile"]} />
-              ) : null}
-              {banners["catalog_banner_desktop"] ? (
-                <img
-                  src={banners["catalog_banner_desktop"]}
-                  alt="Banner do catálogo"
-                  fetchPriority="high"
-                  className="block w-full h-auto rounded-3xl object-contain object-center shadow-sm border border-border/40"
-                />
-              ) : banners["catalog_banner_mobile"] ? (
-                <img
-                  src={banners["catalog_banner_mobile"]}
-                  alt="Banner do catálogo"
-                  fetchPriority="high"
-                  className="block w-full h-auto rounded-3xl object-contain object-center shadow-sm border border-border/40"
-                />
-              ) : null}
-            </picture>
+            {catalogBannerHref ? (
+              <Link href={catalogBannerHref} className="block w-full">
+                <picture className="block w-full">
+                  {banners["catalog_banner_mobile"] ? (
+                    <source media="(max-width: 639px)" srcSet={banners["catalog_banner_mobile"]} />
+                  ) : null}
+                  {banners["catalog_banner_desktop"] ? (
+                    <img
+                      src={banners["catalog_banner_desktop"]}
+                      alt="Banner do catálogo"
+                      fetchPriority="high"
+                      className="block w-full h-auto rounded-3xl object-contain object-center shadow-sm border border-border/40 cursor-pointer"
+                    />
+                  ) : banners["catalog_banner_mobile"] ? (
+                    <img
+                      src={banners["catalog_banner_mobile"]}
+                      alt="Banner do catálogo"
+                      fetchPriority="high"
+                      className="block w-full h-auto rounded-3xl object-contain object-center shadow-sm border border-border/40 cursor-pointer"
+                    />
+                  ) : null}
+                </picture>
+              </Link>
+            ) : (
+              <picture className="block w-full">
+                {banners["catalog_banner_mobile"] ? (
+                  <source media="(max-width: 639px)" srcSet={banners["catalog_banner_mobile"]} />
+                ) : null}
+                {banners["catalog_banner_desktop"] ? (
+                  <img
+                    src={banners["catalog_banner_desktop"]}
+                    alt="Banner do catálogo"
+                    fetchPriority="high"
+                    className="block w-full h-auto rounded-3xl object-contain object-center shadow-sm border border-border/40"
+                  />
+                ) : banners["catalog_banner_mobile"] ? (
+                  <img
+                    src={banners["catalog_banner_mobile"]}
+                    alt="Banner do catálogo"
+                    fetchPriority="high"
+                    className="block w-full h-auto rounded-3xl object-contain object-center shadow-sm border border-border/40"
+                  />
+                ) : null}
+              </picture>
+            )}
           </div>
         </section>
       )}

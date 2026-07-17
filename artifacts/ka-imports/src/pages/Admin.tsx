@@ -5837,6 +5837,7 @@ export default function Admin() {
             <ConfiguracoesPanel
               settings={settings}
               loading={settingsLoading}
+              products={products}
               clientErrors={clientErrors}
               clientErrorsLoading={clientErrorsLoading}
               onRefreshClientErrors={fetchClientErrors}
@@ -12462,6 +12463,7 @@ function ImageUploadCard({
 function ConfiguracoesPanel({ settings, loading, clientErrors, clientErrorsLoading, onRefreshClientErrors, onTestOutboundWebhook, onSave, onDelete, brevoApiKey, setBrevoApiKey, brevoConfigured, brevoTesting, onTestBrevoConnection }: {
   settings: Record<string, string>;
   loading: Record<string, boolean>;
+  products: Array<{ id?: string; name?: string | null; price?: number | null; promoPrice?: number | null }>;
   clientErrors: ClientErrorEvent[];
   clientErrorsLoading: boolean;
   onRefreshClientErrors: () => void;
@@ -12505,6 +12507,12 @@ function ConfiguracoesPanel({ settings, loading, clientErrors, clientErrorsLoadi
   const togglePaymentMethod = (key: "checkout_enable_pix" | "checkout_enable_card" | "checkout_enable_whatsapp", enabled: boolean) => {
     onSave(key, enabled ? "1" : "0");
   };
+
+  const catalogBannerProductId = String(settings["catalog_banner_product_id"] ?? "").trim();
+  const selectablePromotionProducts = products
+    .filter((product) => String(product.id || "").trim() && String(product.name || "").trim())
+    .slice()
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "pt-BR", { sensitivity: "base" }));
 
   return (
     <div className="space-y-8">
@@ -12585,6 +12593,33 @@ function ConfiguracoesPanel({ settings, loading, clientErrors, clientErrorsLoadi
               onSave={onSave}
               onDelete={onDelete}
             />
+          </div>
+          <div className="mt-5 rounded-2xl border border-dashed border-border/70 bg-muted/20 p-4">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+              Produto promocional do banner
+            </label>
+            <select
+              value={catalogBannerProductId}
+              onChange={(e) => onSave("catalog_banner_product_id", e.target.value)}
+              className="h-11 w-full rounded-xl border border-input bg-white px-3 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:border-primary cursor-pointer"
+            >
+              <option value="">Selecionar produto para abrir no clique</option>
+              {selectablePromotionProducts.map((product) => {
+                const productId = String(product.id || "").trim();
+                const productName = String(product.name || "").trim();
+                const promoLabel = product.promoPrice != null && Number(product.promoPrice) < Number(product.price || 0)
+                  ? ` · promo ${Number(product.promoPrice).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`
+                  : "";
+                return (
+                  <option key={productId} value={productId}>
+                    {productName}{promoLabel}
+                  </option>
+                );
+              })}
+            </select>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Quando definido, o banner do topo do catálogo abre a página do produto selecionado.
+            </p>
           </div>
         </div>
       </div>
