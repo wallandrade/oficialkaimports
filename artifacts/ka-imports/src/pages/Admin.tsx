@@ -12460,7 +12460,7 @@ function ImageUploadCard({
   );
 }
 
-function ConfiguracoesPanel({ settings, loading, clientErrors, clientErrorsLoading, onRefreshClientErrors, onTestOutboundWebhook, onSave, onDelete, brevoApiKey, setBrevoApiKey, brevoConfigured, brevoTesting, onTestBrevoConnection }: {
+function ConfiguracoesPanel({ settings, loading, products, clientErrors, clientErrorsLoading, onRefreshClientErrors, onTestOutboundWebhook, onSave, onDelete, brevoApiKey, setBrevoApiKey, brevoConfigured, brevoTesting, onTestBrevoConnection }: {
   settings: Record<string, string>;
   loading: Record<string, boolean>;
   products: Array<{ id?: string; name?: string | null; price?: number | null; promoPrice?: number | null }>;
