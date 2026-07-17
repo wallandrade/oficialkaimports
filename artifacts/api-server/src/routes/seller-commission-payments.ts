@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { Router, type IRouter } from "express";
-import { and, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db, ordersTable, sellerCommissionPaymentsTable, sellersTable } from "@workspace/db";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 
@@ -89,6 +89,17 @@ function calcCommission(order: CommissionOrderRow, sellerCommissionMap: Map<stri
   return Math.round(total * (rate / 100) * 100) / 100;
 }
 
+const pendingBatchCondition = sql`
+  (
+    ${ordersTable.sellerCommissionBatchId} is null
+    or not exists (
+      select 1
+      from ${sellerCommissionPaymentsTable}
+      where ${sellerCommissionPaymentsTable.id} = ${ordersTable.sellerCommissionBatchId}
+    )
+  )
+`;
+
 router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, res) => {
   try {
     const scope = getAdminScope(req);
@@ -118,7 +129,7 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
 
     const pendingConditions = [
       inArray(ordersTable.status, ["paid", "completed"]),
-      isNull(ordersTable.sellerCommissionBatchId),
+      pendingBatchCondition,
     ];
     if (activeSellerCode) {
       pendingConditions.push(eq(sql`lower(${ordersTable.sellerCode})`, activeSellerCode));
@@ -228,7 +239,7 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
     const conditions = [
       eq(sql`lower(${ordersTable.sellerCode})`, targetSellerCode),
       inArray(ordersTable.status, ["paid", "completed"]),
-      isNull(ordersTable.sellerCommissionBatchId),
+      pendingBatchCondition,
       ...dateConditions,
     ];
 
