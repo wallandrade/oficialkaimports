@@ -12463,7 +12463,7 @@ function ImageUploadCard({
 function ConfiguracoesPanel({ settings, loading, products, clientErrors, clientErrorsLoading, onRefreshClientErrors, onTestOutboundWebhook, onSave, onDelete, brevoApiKey, setBrevoApiKey, brevoConfigured, brevoTesting, onTestBrevoConnection }: {
   settings: Record<string, string>;
   loading: Record<string, boolean>;
-  products: Array<{ id?: string; name?: string | null; price?: number | null; promoPrice?: number | null }>;
+  products: Array<{ id?: string; name?: string | null; image?: string | null; price?: number | null; promoPrice?: number | null }>;
   clientErrors: ClientErrorEvent[];
   clientErrorsLoading: boolean;
   onRefreshClientErrors: () => void;
@@ -12487,6 +12487,7 @@ function ConfiguracoesPanel({ settings, loading, products, clientErrors, clientE
   const [promoCountdownEnabled, setPromoCountdownEnabled] = useState(!["0", "false", "off", "no", "disabled"].includes(String(settings["promo_countdown_enabled"] ?? "0").toLowerCase()));
   const [promoCountdownDateTime, setPromoCountdownDateTime] = useState(settings["promo_countdown_datetime"] ?? "");
   const [promoCountdownText, setPromoCountdownText] = useState(settings["promo_countdown_text"] ?? "");
+  const [promotionProductSearch, setPromotionProductSearch] = useState("");
   const pixEnabled = !["0", "false", "off", "no", "disabled"].includes(String(settings["checkout_enable_pix"] ?? "1").toLowerCase());
   const cardEnabled = !["0", "false", "off", "no", "disabled"].includes(String(settings["checkout_enable_card"] ?? "1").toLowerCase());
   const whatsappEnabled = !["0", "false", "off", "no", "disabled"].includes(String(settings["checkout_enable_whatsapp"] ?? "0").toLowerCase());
@@ -12513,6 +12514,14 @@ function ConfiguracoesPanel({ settings, loading, products, clientErrors, clientE
     .filter((product) => String(product.id || "").trim() && String(product.name || "").trim())
     .slice()
     .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "pt-BR", { sensitivity: "base" }));
+  const selectedPromotionProduct = selectablePromotionProducts.find((product) => String(product.id || "").trim() === catalogBannerProductId) || null;
+  const normalizedPromotionSearch = promotionProductSearch.trim().toLowerCase();
+  const filteredPromotionProducts = selectablePromotionProducts
+    .filter((product) => {
+      if (!normalizedPromotionSearch) return true;
+      return String(product.name || "").toLowerCase().includes(normalizedPromotionSearch);
+    })
+    .slice(0, 120);
 
   return (
     <div className="space-y-8">
@@ -12598,25 +12607,62 @@ function ConfiguracoesPanel({ settings, loading, products, clientErrors, clientE
             <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
               Produto promocional do banner
             </label>
-            <select
-              value={catalogBannerProductId}
-              onChange={(e) => onSave("catalog_banner_product_id", e.target.value)}
-              className="h-11 w-full rounded-xl border border-input bg-white px-3 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:border-primary cursor-pointer"
-            >
-              <option value="">Selecionar produto para abrir no clique</option>
-              {selectablePromotionProducts.map((product) => {
-                const productId = String(product.id || "").trim();
-                const productName = String(product.name || "").trim();
-                const promoLabel = product.promoPrice != null && Number(product.promoPrice) < Number(product.price || 0)
-                  ? ` · promo ${Number(product.promoPrice).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}`
-                  : "";
-                return (
-                  <option key={productId} value={productId}>
-                    {productName}{promoLabel}
-                  </option>
-                );
-              })}
-            </select>
+            <input
+              className="h-10 w-full rounded-lg border border-border px-3 text-sm bg-white"
+              placeholder="Pesquisar produto por nome"
+              value={promotionProductSearch}
+              onChange={(e) => setPromotionProductSearch(e.target.value)}
+            />
+            <div className="mt-2 max-h-56 overflow-auto rounded-xl border border-border bg-white p-2 space-y-1">
+              {filteredPromotionProducts.length === 0 ? (
+                <p className="text-xs text-muted-foreground px-2 py-1">Nenhum produto encontrado.</p>
+              ) : (
+                filteredPromotionProducts.map((product) => {
+                  const productId = String(product.id || "").trim();
+                  const productName = String(product.name || "").trim();
+                  const isSelected = productId === catalogBannerProductId;
+                  return (
+                    <button
+                      key={productId}
+                      type="button"
+                      onClick={() => {
+                        onSave("catalog_banner_product_id", productId);
+                        setPromotionProductSearch(productName);
+                      }}
+                      className={`w-full flex items-center justify-between gap-2 rounded-lg border px-2 py-1.5 text-left transition-colors ${isSelected ? "bg-blue-50 border-blue-200" : "border-border hover:bg-muted/40"}`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        {product.image ? (
+                          <img src={product.image} alt={productName} className="h-7 w-7 rounded-md object-cover shrink-0 border border-border" loading="lazy" />
+                        ) : (
+                          <div className="h-7 w-7 rounded-md bg-muted shrink-0 border border-border flex items-center justify-center">
+                            <IconLucide name="Package" className="w-3.5 h-3.5 text-muted-foreground" />
+                          </div>
+                        )}
+                        <span className="text-xs truncate">{productName}</span>
+                      </div>
+                      {isSelected ? <span className="text-[10px] font-semibold text-blue-700">Selecionado</span> : null}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground truncate">
+                {selectedPromotionProduct
+                  ? `Produto atual: ${String(selectedPromotionProduct.name || "")}`
+                  : "Nenhum produto selecionado."}
+              </p>
+              {catalogBannerProductId ? (
+                <button
+                  type="button"
+                  onClick={() => onSave("catalog_banner_product_id", "")}
+                  className="text-xs px-2 py-1 rounded-md border border-border bg-white hover:bg-muted transition-colors"
+                >
+                  Limpar
+                </button>
+              ) : null}
+            </div>
             <p className="mt-2 text-xs text-muted-foreground">
               Quando definido, o banner do topo do catálogo abre a página do produto selecionado.
             </p>
