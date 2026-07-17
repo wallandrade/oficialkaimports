@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { Router, type IRouter } from "express";
-import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
-import { db, ordersTable, sellerCommissionPaymentsTable, sellersTable } from "@workspace/db";
+import { and, desc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
+import { db, ordersTable, sellerCommissionPaymentsTable } from "@workspace/db";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 
 const router: IRouter = Router();
@@ -14,11 +14,6 @@ type CommissionOrderRow = {
   status: string;
   createdAt: Date | string;
   sellerCommissionRateSnapshot: string | number | null;
-};
-
-type SellerCommissionProfile = {
-  hasCommission: boolean;
-  commissionRate: number;
 };
 
 function parseOrderIds(raw: unknown): string[] {
@@ -54,51 +49,12 @@ function normalizeDateKey(value: string | undefined): string | null {
   return match ? match[0] : raw.slice(0, 10);
 }
 
-function normalizeSellerCode(value: string | null | undefined): string {
-  return String(value || "").trim().toLowerCase();
-}
-
-async function loadSellerCommissionMap(): Promise<Map<string, SellerCommissionProfile>> {
-  const sellerRows = await db
-    .select({
-      slug: sellersTable.slug,
-      hasCommission: sellersTable.hasCommission,
-      commissionRate: sellersTable.commissionRate,
-    })
-    .from(sellersTable);
-
-  return new Map(
-    sellerRows.map((seller) => [normalizeSellerCode(seller.slug), {
-      hasCommission: Boolean(seller.hasCommission),
-      commissionRate: Number(seller.commissionRate || 0),
-    }] as const),
-  );
-}
-
-function calcCommission(order: CommissionOrderRow, sellerCommissionMap: Map<string, SellerCommissionProfile>): number {
+function calcCommission(order: CommissionOrderRow): number {
   const total = Number(order.total || 0);
-  const snapshotRate = Number(order.sellerCommissionRateSnapshot || 0);
-  const sellerCode = normalizeSellerCode(order.sellerCode);
-  const sellerProfile = sellerCode ? sellerCommissionMap.get(sellerCode) : null;
-  const rate = snapshotRate > 0
-    ? snapshotRate
-    : sellerProfile
-      ? (sellerProfile.hasCommission ? sellerProfile.commissionRate : 0)
-      : 5;
+  const rate = Number(order.sellerCommissionRateSnapshot || 0);
   if (!Number.isFinite(total) || !Number.isFinite(rate) || total <= 0 || rate <= 0) return 0;
   return Math.round(total * (rate / 100) * 100) / 100;
 }
-
-const pendingBatchCondition = sql`
-  (
-    ${ordersTable.sellerCommissionBatchId} is null
-    or not exists (
-      select 1
-      from ${sellerCommissionPaymentsTable}
-      where ${sellerCommissionPaymentsTable.id} = ${ordersTable.sellerCommissionBatchId}
-    )
-  )
-`;
 
 router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, res) => {
   try {
@@ -115,10 +71,7 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
       return;
     }
 
-    const activeSellerCode = scope.hasGlobalAccess
-      ? effectiveSellerCode
-      : normalizeSellerCode(scope.sellerCode);
-    const sellerCommissionMap = await loadSellerCommissionMap();
+    const activeSellerCode = scope.hasGlobalAccess ? effectiveSellerCode : (scope.sellerCode || "");
     const dateConditions = [];
     if (dateFrom) {
       dateConditions.push(gte(ordersTable.createdAt, new Date(`${dateFrom}T00:00:00.000Z`)));
@@ -129,10 +82,10 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
 
     const pendingConditions = [
       inArray(ordersTable.status, ["paid", "completed"]),
-      pendingBatchCondition,
+      isNull(ordersTable.sellerCommissionBatchId),
     ];
     if (activeSellerCode) {
-      pendingConditions.push(eq(sql`lower(${ordersTable.sellerCode})`, activeSellerCode));
+      pendingConditions.push(eq(ordersTable.sellerCode, activeSellerCode));
     }
     pendingConditions.push(...dateConditions);
 
@@ -159,13 +112,13 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
         status: row.status,
         createdAt: toIso(row.createdAt),
         sellerCommissionRateSnapshot: Number(row.sellerCommissionRateSnapshot || 0),
-        commissionAmount: calcCommission(row, sellerCommissionMap),
+        commissionAmount: calcCommission(row),
       }))
       .filter((row) => row.commissionAmount > 0);
 
     const batchConditions = [];
     if (activeSellerCode) {
-      batchConditions.push(eq(sql`lower(${sellerCommissionPaymentsTable.sellerCode})`, activeSellerCode));
+      batchConditions.push(eq(sellerCommissionPaymentsTable.sellerCode, activeSellerCode));
     }
 
     const batchRows = await db
@@ -218,15 +171,11 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
       return;
     }
 
-    const targetSellerCode = scope.hasGlobalAccess
-      ? effectiveSellerCode
-      : normalizeSellerCode(scope.sellerCode);
+    const targetSellerCode = scope.hasGlobalAccess ? effectiveSellerCode : (scope.sellerCode || "");
     if (!targetSellerCode) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Selecione um vendedor." });
       return;
     }
-
-    const sellerCommissionMap = await loadSellerCommissionMap();
 
     const dateConditions = [];
     const startDate = normalizeDate(dateFrom);
@@ -237,9 +186,9 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
     const orderIdList = Array.isArray(orderIds) ? Array.from(new Set(orderIds.map((value) => String(value || "").trim()).filter(Boolean))) : [];
 
     const conditions = [
-      eq(sql`lower(${ordersTable.sellerCode})`, targetSellerCode),
+      eq(ordersTable.sellerCode, targetSellerCode),
       inArray(ordersTable.status, ["paid", "completed"]),
-      pendingBatchCondition,
+      isNull(ordersTable.sellerCommissionBatchId),
       ...dateConditions,
     ];
 
@@ -270,7 +219,7 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
         status: row.status,
         createdAt: toIso(row.createdAt),
         sellerCommissionRateSnapshot: Number(row.sellerCommissionRateSnapshot || 0),
-        commissionAmount: calcCommission(row, sellerCommissionMap),
+        commissionAmount: calcCommission(row),
       }))
       .filter((row) => row.commissionAmount > 0);
 
