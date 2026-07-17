@@ -292,6 +292,8 @@ async function ensureSellerCommissionPaymentsTable(databaseName: string): Promis
       id VARCHAR(255) NOT NULL PRIMARY KEY,
       seller_code VARCHAR(255) NOT NULL,
       order_ids JSON NOT NULL,
+      period_start_date VARCHAR(10) NULL,
+      period_end_date VARCHAR(10) NULL,
       period_start TIMESTAMP NULL,
       period_end TIMESTAMP NULL,
       total_amount DECIMAL(10,2) NOT NULL,

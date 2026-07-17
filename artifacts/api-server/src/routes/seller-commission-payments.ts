@@ -42,6 +42,13 @@ function normalizeDate(value: string | undefined): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function normalizeDateKey(value: string | undefined): string | null {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? match[0] : raw.slice(0, 10);
+}
+
 function calcCommission(order: CommissionOrderRow): number {
   const total = Number(order.total || 0);
   const rate = Number(order.sellerCommissionRateSnapshot || 0);
@@ -124,8 +131,8 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
       id: batch.id,
       sellerCode: batch.sellerCode,
       orderIds: parseOrderIds(batch.orderIds),
-      periodStart: toIso(batch.periodStart),
-      periodEnd: toIso(batch.periodEnd),
+      periodStart: batch.periodStartDate || toIso(batch.periodStart),
+      periodEnd: batch.periodEndDate || toIso(batch.periodEnd),
       totalAmount: Number(batch.totalAmount || 0),
       orderCount: Number(batch.orderCount || 0),
       status: batch.status,
@@ -224,11 +231,15 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
     const batchId = crypto.randomUUID();
     const totalAmount = eligibleOrders.reduce((sum, order) => sum + order.commissionAmount, 0);
     const now = new Date();
+    const periodStartDate = normalizeDateKey(dateFrom);
+    const periodEndDate = normalizeDateKey(dateTo);
 
     await db.insert(sellerCommissionPaymentsTable).values({
       id: batchId,
       sellerCode: targetSellerCode,
       orderIds: eligibleOrders.map((order) => order.id),
+      periodStartDate,
+      periodEndDate,
       periodStart: startDate,
       periodEnd: endDate,
       totalAmount: totalAmount.toFixed(2),
@@ -250,6 +261,8 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
         id: batchId,
         sellerCode: targetSellerCode,
         orderIds: eligibleOrders.map((order) => order.id),
+        periodStartDate,
+        periodEndDate,
         periodStart: startDate?.toISOString() || null,
         periodEnd: endDate?.toISOString() || null,
         totalAmount: Number(totalAmount.toFixed(2)),

@@ -4,6 +4,8 @@ export const sellerCommissionPaymentsTable = mysqlTable("seller_commission_payme
   id: varchar("id", { length: 255 }).primaryKey(),
   sellerCode: varchar("seller_code", { length: 255 }).notNull(),
   orderIds: json("order_ids").notNull(),
+  periodStartDate: varchar("period_start_date", { length: 10 }),
+  periodEndDate: varchar("period_end_date", { length: 10 }),
   periodStart: timestamp("period_start"),
   periodEnd: timestamp("period_end"),
   totalAmount: decimal("total_amount", { precision: 10, scale: 2 }).notNull(),

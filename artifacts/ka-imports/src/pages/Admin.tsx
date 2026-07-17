@@ -6,8 +6,13 @@ function formatDateBR(date: string | Date | undefined | null): string {
   return d.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
 }
 
-function formatDateOnlyBR(date: string | Date | undefined | null): string {
+function formatDateOnlyLocal(date: string | Date | undefined | null): string {
   if (!date) return "";
+  const raw = String(date).trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) {
+    return `${match[3]}/${match[2]}/${match[1]}`;
+  }
   const d = typeof date === "string" ? new Date(date) : date;
   if (isNaN(d.getTime())) return "";
   const day = String(d.getUTCDate()).padStart(2, "0");
@@ -1002,6 +1007,8 @@ interface SellerCommissionPaymentBatch {
   id: string;
   sellerCode: string;
   orderIds: string[];
+  periodStartDate: string | null;
+  periodEndDate: string | null;
   periodStart: string | null;
   periodEnd: string | null;
   totalAmount: number;
@@ -10352,8 +10359,8 @@ function CommissionPaymentsPanel({
                 </div>
                 {batch.notes ? <p className="text-xs text-muted-foreground">Obs.: {batch.notes}</p> : null}
                 <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  {batch.periodStart ? <span className="px-2 py-1 rounded-full border border-border bg-muted/30">De {formatDateOnlyBR(batch.periodStart)}</span> : null}
-                  {batch.periodEnd ? <span className="px-2 py-1 rounded-full border border-border bg-muted/30">Até {formatDateOnlyBR(batch.periodEnd)}</span> : null}
+                  {batch.periodStartDate || batch.periodStart ? <span className="px-2 py-1 rounded-full border border-border bg-muted/30">De {formatDateOnlyLocal(batch.periodStartDate || batch.periodStart)}</span> : null}
+                  {batch.periodEndDate || batch.periodEnd ? <span className="px-2 py-1 rounded-full border border-border bg-muted/30">Até {formatDateOnlyLocal(batch.periodEndDate || batch.periodEnd)}</span> : null}
                   {batch.paidAt ? <span className="px-2 py-1 rounded-full border border-border bg-green-50 text-green-700">Pago em {formatDateBR(batch.paidAt)}</span> : null}
                 </div>
                 {batch.status !== "paid" && (
