@@ -37,10 +37,10 @@ export function CheckoutLayout({ children }: { children: ReactNode }) {
             <div className="flex-1 flex items-center justify-center gap-2">
               {logo && (
                 <div
-                  className="overflow-hidden rounded-2xl h-9 border border-primary/10 bg-white/80 px-2 py-1"
+                  className="overflow-hidden rounded-2xl h-12 border border-primary/10 bg-white/80 px-3 py-1.5"
                   style={{ width: `${logoScale}px`, maxWidth: "48vw" }}
                 >
-                  <img src={logo} alt="KA Imports" className="h-full w-auto object-contain" />
+                  <img src={logo} alt="KA Imports" className="h-full w-auto max-h-[48px] object-contain" />
                 </div>
               )}
               <span className="font-display font-bold text-lg tracking-tight text-primary">KA IMPORTS</span>
