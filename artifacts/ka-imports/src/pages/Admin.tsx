@@ -12531,12 +12531,12 @@ function ConfiguracoesPanel({ settings, loading, clientErrors, clientErrorsLoadi
           />
           <ImageUploadCard
             title="Banner Desktop"
-            description="Banner principal exibido na página inicial em telas maiores. Recomendado: 1920×480px."
+            description="Banner principal exibido na página inicial em telas maiores. Recomendado: 1956×804px."
             settingKey="banner_desktop"
             currentSrc={settings["banner_desktop"]}
             loading={!!loading["banner_desktop"]}
-            targetWidth={1920}
-            targetHeight={480}
+            targetWidth={1956}
+            targetHeight={804}
             showResizeModeSelector
             onSave={onSave}
             onDelete={onDelete}
@@ -12563,12 +12563,12 @@ function ConfiguracoesPanel({ settings, loading, clientErrors, clientErrorsLoadi
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <ImageUploadCard
               title="Banner Catálogo Desktop"
-              description="Imagem exibida no topo do catálogo em telas maiores. Recomendado: 1920×420px."
+              description="Imagem exibida no topo do catálogo em telas maiores. Recomendado: 1956×804px."
               settingKey="catalog_banner_desktop"
               currentSrc={settings["catalog_banner_desktop"]}
               loading={!!loading["catalog_banner_desktop"]}
-              targetWidth={1920}
-              targetHeight={420}
+              targetWidth={1956}
+              targetHeight={804}
               showResizeModeSelector
               onSave={onSave}
               onDelete={onDelete}
