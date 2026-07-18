@@ -1101,37 +1101,6 @@ interface DnsCheckResponse {
   message: string;
 }
 
-interface DnsProvisionResponse {
-  ok: boolean;
-  domain: string;
-  targetHost: string;
-  message: string;
-  dns: {
-    ok: boolean;
-    message?: string;
-    zoneId?: string;
-    zoneName?: string;
-    recordName?: string;
-    targetHost?: string;
-    action?: "created" | "updated" | "unchanged";
-    deletedConflicts?: number;
-    recordId?: string;
-  };
-  railway: {
-    attempted: boolean;
-    ok: boolean;
-    skipped?: boolean;
-    message?: string;
-    domainId?: string | null;
-    created?: boolean;
-    status?: {
-      certificateStatus?: string;
-      certificateStatusDetailed?: string;
-      customDomainStatus?: string;
-    } | null;
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
@@ -1440,8 +1409,6 @@ export default function Admin() {
   const [dnsGuideLoading, setDnsGuideLoading] = useState(false);
   const [dnsCheckLoading, setDnsCheckLoading] = useState(false);
   const [dnsCheckResult, setDnsCheckResult] = useState<DnsCheckResponse | null>(null);
-  const [dnsProvisionLoading, setDnsProvisionLoading] = useState(false);
-  const [dnsProvisionResult, setDnsProvisionResult] = useState<DnsProvisionResponse | null>(null);
   const [brevoApiKey, setBrevoApiKey] = useState("");
   const [brevoConfigured, setBrevoConfigured] = useState(false);
   const [brevoTesting, setBrevoTesting] = useState(false);
@@ -2235,50 +2202,6 @@ export default function Admin() {
       setDnsCheckLoading(false);
     }
   }, [canManageTenants, handleUnauthorized]);
-
-  const provisionDnsAutomatically = useCallback(async (domain: string) => {
-    if (!canManageTenants) return;
-    const cleanDomain = String(domain || "").trim();
-    if (!cleanDomain) {
-      toast.error("Informe um domínio para configurar automaticamente.");
-      return;
-    }
-
-    setDnsProvisionLoading(true);
-    try {
-      const res = await fetch(`${BASE}/api/admin/tenants/dns-provision`, {
-        method: "POST",
-        headers: authHeaders(),
-        body: JSON.stringify({ domain: cleanDomain }),
-      });
-      if (res.status === 401) { handleUnauthorized(); return; }
-
-      const data = await res.json().catch(() => null) as (DnsProvisionResponse & {
-        error?: string;
-        details?: { dns?: { message?: string } };
-      }) | null;
-
-      if (!res.ok || !data) {
-        const err = data?.details?.dns?.message || data?.message || "Erro ao configurar domínio automaticamente.";
-        toast.error(err);
-        if (data) setDnsProvisionResult(data as DnsProvisionResponse);
-        return;
-      }
-
-      setDnsProvisionResult(data);
-      if (data.ok) {
-        toast.success("Domínio configurado automaticamente com sucesso.");
-      } else {
-        toast.warning("DNS configurado, mas ainda há pendência na Railway.");
-      }
-
-      await Promise.all([checkDns(cleanDomain), fetchDnsGuide(cleanDomain), fetchTenants()]);
-    } catch {
-      toast.error("Erro ao configurar domínio automaticamente.");
-    } finally {
-      setDnsProvisionLoading(false);
-    }
-  }, [canManageTenants, checkDns, fetchDnsGuide, fetchTenants, handleUnauthorized]);
 
   const fetchBrevoStatus = useCallback(async () => {
     try {
@@ -6319,18 +6242,6 @@ export default function Admin() {
                 </Button>
               </div>
 
-              <div className="flex justify-end">
-                <Button
-                  type="button"
-                  className="h-11"
-                  onClick={() => provisionDnsAutomatically(dnsDomainInput)}
-                  disabled={dnsProvisionLoading}
-                >
-                  {dnsProvisionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
-                  <span className="ml-2">Configurar automático</span>
-                </Button>
-              </div>
-
               {dnsGuide?.instructions && (
                 <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm space-y-1">
                   <p className="font-semibold text-blue-900">Registro recomendado</p>
@@ -6352,32 +6263,6 @@ export default function Admin() {
                   <p className="text-xs text-muted-foreground break-all">CNAME: {dnsCheckResult.dns.cname.length ? dnsCheckResult.dns.cname.join(", ") : "-"}</p>
                   <p className="text-xs text-muted-foreground break-all">A: {dnsCheckResult.dns.a.length ? dnsCheckResult.dns.a.join(", ") : "-"}</p>
                   <p className="text-xs text-muted-foreground break-all">Target A: {dnsCheckResult.dns.targetA.length ? dnsCheckResult.dns.targetA.join(", ") : "-"}</p>
-                </div>
-              )}
-
-              {dnsProvisionResult && (
-                <div className="rounded-xl border border-border bg-white p-3 text-sm space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className={`px-2 py-1 rounded-full text-xs font-semibold ${dnsProvisionResult.ok ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
-                      {dnsProvisionResult.ok ? "Provisionado" : "Parcial"}
-                    </span>
-                    <span className="text-muted-foreground">{dnsProvisionResult.message}</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground break-all">
-                    DNS: {dnsProvisionResult.dns.ok ? `ok (${dnsProvisionResult.dns.action || "sem alteração"})` : (dnsProvisionResult.dns.message || "falha")}
-                  </p>
-                  <p className="text-xs text-muted-foreground break-all">
-                    Railway: {dnsProvisionResult.railway.skipped
-                      ? "não configurada (faltam envs)"
-                      : dnsProvisionResult.railway.ok
-                        ? "vínculo criado/confirmado"
-                        : (dnsProvisionResult.railway.message || "falha")}
-                  </p>
-                  {dnsProvisionResult.railway.status && (
-                    <p className="text-xs text-muted-foreground break-all">
-                      SSL: {dnsProvisionResult.railway.status.certificateStatusDetailed || dnsProvisionResult.railway.status.certificateStatus || "pendente"}
-                    </p>
-                  )}
                 </div>
               )}
             </div>
