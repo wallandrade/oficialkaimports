@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { Router, type IRouter } from "express";
-import { and, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
-import { db, ordersTable, sellerCommissionPaymentsTable, sellersTable } from "@workspace/db";
+import { and, desc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
+import { db, ordersTable, sellerCommissionPaymentsTable } from "@workspace/db";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 
 const router: IRouter = Router();
@@ -14,11 +14,6 @@ type CommissionOrderRow = {
   status: string;
   createdAt: Date | string;
   sellerCommissionRateSnapshot: string | number | null;
-};
-
-type SellerCommissionProfile = {
-  hasCommission: boolean;
-  commissionRate: number;
 };
 
 function parseOrderIds(raw: unknown): string[] {
@@ -79,36 +74,9 @@ function getBatchDateKey(value: Date | string | null | undefined): string | null
   return direct || toSaoPauloDateKey(value);
 }
 
-function normalizeSellerCode(value: string | null | undefined): string {
-  return String(value || "").trim().toLowerCase();
-}
-
-async function loadSellerCommissionMap(): Promise<Map<string, SellerCommissionProfile>> {
-  const rows = await db
-    .select({
-      slug: sellersTable.slug,
-      hasCommission: sellersTable.hasCommission,
-      commissionRate: sellersTable.commissionRate,
-    })
-    .from(sellersTable);
-
-  return new Map(
-    rows.map((seller) => [normalizeSellerCode(seller.slug), {
-      hasCommission: Boolean(seller.hasCommission),
-      commissionRate: Number(seller.commissionRate || 0),
-    }] as const),
-  );
-}
-
-function calcCommission(order: CommissionOrderRow, sellerCommissionMap: Map<string, SellerCommissionProfile>): number {
+function calcCommission(order: CommissionOrderRow): number {
   const total = Number(order.total || 0);
-  const snapshotRate = Number(order.sellerCommissionRateSnapshot || 0);
-  const sellerProfile = sellerCommissionMap.get(normalizeSellerCode(order.sellerCode));
-  const rate = snapshotRate > 0
-    ? snapshotRate
-    : sellerProfile
-      ? (sellerProfile.hasCommission ? sellerProfile.commissionRate : 0)
-      : 5;
+  const rate = Number(order.sellerCommissionRateSnapshot || 0);
   if (!Number.isFinite(total) || !Number.isFinite(rate) || total <= 0 || rate <= 0) return 0;
   return Math.round(total * (rate / 100) * 100) / 100;
 }
@@ -123,14 +91,12 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
 
     const { sellerCode, dateFrom, dateTo } = req.query as Record<string, string>;
     const effectiveSellerCode = String(sellerCode || "").trim().toLowerCase();
-    const scopedSellerCode = normalizeSellerCode(scope.sellerCode);
-    if (!scope.hasGlobalAccess && effectiveSellerCode && effectiveSellerCode !== scopedSellerCode) {
+    if (!scope.hasGlobalAccess && effectiveSellerCode && effectiveSellerCode !== scope.sellerCode) {
       res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para outro vendedor." });
       return;
     }
 
-    const activeSellerCode = scope.hasGlobalAccess ? effectiveSellerCode : scopedSellerCode;
-    const sellerCommissionMap = await loadSellerCommissionMap();
+    const activeSellerCode = scope.hasGlobalAccess ? effectiveSellerCode : (scope.sellerCode || "");
     const dateConditions = [];
     const startDate = normalizeDate(dateFrom, "start");
     const endDate = normalizeDate(dateTo, "end");
@@ -142,7 +108,7 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
       isNull(ordersTable.sellerCommissionBatchId),
     ];
     if (activeSellerCode) {
-      pendingConditions.push(eq(sql`lower(${ordersTable.sellerCode})`, activeSellerCode));
+      pendingConditions.push(eq(ordersTable.sellerCode, activeSellerCode));
     }
     pendingConditions.push(...dateConditions);
 
@@ -162,7 +128,7 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
 
     const batchConditions = [];
     if (activeSellerCode) {
-      batchConditions.push(eq(sql`lower(${sellerCommissionPaymentsTable.sellerCode})`, activeSellerCode));
+      batchConditions.push(eq(sellerCommissionPaymentsTable.sellerCode, activeSellerCode));
     }
 
     const batchRows = await db
@@ -194,7 +160,7 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
         status: row.status,
         createdAt: toIso(row.createdAt),
         sellerCommissionRateSnapshot: Number(row.sellerCommissionRateSnapshot || 0),
-        commissionAmount: calcCommission(row, sellerCommissionMap),
+        commissionAmount: calcCommission(row),
       }))
       .filter((row) => row.commissionAmount > 0)
       .filter((row) => {
@@ -248,19 +214,16 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
     };
 
     const effectiveSellerCode = String(sellerCode || "").trim().toLowerCase();
-    const scopedSellerCode = normalizeSellerCode(scope.sellerCode);
-    if (!scope.hasGlobalAccess && effectiveSellerCode && effectiveSellerCode !== scopedSellerCode) {
+    if (!scope.hasGlobalAccess && effectiveSellerCode && effectiveSellerCode !== scope.sellerCode) {
       res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para outro vendedor." });
       return;
     }
 
-    const targetSellerCode = scope.hasGlobalAccess ? effectiveSellerCode : scopedSellerCode;
+    const targetSellerCode = scope.hasGlobalAccess ? effectiveSellerCode : (scope.sellerCode || "");
     if (!targetSellerCode) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Selecione um vendedor." });
       return;
     }
-
-    const sellerCommissionMap = await loadSellerCommissionMap();
 
     const dateConditions = [];
     const startDate = normalizeDate(dateFrom, "start");
@@ -271,7 +234,7 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
     const orderIdList = Array.isArray(orderIds) ? Array.from(new Set(orderIds.map((value) => String(value || "").trim()).filter(Boolean))) : [];
 
     const conditions = [
-      eq(sql`lower(${ordersTable.sellerCode})`, targetSellerCode),
+      eq(ordersTable.sellerCode, targetSellerCode),
       inArray(ordersTable.status, ["paid", "completed"]),
       isNull(ordersTable.sellerCommissionBatchId),
       ...dateConditions,
@@ -304,7 +267,7 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
         status: row.status,
         createdAt: toIso(row.createdAt),
         sellerCommissionRateSnapshot: Number(row.sellerCommissionRateSnapshot || 0),
-        commissionAmount: calcCommission(row, sellerCommissionMap),
+        commissionAmount: calcCommission(row),
       }))
       .filter((row) => row.commissionAmount > 0);
 
@@ -386,7 +349,7 @@ router.patch("/admin/seller-commission-payments/:id/pay", requireAdminAuth, asyn
       return;
     }
 
-    if (!scope.hasGlobalAccess && normalizeSellerCode(existing[0].sellerCode) !== normalizeSellerCode(scope.sellerCode)) {
+    if (!scope.hasGlobalAccess && existing[0].sellerCode !== scope.sellerCode) {
       res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para este lote." });
       return;
     }
