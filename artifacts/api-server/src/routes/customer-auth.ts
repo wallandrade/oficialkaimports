@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import crypto from "crypto";
 import { db, customerUsersTable, ordersTable, affiliatesTable } from "@workspace/db";
-import { eq, sql, desc, inArray, and, asc } from "drizzle-orm";
+import { eq, sql, desc, inArray, and, asc, isNull, or } from "drizzle-orm";
 import {
   createCustomerSession,
   generateSalt,
@@ -12,9 +12,33 @@ import {
 } from "../middlewares/customer-auth";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { normalizeAffiliateCode, registerAffiliateLead, resolveAffiliateByCode } from "../lib/affiliates";
-import { resolvePublicTenantId } from "../lib/tenant-context";
+import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 
 const router: IRouter = Router();
+
+function buildOrdersTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(eq(ordersTable.tenantId, tenantId), isNull(ordersTable.tenantId), eq(ordersTable.tenantId, ""));
+  }
+
+  return eq(ordersTable.tenantId, tenantId);
+}
+
+function buildCustomerUsersTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(eq(customerUsersTable.tenantId, tenantId), isNull(customerUsersTable.tenantId), eq(customerUsersTable.tenantId, ""));
+  }
+
+  return eq(customerUsersTable.tenantId, tenantId);
+}
+
+function buildAffiliatesTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(eq(affiliatesTable.tenantId, tenantId), isNull(affiliatesTable.tenantId), eq(affiliatesTable.tenantId, ""));
+  }
+
+  return eq(affiliatesTable.tenantId, tenantId);
+}
 
 router.post("/auth/register", async (req, res) => {
   const tenantId = await resolvePublicTenantId(req as Request);
@@ -201,7 +225,7 @@ router.get("/admin/customers", requireAdminAuth, async (req, res) => {
       .from(ordersTable)
       .where(
         and(
-          eq(ordersTable.tenantId, adminScope.tenantId),
+          buildOrdersTenantWhere(adminScope.tenantId),
           adminScope.hasGlobalAccess ? undefined : eq(ordersTable.sellerCode, adminScope.sellerCode!),
           sql`coalesce(${ordersTable.clientEmail}, '') <> ''`,
         ),
@@ -231,7 +255,7 @@ router.get("/admin/customers", requireAdminAuth, async (req, res) => {
         createdAt: customerUsersTable.createdAt,
       })
       .from(customerUsersTable)
-      .where(eq(customerUsersTable.tenantId, adminScope.tenantId))
+      .where(buildCustomerUsersTenantWhere(adminScope.tenantId))
       .orderBy(desc(customerUsersTable.createdAt));
 
     const scopedCustomers = adminScope.hasGlobalAccess
@@ -243,7 +267,7 @@ router.get("/admin/customers", requireAdminAuth, async (req, res) => {
     const affiliateRows = await db
       .select({ userId: affiliatesTable.userId, affiliateCode: affiliatesTable.affiliateCode })
       .from(affiliatesTable)
-      .where(scopedCustomerIds.length > 0 ? and(eq(affiliatesTable.tenantId, adminScope.tenantId), inArray(affiliatesTable.userId, scopedCustomerIds)) : and(eq(affiliatesTable.tenantId, adminScope.tenantId)));
+      .where(scopedCustomerIds.length > 0 ? and(buildAffiliatesTenantWhere(adminScope.tenantId), inArray(affiliatesTable.userId, scopedCustomerIds)) : and(buildAffiliatesTenantWhere(adminScope.tenantId)));
 
     const affiliateCodeMap = new Map<string, string>();
     for (const row of affiliateRows) {
@@ -334,7 +358,7 @@ router.get("/admin/customers/recurring", requireAdminAuth, async (req, res) => {
       .from(ordersTable)
       .where(
         and(
-          eq(ordersTable.tenantId, adminScope.tenantId),
+          buildOrdersTenantWhere(adminScope.tenantId),
           adminScope.hasGlobalAccess ? undefined : eq(ordersTable.sellerCode, adminScope.sellerCode!),
           sql`${customerKey} <> ''`,
         ),
@@ -355,7 +379,7 @@ router.get("/admin/customers/recurring", requireAdminAuth, async (req, res) => {
       .from(ordersTable)
       .where(
         and(
-          eq(ordersTable.tenantId, adminScope.tenantId),
+          buildOrdersTenantWhere(adminScope.tenantId),
           adminScope.hasGlobalAccess ? undefined : eq(ordersTable.sellerCode, adminScope.sellerCode!),
           sql`${customerKey} <> ''`,
         ),
