@@ -2,6 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { db, adminUserTenantsTable, adminUsersTable, tenantSettingsTable, tenantsTable } from "@workspace/db";
 import { and, asc, eq } from "drizzle-orm";
 import dns from "node:dns/promises";
+import crypto from "node:crypto";
 import { getAdminScope, requirePrimaryAdmin } from "./admin-auth";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-context";
 
@@ -15,6 +16,18 @@ function normalizeSlug(value: string): string {
     .replace(/[^a-z0-9-]/g, "")
     .replace(/-+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+function hashPassword(password: string, salt: string): string {
+  return crypto.createHash("sha256").update(password + salt).digest("hex");
+}
+
+function generateSalt(): string {
+  return crypto.randomBytes(16).toString("hex");
+}
+
+function generateId(): string {
+  return crypto.randomBytes(8).toString("hex");
 }
 
 function normalizeDomain(value: string): string {
@@ -234,18 +247,25 @@ router.get("/admin/tenants", requirePrimaryAdmin, async (req, res) => {
 router.post("/admin/tenants", requirePrimaryAdmin, async (req, res) => {
   try {
     if (!ensureDefaultTenantScope(req, res)) return;
+    const scope = getAdminScope(req);
 
     const {
       name,
       slug,
       domain,
       adminUsername,
+      createAdminUser,
+      newAdminUsername,
+      newAdminPassword,
       cloneSettingsFromDefault,
     } = req.body as {
       name?: string;
       slug?: string;
       domain?: string;
       adminUsername?: string;
+      createAdminUser?: boolean;
+      newAdminUsername?: string;
+      newAdminPassword?: string;
       cloneSettingsFromDefault?: boolean;
     };
 
@@ -253,6 +273,9 @@ router.post("/admin/tenants", requirePrimaryAdmin, async (req, res) => {
     const cleanSlug = normalizeSlug(String(slug || ""));
     const cleanDomain = normalizeDomain(String(domain || ""));
     const cleanAdminUsername = String(adminUsername || "").trim().toLowerCase();
+    const shouldCreateAdminUser = createAdminUser === true;
+    const cleanNewAdminUsername = String(newAdminUsername || "").trim().toLowerCase();
+    const cleanNewAdminPassword = String(newAdminPassword || "");
 
     if (!cleanName) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Nome da loja é obrigatório." });
@@ -266,7 +289,22 @@ router.post("/admin/tenants", requirePrimaryAdmin, async (req, res) => {
     const tenantId = `tenant_${cleanSlug}`;
     let adminUserId: string | null = null;
 
-    if (cleanAdminUsername) {
+    if (shouldCreateAdminUser) {
+      if (!cleanNewAdminUsername) {
+        res.status(400).json({ error: "INVALID_INPUT", message: "Informe o usuário do novo admin da loja." });
+        return;
+      }
+      if (cleanNewAdminPassword.length < 6) {
+        res.status(400).json({ error: "INVALID_INPUT", message: "A senha do novo admin deve ter no mínimo 6 caracteres." });
+        return;
+      }
+
+      const existingAdminByUsername = await resolveAdminUserByUsername(cleanNewAdminUsername);
+      if (existingAdminByUsername) {
+        res.status(409).json({ error: "ADMIN_USERNAME_EXISTS", message: "Já existe um admin com esse usuário." });
+        return;
+      }
+    } else if (cleanAdminUsername) {
       const adminUser = await resolveAdminUserByUsername(cleanAdminUsername);
       if (!adminUser) {
         res.status(400).json({ error: "ADMIN_NOT_FOUND", message: "Admin informado não foi encontrado." });
@@ -295,60 +333,79 @@ router.post("/admin/tenants", requirePrimaryAdmin, async (req, res) => {
       }
     }
 
-    await db.insert(tenantsTable).values({
-      id: tenantId,
-      slug: cleanSlug,
-      name: cleanName,
-      status: "active",
-      domain: cleanDomain || null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
+    await db.transaction(async (tx) => {
+      await tx.insert(tenantsTable).values({
+        id: tenantId,
+        slug: cleanSlug,
+        name: cleanName,
+        status: "active",
+        domain: cleanDomain || null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
 
-    if (adminUserId) {
-      await db
-        .insert(adminUserTenantsTable)
-        .values({
-          adminUserId,
-          tenantId,
-          role: "owner",
+      if (shouldCreateAdminUser) {
+        const salt = generateSalt();
+        const createdAdminId = generateId();
+
+        await tx.insert(adminUsersTable).values({
+          id: createdAdminId,
+          username: cleanNewAdminUsername,
+          passwordHash: hashPassword(cleanNewAdminPassword, salt),
+          salt,
+          isPrimary: false,
+          createdBy: scope?.username || null,
           createdAt: new Date(),
-        })
-        .onDuplicateKeyUpdate({
-          set: {
-            role: "owner",
-          },
         });
-    }
 
-    if (cloneSettingsFromDefault !== false) {
-      try {
-        const sourceSettings = await db
-          .select({ key: tenantSettingsTable.key, value: tenantSettingsTable.value })
-          .from(tenantSettingsTable)
-          .where(eq(tenantSettingsTable.tenantId, DEFAULT_TENANT_ID));
-
-        if (sourceSettings.length > 0) {
-          await db
-            .insert(tenantSettingsTable)
-            .values(
-              sourceSettings.map((row) => ({
-                tenantId,
-                key: row.key,
-                value: row.value,
-                updatedAt: new Date(),
-              })),
-            )
-            .onDuplicateKeyUpdate({
-              set: {
-                updatedAt: new Date(),
-              },
-            });
-        }
-      } catch (err) {
-        console.warn("[Tenants] clone settings skipped:", err);
+        adminUserId = createdAdminId;
       }
-    }
+
+      if (adminUserId) {
+        await tx
+          .insert(adminUserTenantsTable)
+          .values({
+            adminUserId,
+            tenantId,
+            role: "owner",
+            createdAt: new Date(),
+          })
+          .onDuplicateKeyUpdate({
+            set: {
+              role: "owner",
+            },
+          });
+      }
+
+      if (cloneSettingsFromDefault !== false) {
+        try {
+          const sourceSettings = await tx
+            .select({ key: tenantSettingsTable.key, value: tenantSettingsTable.value })
+            .from(tenantSettingsTable)
+            .where(eq(tenantSettingsTable.tenantId, DEFAULT_TENANT_ID));
+
+          if (sourceSettings.length > 0) {
+            await tx
+              .insert(tenantSettingsTable)
+              .values(
+                sourceSettings.map((row) => ({
+                  tenantId,
+                  key: row.key,
+                  value: row.value,
+                  updatedAt: new Date(),
+                })),
+              )
+              .onDuplicateKeyUpdate({
+                set: {
+                  updatedAt: new Date(),
+                },
+              });
+          }
+        } catch (err) {
+          console.warn("[Tenants] clone settings skipped:", err);
+        }
+      }
+    });
 
     const [created] = await db
       .select({
@@ -363,7 +420,16 @@ router.post("/admin/tenants", requirePrimaryAdmin, async (req, res) => {
       .where(and(eq(tenantsTable.id, tenantId), eq(tenantsTable.slug, cleanSlug)))
       .limit(1);
 
-    res.status(201).json({ ok: true, tenant: created || null });
+    res.status(201).json({
+      ok: true,
+      tenant: created || null,
+      createdAdmin: shouldCreateAdminUser
+        ? {
+            username: cleanNewAdminUsername,
+            isPrimary: false,
+          }
+        : null,
+    });
   } catch (err) {
     console.error("[Tenants] POST error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao criar loja." });

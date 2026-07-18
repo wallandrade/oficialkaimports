@@ -1399,6 +1399,9 @@ export default function Admin() {
     slug: "",
     domain: "",
     adminUsername: "",
+    createAdminUser: false,
+    newAdminUsername: "",
+    newAdminPassword: "",
     cloneSettingsFromDefault: true,
   });
   const [dnsDomainInput, setDnsDomainInput] = useState("");
@@ -2078,12 +2081,25 @@ export default function Admin() {
       slug: tenantForm.slug.trim(),
       domain: tenantForm.domain.trim(),
       adminUsername: tenantForm.adminUsername.trim(),
+      createAdminUser: tenantForm.createAdminUser,
+      newAdminUsername: tenantForm.newAdminUsername.trim(),
+      newAdminPassword: tenantForm.newAdminPassword,
       cloneSettingsFromDefault: tenantForm.cloneSettingsFromDefault,
     };
 
     if (!payload.name || !payload.slug) {
       toast.error("Preencha nome e slug da loja.");
       return;
+    }
+    if (payload.createAdminUser) {
+      if (!payload.newAdminUsername) {
+        toast.error("Informe o usuário do novo admin da loja.");
+        return;
+      }
+      if ((payload.newAdminPassword || "").length < 6) {
+        toast.error("A senha do novo admin deve ter no mínimo 6 caracteres.");
+        return;
+      }
     }
 
     setTenantCreating(true);
@@ -2096,18 +2112,25 @@ export default function Admin() {
 
       if (res.status === 401) { handleUnauthorized(); return; }
 
-      const data = await res.json().catch(() => null) as { message?: string } | null;
+      const data = await res.json().catch(() => null) as { message?: string; createdAdmin?: { username?: string } | null } | null;
       if (!res.ok) {
         toast.error(data?.message || "Erro ao criar loja.");
         return;
       }
 
-      toast.success("Loja criada com sucesso.");
+      if (data?.createdAdmin?.username) {
+        toast.success(`Loja criada com sucesso. Admin criado: ${data.createdAdmin.username}`);
+      } else {
+        toast.success("Loja criada com sucesso.");
+      }
       setTenantForm({
         name: "",
         slug: "",
         domain: "",
         adminUsername: "",
+        createAdminUser: false,
+        newAdminUsername: "",
+        newAdminPassword: "",
         cloneSettingsFromDefault: true,
       });
       fetchTenants();
@@ -6115,14 +6138,52 @@ export default function Admin() {
                   placeholder="Domínio público (ex: loja2.seudominio.com)"
                   className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
                 />
-                <input
-                  type="text"
-                  value={tenantForm.adminUsername}
-                  onChange={(e) => setTenantForm((p) => ({ ...p, adminUsername: e.target.value }))}
-                  placeholder="Usuário admin para vincular (opcional)"
-                  className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
-                />
+                {!tenantForm.createAdminUser ? (
+                  <input
+                    type="text"
+                    value={tenantForm.adminUsername}
+                    onChange={(e) => setTenantForm((p) => ({ ...p, adminUsername: e.target.value }))}
+                    placeholder="Usuário admin para vincular (opcional)"
+                    className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+                  />
+                ) : (
+                  <input
+                    type="text"
+                    value={tenantForm.newAdminUsername}
+                    onChange={(e) => setTenantForm((p) => ({ ...p, newAdminUsername: e.target.value }))}
+                    placeholder="Novo usuário admin da loja"
+                    className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+                  />
+                )}
               </div>
+              {tenantForm.createAdminUser ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <input
+                    type="password"
+                    value={tenantForm.newAdminPassword}
+                    onChange={(e) => setTenantForm((p) => ({ ...p, newAdminPassword: e.target.value }))}
+                    placeholder="Senha do novo admin (mínimo 6 caracteres)"
+                    className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+                  />
+                  <div className="h-11 px-3 rounded-xl border border-dashed border-border text-xs text-muted-foreground flex items-center">
+                    O novo usuário será criado como admin da loja (sem acesso primário).
+                  </div>
+                </div>
+              ) : null}
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={tenantForm.createAdminUser}
+                  onChange={(e) => setTenantForm((p) => ({
+                    ...p,
+                    createAdminUser: e.target.checked,
+                    adminUsername: e.target.checked ? "" : p.adminUsername,
+                    newAdminUsername: e.target.checked ? p.newAdminUsername : "",
+                    newAdminPassword: e.target.checked ? p.newAdminPassword : "",
+                  }))}
+                />
+                Criar usuário admin novo para esta loja
+              </label>
               <label className="flex items-center gap-2 text-sm text-muted-foreground">
                 <input
                   type="checkbox"
