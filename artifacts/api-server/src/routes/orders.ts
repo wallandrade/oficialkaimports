@@ -987,15 +987,16 @@ function parseOrderItemsForInventory(raw: unknown): Array<{ productId: string | 
   return [...grouped.values()];
 }
 
-async function attachLegacyGuestOrdersToCustomer(userId: string, email: string): Promise<void> {
+async function attachLegacyGuestOrdersToCustomer(userId: string, email: string, tenantId: string): Promise<void> {
   const normalizedEmail = String(email || "").trim().toLowerCase();
-  if (!userId || !normalizedEmail) return;
+  if (!userId || !normalizedEmail || !tenantId) return;
 
   await db
     .update(ordersTable)
     .set({ userId })
     .where(
       and(
+        buildOrderTenantWhere(tenantId),
         isNull(ordersTable.userId),
         sql`lower(trim(${ordersTable.clientEmail})) = ${normalizedEmail}`,
       ),
@@ -1031,7 +1032,7 @@ router.post("/orders", async (req, res) => {
 
     const normalizedAffiliateCode = normalizeAffiliateCode(req.body?.affiliateCode);
     const affiliate = normalizedAffiliateCode
-      ? await resolveAffiliateByCode(normalizedAffiliateCode)
+      ? await resolveAffiliateByCode(normalizedAffiliateCode, tenantId)
       : null;
     const affiliateUserId = affiliate?.userId && affiliate.userId !== customerSession?.userId
       ? affiliate.userId
@@ -1046,7 +1047,7 @@ router.post("/orders", async (req, res) => {
           commissionRate: sellersTable.commissionRate,
         })
         .from(sellersTable)
-        .where(eq(sellersTable.slug, slug));
+        .where(and(eq(sellersTable.tenantId, tenantId), eq(sellersTable.slug, slug)));
       if (seller?.hasCommission) {
         sellerCommissionRateSnapshot = Number(seller.commissionRate ?? 0);
       }
@@ -1102,7 +1103,10 @@ router.post("/orders", async (req, res) => {
     const productIds = Array.from(new Set(productItems.map((p: { id?: string }) => String(p?.id || "")).filter(Boolean)));
     let productRows = new Map<string, typeof productsTable.$inferSelect>();
     if (productIds.length > 0) {
-      const rows = await db.select().from(productsTable).where(inArray(productsTable.id, productIds));
+      const rows = await db
+        .select()
+        .from(productsTable)
+        .where(and(eq(productsTable.tenantId, tenantId), inArray(productsTable.id, productIds)));
       productRows = new Map(rows.map((row) => [row.id, row]));
     }
 
@@ -1195,7 +1199,10 @@ router.post("/orders", async (req, res) => {
     let computedDiscountAmount = 0;
     const rawCouponCode = req.body.couponCode ? String(req.body.couponCode).trim().toUpperCase() : "";
     if (rawCouponCode) {
-      const [coupon] = await db.select().from(couponsTable).where(eq(couponsTable.code, rawCouponCode));
+      const [coupon] = await db
+        .select()
+        .from(couponsTable)
+        .where(and(eq(couponsTable.tenantId, tenantId), eq(couponsTable.code, rawCouponCode)));
       if (!coupon) {
         res.status(400).json({ error: "INVALID_COUPON", message: "Cupom não encontrado." });
         return;
@@ -1258,12 +1265,13 @@ router.post("/orders", async (req, res) => {
       if (!geo) return;
       db.update(ordersTable)
         .set({ ipCity: geo.city, ipRegion: geo.region, ipIsp: geo.isp, ipIsProxy: geo.isProxy })
-        .where(eq(ordersTable.id, id))
+        .where(and(eq(ordersTable.id, id), buildOrderTenantWhere(tenantId)))
         .catch(() => {});
     }).catch(() => {});
 
     if (affiliateUserId) {
       await registerAffiliateLead({
+        tenantId,
         affiliateUserId,
         referredUserId: customerSession?.userId ?? null,
         referredEmail: client?.email ?? null,
@@ -1316,18 +1324,19 @@ router.post("/orders", async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get("/me/orders", requireCustomerAuth, async (req, res) => {
   try {
+    const tenantId = await resolvePublicTenantId(req as any);
     const customerSession = getCustomerSession(req);
     if (!customerSession) {
       res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
       return;
     }
 
-    await attachLegacyGuestOrdersToCustomer(customerSession.userId, customerSession.email);
+    await attachLegacyGuestOrdersToCustomer(customerSession.userId, customerSession.email, tenantId);
 
     const orders = await db
       .select()
       .from(ordersTable)
-      .where(eq(ordersTable.userId, customerSession.userId))
+      .where(and(buildOrderTenantWhere(tenantId), eq(ordersTable.userId, customerSession.userId)))
       .orderBy(desc(ordersTable.createdAt));
 
     res.json({ orders: orders.map(mapOrder) });
@@ -1342,13 +1351,14 @@ router.get("/me/orders", requireCustomerAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get("/me/orders/:id", requireCustomerAuth, async (req, res) => {
   try {
+    const tenantId = await resolvePublicTenantId(req as any);
     const customerSession = getCustomerSession(req);
     if (!customerSession) {
       res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
       return;
     }
 
-    await attachLegacyGuestOrdersToCustomer(customerSession.userId, customerSession.email);
+    await attachLegacyGuestOrdersToCustomer(customerSession.userId, customerSession.email, tenantId);
 
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
@@ -1357,7 +1367,7 @@ router.get("/me/orders/:id", requireCustomerAuth, async (req, res) => {
     const rows = await db
       .select()
       .from(ordersTable)
-      .where(and(eq(ordersTable.id, orderId), eq(ordersTable.userId, customerSession.userId)))
+      .where(and(eq(ordersTable.id, orderId), buildOrderTenantWhere(tenantId), eq(ordersTable.userId, customerSession.userId)))
       .limit(1);
 
     if (!rows[0]) {
