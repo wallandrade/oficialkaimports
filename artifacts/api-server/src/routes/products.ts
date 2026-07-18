@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { db, productsTable, productCostHistoryTable, ordersTable, siteSettingsTable } from "@workspace/db";
 import { and, eq, asc, desc, gte, isNull, or } from "drizzle-orm";
 import crypto from "crypto";
-import { getAdminScope, requirePrimaryAdmin } from "./admin-auth";
+import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { getR2MissingConfig, isR2Configured, uploadProductImageToR2 } from "../lib/r2";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 
@@ -287,6 +287,12 @@ function buildProductTenantWhere(tenantId: string) {
   return eq(productsTable.tenantId, tenantId);
 }
 
+function canManageProducts(scope: ReturnType<typeof getAdminScope>): boolean {
+  if (!scope) return false;
+  if (scope.isPrimary) return true;
+  return scope.tenantId !== DEFAULT_TENANT_ID;
+}
+
 // ─── Public ──────────────────────────────────────────────────────────────────
 
 /**
@@ -334,9 +340,14 @@ router.get("/products", async (req, res) => {
 // ─── Admin CRUD ───────────────────────────────────────────────────────────────
 
 /** GET /api/admin/products */
-router.get("/admin/products", requirePrimaryAdmin, async (req, res) => {
+router.get("/admin/products", requireAdminAuth, async (req, res) => {
   try {
-    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+    const scope = getAdminScope(req);
+    if (!canManageProducts(scope)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar produtos." });
+      return;
+    }
+    const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
     const rows = await db
       .select()
       .from(productsTable)
@@ -350,9 +361,14 @@ router.get("/admin/products", requirePrimaryAdmin, async (req, res) => {
 });
 
 /** GET /api/admin/products/backup */
-router.get("/admin/products/backup", requirePrimaryAdmin, async (req, res) => {
+router.get("/admin/products/backup", requireAdminAuth, async (req, res) => {
   try {
-    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+    const scope = getAdminScope(req);
+    if (!canManageProducts(scope)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar produtos." });
+      return;
+    }
+    const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
     const rows = await db
       .select()
       .from(productsTable)
@@ -384,9 +400,14 @@ router.get("/admin/products/backup", requirePrimaryAdmin, async (req, res) => {
 });
 
 /** POST /api/admin/products/restore */
-router.post("/admin/products/restore", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/products/restore", requireAdminAuth, async (req, res) => {
   try {
-    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+    const scope = getAdminScope(req);
+    if (!canManageProducts(scope)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar produtos." });
+      return;
+    }
+    const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
     const { mode, backup } = req.body as {
       mode?: "merge" | "replace";
       backup?: unknown;
@@ -499,8 +520,14 @@ router.post("/admin/products/restore", requirePrimaryAdmin, async (req, res) => 
 });
 
 /** POST /api/admin/products/upload-image */
-router.post("/admin/products/upload-image", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/products/upload-image", requireAdminAuth, async (req, res) => {
   try {
+    const scope = getAdminScope(req);
+    if (!canManageProducts(scope)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar produtos." });
+      return;
+    }
+
     const { imageData, productId } = req.body as {
       imageData?: string;
       productId?: string | null;
@@ -543,9 +570,14 @@ router.post("/admin/products/upload-image", requirePrimaryAdmin, async (req, res
 });
 
 /** POST /api/admin/products */
-router.post("/admin/products", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/products", requireAdminAuth, async (req, res) => {
   try {
-    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+    const scope = getAdminScope(req);
+    if (!canManageProducts(scope)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar produtos." });
+      return;
+    }
+    const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
     const {
       name, description, category, brand, unit, price,
       costPrice, promoPrice, promoEndsAt, bulkDiscountEnabled, bulkDiscountTiers, variantGroups, image, isActive, isSoldOut, isLaunch, sortOrder,
@@ -603,9 +635,14 @@ router.post("/admin/products", requirePrimaryAdmin, async (req, res) => {
 });
 
 /** PATCH /api/admin/products/:id */
-router.patch("/admin/products/:id", requirePrimaryAdmin, async (req, res) => {
+router.patch("/admin/products/:id", requireAdminAuth, async (req, res) => {
   try {
-    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+    const scope = getAdminScope(req);
+    if (!canManageProducts(scope)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar produtos." });
+      return;
+    }
+    const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
       const {
@@ -701,9 +738,14 @@ router.patch("/admin/products/:id", requirePrimaryAdmin, async (req, res) => {
 });
 
 /** GET /api/admin/products/:id/cost-history */
-router.get("/admin/products/:id/cost-history", requirePrimaryAdmin, async (req, res) => {
+router.get("/admin/products/:id/cost-history", requireAdminAuth, async (req, res) => {
   try {
-    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+    const scope = getAdminScope(req);
+    if (!canManageProducts(scope)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar produtos." });
+      return;
+    }
+    const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
     const [product] = await db.select({ id: productsTable.id }).from(productsTable).where(and(eq(productsTable.id, id), buildProductTenantWhere(tenantId)));
@@ -721,9 +763,14 @@ router.get("/admin/products/:id/cost-history", requirePrimaryAdmin, async (req, 
 });
 
 /** DELETE /api/admin/products/:id */
-router.delete("/admin/products/:id", requirePrimaryAdmin, async (req, res) => {
+router.delete("/admin/products/:id", requireAdminAuth, async (req, res) => {
   try {
-    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+    const scope = getAdminScope(req);
+    if (!canManageProducts(scope)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar produtos." });
+      return;
+    }
+    const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
     await db.delete(productsTable).where(and(eq(productsTable.id, id), buildProductTenantWhere(tenantId)));

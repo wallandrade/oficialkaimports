@@ -861,7 +861,6 @@ type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "p
 const PRIMARY_ONLY_TABS = new Set<TabType>([
   "users",
   "coupons",
-  "products",
   "fretes",
   "orderBumps",
   "inventory",
@@ -1432,6 +1431,7 @@ export default function Admin() {
   // Live Visitors Tracking
   const [liveStats, setLiveStats] = useState({ catalog: 0, checkout: 0 });
   const canManageTenants = isPrimary && adminTenantId === "tenant_loja1";
+  const canManageProductsTab = isPrimary || adminTenantId !== "tenant_loja1";
 
   // -------------------- FIM DOS useState --------------------
 
@@ -2951,10 +2951,10 @@ export default function Admin() {
   }, [tab, authChecked, fetchUsers, fetchCustomers, fetchRecurringCustomers]);
 
   useEffect(() => {
-    if ((!isPrimary && PRIMARY_ONLY_TABS.has(tab)) || (tab === "lojas" && !canManageTenants)) {
+    if ((tab === "products" && !canManageProductsTab) || (!isPrimary && PRIMARY_ONLY_TABS.has(tab)) || (tab === "lojas" && !canManageTenants)) {
       setTab("orders");
     }
-  }, [isPrimary, tab, canManageTenants]);
+  }, [isPrimary, tab, canManageTenants, canManageProductsTab]);
 
   // -------------------------------------------------------------------------
   // Handlers
@@ -4302,9 +4302,11 @@ export default function Admin() {
             { key: "customers",     label: "Clientes",         icon: "UserPlus",    count: customerUsers.length || undefined },
             { key: "recurringCustomers", label: "Clientes recorrentes", icon: "RefreshCw", count: recurringCustomers.length || undefined },
             { key: "support",       label: "Suporte",          icon: "MessageCircle", count: supportTickets.filter((t) => t.status === "open").length || undefined },
+            ...(canManageProductsTab ? [
+              { key: "products" as TabType, label: "Produtos", icon: "ShoppingBag", count: products.length },
+            ] : []),
             ...(isPrimary ? [
               { key: "coupons",       label: "Cupons",           icon: "Ticket",      count: coupons.length },
-              { key: "products",      label: "Produtos",         icon: "ShoppingBag", count: products.length },
               { key: "fretes",        label: "Fretes",           icon: "Truck",       count: shippingOptions.length },
               { key: "orderBumps",    label: "Order Bumps",      icon: "Zap",         count: orderBumps.length },
               { key: "inventory",     label: "Estoque",          icon: "Package",     count: pendingReshipments.length || undefined },
