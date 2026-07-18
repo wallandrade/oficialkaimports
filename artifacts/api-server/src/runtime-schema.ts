@@ -285,30 +285,64 @@ async function ensureAffiliatesTables(databaseName: string): Promise<void> {
 }
 
 async function ensureSellerCommissionPaymentsTable(databaseName: string): Promise<void> {
-  if (await tableExists("seller_commission_payments", databaseName)) return;
+  const exists = await tableExists("seller_commission_payments", databaseName);
+  if (!exists) {
+    await pool.query(`
+      CREATE TABLE seller_commission_payments (
+        id VARCHAR(255) NOT NULL PRIMARY KEY,
+        seller_code VARCHAR(255) NOT NULL,
+        order_ids JSON NOT NULL,
+        period_start_date VARCHAR(10) NULL,
+        period_end_date VARCHAR(10) NULL,
+        period_start TIMESTAMP NULL,
+        period_end TIMESTAMP NULL,
+        total_amount DECIMAL(10,2) NOT NULL,
+        order_count INT NOT NULL,
+        status VARCHAR(32) NOT NULL DEFAULT 'open',
+        payment_method VARCHAR(64) NULL,
+        paid_at TIMESTAMP NULL,
+        notes TEXT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY seller_commission_payments_seller_code_idx (seller_code),
+        KEY seller_commission_payments_status_idx (status),
+        KEY seller_commission_payments_created_at_idx (created_at)
+      )
+    `);
+    return;
+  }
 
-  await pool.query(`
-    CREATE TABLE seller_commission_payments (
-      id VARCHAR(255) NOT NULL PRIMARY KEY,
-      seller_code VARCHAR(255) NOT NULL,
-      order_ids JSON NOT NULL,
-      period_start_date VARCHAR(10) NULL,
-      period_end_date VARCHAR(10) NULL,
-      period_start TIMESTAMP NULL,
-      period_end TIMESTAMP NULL,
-      total_amount DECIMAL(10,2) NOT NULL,
-      order_count INT NOT NULL,
-      status VARCHAR(32) NOT NULL DEFAULT 'open',
-      payment_method VARCHAR(64) NULL,
-      paid_at TIMESTAMP NULL,
-      notes TEXT NULL,
-      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      KEY seller_commission_payments_seller_code_idx (seller_code),
-      KEY seller_commission_payments_status_idx (status),
-      KEY seller_commission_payments_created_at_idx (created_at)
-    )
-  `);
+  const definitions = [
+    { name: "period_start_date", sql: "ALTER TABLE seller_commission_payments ADD COLUMN period_start_date VARCHAR(10) NULL" },
+    { name: "period_end_date", sql: "ALTER TABLE seller_commission_payments ADD COLUMN period_end_date VARCHAR(10) NULL" },
+    { name: "period_start", sql: "ALTER TABLE seller_commission_payments ADD COLUMN period_start TIMESTAMP NULL" },
+    { name: "period_end", sql: "ALTER TABLE seller_commission_payments ADD COLUMN period_end TIMESTAMP NULL" },
+    { name: "payment_method", sql: "ALTER TABLE seller_commission_payments ADD COLUMN payment_method VARCHAR(64) NULL" },
+    { name: "paid_at", sql: "ALTER TABLE seller_commission_payments ADD COLUMN paid_at TIMESTAMP NULL" },
+    { name: "notes", sql: "ALTER TABLE seller_commission_payments ADD COLUMN notes TEXT NULL" },
+  ];
+
+  for (const definition of definitions) {
+    if (!(await columnExists("seller_commission_payments", definition.name, databaseName))) {
+      await pool.query(definition.sql);
+    }
+  }
+
+  const indexDefinitions = [
+    { name: "seller_commission_payments_seller_code_idx", sql: "ALTER TABLE seller_commission_payments ADD KEY seller_commission_payments_seller_code_idx (seller_code)" },
+    { name: "seller_commission_payments_status_idx", sql: "ALTER TABLE seller_commission_payments ADD KEY seller_commission_payments_status_idx (status)" },
+    { name: "seller_commission_payments_created_at_idx", sql: "ALTER TABLE seller_commission_payments ADD KEY seller_commission_payments_created_at_idx (created_at)" },
+  ];
+
+  for (const indexDefinition of indexDefinitions) {
+    if (!(await indexExists("seller_commission_payments", indexDefinition.name, databaseName))) {
+      try {
+        await pool.query(indexDefinition.sql);
+      } catch {
+        // Ignore duplicate or unsupported index creation issues.
+      }
+    }
+  }
 }
 
 async function ensureRaffleTables(databaseName: string): Promise<void> {

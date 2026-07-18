@@ -1582,7 +1582,11 @@ export default function Admin() {
       if (commissionDateTo) params.set("dateTo", commissionDateTo);
       const res = await fetch(`${BASE}/api/admin/seller-commission-payments?${params.toString()}`, { headers: authHeaders(), cache: "no-store" });
       if (res.status === 401) { handleUnauthorized(); return; }
-      if (!res.ok) return;
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null) as { message?: string } | null;
+        toast.error(errData?.message || "Erro ao carregar comissões pendentes.");
+        return;
+      }
       const data = await res.json() as {
         pendingOrders: SellerCommissionPendingOrder[];
         batches: SellerCommissionPaymentBatch[];
@@ -1594,7 +1598,9 @@ export default function Admin() {
       if (commissionSellerFilter === "all" && uniqueSellerCodes.length === 1) {
         setCommissionSellerFilter(uniqueSellerCodes[0]);
       }
-    } catch { /* silent */ }
+    } catch {
+      toast.error("Erro ao carregar comissões pendentes.");
+    }
     finally { setCommissionPaymentsLoading(false); }
   }, [commissionSellerFilter, commissionDateFrom, commissionDateTo, handleUnauthorized]);
 
