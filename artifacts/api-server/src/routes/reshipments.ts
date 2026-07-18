@@ -271,7 +271,6 @@ router.post("/admin/inventory/entries", requirePrimaryAdmin, async (req, res) =>
       tenantId,
       productId,
       quantity: signedQuantity,
-        const releasedCount = movementType === "entry" && !isEstornoEntry ? await releasePendingReshipments(tenantId) : 0;
       reason: resolvedReason,
       referenceId: movementType === "entry" && estornoReferenceId ? estornoReferenceId : undefined,
       entrySource: movementType === "entry" ? (entrySource === "customer_return" ? "customer_return" : "purchase") : undefined,
@@ -281,7 +280,7 @@ router.post("/admin/inventory/entries", requirePrimaryAdmin, async (req, res) =>
       affectBalance: !isEstornoEntry,
     });
 
-    const releasedCount = movementType === "entry" && !isEstornoEntry ? await releasePendingReshipments() : 0;
+    const releasedCount = movementType === "entry" && !isEstornoEntry ? await releasePendingReshipments(tenantId) : 0;
 
     if (releasedCount > 0) {
       broadcastNotification({ type: "reshipment_stock_released", data: { releasedCount } });

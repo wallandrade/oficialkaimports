@@ -411,7 +411,6 @@ router.post("/admin/products/restore", requirePrimaryAdmin, async (req, res) => 
           .values({
             id: product.id,
             tenantId,
-              tenantId,
             name: product.name,
             description: product.description || null,
             category: product.category,
