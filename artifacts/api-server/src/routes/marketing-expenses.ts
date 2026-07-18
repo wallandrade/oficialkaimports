@@ -3,8 +3,21 @@ import crypto from "crypto";
 import { and, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 import { db, marketingExpensesTable } from "@workspace/db";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
+import { DEFAULT_TENANT_ID } from "../lib/tenant-context";
 
 const router: IRouter = Router();
+
+function buildMarketingExpensesTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(
+      eq(marketingExpensesTable.tenantId, tenantId),
+      isNull(marketingExpensesTable.tenantId),
+      eq(marketingExpensesTable.tenantId, ""),
+    );
+  }
+
+  return eq(marketingExpensesTable.tenantId, tenantId);
+}
 
 function toUTC(dateStr: string, hour: string, minute: string, second: string) {
   const local = new Date(`${dateStr}T${hour}:${minute}:${second}-03:00`);
@@ -30,7 +43,8 @@ router.get("/admin/marketing-expenses", requireAdminAuth, async (req, res) => {
     }
 
     const { dateFrom, dateTo, sellerCode } = req.query as Record<string, string>;
-    const conditions = [];
+    const tenantId = scope.tenantId || DEFAULT_TENANT_ID;
+    const conditions = [buildMarketingExpensesTenantWhere(tenantId)];
     if (dateFrom) {
       conditions.push(sql`DATE(DATE_SUB(COALESCE(${marketingExpensesTable.expenseEndDate}, ${marketingExpensesTable.expenseDate}), INTERVAL 3 HOUR)) >= ${dateFrom}`);
     }
@@ -128,10 +142,12 @@ router.post("/admin/marketing-expenses", requireAdminAuth, async (req, res) => {
     const expenseDate = expenseStartDate;
 
     const id = crypto.randomUUID();
+    const tenantId = scope.tenantId || DEFAULT_TENANT_ID;
     const sellerCode = scope.hasGlobalAccess ? null : normalizeSellerCode(scope.sellerCode);
 
     await db.insert(marketingExpensesTable).values({
       id,
+      tenantId,
       sellerCode,
       expenseDate,
       expenseStartDate,
@@ -177,6 +193,8 @@ router.delete("/admin/marketing-expenses/:id", requireAdminAuth, async (req, res
     }
 
     const conditions = [eq(marketingExpensesTable.id, id)];
+    const tenantId = scope.tenantId || DEFAULT_TENANT_ID;
+    conditions.push(buildMarketingExpensesTenantWhere(tenantId));
     if (!scope.hasGlobalAccess) {
       const sellerCode = normalizeSellerCode(scope.sellerCode);
       if (!sellerCode) {

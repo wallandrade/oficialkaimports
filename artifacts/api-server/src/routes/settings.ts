@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, siteSettingsTable, tenantSettingsTable } from "@workspace/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import { getAdminScope, requirePrimaryAdmin } from "./admin-auth";
 import { getR2MissingConfig, isR2Configured, uploadSiteSettingImageToR2 } from "../lib/r2";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
@@ -41,11 +41,23 @@ const IMAGE_SETTING_KEYS = new Set([
   "catalog_banner_mobile",
 ]);
 
+function buildTenantSettingsTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(
+      eq(tenantSettingsTable.tenantId, tenantId),
+      isNull(tenantSettingsTable.tenantId),
+      eq(tenantSettingsTable.tenantId, ""),
+    );
+  }
+
+  return eq(tenantSettingsTable.tenantId, tenantId);
+}
+
 async function getTenantSettingsMap(tenantId: string): Promise<Record<string, string>> {
   const rows = await db
     .select()
     .from(tenantSettingsTable)
-    .where(eq(tenantSettingsTable.tenantId, tenantId));
+    .where(buildTenantSettingsTenantWhere(tenantId));
 
   const out: Record<string, string> = {};
   for (const row of rows) {
@@ -63,7 +75,7 @@ async function getTenantSettingsMap(tenantId: string): Promise<Record<string, st
 }
 
 async function deleteTenantSetting(tenantId: string, key: string): Promise<void> {
-  await db.delete(tenantSettingsTable).where(and(eq(tenantSettingsTable.tenantId, tenantId), eq(tenantSettingsTable.key, key)));
+  await db.delete(tenantSettingsTable).where(and(buildTenantSettingsTenantWhere(tenantId), eq(tenantSettingsTable.key, key)));
   if (tenantId === DEFAULT_TENANT_ID) {
     await db.delete(siteSettingsTable).where(eq(siteSettingsTable.key, key));
   }
