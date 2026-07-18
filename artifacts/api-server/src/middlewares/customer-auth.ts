@@ -5,6 +5,7 @@ const TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
 
 type CustomerSession = {
   token: string;
+  tenantId: string;
   userId: string;
   email: string;
   name: string;
@@ -39,6 +40,7 @@ export function generateSalt(): string {
 }
 
 export function createCustomerSession(input: {
+  tenantId: string;
   userId: string;
   email: string;
   name: string;
@@ -48,6 +50,7 @@ export function createCustomerSession(input: {
   const token = crypto.randomBytes(32).toString("hex");
   sessions.set(token, {
     token,
+    tenantId: input.tenantId,
     userId: input.userId,
     email: input.email,
     name: input.name,

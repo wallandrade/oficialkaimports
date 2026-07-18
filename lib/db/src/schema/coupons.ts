@@ -2,6 +2,7 @@ import { mysqlTable, varchar, decimal, int, boolean, timestamp, json } from "dri
 
 export const couponsTable = mysqlTable("coupons", {
   id: varchar("id", { length: 255 }).primaryKey(),
+  tenantId: varchar("tenant_id", { length: 255 }),
   code: varchar("code", { length: 255 }).notNull().unique(),
   discountType: varchar("discount_type", { length: 255 }).notNull().default("percent"), // "percent" | "fixed"
   discountValue: decimal("discount_value", { precision: 10, scale: 2 }).notNull(),

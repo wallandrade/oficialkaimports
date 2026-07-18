@@ -34,7 +34,7 @@ export default function AdminLogin() {
         body: JSON.stringify({ username: username.trim(), password }),
       });
 
-      const data = await res.json() as { token?: string; message?: string };
+      const data = await res.json() as { token?: string; message?: string; tenantId?: string };
 
       if (!res.ok || !data.token) {
         toast.error(data.message || "Credenciais inválidas.");
@@ -42,6 +42,7 @@ export default function AdminLogin() {
       }
 
       sessionStorage.setItem("adminToken", data.token);
+  if (data.tenantId) localStorage.setItem("adminTenantId", data.tenantId);
       localStorage.removeItem("adminToken");
       toast.success("Login realizado com sucesso!");
       setLocation("/admin");

@@ -2,6 +2,7 @@ import { mysqlTable, varchar, decimal, timestamp, int, boolean } from "drizzle-o
 
 export const affiliatesTable = mysqlTable("affiliates", {
   id: varchar("id", { length: 255 }).primaryKey(),
+  tenantId: varchar("tenant_id", { length: 255 }),
   userId: varchar("user_id", { length: 255 }).notNull().unique(),
   affiliateCode: varchar("affiliate_code", { length: 32 }).notNull().unique(),
   facebookPixelId: varchar("facebook_pixel_id", { length: 255 }),
@@ -11,6 +12,7 @@ export const affiliatesTable = mysqlTable("affiliates", {
 
 export const affiliateReferralsTable = mysqlTable("affiliate_referrals", {
   id: varchar("id", { length: 255 }).primaryKey(),
+  tenantId: varchar("tenant_id", { length: 255 }),
   affiliateUserId: varchar("affiliate_user_id", { length: 255 }).notNull(),
   referredUserId: varchar("referred_user_id", { length: 255 }),
   referredEmail: varchar("referred_email", { length: 255 }),
@@ -22,6 +24,7 @@ export const affiliateReferralsTable = mysqlTable("affiliate_referrals", {
 
 export const affiliateCommissionsTable = mysqlTable("affiliate_commissions", {
   id: varchar("id", { length: 255 }).primaryKey(),
+  tenantId: varchar("tenant_id", { length: 255 }),
   affiliateUserId: varchar("affiliate_user_id", { length: 255 }).notNull(),
   orderId: varchar("order_id", { length: 255 }).notNull().unique(),
   referredUserId: varchar("referred_user_id", { length: 255 }),
@@ -36,6 +39,7 @@ export const affiliateCommissionsTable = mysqlTable("affiliate_commissions", {
 
 export const affiliateCreditUsesTable = mysqlTable("affiliate_credit_uses", {
   id: varchar("id", { length: 255 }).primaryKey(),
+  tenantId: varchar("tenant_id", { length: 255 }),
   affiliateUserId: varchar("affiliate_user_id", { length: 255 }).notNull(),
   orderId: varchar("order_id", { length: 255 }).notNull().unique(),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),

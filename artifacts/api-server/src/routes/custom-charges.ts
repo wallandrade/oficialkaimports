@@ -12,6 +12,7 @@ import {
   PIX_DURATION_MS,
   isPaymentConfirmed,
 } from "../gateway";
+import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 
 const router: IRouter = Router();
 
@@ -29,7 +30,7 @@ function normalizeSellerCode(value: unknown): string | null {
   return normalized || null;
 }
 
-function getScopedSellerOrReject(req: Parameters<typeof router.get>[1] extends (req: infer R, _res: infer _S) => unknown ? R : never, res: Parameters<typeof router.get>[1] extends (_req: infer _R, res: infer S) => unknown ? S : never): { hasGlobalAccess: boolean; sellerCode: string | null } | null {
+function getScopedSellerOrReject(req: Parameters<typeof router.get>[1] extends (req: infer R, _res: infer _S) => unknown ? R : never, res: Parameters<typeof router.get>[1] extends (_req: infer _R, res: infer S) => unknown ? S : never): { hasGlobalAccess: boolean; sellerCode: string | null; tenantId: string } | null {
   const scope = getAdminScope(req as never);
   if (!scope) {
     (res as any).status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
@@ -39,7 +40,7 @@ function getScopedSellerOrReject(req: Parameters<typeof router.get>[1] extends (
     (res as any).status(403).json({ error: "FORBIDDEN", message: "Usuário sem seller vinculado." });
     return null;
   }
-  return { hasGlobalAccess: scope.hasGlobalAccess, sellerCode: normalizeSellerCode(scope.sellerCode) };
+  return { hasGlobalAccess: scope.hasGlobalAccess, sellerCode: normalizeSellerCode(scope.sellerCode), tenantId: scope.tenantId || DEFAULT_TENANT_ID };
 }
 
 async function ensureChargeScopeOrReject(
@@ -51,9 +52,9 @@ async function ensureChargeScopeOrReject(
   if (!scope) return null;
 
   const rows = await db
-    .select({ id: customChargesTable.id, sellerCode: customChargesTable.sellerCode, orderId: customChargesTable.orderId, status: customChargesTable.status, amount: customChargesTable.amount, proofUrl: customChargesTable.proofUrl, proofUrls: customChargesTable.proofUrls })
+    .select({ id: customChargesTable.id, tenantId: customChargesTable.tenantId, sellerCode: customChargesTable.sellerCode, orderId: customChargesTable.orderId, status: customChargesTable.status, amount: customChargesTable.amount, proofUrl: customChargesTable.proofUrl, proofUrls: customChargesTable.proofUrls })
     .from(customChargesTable)
-    .where(eq(customChargesTable.id, chargeId))
+    .where(and(eq(customChargesTable.id, chargeId), eq(customChargesTable.tenantId, scope.tenantId)))
     .limit(1);
 
   const charge = rows[0];
@@ -75,7 +76,7 @@ async function ensureChargeScopeOrReject(
     const parentOrderRows = await db
       .select({ sellerCode: ordersTable.sellerCode })
       .from(ordersTable)
-      .where(eq(ordersTable.id, charge.orderId))
+      .where(and(eq(ordersTable.id, charge.orderId), eq(ordersTable.tenantId, scope.tenantId)))
       .limit(1);
     const parentSellerCode = normalizeSellerCode(parentOrderRows[0]?.sellerCode);
     if (parentSellerCode && parentSellerCode === scope.sellerCode) {
@@ -99,6 +100,7 @@ router.post("/custom-charges", async (req, res) => {
   console.log(`[CustomCharge:${requestId}] Body:`, JSON.stringify(req.body));
 
   try {
+    const tenantId = await resolvePublicTenantId(req as any);
     const { client, address, amount, description, sellerCode } = req.body as {
       client: { name: string; email: string; phone: string; document: string };
       address?: {
@@ -163,6 +165,7 @@ router.post("/custom-charges", async (req, res) => {
 
     await db.insert(customChargesTable).values({
       id,
+      tenantId,
       clientName:          client.name,
       clientEmail:         client.email,
       clientPhone:         client.phone,
@@ -251,7 +254,7 @@ router.post("/custom-charges/callback/:token/:chargeId", async (req, res) => {
 
     if (isPaymentConfirmed(body.status || "")) {
       const existing = await db
-        .select({ id: customChargesTable.id, status: customChargesTable.status, orderId: customChargesTable.orderId, amount: customChargesTable.amount })
+        .select({ id: customChargesTable.id, tenantId: customChargesTable.tenantId, status: customChargesTable.status, orderId: customChargesTable.orderId, amount: customChargesTable.amount })
         .from(customChargesTable)
         .where(eq(customChargesTable.id, chargeId))
         .limit(1);
@@ -260,7 +263,7 @@ router.post("/custom-charges/callback/:token/:chargeId", async (req, res) => {
         await db
           .update(customChargesTable)
           .set({ status: "paid", updatedAt: new Date() })
-          .where(eq(customChargesTable.id, chargeId));
+          .where(and(eq(customChargesTable.id, chargeId), eq(customChargesTable.tenantId, existing[0].tenantId || DEFAULT_TENANT_ID)));
 
         broadcastNotification({ type: "charge_paid", data: { id: chargeId } });
 
@@ -269,7 +272,7 @@ router.post("/custom-charges/callback/:token/:chargeId", async (req, res) => {
           const parentOrder = await db
             .select({ id: ordersTable.id, status: ordersTable.status, total: ordersTable.total, paidAmount: ordersTable.paidAmount })
             .from(ordersTable)
-            .where(eq(ordersTable.id, existing[0].orderId))
+            .where(and(eq(ordersTable.id, existing[0].orderId), eq(ordersTable.tenantId, existing[0].tenantId || DEFAULT_TENANT_ID)))
             .limit(1);
 
           if (parentOrder[0] && parentOrder[0].status === "awaiting_payment") {
@@ -282,7 +285,7 @@ router.post("/custom-charges/callback/:token/:chargeId", async (req, res) => {
             await db
               .update(ordersTable)
               .set({ status: newOrderStatus, paidAmount: String(totalPaid), updatedAt: new Date() })
-              .where(eq(ordersTable.id, existing[0].orderId));
+              .where(and(eq(ordersTable.id, existing[0].orderId), eq(ordersTable.tenantId, existing[0].tenantId || DEFAULT_TENANT_ID)));
 
             broadcastNotification({ type: "order_paid", data: { id: existing[0].orderId, status: newOrderStatus } });
           }
@@ -322,6 +325,7 @@ router.get("/admin/custom-charges", requireAdminAuth, async (req, res) => {
     if (status && status !== "all") {
       conditions.push(eq(customChargesTable.status, status));
     }
+    conditions.push(eq(customChargesTable.tenantId, scope.tenantId));
     if (!scope.hasGlobalAccess) {
       if (sellerCode && sellerCode !== "all" && normalizeSellerCode(sellerCode) !== scope.sellerCode) {
         res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para acessar outro seller." });
@@ -405,6 +409,7 @@ router.get("/admin/custom-charges/export", requireAdminAuth, async (req, res) =>
     if (status && status !== "all") {
       conditions.push(eq(customChargesTable.status, status));
     }
+    conditions.push(eq(customChargesTable.tenantId, scope.tenantId));
     if (!scope.hasGlobalAccess) {
       if (sellerCode && sellerCode !== "all" && normalizeSellerCode(sellerCode) !== scope.sellerCode) {
         res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para acessar outro seller." });
@@ -469,7 +474,7 @@ router.patch("/admin/custom-charges/:id/status", requireAdminAuth, async (req, r
     await db
       .update(customChargesTable)
       .set({ status, updatedAt: new Date() })
-      .where(eq(customChargesTable.id, id));
+      .where(and(eq(customChargesTable.id, id), eq(customChargesTable.tenantId, scoped.scope.tenantId)));
 
     if (status === "paid") {
       broadcastNotification({ type: "charge_paid", data: { id, status } });
@@ -479,7 +484,7 @@ router.patch("/admin/custom-charges/:id/status", requireAdminAuth, async (req, r
         const parentOrder = await db
           .select({ id: ordersTable.id, status: ordersTable.status, total: ordersTable.total, paidAmount: ordersTable.paidAmount })
           .from(ordersTable)
-          .where(eq(ordersTable.id, existing.orderId))
+          .where(and(eq(ordersTable.id, existing.orderId), eq(ordersTable.tenantId, scoped.scope.tenantId)))
           .limit(1);
 
         if (parentOrder[0]) {
@@ -494,7 +499,7 @@ router.patch("/admin/custom-charges/:id/status", requireAdminAuth, async (req, r
           await db
             .update(ordersTable)
             .set({ status: newOrderStatus, paidAmount: String(totalPaid), updatedAt: new Date() })
-            .where(eq(ordersTable.id, existing.orderId));
+            .where(and(eq(ordersTable.id, existing.orderId), eq(ordersTable.tenantId, scoped.scope.tenantId)));
 
           broadcastNotification({
             type: newOrderStatus === "paid" || newOrderStatus === "completed" ? "order_paid" : "order_status_updated",
@@ -542,7 +547,7 @@ router.patch("/admin/custom-charges/:id/proof", requireAdminAuth, async (req, re
     await db
       .update(customChargesTable)
       .set({ proofUrl: proofData, proofUrls: JSON.stringify(urls), status: "paid", updatedAt: new Date() })
-      .where(eq(customChargesTable.id, id));
+      .where(and(eq(customChargesTable.id, id), eq(customChargesTable.tenantId, scoped.scope.tenantId)));
 
     broadcastNotification({ type: "charge_paid", data: { id, status: "paid" } });
 
@@ -551,7 +556,7 @@ router.patch("/admin/custom-charges/:id/proof", requireAdminAuth, async (req, re
       const parentOrder = await db
         .select({ id: ordersTable.id, status: ordersTable.status, total: ordersTable.total, paidAmount: ordersTable.paidAmount })
         .from(ordersTable)
-        .where(eq(ordersTable.id, existing.orderId))
+        .where(and(eq(ordersTable.id, existing.orderId), eq(ordersTable.tenantId, scoped.scope.tenantId)))
         .limit(1);
 
       if (parentOrder[0]) {
@@ -566,7 +571,7 @@ router.patch("/admin/custom-charges/:id/proof", requireAdminAuth, async (req, re
         await db
           .update(ordersTable)
           .set({ status: newOrderStatus, paidAmount: String(totalPaid), updatedAt: new Date() })
-          .where(eq(ordersTable.id, existing.orderId));
+          .where(and(eq(ordersTable.id, existing.orderId), eq(ordersTable.tenantId, scoped.scope.tenantId)));
 
         broadcastNotification({
           type: newOrderStatus === "paid" || newOrderStatus === "completed" ? "order_paid" : "order_status_updated",
@@ -596,7 +601,7 @@ router.patch("/admin/custom-charges/:id/observation", requireAdminAuth, async (r
     await db
       .update(customChargesTable)
       .set({ observation: observation?.trim() || null, updatedAt: new Date() })
-      .where(eq(customChargesTable.id, id));
+      .where(and(eq(customChargesTable.id, id), eq(customChargesTable.tenantId, scoped.scope.tenantId)));
     res.json({ ok: true });
   } catch (err) {
     console.error("[CustomCharge] observation update error:", err);

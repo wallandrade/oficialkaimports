@@ -8,6 +8,7 @@ import {
 import { and, eq } from "drizzle-orm";
 import { getCustomerSession, requireCustomerAuth } from "../middlewares/customer-auth";
 import { getAffiliateAvailableCreditByUserId, getOrCreateAffiliateByUserId } from "../lib/affiliates";
+import { DEFAULT_TENANT_ID } from "../lib/tenant-context";
 
 const router: IRouter = Router();
 
@@ -58,7 +59,8 @@ router.get("/me/affiliate/dashboard", requireCustomerAuth, async (req, res) => {
       return;
     }
 
-    const affiliate = await getOrCreateAffiliateByUserId(session.userId);
+    const tenantId = session.tenantId || DEFAULT_TENANT_ID;
+    const affiliate = await getOrCreateAffiliateByUserId(session.userId, tenantId);
 
     const commissions = await db
       .select({
@@ -66,7 +68,7 @@ router.get("/me/affiliate/dashboard", requireCustomerAuth, async (req, res) => {
         commissionAmount: affiliateCommissionsTable.commissionAmount,
       })
       .from(affiliateCommissionsTable)
-      .where(eq(affiliateCommissionsTable.affiliateUserId, session.userId));
+      .where(and(eq(affiliateCommissionsTable.tenantId, tenantId), eq(affiliateCommissionsTable.affiliateUserId, session.userId)));
 
     let pending = 0;
     let released = 0;
@@ -84,7 +86,7 @@ router.get("/me/affiliate/dashboard", requireCustomerAuth, async (req, res) => {
         hasConverted: affiliateReferralsTable.hasConverted,
       })
       .from(affiliateReferralsTable)
-      .where(eq(affiliateReferralsTable.affiliateUserId, session.userId));
+      .where(and(eq(affiliateReferralsTable.tenantId, tenantId), eq(affiliateReferralsTable.affiliateUserId, session.userId)));
 
     const activeReferrals = referrals.filter((r) => r.hasConverted).length;
     const inactiveReferrals = Math.max(0, referrals.length - activeReferrals);
@@ -118,14 +120,15 @@ router.patch("/me/affiliate/facebook-pixel", requireCustomerAuth, async (req, re
       return;
     }
 
+    const tenantId = session.tenantId || DEFAULT_TENANT_ID;
     const pixelId = String((req.body as { pixelId?: string }).pixelId || "").trim();
 
-    const affiliate = await getOrCreateAffiliateByUserId(session.userId);
+    const affiliate = await getOrCreateAffiliateByUserId(session.userId, tenantId);
 
     await db
       .update(affiliatesTable)
       .set({ facebookPixelId: pixelId || null, updatedAt: new Date() })
-      .where(and(eq(affiliatesTable.id, affiliate.id), eq(affiliatesTable.userId, session.userId)));
+      .where(and(eq(affiliatesTable.tenantId, tenantId), eq(affiliatesTable.id, affiliate.id), eq(affiliatesTable.userId, session.userId)));
 
     res.json({ ok: true, facebookPixelId: pixelId });
   } catch (err) {
@@ -142,7 +145,7 @@ router.get("/me/affiliate/credit-balance", requireCustomerAuth, async (req, res)
       return;
     }
 
-    const availableCredit = await getAffiliateAvailableCreditByUserId(session.userId);
+    const availableCredit = await getAffiliateAvailableCreditByUserId(session.userId, session.tenantId || DEFAULT_TENANT_ID);
     res.json({ availableCredit });
   } catch (err) {
     console.error("[Affiliate] credit balance error:", err);

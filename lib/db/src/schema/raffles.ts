@@ -2,6 +2,7 @@ import { mysqlTable, varchar, text, mediumtext, decimal, int, timestamp } from "
 
 export const rafflesTable = mysqlTable("raffles", {
   id: varchar("id", { length: 255 }).primaryKey(),
+  tenantId: varchar("tenant_id", { length: 255 }),
   title: varchar("title", { length: 255 }).notNull(),
   description: text("description"),
   imageUrl: mediumtext("image_url"),
@@ -15,6 +16,7 @@ export const rafflesTable = mysqlTable("raffles", {
 
 export const raffleReservationsTable = mysqlTable("raffle_reservations", {
   id: varchar("id", { length: 255 }).primaryKey(),
+  tenantId: varchar("tenant_id", { length: 255 }),
   raffleId: varchar("raffle_id", { length: 255 }).notNull(),
   numbers: text("numbers").notNull(), // JSON array of ints e.g. "[3,7,42]"
   clientName: varchar("client_name", { length: 255 }).notNull(),
@@ -34,6 +36,7 @@ export const raffleReservationsTable = mysqlTable("raffle_reservations", {
 
 export const raffleResultsTable = mysqlTable("raffle_results", {
   id: varchar("id", { length: 255 }).primaryKey(),
+  tenantId: varchar("tenant_id", { length: 255 }),
   raffleId: varchar("raffle_id", { length: 255 }).notNull(),
   winnerNumber: int("winner_number").notNull(),
   winnerReservationId: varchar("winner_reservation_id", { length: 255 }),
@@ -48,6 +51,7 @@ export const raffleResultsTable = mysqlTable("raffle_results", {
 
 export const rafflePromotionsTable = mysqlTable("raffle_promotions", {
   id: varchar("id", { length: 255 }).primaryKey(),
+  tenantId: varchar("tenant_id", { length: 255 }),
   raffleId: varchar("raffle_id", { length: 255 }).notNull(),
   quantity: int("quantity").notNull(),
   promoPrice: decimal("promo_price", { precision: 10, scale: 2 }).notNull(),

@@ -11,6 +11,8 @@ import {
   supportTicketsTable,
 } from "@workspace/db";
 
+const DEFAULT_TENANT_ID = "tenant_loja1";
+
 export type ReshipmentStatus =
   | "reenvio_aguardando_estoque"
   | "reenvio_pronto_para_envio"
@@ -54,12 +56,12 @@ function toProducts(raw: unknown): ReshipmentProduct[] {
     .filter((item) => item.id && item.quantity > 0);
 }
 
-async function getStockMap(productIds: string[]): Promise<Map<string, number>> {
+async function getStockMap(productIds: string[], tenantId = DEFAULT_TENANT_ID): Promise<Map<string, number>> {
   if (productIds.length === 0) return new Map();
   const rows = await db
     .select({ productId: inventoryBalancesTable.productId, quantity: inventoryBalancesTable.quantity })
     .from(inventoryBalancesTable)
-    .where(inArray(inventoryBalancesTable.productId, productIds));
+    .where(and(eq(inventoryBalancesTable.tenantId, tenantId), inArray(inventoryBalancesTable.productId, productIds)));
 
   return new Map(rows.map((row) => [row.productId, Number(row.quantity) || 0]));
 }
@@ -68,11 +70,11 @@ function hasEnoughStock(items: ReshipmentProduct[], stockByProduct: Map<string, 
   return items.every((item) => (stockByProduct.get(item.id) || 0) >= item.quantity);
 }
 
-async function changeBalance(productId: string, delta: number): Promise<void> {
+async function changeBalance(productId: string, delta: number, tenantId = DEFAULT_TENANT_ID): Promise<void> {
   const currentRows = await db
     .select({ quantity: inventoryBalancesTable.quantity })
     .from(inventoryBalancesTable)
-    .where(eq(inventoryBalancesTable.productId, productId))
+    .where(and(eq(inventoryBalancesTable.tenantId, tenantId), eq(inventoryBalancesTable.productId, productId)))
     .limit(1);
 
   const current = Number(currentRows[0]?.quantity || 0);
@@ -80,6 +82,7 @@ async function changeBalance(productId: string, delta: number): Promise<void> {
 
   if (!currentRows[0]) {
     await db.insert(inventoryBalancesTable).values({
+      tenantId,
       productId,
       quantity: next,
       updatedAt: new Date(),
@@ -90,14 +93,15 @@ async function changeBalance(productId: string, delta: number): Promise<void> {
   await db
     .update(inventoryBalancesTable)
     .set({ quantity: next, updatedAt: new Date() })
-    .where(eq(inventoryBalancesTable.productId, productId));
+    .where(and(eq(inventoryBalancesTable.tenantId, tenantId), eq(inventoryBalancesTable.productId, productId)));
 }
 
-async function reserveForReshipment(reshipmentId: string, items: ReshipmentProduct[]): Promise<void> {
+async function reserveForReshipment(reshipmentId: string, items: ReshipmentProduct[], tenantId = DEFAULT_TENANT_ID): Promise<void> {
   for (const item of items) {
     // Reservation is now a planning marker only; stock is debited when sent.
     await db.insert(inventoryMovementsTable).values({
       id: crypto.randomBytes(8).toString("hex"),
+      tenantId,
       productId: item.id,
       type: "reservation",
       quantity: -item.quantity,
@@ -109,9 +113,11 @@ async function reserveForReshipment(reshipmentId: string, items: ReshipmentProdu
 }
 
 export async function ensureReshipmentReservation(params: {
+  tenantId?: string;
   id: string;
   source: ReshipmentSource;
 }): Promise<{ ok: boolean; notFound?: boolean; invalidProducts?: boolean; missingProducts: string[] }> {
+  const tenantId = String(params.tenantId || "").trim() || DEFAULT_TENANT_ID;
   const rows = params.source === "support"
     ? await db
         .select({
@@ -125,7 +131,7 @@ export async function ensureReshipmentReservation(params: {
     : await db
         .select({ productsSnapshot: manualReshipmentsTable.productsSnapshot })
         .from(manualReshipmentsTable)
-        .where(eq(manualReshipmentsTable.id, params.id))
+        .where(and(eq(manualReshipmentsTable.tenantId, tenantId), eq(manualReshipmentsTable.id, params.id)))
         .limit(1);
 
   if (!rows[0]) {
@@ -143,6 +149,7 @@ export async function ensureReshipmentReservation(params: {
     .select({ productId: inventoryMovementsTable.productId, quantity: inventoryMovementsTable.quantity })
     .from(inventoryMovementsTable)
     .where(and(
+      eq(inventoryMovementsTable.tenantId, tenantId),
       eq(inventoryMovementsTable.referenceId, params.id),
       eq(inventoryMovementsTable.type, "reservation"),
     ));
@@ -167,7 +174,7 @@ export async function ensureReshipmentReservation(params: {
   }
 
   const productIds = Array.from(new Set(remainingItems.map((item) => item.id)));
-  const stockByProduct = await getStockMap(productIds);
+  const stockByProduct = await getStockMap(productIds, tenantId);
   const missingProducts = remainingItems
     .filter((item) => (stockByProduct.get(item.id) || 0) < item.quantity)
     .map((item) => item.name);
@@ -181,6 +188,7 @@ export async function ensureReshipmentReservation(params: {
 }
 
 export async function ensureReshipmentSendDebit(params: {
+  tenantId?: string;
   id: string;
   source: ReshipmentSource;
 }): Promise<{
@@ -190,6 +198,7 @@ export async function ensureReshipmentSendDebit(params: {
   missingProducts: string[];
   debitedProducts: Array<{ productId: string; productName: string; quantity: number }>;
 }> {
+  const tenantId = String(params.tenantId || "").trim() || DEFAULT_TENANT_ID;
   const rows = params.source === "support"
     ? await db
         .select({
@@ -203,7 +212,7 @@ export async function ensureReshipmentSendDebit(params: {
     : await db
         .select({ productsSnapshot: manualReshipmentsTable.productsSnapshot })
         .from(manualReshipmentsTable)
-        .where(eq(manualReshipmentsTable.id, params.id))
+        .where(and(eq(manualReshipmentsTable.tenantId, tenantId), eq(manualReshipmentsTable.id, params.id)))
         .limit(1);
 
   if (!rows[0]) {
@@ -226,6 +235,7 @@ export async function ensureReshipmentSendDebit(params: {
     })
     .from(inventoryMovementsTable)
     .where(and(
+      eq(inventoryMovementsTable.tenantId, tenantId),
       eq(inventoryMovementsTable.referenceId, params.id),
       inArray(inventoryMovementsTable.type, ["exit", "entry"]),
     ));
@@ -258,7 +268,7 @@ export async function ensureReshipmentSendDebit(params: {
   }
 
   const productIds = Array.from(new Set(remainingItems.map((item) => item.id)));
-  const stockByProduct = await getStockMap(productIds);
+  const stockByProduct = await getStockMap(productIds, tenantId);
   const missingProducts = remainingItems
     .filter((item) => (stockByProduct.get(item.id) || 0) < item.quantity)
     .map((item) => item.name);
@@ -270,6 +280,7 @@ export async function ensureReshipmentSendDebit(params: {
   const debitedProducts: Array<{ productId: string; productName: string; quantity: number }> = [];
   for (const item of remainingItems) {
     await registerInventoryEntry({
+      tenantId,
       productId: item.id,
       quantity: -item.quantity,
       reason: `Saída por envio do reenvio ${params.id}`,
@@ -282,11 +293,13 @@ export async function ensureReshipmentSendDebit(params: {
 }
 
 export async function createOrRefreshReshipment(params: {
+  tenantId?: string;
   orderId: string;
   supportTicketId: string;
   productsRaw: unknown;
   resolvedReason?: string;
 }): Promise<{ id: string; status: ReshipmentStatus; missingProducts: string[] }> {
+  const tenantId = String(params.tenantId || "").trim() || DEFAULT_TENANT_ID;
   const items = toProducts(params.productsRaw);
   const id = crypto.randomBytes(8).toString("hex");
 
@@ -299,7 +312,7 @@ export async function createOrRefreshReshipment(params: {
   const existingProductRows = await db
     .select({ id: productsTable.id })
     .from(productsTable)
-    .where(inArray(productsTable.id, productIds));
+    .where(and(eq(productsTable.tenantId, tenantId), inArray(productsTable.id, productIds)));
 
   const existingProductIds = new Set(existingProductRows.map((row) => row.id));
   const validItems = items.filter((item) => existingProductIds.has(item.id));
@@ -311,11 +324,11 @@ export async function createOrRefreshReshipment(params: {
   const existingRows = await db
     .select({ id: reshipmentsTable.id, status: reshipmentsTable.status })
     .from(reshipmentsTable)
-    .where(eq(reshipmentsTable.orderId, params.orderId))
+    .where(and(eq(reshipmentsTable.tenantId, tenantId), eq(reshipmentsTable.orderId, params.orderId)))
     .limit(1);
 
   const validProductIds = Array.from(new Set(validItems.map((item) => item.id)));
-  const stockByProduct = await getStockMap(validProductIds);
+  const stockByProduct = await getStockMap(validProductIds, tenantId);
   const enoughNow = hasEnoughStock(validItems, stockByProduct);
   const keepAwaiting = existingRows[0]?.status === "reenvio_aguardando_estoque";
   const nextStatus: ReshipmentStatus = keepAwaiting
@@ -336,10 +349,11 @@ export async function createOrRefreshReshipment(params: {
         sentAt: null,
         updatedAt: new Date(),
       })
-      .where(eq(reshipmentsTable.id, reshipmentId));
+      .where(and(eq(reshipmentsTable.tenantId, tenantId), eq(reshipmentsTable.id, reshipmentId)));
   } else {
     await db.insert(reshipmentsTable).values({
       id: reshipmentId,
+      tenantId,
       orderId: params.orderId,
       supportTicketId: params.supportTicketId,
       status: nextStatus,
@@ -363,7 +377,7 @@ export async function createOrRefreshReshipment(params: {
   };
 }
 
-export async function releasePendingReshipments(): Promise<number> {
+export async function releasePendingReshipments(tenantId = DEFAULT_TENANT_ID): Promise<number> {
   const pendingRows = await db
     .select({
       id: reshipmentsTable.id,
@@ -371,7 +385,7 @@ export async function releasePendingReshipments(): Promise<number> {
       createdAt: reshipmentsTable.createdAt,
     })
     .from(reshipmentsTable)
-    .where(eq(reshipmentsTable.status, "reenvio_aguardando_estoque"))
+    .where(and(eq(reshipmentsTable.tenantId, tenantId), eq(reshipmentsTable.status, "reenvio_aguardando_estoque")))
     .orderBy(asc(reshipmentsTable.createdAt));
 
   const pendingManualRows = await db
@@ -381,7 +395,7 @@ export async function releasePendingReshipments(): Promise<number> {
       createdAt: manualReshipmentsTable.createdAt,
     })
     .from(manualReshipmentsTable)
-    .where(eq(manualReshipmentsTable.status, "reenvio_aguardando_estoque"))
+    .where(and(eq(manualReshipmentsTable.tenantId, tenantId), eq(manualReshipmentsTable.status, "reenvio_aguardando_estoque")))
     .orderBy(asc(manualReshipmentsTable.createdAt));
 
   let released = 0;
@@ -391,7 +405,7 @@ export async function releasePendingReshipments(): Promise<number> {
     if (items.length === 0) continue;
 
     const productIds = Array.from(new Set(items.map((item) => item.id)));
-    const stockByProduct = await getStockMap(productIds);
+    const stockByProduct = await getStockMap(productIds, tenantId);
     const canRelease = hasEnoughStock(items, stockByProduct);
 
     if (!canRelease) continue;
@@ -399,7 +413,7 @@ export async function releasePendingReshipments(): Promise<number> {
     await db
       .update(reshipmentsTable)
       .set({ status: "reenvio_pronto_para_envio", updatedAt: new Date() })
-      .where(eq(reshipmentsTable.id, row.id));
+      .where(and(eq(reshipmentsTable.tenantId, tenantId), eq(reshipmentsTable.id, row.id)));
     released += 1;
   }
 
@@ -408,7 +422,7 @@ export async function releasePendingReshipments(): Promise<number> {
     if (items.length === 0) continue;
 
     const productIds = Array.from(new Set(items.map((item) => item.id)));
-    const stockByProduct = await getStockMap(productIds);
+    const stockByProduct = await getStockMap(productIds, tenantId);
     const canRelease = hasEnoughStock(items, stockByProduct);
 
     if (!canRelease) continue;
@@ -416,7 +430,7 @@ export async function releasePendingReshipments(): Promise<number> {
     await db
       .update(manualReshipmentsTable)
       .set({ status: "reenvio_pronto_para_envio", updatedAt: new Date() })
-      .where(eq(manualReshipmentsTable.id, row.id));
+      .where(and(eq(manualReshipmentsTable.tenantId, tenantId), eq(manualReshipmentsTable.id, row.id)));
     released += 1;
   }
 
@@ -424,6 +438,7 @@ export async function releasePendingReshipments(): Promise<number> {
 }
 
 export async function createManualReshipment(params: {
+  tenantId?: string;
   clientName: string;
   clientPhone: string;
   clientDocument?: string | null;
@@ -439,6 +454,7 @@ export async function createManualReshipment(params: {
   quantity: number;
   createdByUsername?: string | null;
 }): Promise<{ id: string; status: ReshipmentStatus; missingProducts: string[] }> {
+  const tenantId = String(params.tenantId || "").trim() || DEFAULT_TENANT_ID;
   const productId = String(params.productId || "").trim();
   const quantity = Number(params.quantity || 0);
 
@@ -449,7 +465,7 @@ export async function createManualReshipment(params: {
   const [product] = await db
     .select({ id: productsTable.id, name: productsTable.name, isActive: productsTable.isActive })
     .from(productsTable)
-    .where(eq(productsTable.id, productId))
+    .where(and(eq(productsTable.tenantId, tenantId), eq(productsTable.id, productId)))
     .limit(1);
 
   if (!product || !product.isActive) {
@@ -457,7 +473,7 @@ export async function createManualReshipment(params: {
   }
 
   const items: ReshipmentProduct[] = [{ id: product.id, name: product.name, quantity }];
-  const stockByProduct = await getStockMap([product.id]);
+  const stockByProduct = await getStockMap([product.id], tenantId);
   const enoughNow = hasEnoughStock(items, stockByProduct);
   const nextStatus: ReshipmentStatus = enoughNow ? "reenvio_pronto_para_envio" : "reenvio_aguardando_estoque";
 
@@ -465,6 +481,7 @@ export async function createManualReshipment(params: {
 
   await db.insert(manualReshipmentsTable).values({
     id,
+    tenantId,
     status: nextStatus,
     productsSnapshot: items,
     clientName: String(params.clientName || "").trim(),
@@ -493,6 +510,7 @@ export async function createManualReshipment(params: {
 }
 
 export async function registerInventoryEntry(params: {
+  tenantId?: string;
   productId: string;
   quantity: number;
   reason?: string;
@@ -503,14 +521,16 @@ export async function registerInventoryEntry(params: {
   trackingCode?: string | null;
   affectBalance?: boolean;
 }): Promise<void> {
+  const tenantId = String(params.tenantId || "").trim() || DEFAULT_TENANT_ID;
   if (params.affectBalance !== false) {
-    await changeBalance(params.productId, params.quantity);
+    await changeBalance(params.productId, params.quantity, tenantId);
   }
 
   const isExit = Number(params.quantity) < 0;
 
   await db.insert(inventoryMovementsTable).values({
     id: crypto.randomBytes(8).toString("hex"),
+    tenantId,
     productId: params.productId,
     type: isExit ? "exit" : "entry",
     entrySource: params.entrySource || null,
@@ -524,7 +544,7 @@ export async function registerInventoryEntry(params: {
   });
 }
 
-export async function listReshipments(status?: string): Promise<Array<{
+export async function listReshipments(status?: string, tenantId = DEFAULT_TENANT_ID): Promise<Array<{
   id: string;
   source: ReshipmentSource;
   orderId: string | null;
@@ -558,7 +578,7 @@ export async function listReshipments(status?: string): Promise<Array<{
     })
     .from(reshipmentsTable)
     .leftJoin(ordersTable, eq(ordersTable.id, reshipmentsTable.orderId))
-    .where(status && status !== "all" ? eq(reshipmentsTable.status, status) : undefined)
+    .where(status && status !== "all" ? and(eq(reshipmentsTable.tenantId, tenantId), eq(reshipmentsTable.status, status)) : eq(reshipmentsTable.tenantId, tenantId))
     .orderBy(asc(reshipmentsTable.createdAt));
 
   const manualRows = await db
@@ -575,7 +595,7 @@ export async function listReshipments(status?: string): Promise<Array<{
       notes: manualReshipmentsTable.notes,
     })
     .from(manualReshipmentsTable)
-    .where(status && status !== "all" ? eq(manualReshipmentsTable.status, status) : undefined)
+    .where(status && status !== "all" ? and(eq(manualReshipmentsTable.tenantId, tenantId), eq(manualReshipmentsTable.status, status)) : eq(manualReshipmentsTable.tenantId, tenantId))
     .orderBy(asc(manualReshipmentsTable.createdAt));
 
   const fromSupport = rows.map((row) => ({
@@ -619,11 +639,11 @@ export async function listReshipments(status?: string): Promise<Array<{
   });
 }
 
-export async function setReshipmentStatus(id: string, status: ReshipmentStatus): Promise<boolean> {
+export async function setReshipmentStatus(id: string, status: ReshipmentStatus, tenantId = DEFAULT_TENANT_ID): Promise<boolean> {
   const rows = await db
     .select({ id: reshipmentsTable.id, status: reshipmentsTable.status })
     .from(reshipmentsTable)
-    .where(eq(reshipmentsTable.id, id))
+    .where(and(eq(reshipmentsTable.tenantId, tenantId), eq(reshipmentsTable.id, id)))
     .limit(1);
 
   if (!rows[0]) return false;
@@ -635,16 +655,16 @@ export async function setReshipmentStatus(id: string, status: ReshipmentStatus):
       sentAt: status === "reenvio_enviado" ? new Date() : null,
       updatedAt: new Date(),
     })
-    .where(eq(reshipmentsTable.id, id));
+    .where(and(eq(reshipmentsTable.tenantId, tenantId), eq(reshipmentsTable.id, id)));
 
   return true;
 }
 
-export async function setManualReshipmentStatus(id: string, status: ReshipmentStatus): Promise<boolean> {
+export async function setManualReshipmentStatus(id: string, status: ReshipmentStatus, tenantId = DEFAULT_TENANT_ID): Promise<boolean> {
   const rows = await db
     .select({ id: manualReshipmentsTable.id })
     .from(manualReshipmentsTable)
-    .where(eq(manualReshipmentsTable.id, id))
+    .where(and(eq(manualReshipmentsTable.tenantId, tenantId), eq(manualReshipmentsTable.id, id)))
     .limit(1);
 
   if (!rows[0]) return false;
@@ -656,12 +676,12 @@ export async function setManualReshipmentStatus(id: string, status: ReshipmentSt
       sentAt: status === "reenvio_enviado" ? new Date() : null,
       updatedAt: new Date(),
     })
-    .where(eq(manualReshipmentsTable.id, id));
+    .where(and(eq(manualReshipmentsTable.tenantId, tenantId), eq(manualReshipmentsTable.id, id)));
 
   return true;
 }
 
-export async function getInventoryOverview(): Promise<{
+export async function getInventoryOverview(tenantId = DEFAULT_TENANT_ID): Promise<{
   balances: Array<{ productId: string; productName: string; quantity: number }>;
   movements: Array<{
     id: string;
@@ -680,13 +700,16 @@ export async function getInventoryOverview(): Promise<{
   const [balancesRows, productsRows, movementsRows] = await Promise.all([
     db
       .select({ productId: inventoryBalancesTable.productId, quantity: inventoryBalancesTable.quantity })
-      .from(inventoryBalancesTable),
+      .from(inventoryBalancesTable)
+      .where(eq(inventoryBalancesTable.tenantId, tenantId)),
     db
       .select({ id: productsTable.id, name: productsTable.name })
-      .from(productsTable),
+      .from(productsTable)
+      .where(eq(productsTable.tenantId, tenantId)),
     db
       .select()
       .from(inventoryMovementsTable)
+      .where(eq(inventoryMovementsTable.tenantId, tenantId))
       .orderBy(asc(inventoryMovementsTable.createdAt)),
   ]);
 
@@ -719,7 +742,7 @@ export async function getInventoryOverview(): Promise<{
   };
 }
 
-export async function getReshipmentByOrderIds(orderIds: string[]): Promise<Map<string, {
+export async function getReshipmentByOrderIds(orderIds: string[], tenantId = DEFAULT_TENANT_ID): Promise<Map<string, {
   id: string;
   status: string;
   supportTicketId: string;
@@ -742,7 +765,7 @@ export async function getReshipmentByOrderIds(orderIds: string[]): Promise<Map<s
     })
     .from(reshipmentsTable)
     .leftJoin(supportTicketsTable, eq(reshipmentsTable.supportTicketId, supportTicketsTable.id))
-    .where(inArray(reshipmentsTable.orderId, orderIds));
+    .where(and(eq(reshipmentsTable.tenantId, tenantId), inArray(reshipmentsTable.orderId, orderIds)));
 
   return new Map(rows.map((row) => [
     row.orderId,

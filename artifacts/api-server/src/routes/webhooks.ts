@@ -14,7 +14,7 @@ import { Router, type IRouter } from "express";
 import type { Request } from "express";
 import crypto from "crypto";
 import { db, ordersTable, customChargesTable } from "@workspace/db";
-import { eq, or } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { broadcastNotification } from "./notifications";
 import { fetchTransactionStatus, isPaymentConfirmed } from "../gateway";
 import { incrementCouponUse } from "./coupons";
@@ -84,7 +84,7 @@ async function handleCallback(body: GatewayCallback) {
 
   if (transactionId) {
     const existing = await db
-      .select({ id: ordersTable.id, status: ordersTable.status, couponCode: ordersTable.couponCode, total: ordersTable.total, paidAmount: ordersTable.paidAmount })
+      .select({ id: ordersTable.id, tenantId: ordersTable.tenantId, status: ordersTable.status, couponCode: ordersTable.couponCode, total: ordersTable.total, paidAmount: ordersTable.paidAmount })
       .from(ordersTable)
       .where(eq(ordersTable.transactionId, transactionId))
       .limit(1);
@@ -99,10 +99,10 @@ async function handleCallback(body: GatewayCallback) {
           await db
             .update(ordersTable)
             .set({ status: newStatus, ...setPaidAmount, updatedAt: new Date() })
-            .where(eq(ordersTable.id, row.id));
+            .where(and(eq(ordersTable.id, row.id), eq(ordersTable.tenantId, row.tenantId || "tenant_loja1")));
 
           if (confirmed && row.couponCode) {
-            await incrementCouponUse(row.couponCode);
+            await incrementCouponUse(row.couponCode, row.tenantId || "tenant_loja1");
           }
 
           if (confirmed && newStatus === "paid") {
@@ -118,7 +118,7 @@ async function handleCallback(body: GatewayCallback) {
               id: row.id,
               transactionId,
               status: newStatus,
-            });
+            }, { tenantId: row.tenantId || "tenant_loja1" });
           }
 
           console.log(`[WEBHOOK] Order ${row.id} updated to ${newStatus}`);
@@ -134,11 +134,11 @@ async function handleCallback(body: GatewayCallback) {
   let chargeUpdated = false;
 
   if (transactionId || metadata?.chargeId) {
-    let rows: Array<{ id: string; status: string; orderId: string | null; amount: string | null }> = [];
+    let rows: Array<{ id: string; tenantId: string | null; status: string; orderId: string | null; amount: string | null }> = [];
 
     if (metadata?.chargeId) {
       rows = await db
-        .select({ id: customChargesTable.id, status: customChargesTable.status, orderId: customChargesTable.orderId, amount: customChargesTable.amount })
+        .select({ id: customChargesTable.id, tenantId: customChargesTable.tenantId, status: customChargesTable.status, orderId: customChargesTable.orderId, amount: customChargesTable.amount })
         .from(customChargesTable)
         .where(eq(customChargesTable.id, metadata.chargeId))
         .limit(1);
@@ -146,7 +146,7 @@ async function handleCallback(body: GatewayCallback) {
 
     if (rows.length === 0 && transactionId) {
       rows = await db
-        .select({ id: customChargesTable.id, status: customChargesTable.status, orderId: customChargesTable.orderId, amount: customChargesTable.amount })
+        .select({ id: customChargesTable.id, tenantId: customChargesTable.tenantId, status: customChargesTable.status, orderId: customChargesTable.orderId, amount: customChargesTable.amount })
         .from(customChargesTable)
         .where(eq(customChargesTable.transactionId, transactionId))
         .limit(1);
@@ -160,7 +160,7 @@ async function handleCallback(body: GatewayCallback) {
           await db
             .update(customChargesTable)
             .set({ status: newStatus, updatedAt: new Date() })
-            .where(eq(customChargesTable.id, row.id));
+            .where(and(eq(customChargesTable.id, row.id), eq(customChargesTable.tenantId, row.tenantId || "tenant_loja1")));
 
           broadcastNotification({
             type: confirmed ? "charge_paid" : "charge_status_updated",
@@ -172,9 +172,9 @@ async function handleCallback(body: GatewayCallback) {
           // If this charge is linked to an order (difference charge), propagate payment to the parent order
           if (confirmed && row.orderId) {
             const parentOrder = await db
-              .select({ id: ordersTable.id, status: ordersTable.status, total: ordersTable.total, paidAmount: ordersTable.paidAmount })
+              .select({ id: ordersTable.id, tenantId: ordersTable.tenantId, status: ordersTable.status, total: ordersTable.total, paidAmount: ordersTable.paidAmount })
               .from(ordersTable)
-              .where(eq(ordersTable.id, row.orderId))
+              .where(and(eq(ordersTable.id, row.orderId), eq(ordersTable.tenantId, row.tenantId || "tenant_loja1")))
               .limit(1);
 
             if (parentOrder[0]) {
@@ -190,7 +190,7 @@ async function handleCallback(body: GatewayCallback) {
               await db
                 .update(ordersTable)
                 .set({ status: newOrderStatus, paidAmount: String(totalPaid), updatedAt: new Date() })
-                .where(eq(ordersTable.id, row.orderId));
+                .where(and(eq(ordersTable.id, row.orderId), eq(ordersTable.tenantId, row.tenantId || "tenant_loja1")));
 
               broadcastNotification({
                 type: newOrderStatus === "paid" || newOrderStatus === "completed" ? "order_paid" : "order_status_updated",
@@ -201,7 +201,7 @@ async function handleCallback(body: GatewayCallback) {
                   id: row.orderId,
                   status: newOrderStatus,
                   source: "difference_charge",
-                });
+                }, { tenantId: row.tenantId || "tenant_loja1" });
               }
 
               if (newOrderStatus === "paid" || newOrderStatus === "completed") {
@@ -398,7 +398,7 @@ router.post("/webhook", async (req, res) => {
     // If orderId is directly specified, update that order
     if (rawOrderId) {
       const rows = await db
-        .select({ id: ordersTable.id, status: ordersTable.status, couponCode: ordersTable.couponCode, total: ordersTable.total, paidAmount: ordersTable.paidAmount })
+        .select({ id: ordersTable.id, tenantId: ordersTable.tenantId, status: ordersTable.status, couponCode: ordersTable.couponCode, total: ordersTable.total, paidAmount: ordersTable.paidAmount })
         .from(ordersTable)
         .where(eq(ordersTable.id, rawOrderId))
         .limit(1);
@@ -407,8 +407,8 @@ router.post("/webhook", async (req, res) => {
         const newStatus = isConfirmed ? "paid" : isCanceled ? "cancelled" : rows[0]!.status;
         const setFields: Record<string, unknown> = { status: newStatus, updatedAt: new Date() };
         if (isConfirmed && !rows[0]!.paidAmount && rows[0]!.total) setFields.paidAmount = rows[0]!.total;
-        await db.update(ordersTable).set(setFields).where(eq(ordersTable.id, rawOrderId));
-        if (isConfirmed && rows[0]!.couponCode) await incrementCouponUse(rows[0]!.couponCode);
+        await db.update(ordersTable).set(setFields).where(and(eq(ordersTable.id, rawOrderId), eq(ordersTable.tenantId, rows[0]!.tenantId || "tenant_loja1")));
+        if (isConfirmed && rows[0]!.couponCode) await incrementCouponUse(rows[0]!.couponCode, rows[0]!.tenantId || "tenant_loja1");
         if (isConfirmed && newStatus === "paid") await ensureOrderCommission(rawOrderId);
         broadcastNotification({ type: isConfirmed ? "order_paid" : "order_status_updated", data: { id: rawOrderId, status: newStatus } });
         if (isConfirmed && newStatus === "paid") {
@@ -416,7 +416,7 @@ router.post("/webhook", async (req, res) => {
             id: rawOrderId,
             status: newStatus,
             source: "universal_webhook",
-          });
+          }, { tenantId: rows[0]!.tenantId || "tenant_loja1" });
         }
         console.log(`[WEBHOOK/universal] Order ${rawOrderId} → ${newStatus}`);
         res.json({ ok: true, matched: true, updated: "order", id: rawOrderId, status: newStatus });
@@ -451,7 +451,7 @@ router.post("/webhook/pix/order/:token/:orderId", async (req, res) => {
     // Also patch by orderId directly in case transactionId isn't in the body
     if (orderId && isPaymentConfirmed(body.status || "")) {
       const rows = await db
-        .select({ id: ordersTable.id, status: ordersTable.status, couponCode: ordersTable.couponCode, total: ordersTable.total, paidAmount: ordersTable.paidAmount })
+        .select({ id: ordersTable.id, tenantId: ordersTable.tenantId, status: ordersTable.status, couponCode: ordersTable.couponCode, total: ordersTable.total, paidAmount: ordersTable.paidAmount })
         .from(ordersTable)
         .where(eq(ordersTable.id, orderId))
         .limit(1);
@@ -461,9 +461,9 @@ router.post("/webhook/pix/order/:token/:orderId", async (req, res) => {
         await db
           .update(ordersTable)
           .set({ status: "paid", transactionId: body.transactionId || rows[0]!.id, ...(paidNow ? { paidAmount: paidNow } : {}), updatedAt: new Date() })
-          .where(eq(ordersTable.id, orderId));
+          .where(and(eq(ordersTable.id, orderId), eq(ordersTable.tenantId, rows[0]!.tenantId || "tenant_loja1")));
 
-        if (rows[0]!.couponCode) await incrementCouponUse(rows[0]!.couponCode);
+        if (rows[0]!.couponCode) await incrementCouponUse(rows[0]!.couponCode, rows[0]!.tenantId || "tenant_loja1");
 
         await ensureOrderCommission(orderId);
 
@@ -472,7 +472,7 @@ router.post("/webhook/pix/order/:token/:orderId", async (req, res) => {
           id: orderId,
           status: "paid",
           source: "direct_order_webhook",
-        });
+        }, { tenantId: rows[0]!.tenantId || "tenant_loja1" });
         console.log(`[WEBHOOK] Order ${orderId} paid via direct URL`);
       }
     }
@@ -502,7 +502,7 @@ router.post("/webhook/pix/charge/:token/:chargeId", async (req, res) => {
 
     if (chargeId && isPaymentConfirmed(body.status || "")) {
       const rows = await db
-        .select({ id: customChargesTable.id, status: customChargesTable.status, orderId: customChargesTable.orderId, amount: customChargesTable.amount })
+        .select({ id: customChargesTable.id, tenantId: customChargesTable.tenantId, status: customChargesTable.status, orderId: customChargesTable.orderId, amount: customChargesTable.amount })
         .from(customChargesTable)
         .where(eq(customChargesTable.id, chargeId))
         .limit(1);
@@ -511,7 +511,7 @@ router.post("/webhook/pix/charge/:token/:chargeId", async (req, res) => {
         await db
           .update(customChargesTable)
           .set({ status: "paid", transactionId: body.transactionId || rows[0]!.id, updatedAt: new Date() })
-          .where(eq(customChargesTable.id, chargeId));
+          .where(and(eq(customChargesTable.id, chargeId), eq(customChargesTable.tenantId, rows[0]!.tenantId || "tenant_loja1")));
 
         broadcastNotification({ type: "charge_paid", data: { id: chargeId, status: "paid" } });
         console.log(`[WEBHOOK] Charge ${chargeId} paid via direct URL`);
@@ -519,9 +519,9 @@ router.post("/webhook/pix/charge/:token/:chargeId", async (req, res) => {
         // Propagate to parent order if this is a diff charge
         if (rows[0]!.orderId) {
           const parentOrder = await db
-            .select({ id: ordersTable.id, status: ordersTable.status, total: ordersTable.total, paidAmount: ordersTable.paidAmount })
+            .select({ id: ordersTable.id, tenantId: ordersTable.tenantId, status: ordersTable.status, total: ordersTable.total, paidAmount: ordersTable.paidAmount })
             .from(ordersTable)
-            .where(eq(ordersTable.id, rows[0]!.orderId))
+            .where(and(eq(ordersTable.id, rows[0]!.orderId), eq(ordersTable.tenantId, rows[0]!.tenantId || "tenant_loja1")))
             .limit(1);
 
           if (parentOrder[0]) {
@@ -536,7 +536,7 @@ router.post("/webhook/pix/charge/:token/:chargeId", async (req, res) => {
             await db
               .update(ordersTable)
               .set({ status: newOrderStatus, paidAmount: String(totalPaid), updatedAt: new Date() })
-              .where(eq(ordersTable.id, rows[0]!.orderId));
+              .where(and(eq(ordersTable.id, rows[0]!.orderId), eq(ordersTable.tenantId, rows[0]!.tenantId || "tenant_loja1")));
 
             broadcastNotification({
               type: newOrderStatus === "paid" || newOrderStatus === "completed" ? "order_paid" : "order_status_updated",
@@ -547,7 +547,7 @@ router.post("/webhook/pix/charge/:token/:chargeId", async (req, res) => {
                 id: rows[0]!.orderId,
                 status: newOrderStatus,
                 source: "direct_charge_webhook",
-              });
+              }, { tenantId: rows[0]!.tenantId || "tenant_loja1" });
             }
             console.log(`[WEBHOOK] Order ${rows[0]!.orderId} auto-updated to ${newOrderStatus} after diff charge (direct URL)`);
 
@@ -571,7 +571,7 @@ router.post("/admin/outbound-webhook/test", requirePrimaryAdmin, async (req, res
     const result = await sendOutboundWebhook("test", {
       message: "Teste manual disparado pelo painel administrativo.",
       triggeredAt: new Date().toISOString(),
-    }, { force: true });
+    }, { force: true, tenantId: "tenant_loja1" });
 
     if (!result.sent) {
       res.status(400).json({ ok: false, error: result.error || "send_failed" });

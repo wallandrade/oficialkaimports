@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 
 export const customChargesTable = mysqlTable("custom_charges", {
   id: varchar("id", { length: 255 }).primaryKey(),
+  tenantId: varchar("tenant_id", { length: 255 }),
   clientName: varchar("client_name", { length: 255 }).notNull(),
   clientEmail: varchar("client_email", { length: 255 }).notNull(),
   clientPhone: varchar("client_phone", { length: 255 }).notNull(),

@@ -3,6 +3,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
 export const inventoryBalancesTable = mysqlTable("inventory_balances", {
+  tenantId: varchar("tenant_id", { length: 255 }),
   productId: varchar("product_id", { length: 255 }).primaryKey(),
   quantity: int("quantity").notNull().default(0),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -10,6 +11,7 @@ export const inventoryBalancesTable = mysqlTable("inventory_balances", {
 
 export const inventoryMovementsTable = mysqlTable("inventory_movements", {
   id: varchar("id", { length: 255 }).primaryKey(),
+  tenantId: varchar("tenant_id", { length: 255 }),
   productId: varchar("product_id", { length: 255 }).notNull(),
   type: varchar("type", { length: 32 }).notNull().default("entry"),
   entrySource: varchar("entry_source", { length: 32 }),

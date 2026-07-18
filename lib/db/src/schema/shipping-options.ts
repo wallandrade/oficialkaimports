@@ -2,6 +2,7 @@ import { mysqlTable, varchar, text, decimal, int, boolean, timestamp } from "dri
 
 export const shippingOptionsTable = mysqlTable("shipping_options", {
   id: varchar("id", { length: 255 }).primaryKey(),
+  tenantId: varchar("tenant_id", { length: 255 }),
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),

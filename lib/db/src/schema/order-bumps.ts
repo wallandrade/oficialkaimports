@@ -2,6 +2,7 @@ import { mysqlTable, varchar, text, mediumtext, decimal, int, boolean, timestamp
 
 export const orderBumpsTable = mysqlTable("order_bumps", {
   id: varchar("id", { length: 255 }).primaryKey(),
+  tenantId: varchar("tenant_id", { length: 255 }),
   productId: varchar("product_id", { length: 255 }).notNull(),
   offerProductId: varchar("offer_product_id", { length: 255 }),
   title: varchar("title", { length: 255 }).notNull(),

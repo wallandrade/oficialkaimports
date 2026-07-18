@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 
 export const reshipmentsTable = mysqlTable("reshipments", {
   id: varchar("id", { length: 255 }).primaryKey(),
+  tenantId: varchar("tenant_id", { length: 255 }),
   orderId: varchar("order_id", { length: 255 }).notNull(),
   supportTicketId: varchar("support_ticket_id", { length: 255 }).notNull(),
   status: varchar("status", { length: 50 }).notNull().default("reenvio_aguardando_estoque"),

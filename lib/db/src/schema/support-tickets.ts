@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 
 export const supportTicketsTable = mysqlTable("support_tickets", {
   id: varchar("id", { length: 255 }).primaryKey(),
+  tenantId: varchar("tenant_id", { length: 255 }),
   orderId: varchar("order_id", { length: 255 }).notNull(),
   clientDocument: varchar("client_document", { length: 32 }).notNull(),
   clientName: varchar("client_name", { length: 255 }).notNull(),

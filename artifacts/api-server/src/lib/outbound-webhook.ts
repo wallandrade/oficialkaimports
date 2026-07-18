@@ -1,6 +1,7 @@
 import { createHmac, randomUUID } from "crypto";
-import { db, siteSettingsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, siteSettingsTable, tenantSettingsTable } from "@workspace/db";
+import { and, eq } from "drizzle-orm";
+import { DEFAULT_TENANT_ID } from "./tenant-context";
 
 type OutboundEventType = "new_order" | "order_paid" | "test";
 
@@ -9,9 +10,18 @@ const EVENT_KEY_MAP: Record<Exclude<OutboundEventType, "test">, string> = {
   order_paid: "outbound_webhook_event_order_paid",
 };
 
-async function getSettingValue(key: string): Promise<string> {
-  const rows = await db.select().from(siteSettingsTable).where(eq(siteSettingsTable.key, key)).limit(1);
-  return String(rows[0]?.value || "").trim();
+async function getSettingValue(key: string, tenantId = DEFAULT_TENANT_ID): Promise<string> {
+  const tenantRows = await db
+    .select({ value: tenantSettingsTable.value })
+    .from(tenantSettingsTable)
+    .where(and(eq(tenantSettingsTable.tenantId, tenantId), eq(tenantSettingsTable.key, key)))
+    .limit(1);
+  if (tenantRows[0]?.value != null) return String(tenantRows[0].value || "").trim();
+
+  const legacyRows = tenantId === DEFAULT_TENANT_ID
+    ? await db.select().from(siteSettingsTable).where(eq(siteSettingsTable.key, key)).limit(1)
+    : [];
+  return String(legacyRows[0]?.value || "").trim();
 }
 
 function isEnabledValue(value: string): boolean {
@@ -72,10 +82,11 @@ async function postWithTimeout(url: string, init: RequestInit, timeoutMs: number
 export async function sendOutboundWebhook(
   eventType: OutboundEventType,
   data: Record<string, unknown>,
-  options?: { force?: boolean },
+  options?: { force?: boolean; tenantId?: string },
 ): Promise<{ sent: boolean; status?: number; error?: string }> {
   try {
-    const rawUrl = await getSettingValue("outbound_webhook_url");
+    const tenantId = String(options?.tenantId || "").trim() || DEFAULT_TENANT_ID;
+    const rawUrl = await getSettingValue("outbound_webhook_url", tenantId);
     if (!rawUrl) {
       return { sent: false, error: "webhook_url_not_configured" };
     }
@@ -90,7 +101,7 @@ export async function sendOutboundWebhook(
       }
     })();
 
-    const enabled = isEnabledValue(await getSettingValue("outbound_webhook_enabled"));
+    const enabled = isEnabledValue(await getSettingValue("outbound_webhook_enabled", tenantId));
     if (!options?.force && !enabled) {
       return { sent: false, error: "webhook_disabled" };
     }
@@ -98,14 +109,14 @@ export async function sendOutboundWebhook(
     if (!options?.force && eventType !== "test") {
       const eventSettingKey = EVENT_KEY_MAP[eventType as Exclude<OutboundEventType, "test">];
       if (eventSettingKey) {
-        const eventEnabled = isEnabledValue(await getSettingValue(eventSettingKey));
+        const eventEnabled = isEnabledValue(await getSettingValue(eventSettingKey, tenantId));
         if (!eventEnabled) {
           return { sent: false, error: `event_disabled:${eventType}` };
         }
       }
     }
 
-    const secret = await getSettingValue("outbound_webhook_secret");
+    const secret = await getSettingValue("outbound_webhook_secret", tenantId);
     const webhookId = randomUUID();
     const timestamp = new Date().toISOString();
     const payload = {

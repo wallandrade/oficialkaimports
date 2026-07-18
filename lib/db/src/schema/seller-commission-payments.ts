@@ -2,6 +2,7 @@ import { mysqlTable, varchar, decimal, timestamp, int, json, text } from "drizzl
 
 export const sellerCommissionPaymentsTable = mysqlTable("seller_commission_payments", {
   id: varchar("id", { length: 255 }).primaryKey(),
+  tenantId: varchar("tenant_id", { length: 255 }),
   sellerCode: varchar("seller_code", { length: 255 }).notNull(),
   orderIds: json("order_ids").notNull(),
   periodStartDate: varchar("period_start_date", { length: 10 }),

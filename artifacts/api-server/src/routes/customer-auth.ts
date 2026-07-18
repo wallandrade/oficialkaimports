@@ -12,10 +12,12 @@ import {
 } from "../middlewares/customer-auth";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { normalizeAffiliateCode, registerAffiliateLead, resolveAffiliateByCode } from "../lib/affiliates";
+import { resolvePublicTenantId } from "../lib/tenant-context";
 
 const router: IRouter = Router();
 
 router.post("/auth/register", async (req, res) => {
+  const tenantId = await resolvePublicTenantId(req as Request);
   const { name, email, password, affiliateCode } = req.body as {
     name?: string;
     email?: string;
@@ -39,7 +41,7 @@ router.post("/auth/register", async (req, res) => {
     const existing = await db
       .select({ id: customerUsersTable.id })
       .from(customerUsersTable)
-      .where(eq(customerUsersTable.email, normalizedEmail))
+      .where(and(eq(customerUsersTable.tenantId, tenantId), eq(customerUsersTable.email, normalizedEmail)))
       .limit(1);
 
     if (existing.length > 0) {
@@ -52,6 +54,7 @@ router.post("/auth/register", async (req, res) => {
 
     await db.insert(customerUsersTable).values({
       id,
+      tenantId,
       name: name.trim(),
       email: normalizedEmail,
       passwordHash: hashPassword(password, salt),
@@ -61,9 +64,10 @@ router.post("/auth/register", async (req, res) => {
 
     const normalizedAffiliateCode = normalizeAffiliateCode(affiliateCode);
     if (normalizedAffiliateCode) {
-      const affiliate = await resolveAffiliateByCode(normalizedAffiliateCode);
+      const affiliate = await resolveAffiliateByCode(normalizedAffiliateCode, tenantId);
       if (affiliate && affiliate.userId !== id) {
         await registerAffiliateLead({
+          tenantId,
           affiliateUserId: affiliate.userId,
           referredUserId: id,
           referredEmail: normalizedEmail,
@@ -71,7 +75,7 @@ router.post("/auth/register", async (req, res) => {
       }
     }
 
-    const session = createCustomerSession({ userId: id, email: normalizedEmail, name: name.trim() });
+    const session = createCustomerSession({ tenantId, userId: id, email: normalizedEmail, name: name.trim() });
 
     res.status(201).json({
       token: session.token,
@@ -89,6 +93,7 @@ router.post("/auth/register", async (req, res) => {
 });
 
 router.post("/auth/login", async (req, res) => {
+  const tenantId = await resolvePublicTenantId(req as Request);
   const { email, password } = req.body as {
     email?: string;
     password?: string;
@@ -105,7 +110,7 @@ router.post("/auth/login", async (req, res) => {
     const users = await db
       .select()
       .from(customerUsersTable)
-      .where(eq(customerUsersTable.email, normalizedEmail))
+      .where(and(eq(customerUsersTable.tenantId, tenantId), eq(customerUsersTable.email, normalizedEmail)))
       .limit(1);
 
     const user = users[0];
@@ -121,6 +126,7 @@ router.post("/auth/login", async (req, res) => {
     }
 
     const session = createCustomerSession({
+      tenantId,
       userId: user.id,
       email: user.email,
       name: user.name,
@@ -157,7 +163,7 @@ router.get("/auth/me", requireCustomerAuth, async (req, res) => {
   const users = await db
     .select({ id: customerUsersTable.id, name: customerUsersTable.name, email: customerUsersTable.email })
     .from(customerUsersTable)
-    .where(eq(customerUsersTable.id, session.userId))
+    .where(and(eq(customerUsersTable.tenantId, session.tenantId), eq(customerUsersTable.id, session.userId)))
     .limit(1);
 
   const user = users[0];
@@ -195,6 +201,7 @@ router.get("/admin/customers", requireAdminAuth, async (req, res) => {
       .from(ordersTable)
       .where(
         and(
+          eq(ordersTable.tenantId, adminScope.tenantId),
           adminScope.hasGlobalAccess ? undefined : eq(ordersTable.sellerCode, adminScope.sellerCode!),
           sql`coalesce(${ordersTable.clientEmail}, '') <> ''`,
         ),
@@ -224,6 +231,7 @@ router.get("/admin/customers", requireAdminAuth, async (req, res) => {
         createdAt: customerUsersTable.createdAt,
       })
       .from(customerUsersTable)
+      .where(eq(customerUsersTable.tenantId, adminScope.tenantId))
       .orderBy(desc(customerUsersTable.createdAt));
 
     const scopedCustomers = adminScope.hasGlobalAccess
@@ -235,7 +243,7 @@ router.get("/admin/customers", requireAdminAuth, async (req, res) => {
     const affiliateRows = await db
       .select({ userId: affiliatesTable.userId, affiliateCode: affiliatesTable.affiliateCode })
       .from(affiliatesTable)
-      .where(scopedCustomerIds.length > 0 ? inArray(affiliatesTable.userId, scopedCustomerIds) : undefined);
+      .where(scopedCustomerIds.length > 0 ? and(eq(affiliatesTable.tenantId, adminScope.tenantId), inArray(affiliatesTable.userId, scopedCustomerIds)) : and(eq(affiliatesTable.tenantId, adminScope.tenantId)));
 
     const affiliateCodeMap = new Map<string, string>();
     for (const row of affiliateRows) {
@@ -326,6 +334,7 @@ router.get("/admin/customers/recurring", requireAdminAuth, async (req, res) => {
       .from(ordersTable)
       .where(
         and(
+          eq(ordersTable.tenantId, adminScope.tenantId),
           adminScope.hasGlobalAccess ? undefined : eq(ordersTable.sellerCode, adminScope.sellerCode!),
           sql`${customerKey} <> ''`,
         ),
@@ -346,6 +355,7 @@ router.get("/admin/customers/recurring", requireAdminAuth, async (req, res) => {
       .from(ordersTable)
       .where(
         and(
+          eq(ordersTable.tenantId, adminScope.tenantId),
           adminScope.hasGlobalAccess ? undefined : eq(ordersTable.sellerCode, adminScope.sellerCode!),
           sql`${customerKey} <> ''`,
         ),

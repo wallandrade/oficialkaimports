@@ -1,9 +1,10 @@
 import { Router, type IRouter } from "express";
 import { db, productsTable, productCostHistoryTable, ordersTable, siteSettingsTable } from "@workspace/db";
-import { eq, asc, desc, gte } from "drizzle-orm";
+import { and, eq, asc, desc, gte } from "drizzle-orm";
 import crypto from "crypto";
-import { requirePrimaryAdmin } from "./admin-auth";
+import { getAdminScope, requirePrimaryAdmin } from "./admin-auth";
 import { getR2MissingConfig, isR2Configured, uploadProductImageToR2 } from "../lib/r2";
+import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 
 const router: IRouter = Router();
 
@@ -283,12 +284,13 @@ function mapProduct(p: typeof productsTable.$inferSelect, includeCostPrice = fal
  * GET /api/products
  * Returns active products from DB, falling back to Google Sheets if DB is empty.
  */
-router.get("/products", async (_req, res) => {
+router.get("/products", async (req, res) => {
   try {
+    const tenantId = await resolvePublicTenantId(req);
     const rows = await db
       .select()
       .from(productsTable)
-      .where(eq(productsTable.isActive, true))
+      .where(and(eq(productsTable.tenantId, tenantId), eq(productsTable.isActive, true)))
       .orderBy(desc(productsTable.isLaunch), asc(productsTable.createdAt));
 
     // Products with explicit positive position (1,2,3...) come first.
@@ -323,11 +325,13 @@ router.get("/products", async (_req, res) => {
 // ─── Admin CRUD ───────────────────────────────────────────────────────────────
 
 /** GET /api/admin/products */
-router.get("/admin/products", requirePrimaryAdmin, async (_req, res) => {
+router.get("/admin/products", requirePrimaryAdmin, async (req, res) => {
   try {
+    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const rows = await db
       .select()
       .from(productsTable)
+      .where(eq(productsTable.tenantId, tenantId))
       .orderBy(asc(productsTable.sortOrder), asc(productsTable.createdAt));
     res.json({ products: rows.map((row) => mapProduct(row, true)) });
   } catch (err) {
@@ -337,11 +341,13 @@ router.get("/admin/products", requirePrimaryAdmin, async (_req, res) => {
 });
 
 /** GET /api/admin/products/backup */
-router.get("/admin/products/backup", requirePrimaryAdmin, async (_req, res) => {
+router.get("/admin/products/backup", requirePrimaryAdmin, async (req, res) => {
   try {
+    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const rows = await db
       .select()
       .from(productsTable)
+      .where(eq(productsTable.tenantId, tenantId))
       .orderBy(asc(productsTable.sortOrder), asc(productsTable.createdAt));
 
     const settingsRows = await db
@@ -371,6 +377,7 @@ router.get("/admin/products/backup", requirePrimaryAdmin, async (_req, res) => {
 /** POST /api/admin/products/restore */
 router.post("/admin/products/restore", requirePrimaryAdmin, async (req, res) => {
   try {
+    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const { mode, backup } = req.body as {
       mode?: "merge" | "replace";
       backup?: unknown;
@@ -395,7 +402,7 @@ router.post("/admin/products/restore", requirePrimaryAdmin, async (req, res) => 
 
     await db.transaction(async (tx) => {
       if (normalizedMode === "replace") {
-        await tx.delete(productsTable);
+        await tx.delete(productsTable).where(eq(productsTable.tenantId, tenantId));
       }
 
       for (const product of products) {
@@ -403,6 +410,8 @@ router.post("/admin/products/restore", requirePrimaryAdmin, async (req, res) => 
           .insert(productsTable)
           .values({
             id: product.id,
+            tenantId,
+              tenantId,
             name: product.name,
             description: product.description || null,
             category: product.category,
@@ -528,6 +537,7 @@ router.post("/admin/products/upload-image", requirePrimaryAdmin, async (req, res
 /** POST /api/admin/products */
 router.post("/admin/products", requirePrimaryAdmin, async (req, res) => {
   try {
+    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const {
       name, description, category, brand, unit, price,
       costPrice, promoPrice, promoEndsAt, bulkDiscountEnabled, bulkDiscountTiers, variantGroups, image, isActive, isSoldOut, isLaunch, sortOrder,
@@ -556,6 +566,7 @@ router.post("/admin/products", requirePrimaryAdmin, async (req, res) => {
     const id = crypto.randomBytes(8).toString("hex");
     await db.insert(productsTable).values({
       id,
+      tenantId,
       name:        name.trim(),
       description: description?.trim() || null,
       category:    category.trim(),
@@ -575,7 +586,7 @@ router.post("/admin/products", requirePrimaryAdmin, async (req, res) => {
       sortOrder:   sortOrder ?? 0,
     });
 
-    const [created] = await db.select().from(productsTable).where(eq(productsTable.id, id));
+    const [created] = await db.select().from(productsTable).where(and(eq(productsTable.id, id), eq(productsTable.tenantId, tenantId)));
     res.status(201).json(mapProduct(created!, true));
   } catch (err) {
     console.error("Create product error:", err);
@@ -586,6 +597,7 @@ router.post("/admin/products", requirePrimaryAdmin, async (req, res) => {
 /** PATCH /api/admin/products/:id */
 router.patch("/admin/products/:id", requirePrimaryAdmin, async (req, res) => {
   try {
+    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
       const {
@@ -632,7 +644,7 @@ router.patch("/admin/products/:id", requirePrimaryAdmin, async (req, res) => {
 
     // Record cost price history and backfill recent orders when costPrice changes
     if (costPrice !== undefined) {
-      const [current] = await db.select({ costPrice: productsTable.costPrice }).from(productsTable).where(eq(productsTable.id, id));
+      const [current] = await db.select({ costPrice: productsTable.costPrice }).from(productsTable).where(and(eq(productsTable.id, id), eq(productsTable.tenantId, tenantId)));
       const newCost = Number(costPrice ?? 0);
       if (current && Number(current.costPrice) !== newCost) {
         // 1. Gravar histórico
@@ -646,7 +658,7 @@ router.patch("/admin/products/:id", requirePrimaryAdmin, async (req, res) => {
         const recentOrders = await db
           .select({ id: ordersTable.id, products: ordersTable.products })
           .from(ordersTable)
-          .where(gte(ordersTable.createdAt, since));
+          .where(and(eq(ordersTable.tenantId, tenantId), gte(ordersTable.createdAt, since)));
 
         for (const order of recentOrders) {
           let items: Array<Record<string, unknown>>;
@@ -669,9 +681,9 @@ router.patch("/admin/products/:id", requirePrimaryAdmin, async (req, res) => {
       }
     }
 
-    await db.update(productsTable).set(updates).where(eq(productsTable.id, id));
+    await db.update(productsTable).set(updates).where(and(eq(productsTable.id, id), eq(productsTable.tenantId, tenantId)));
 
-    const [updated] = await db.select().from(productsTable).where(eq(productsTable.id, id));
+    const [updated] = await db.select().from(productsTable).where(and(eq(productsTable.id, id), eq(productsTable.tenantId, tenantId)));
     if (!updated) { res.status(404).json({ error: "NOT_FOUND" }); return; }
     res.json(mapProduct(updated, true));
   } catch (err) {
@@ -683,8 +695,11 @@ router.patch("/admin/products/:id", requirePrimaryAdmin, async (req, res) => {
 /** GET /api/admin/products/:id/cost-history */
 router.get("/admin/products/:id/cost-history", requirePrimaryAdmin, async (req, res) => {
   try {
+    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
+    const [product] = await db.select({ id: productsTable.id }).from(productsTable).where(and(eq(productsTable.id, id), eq(productsTable.tenantId, tenantId)));
+    if (!product) { res.status(404).json({ error: "NOT_FOUND" }); return; }
     const rows = await db
       .select()
       .from(productCostHistoryTable)
@@ -700,9 +715,10 @@ router.get("/admin/products/:id/cost-history", requirePrimaryAdmin, async (req, 
 /** DELETE /api/admin/products/:id */
 router.delete("/admin/products/:id", requirePrimaryAdmin, async (req, res) => {
   try {
+    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
-    await db.delete(productsTable).where(eq(productsTable.id, id));
+    await db.delete(productsTable).where(and(eq(productsTable.id, id), eq(productsTable.tenantId, tenantId)));
     res.json({ ok: true });
   } catch (err) {
     console.error("Delete product error:", err);

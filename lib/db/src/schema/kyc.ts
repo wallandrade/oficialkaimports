@@ -2,6 +2,7 @@ import { mysqlTable, varchar, text, mediumtext, boolean, timestamp, datetime } f
 
 export const kycDocumentsTable = mysqlTable("kyc_documents", {
   id: varchar("id", { length: 255 }).primaryKey(),
+  tenantId: varchar("tenant_id", { length: 255 }),
   orderId: varchar("order_id", { length: 255 }).notNull().unique(),
   clientDocument: varchar("client_document", { length: 255 }),
   clientName: varchar("client_name", { length: 255 }),

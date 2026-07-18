@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { db, ordersTable, sellersTable, productsTable, siteSettingsTable, couponsTable } from "@workspace/db";
-import { eq, inArray } from "drizzle-orm";
+import { db, ordersTable, sellersTable, productsTable, siteSettingsTable, tenantSettingsTable, couponsTable } from "@workspace/db";
+import { and, eq, inArray } from "drizzle-orm";
 import crypto from "crypto";
 import { broadcastNotification } from "./notifications";
 import { evaluateCouponForProducts, incrementCouponUse } from "./coupons";
@@ -16,6 +16,7 @@ import { applyAffiliateCreditToOrder, ensureOrderCommission, normalizeAffiliateC
 import { sendOutboundWebhook } from "../lib/outbound-webhook";
 import { lookupIpGeo } from "../lib/ip-geo";
 import { parseFreeShippingMinSubtotalSetting, resolveShippingCostWithFreeThreshold } from "../lib/free-shipping";
+import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 
 const router: IRouter = Router();
 
@@ -165,23 +166,36 @@ function parseEnabledSetting(value?: string | null): boolean {
 }
 
 async function isPaymentMethodEnabled(key: "checkout_enable_pix" | "checkout_enable_card"): Promise<boolean> {
-  const rows = await db.select().from(siteSettingsTable).where(eq(siteSettingsTable.key, key)).limit(1);
-  return parseEnabledSetting(rows[0]?.value ?? null);
+  const value = await getSettingValue(key);
+  return parseEnabledSetting(value ?? null);
 }
 
 async function getActivePixGateway(): Promise<"appcnpay" | "dentpeg"> {
-  const rows = await db.select().from(siteSettingsTable).where(eq(siteSettingsTable.key, "checkout_pix_gateway")).limit(1);
-  return normalizePixGatewayProvider(rows[0]?.value ?? null);
+  const value = await getSettingValue("checkout_pix_gateway");
+  return normalizePixGatewayProvider(value ?? null);
 }
 
 async function getFreeShippingMinSubtotal(): Promise<number | null> {
-  const rows = await db
-    .select({ value: siteSettingsTable.value })
-    .from(siteSettingsTable)
-    .where(eq(siteSettingsTable.key, "checkout_free_shipping_min_subtotal"))
+  const value = await getSettingValue("checkout_free_shipping_min_subtotal");
+  return parseFreeShippingMinSubtotalSetting(value ?? "");
+}
+
+async function getSettingValue(key: string, tenantId = DEFAULT_TENANT_ID): Promise<string | null> {
+  const tenantRows = await db
+    .select({ value: tenantSettingsTable.value })
+    .from(tenantSettingsTable)
+    .where(and(eq(tenantSettingsTable.tenantId, tenantId), eq(tenantSettingsTable.key, key)))
     .limit(1);
 
-  return parseFreeShippingMinSubtotalSetting(rows[0]?.value ?? "");
+  if (tenantRows[0]?.value != null) return tenantRows[0].value;
+
+  const legacyRows = await db
+    .select({ value: siteSettingsTable.value })
+    .from(siteSettingsTable)
+    .where(eq(siteSettingsTable.key, key))
+    .limit(1);
+
+  return legacyRows[0]?.value ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -192,6 +206,7 @@ async function getFreeShippingMinSubtotal(): Promise<number | null> {
 // ---------------------------------------------------------------------------
 router.post("/checkout/pix", async (req, res) => {
   const requestId = crypto.randomBytes(4).toString("hex");
+  const tenantId = await resolvePublicTenantId(req as any);
   const purchaseIp = getPurchaseIp(req) || "IP_NAO_ENCONTRADO";
 
   // Log the FULL request payload immediately — before any validation
@@ -261,7 +276,7 @@ router.post("/checkout/pix", async (req, res) => {
           commissionRate: sellersTable.commissionRate,
         })
         .from(sellersTable)
-        .where(eq(sellersTable.slug, slug));
+        .where(and(eq(sellersTable.tenantId, tenantId), eq(sellersTable.slug, slug)));
       if (seller?.hasCommission) {
         sellerCommissionRateSnapshot = Number(seller.commissionRate ?? 0);
       }
@@ -289,7 +304,7 @@ router.post("/checkout/pix", async (req, res) => {
     const productIds = Array.from(new Set(productItems.map((p) => String(p?.id || "")).filter(Boolean)));
     let productRows = new Map<string, typeof productsTable.$inferSelect>();
     if (productIds.length > 0) {
-      const rows = await db.select().from(productsTable).where(inArray(productsTable.id, productIds));
+      const rows = await db.select().from(productsTable).where(and(eq(productsTable.tenantId, tenantId), inArray(productsTable.id, productIds)));
       productRows = new Map(rows.map((row) => [row.id, row]));
     }
 
@@ -379,7 +394,7 @@ router.post("/checkout/pix", async (req, res) => {
 
     if (couponCode?.trim()) {
       const cleanCouponCode = String(couponCode).trim().toUpperCase();
-      const [coupon] = await db.select().from(couponsTable).where(eq(couponsTable.code, cleanCouponCode));
+      const [coupon] = await db.select().from(couponsTable).where(and(eq(couponsTable.tenantId, tenantId), eq(couponsTable.code, cleanCouponCode)));
       if (!coupon) {
         res.status(400).json({ error: "INVALID_COUPON", message: "Cupom não encontrado." });
         return;
@@ -415,6 +430,7 @@ router.post("/checkout/pix", async (req, res) => {
 
     await db.insert(ordersTable).values({
       id:                  orderId,
+      tenantId,
       userId:              customerSession?.userId ?? null,
       guestAccessToken,
       affiliateUserId,
@@ -465,7 +481,7 @@ router.post("/checkout/pix", async (req, res) => {
             status: payableAmount <= 0 ? "paid" : "pending",
             updatedAt: new Date(),
           })
-          .where(eq(ordersTable.id, orderId));
+          .where(and(eq(ordersTable.id, orderId), eq(ordersTable.tenantId, tenantId)));
       }
     }
 
@@ -484,7 +500,7 @@ router.post("/checkout/pix", async (req, res) => {
       if (!geo) return;
       db.update(ordersTable)
         .set({ ipCity: geo.city, ipRegion: geo.region, ipIsp: geo.isp, ipIsProxy: geo.isProxy })
-        .where(eq(ordersTable.id, orderId))
+        .where(and(eq(ordersTable.id, orderId), eq(ordersTable.tenantId, tenantId)))
         .catch(() => {});
     }).catch(() => {});
 
@@ -506,11 +522,11 @@ router.post("/checkout/pix", async (req, res) => {
       paymentMethod: "pix",
       sellerCode: sellerCode || null,
       createdAt: new Date().toISOString(),
-    });
+    }, { tenantId });
 
     // Increment coupon usage if applicable
     if (normalizedCouponCode) {
-      try { await incrementCouponUse(normalizedCouponCode); } catch { /* non-fatal */ }
+      try { await incrementCouponUse(normalizedCouponCode, tenantId); } catch { /* non-fatal */ }
     }
 
     const payableAmount = Math.max(0, amount - affiliateCreditUsed);
@@ -521,7 +537,7 @@ router.post("/checkout/pix", async (req, res) => {
         id: orderId,
         status: "paid",
         coveredByAffiliateCredit: true,
-      });
+      }, { tenantId });
       res.json({
         orderId,
         affiliateCode: affiliateUserId ? normalizedAffiliateCode : null,
@@ -570,7 +586,7 @@ router.post("/checkout/pix", async (req, res) => {
       // Order was created but PIX failed — mark as failed so admin knows
       await db.update(ordersTable)
         .set({ status: "cancelled", updatedAt: new Date() })
-        .where(eq(ordersTable.id, orderId))
+        .where(and(eq(ordersTable.id, orderId), eq(ordersTable.tenantId, tenantId)))
         .catch(() => {});
       res.status(400).json({ error: "GATEWAY_ERROR", message: msg });
       return;
@@ -585,7 +601,7 @@ router.post("/checkout/pix", async (req, res) => {
         status: "awaiting_payment",
         updatedAt: new Date(),
       })
-      .where(eq(ordersTable.id, orderId));
+      .where(and(eq(ordersTable.id, orderId), eq(ordersTable.tenantId, tenantId)));
 
     console.log(`[CHECKOUT/PIX:${requestId}] PIX generated — transactionId: ${gatewayData.transactionId}`);
 

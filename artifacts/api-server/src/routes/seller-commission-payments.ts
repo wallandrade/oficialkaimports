@@ -4,6 +4,7 @@ import { db, ordersTable, sellerCommissionPaymentsTable, sellersTable } from "@w
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 
 const router: IRouter = Router();
+const DEFAULT_TENANT_ID = "tenant_loja1";
 
 type CommissionOrderRow = {
   id: string;
@@ -130,6 +131,7 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
       return;
     }
 
+    const tenantId = scope.tenantId || DEFAULT_TENANT_ID;
     const { sellerCode, dateFrom, dateTo } = req.query as Record<string, string>;
     const effectiveSellerCode = String(sellerCode || "").trim().toLowerCase();
     const scopedSellerCode = normalizeSellerCode(scope.sellerCode);
@@ -146,6 +148,7 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
     if (endDate) dateConditions.push(lte(ordersTable.createdAt, endDate));
 
     const pendingConditions = [
+      eq(ordersTable.tenantId, tenantId),
       inArray(ordersTable.status, ["paid", "completed"]),
       isNull(ordersTable.sellerCommissionBatchId),
       isNull(ordersTable.sellerCommissionPaidAt),
@@ -171,6 +174,7 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
     const batchRows = await db
       .select()
       .from(sellerCommissionPaymentsTable)
+      .where(eq(sellerCommissionPaymentsTable.tenantId, tenantId))
       .orderBy(desc(sellerCommissionPaymentsTable.createdAt));
 
     const scopedBatchRows = batchRows.filter((batch) => {
@@ -239,6 +243,7 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
       return;
     }
 
+    const tenantId = scope.tenantId || DEFAULT_TENANT_ID;
     const { sellerCode, dateFrom, dateTo, orderIds } = req.body as {
       sellerCode?: string;
       dateFrom?: string;
@@ -268,6 +273,7 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
     const orderIdList = Array.isArray(orderIds) ? Array.from(new Set(orderIds.map((value) => String(value || "").trim()).filter(Boolean))) : [];
 
     const conditions = [
+      eq(ordersTable.tenantId, tenantId),
       eq(ordersTable.sellerCode, targetSellerCode),
       inArray(ordersTable.status, ["paid", "completed"]),
       isNull(ordersTable.sellerCommissionBatchId),
@@ -296,7 +302,7 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
     const sellerBatchRows = await db
       .select()
       .from(sellerCommissionPaymentsTable)
-      .where(eq(sellerCommissionPaymentsTable.sellerCode, targetSellerCode));
+      .where(and(eq(sellerCommissionPaymentsTable.tenantId, tenantId), eq(sellerCommissionPaymentsTable.sellerCode, targetSellerCode)));
 
     const paidWindows = sellerBatchRows
       .filter((batch) => batch.status === "paid")
@@ -332,6 +338,7 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
 
     await db.insert(sellerCommissionPaymentsTable).values({
       id: batchId,
+      tenantId,
       sellerCode: targetSellerCode,
       orderIds: eligibleOrders.map((order) => order.id),
       periodStartDate,
@@ -349,7 +356,7 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
     await db
       .update(ordersTable)
       .set({ sellerCommissionBatchId: batchId, updatedAt: now })
-      .where(inArray(ordersTable.id, eligibleOrders.map((order) => order.id)));
+      .where(and(eq(ordersTable.tenantId, tenantId), inArray(ordersTable.id, eligibleOrders.map((order) => order.id))));
 
     res.status(201).json({
       ok: true,
@@ -383,6 +390,7 @@ router.patch("/admin/seller-commission-payments/:id/pay", requireAdminAuth, asyn
       return;
     }
 
+    const tenantId = scope.tenantId || DEFAULT_TENANT_ID;
     const paymentId = String(req.params.id || "").trim();
     const { paymentMethod, notes } = req.body as { paymentMethod?: string; notes?: string };
     const now = new Date();
@@ -390,7 +398,7 @@ router.patch("/admin/seller-commission-payments/:id/pay", requireAdminAuth, asyn
     const existing = await db
       .select()
       .from(sellerCommissionPaymentsTable)
-      .where(eq(sellerCommissionPaymentsTable.id, paymentId))
+      .where(and(eq(sellerCommissionPaymentsTable.tenantId, tenantId), eq(sellerCommissionPaymentsTable.id, paymentId)))
       .limit(1);
     if (!existing[0]) {
       res.status(404).json({ error: "NOT_FOUND", message: "Lote não encontrado." });
@@ -411,14 +419,14 @@ router.patch("/admin/seller-commission-payments/:id/pay", requireAdminAuth, asyn
         paidAt: now,
         updatedAt: now,
       })
-      .where(eq(sellerCommissionPaymentsTable.id, paymentId));
+      .where(and(eq(sellerCommissionPaymentsTable.tenantId, tenantId), eq(sellerCommissionPaymentsTable.id, paymentId)));
 
     const orderIds = parseOrderIds(existing[0].orderIds);
     if (orderIds.length > 0) {
       await db
         .update(ordersTable)
         .set({ sellerCommissionPaidAt: now, updatedAt: now })
-        .where(inArray(ordersTable.id, orderIds));
+        .where(and(eq(ordersTable.tenantId, tenantId), inArray(ordersTable.id, orderIds)));
     }
 
     res.json({ ok: true, id: paymentId, status: "paid", paidAt: now.toISOString() });

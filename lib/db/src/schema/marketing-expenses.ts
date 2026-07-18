@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 
 export const marketingExpensesTable = mysqlTable("marketing_expenses", {
   id: varchar("id", { length: 255 }).primaryKey(),
+  tenantId: varchar("tenant_id", { length: 255 }),
   sellerCode: varchar("seller_code", { length: 255 }),
   expenseDate: timestamp("expense_date").notNull(),
   expenseStartDate: timestamp("expense_start_date"),

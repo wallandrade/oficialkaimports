@@ -24,6 +24,7 @@ import { lookupIpGeo } from "../lib/ip-geo";
 import { getR2MissingConfig, isR2Configured, uploadOrderTrackingLabelToR2 } from "../lib/r2";
 import { sendOutboundWebhook } from "../lib/outbound-webhook";
 import { parseFreeShippingMinSubtotalSetting, resolveShippingCostWithFreeThreshold } from "../lib/free-shipping";
+import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 
 const router: IRouter = Router();
 
@@ -819,7 +820,7 @@ function normalizeIp(raw?: string | null): string {
 function ensureSellerScopeOnOrderQuery(
   req: Request,
   res: Response,
-): { hasGlobalAccess: boolean; sellerCode: string | null } | null {
+): { hasGlobalAccess: boolean; sellerCode: string | null; tenantId: string } | null {
   const scope = getAdminScope(req);
   if (!scope) {
     res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
@@ -829,29 +830,31 @@ function ensureSellerScopeOnOrderQuery(
     res.status(403).json({ error: "FORBIDDEN", message: "Usuário sem seller vinculado." });
     return null;
   }
-  return { hasGlobalAccess: scope.hasGlobalAccess, sellerCode: scope.sellerCode };
+  return { hasGlobalAccess: scope.hasGlobalAccess, sellerCode: scope.sellerCode, tenantId: scope.tenantId || DEFAULT_TENANT_ID };
 }
 
-function buildAdminOrderWhere(orderId: string, scope: { hasGlobalAccess: boolean; sellerCode: string | null }) {
-  if (scope.hasGlobalAccess) return eq(ordersTable.id, orderId);
-  return and(eq(ordersTable.id, orderId), eq(ordersTable.sellerCode, scope.sellerCode!));
+function buildAdminOrderWhere(orderId: string, scope: { hasGlobalAccess: boolean; sellerCode: string | null; tenantId: string }) {
+  if (scope.hasGlobalAccess) return and(eq(ordersTable.id, orderId), eq(ordersTable.tenantId, scope.tenantId));
+  return and(eq(ordersTable.id, orderId), eq(ordersTable.tenantId, scope.tenantId), eq(ordersTable.sellerCode, scope.sellerCode!));
 }
 
-function buildOpenTrackingCandidatesWhere(scope: { hasGlobalAccess: boolean; sellerCode: string | null }) {
+function buildOpenTrackingCandidatesWhere(scope: { hasGlobalAccess: boolean; sellerCode: string | null; tenantId: string }) {
   if (scope.hasGlobalAccess) {
     return and(
+      eq(ordersTable.tenantId, scope.tenantId),
       inArray(ordersTable.status, ["paid", "completed"]),
       eq(ordersTable.enviado, false),
     );
   }
   return and(
+    eq(ordersTable.tenantId, scope.tenantId),
     eq(ordersTable.sellerCode, scope.sellerCode!),
     inArray(ordersTable.status, ["paid", "completed"]),
     eq(ordersTable.enviado, false),
   );
 }
 
-async function fetchOpenTrackingCandidates(scope: { hasGlobalAccess: boolean; sellerCode: string | null }): Promise<TrackingMatchCandidateInput[]> {
+async function fetchOpenTrackingCandidates(scope: { hasGlobalAccess: boolean; sellerCode: string | null; tenantId: string }): Promise<TrackingMatchCandidateInput[]> {
   const dbCandidates = await db
     .select({
       id: ordersTable.id,
@@ -1006,6 +1009,7 @@ function csvField(value: unknown): string {
 // ---------------------------------------------------------------------------
 router.post("/orders", async (req, res) => {
   try {
+    const tenantId = await resolvePublicTenantId(req as any);
     const purchaseIp = getPurchaseIp(req) || "IP_NAO_ENCONTRADO";
     const customerSession = getCustomerSession(req);
     const guestAccessToken = customerSession ? null : buildGuestAccessToken();
@@ -1207,6 +1211,7 @@ router.post("/orders", async (req, res) => {
 
     await db.insert(ordersTable).values({
       id,
+      tenantId,
       userId: customerSession?.userId ?? null,
       guestAccessToken,
       affiliateUserId,
@@ -1274,7 +1279,7 @@ router.post("/orders", async (req, res) => {
       paymentMethod: method,
       sellerCode: sellerCode || null,
       createdAt: new Date().toISOString(),
-    });
+    }, { tenantId });
 
     res.status(201).json({
       id, client, address: address || null, products: orderProducts, shippingType,
@@ -1363,6 +1368,7 @@ router.get("/me/orders/:id", requireCustomerAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get("/orders/guest/:id", async (req, res) => {
   try {
+    const tenantId = await resolvePublicTenantId(req as any);
     const { id } = req.params;
     const token = String((req.query as Record<string, string>).token || "").trim();
 
@@ -1374,7 +1380,7 @@ router.get("/orders/guest/:id", async (req, res) => {
     const rows = await db
       .select()
       .from(ordersTable)
-      .where(and(eq(ordersTable.id, id), eq(ordersTable.guestAccessToken, token)))
+      .where(and(eq(ordersTable.id, id), eq(ordersTable.tenantId, tenantId), eq(ordersTable.guestAccessToken, token)))
       .limit(1);
 
     if (!rows[0]) {
@@ -1420,6 +1426,7 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
     }
     if (paymentMethod && paymentMethod !== "all") nonDateConditions.push(eq(ordersTable.paymentMethod, paymentMethod));
     if (whatsappGroup && whatsappGroup !== "all") nonDateConditions.push(eq(ordersTable.whatsappGroup, whatsappGroup));
+    nonDateConditions.push(eq(ordersTable.tenantId, adminScope.tenantId));
     if (!adminScope.hasGlobalAccess) {
       if (sellerCode && sellerCode !== "all" && sellerCode !== adminScope.sellerCode) {
         res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para acessar outro seller." });
@@ -1464,7 +1471,7 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
       }
     }
 
-    const reshipmentByOrder = await getReshipmentByOrderIds(orders.map((o) => o.id));
+    const reshipmentByOrder = await getReshipmentByOrderIds(orders.map((o) => o.id), adminScope.tenantId);
     const priorityByOrder = await loadOrderPriorityMap(orders.map((o) => o.id));
 
     const enriched = orders.map((order) => {
@@ -1624,7 +1631,7 @@ router.patch("/admin/orders/:id/status", requireAdminAuth, async (req, res) => {
     }
 
     if (couponCodeToIncrement) {
-      await incrementCouponUse(couponCodeToIncrement);
+      await incrementCouponUse(couponCodeToIncrement, adminScope.tenantId);
     }
 
     if (isBeingPaid) {
@@ -1987,6 +1994,7 @@ router.get("/admin/export", requireAdminAuth, async (req, res) => {
     // São Paulo = UTC-3: midnight SP = 03:00 UTC; end-of-day SP 23:59:59 = next day 02:59:59 UTC
     const SP_OFFSET_MS = 3 * 60 * 60 * 1000;
     const conditions = [];
+    conditions.push(eq(ordersTable.tenantId, adminScope.tenantId));
     if (dateFrom) {
       const from = new Date(dateFrom + "T00:00:00.000Z");
       from.setTime(from.getTime() + SP_OFFSET_MS);

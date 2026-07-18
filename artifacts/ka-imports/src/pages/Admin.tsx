@@ -1520,6 +1520,7 @@ export default function Admin() {
     localStorage.removeItem("adminToken");
     localStorage.removeItem("adminIsPrimary");
     localStorage.removeItem("adminUsername");
+    localStorage.removeItem("adminTenantId");
     setLocation("/admin/login");
   }, [setLocation]);
 
@@ -2535,12 +2536,13 @@ export default function Admin() {
           handleUnauthorized();
           return;
         }
-        const data = await res.json() as { ok: boolean; isPrimary: boolean; username: string };
+        const data = await res.json() as { ok: boolean; isPrimary: boolean; username: string; tenantId?: string };
         console.log('[DEBUG] Dados recebidos do backend:', data);
         setIsPrimary(data.isPrimary);
         setCurrentUsername(data.username || "");
         localStorage.setItem("adminIsPrimary", String(data.isPrimary));
         localStorage.setItem("adminUsername", data.username || "");
+        if (data.tenantId) localStorage.setItem("adminTenantId", data.tenantId);
         setAuthChecked(true);
         fetchOrders();
         fetchCharges();
@@ -2616,6 +2618,7 @@ export default function Admin() {
     localStorage.removeItem("adminToken");
     localStorage.removeItem("adminIsPrimary");
     localStorage.removeItem("adminUsername");
+    localStorage.removeItem("adminTenantId");
     if (sseReconnectTimerRef.current !== null) {
       window.clearTimeout(sseReconnectTimerRef.current);
       sseReconnectTimerRef.current = null;

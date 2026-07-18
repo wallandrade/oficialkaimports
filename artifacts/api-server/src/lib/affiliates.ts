@@ -10,6 +10,7 @@ import {
 import { and, eq, sql } from "drizzle-orm";
 
 const COMMISSION_RATE = 0.01;
+const DEFAULT_TENANT_ID = "tenant_loja1";
 
 function randomId(): string {
   return crypto.randomBytes(8).toString("hex");
@@ -23,11 +24,11 @@ export function normalizeAffiliateCode(input: unknown): string {
   return String(input || "").trim().toUpperCase();
 }
 
-export async function getOrCreateAffiliateByUserId(userId: string) {
+export async function getOrCreateAffiliateByUserId(userId: string, tenantId = DEFAULT_TENANT_ID) {
   const existing = await db
     .select()
     .from(affiliatesTable)
-    .where(eq(affiliatesTable.userId, userId))
+    .where(and(eq(affiliatesTable.tenantId, tenantId), eq(affiliatesTable.userId, userId)))
     .limit(1);
 
   if (existing[0]) {
@@ -40,7 +41,7 @@ export async function getOrCreateAffiliateByUserId(userId: string) {
     const codeExists = await db
       .select({ id: affiliatesTable.id })
       .from(affiliatesTable)
-      .where(eq(affiliatesTable.affiliateCode, candidate))
+      .where(and(eq(affiliatesTable.tenantId, tenantId), eq(affiliatesTable.affiliateCode, candidate)))
       .limit(1);
 
     if (!codeExists[0]) {
@@ -55,6 +56,7 @@ export async function getOrCreateAffiliateByUserId(userId: string) {
 
   const newAffiliate = {
     id: randomId(),
+    tenantId,
     userId,
     affiliateCode: createdCode,
     updatedAt: new Date(),
@@ -65,7 +67,7 @@ export async function getOrCreateAffiliateByUserId(userId: string) {
   const fresh = await db
     .select()
     .from(affiliatesTable)
-    .where(eq(affiliatesTable.userId, userId))
+    .where(and(eq(affiliatesTable.tenantId, tenantId), eq(affiliatesTable.userId, userId)))
     .limit(1);
 
   if (!fresh[0]) {
@@ -75,24 +77,26 @@ export async function getOrCreateAffiliateByUserId(userId: string) {
   return fresh[0];
 }
 
-export async function resolveAffiliateByCode(code: string) {
+export async function resolveAffiliateByCode(code: string, tenantId = DEFAULT_TENANT_ID) {
   const normalized = normalizeAffiliateCode(code);
   if (!normalized) return null;
 
   const rows = await db
     .select()
     .from(affiliatesTable)
-    .where(eq(affiliatesTable.affiliateCode, normalized))
+    .where(and(eq(affiliatesTable.tenantId, tenantId), eq(affiliatesTable.affiliateCode, normalized)))
     .limit(1);
 
   return rows[0] || null;
 }
 
 export async function registerAffiliateLead(input: {
+  tenantId?: string;
   affiliateUserId: string;
   referredUserId?: string | null;
   referredEmail?: string | null;
 }) {
+  const tenantId = String(input.tenantId || "").trim() || DEFAULT_TENANT_ID;
   const referredUserId = input.referredUserId || null;
   const referredEmail = (input.referredEmail || "").trim().toLowerCase() || null;
 
@@ -106,6 +110,7 @@ export async function registerAffiliateLead(input: {
       .from(affiliateReferralsTable)
       .where(
         and(
+          eq(affiliateReferralsTable.tenantId, tenantId),
           eq(affiliateReferralsTable.affiliateUserId, input.affiliateUserId),
           eq(affiliateReferralsTable.referredUserId, referredUserId)
         )
@@ -123,6 +128,7 @@ export async function registerAffiliateLead(input: {
       .from(affiliateReferralsTable)
       .where(
         and(
+          eq(affiliateReferralsTable.tenantId, tenantId),
           eq(affiliateReferralsTable.affiliateUserId, input.affiliateUserId),
           eq(affiliateReferralsTable.referredEmail, referredEmail)
         )
@@ -136,6 +142,7 @@ export async function registerAffiliateLead(input: {
 
   await db.insert(affiliateReferralsTable).values({
     id: randomId(),
+    tenantId,
     affiliateUserId: input.affiliateUserId,
     referredUserId,
     referredEmail,
@@ -146,6 +153,7 @@ export async function registerAffiliateLead(input: {
 export async function ensureOrderCommission(orderId: string): Promise<boolean> {
   const orderRows = await db
     .select({
+      tenantId: ordersTable.tenantId,
       id: ordersTable.id,
       status: ordersTable.status,
       total: ordersTable.total,
@@ -160,6 +168,7 @@ export async function ensureOrderCommission(orderId: string): Promise<boolean> {
 
   const order = orderRows[0];
   if (!order) return false;
+  const tenantId = String(order.tenantId || "").trim() || DEFAULT_TENANT_ID;
 
   const isPaid = order.status === "paid" || order.status === "completed";
   if (!isPaid) return false;
@@ -191,7 +200,7 @@ export async function ensureOrderCommission(orderId: string): Promise<boolean> {
   const already = await db
     .select({ id: affiliateCommissionsTable.id })
     .from(affiliateCommissionsTable)
-    .where(eq(affiliateCommissionsTable.orderId, order.id))
+    .where(and(eq(affiliateCommissionsTable.tenantId, tenantId), eq(affiliateCommissionsTable.orderId, order.id)))
     .limit(1);
 
   if (already[0]) {
@@ -210,6 +219,7 @@ export async function ensureOrderCommission(orderId: string): Promise<boolean> {
 
   await db.insert(affiliateCommissionsTable).values({
     id: randomId(),
+    tenantId,
     affiliateUserId,
     orderId: order.id,
     referredUserId: order.userId || null,
@@ -223,6 +233,7 @@ export async function ensureOrderCommission(orderId: string): Promise<boolean> {
 
   if (order.userId || order.clientEmail) {
     await registerAffiliateLead({
+      tenantId,
       affiliateUserId,
       referredUserId: order.userId || null,
       referredEmail: order.clientEmail,
@@ -234,6 +245,7 @@ export async function ensureOrderCommission(orderId: string): Promise<boolean> {
         .from(affiliateReferralsTable)
         .where(
           and(
+            eq(affiliateReferralsTable.tenantId, tenantId),
             eq(affiliateReferralsTable.affiliateUserId, affiliateUserId),
             eq(affiliateReferralsTable.referredUserId, order.userId)
           )
@@ -258,6 +270,7 @@ export async function ensureOrderCommission(orderId: string): Promise<boolean> {
           .from(affiliateReferralsTable)
           .where(
             and(
+              eq(affiliateReferralsTable.tenantId, tenantId),
               eq(affiliateReferralsTable.affiliateUserId, affiliateUserId),
               eq(affiliateReferralsTable.referredEmail, normalizedEmail)
             )
@@ -281,11 +294,11 @@ export async function ensureOrderCommission(orderId: string): Promise<boolean> {
   return true;
 }
 
-export async function getAffiliateAvailableCreditByUserId(userId: string): Promise<number> {
+export async function getAffiliateAvailableCreditByUserId(userId: string, tenantId = DEFAULT_TENANT_ID): Promise<number> {
   const affiliateRows = await db
     .select({ userId: affiliatesTable.userId })
     .from(affiliatesTable)
-    .where(eq(affiliatesTable.userId, userId))
+    .where(and(eq(affiliatesTable.tenantId, tenantId), eq(affiliatesTable.userId, userId)))
     .limit(1);
 
   if (!affiliateRows[0]) {
@@ -299,6 +312,7 @@ export async function getAffiliateAvailableCreditByUserId(userId: string): Promi
     .from(affiliateCommissionsTable)
     .where(
       and(
+        eq(affiliateCommissionsTable.tenantId, tenantId),
         eq(affiliateCommissionsTable.affiliateUserId, userId),
         eq(affiliateCommissionsTable.status, "released"),
       )
@@ -309,7 +323,7 @@ export async function getAffiliateAvailableCreditByUserId(userId: string): Promi
       total: sql<string>`COALESCE(SUM(${affiliateCreditUsesTable.amount}), 0)`,
     })
     .from(affiliateCreditUsesTable)
-    .where(eq(affiliateCreditUsesTable.affiliateUserId, userId));
+    .where(and(eq(affiliateCreditUsesTable.tenantId, tenantId), eq(affiliateCreditUsesTable.affiliateUserId, userId)));
 
   const released = Number(releasedRows[0]?.total || 0);
   const used = Number(usedRows[0]?.total || 0);
@@ -323,10 +337,12 @@ export async function getAffiliateAvailableCreditByUserId(userId: string): Promi
 }
 
 export async function applyAffiliateCreditToOrder(input: {
+  tenantId?: string;
   userId: string;
   orderId: string;
   requestedAmount: number;
 }): Promise<number> {
+  const tenantId = String(input.tenantId || "").trim() || DEFAULT_TENANT_ID;
   if (!input.userId) return 0;
   if (!Number.isFinite(input.requestedAmount) || input.requestedAmount <= 0) return 0;
 
@@ -334,14 +350,14 @@ export async function applyAffiliateCreditToOrder(input: {
     const affiliateRows = await tx
       .select({ userId: affiliatesTable.userId })
       .from(affiliatesTable)
-      .where(eq(affiliatesTable.userId, input.userId))
+      .where(and(eq(affiliatesTable.tenantId, tenantId), eq(affiliatesTable.userId, input.userId)))
       .limit(1);
 
     if (!affiliateRows[0]) {
       return 0;
     }
 
-    await tx.execute(sql`SELECT user_id FROM affiliates WHERE user_id = ${input.userId} FOR UPDATE`);
+    await tx.execute(sql`SELECT user_id FROM affiliates WHERE tenant_id = ${tenantId} AND user_id = ${input.userId} FOR UPDATE`);
 
     const releasedRows = await tx
       .select({
@@ -350,6 +366,7 @@ export async function applyAffiliateCreditToOrder(input: {
       .from(affiliateCommissionsTable)
       .where(
         and(
+          eq(affiliateCommissionsTable.tenantId, tenantId),
           eq(affiliateCommissionsTable.affiliateUserId, input.userId),
           eq(affiliateCommissionsTable.status, "released"),
         )
@@ -360,7 +377,7 @@ export async function applyAffiliateCreditToOrder(input: {
         total: sql<string>`COALESCE(SUM(${affiliateCreditUsesTable.amount}), 0)`,
       })
       .from(affiliateCreditUsesTable)
-      .where(eq(affiliateCreditUsesTable.affiliateUserId, input.userId));
+      .where(and(eq(affiliateCreditUsesTable.tenantId, tenantId), eq(affiliateCreditUsesTable.affiliateUserId, input.userId)));
 
     const released = Number(releasedRows[0]?.total || 0);
     const used = Number(usedRows[0]?.total || 0);
@@ -374,6 +391,7 @@ export async function applyAffiliateCreditToOrder(input: {
 
     await tx.insert(affiliateCreditUsesTable).values({
       id: randomId(),
+      tenantId,
       affiliateUserId: input.userId,
       orderId: input.orderId,
       amount: rounded.toFixed(2),

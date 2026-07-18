@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import crypto from "crypto";
-import { db, ordersTable, siteSettingsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, ordersTable, siteSettingsTable, tenantSettingsTable } from "@workspace/db";
+import { and, eq } from "drizzle-orm";
 import { broadcastNotification } from "./notifications";
 import {
   createPixChargeWithProvider,
@@ -14,6 +14,7 @@ import {
 } from "../gateway";
 import { ensureOrderCommission } from "../lib/affiliates";
 import { sendOutboundWebhook } from "../lib/outbound-webhook";
+import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 
 const router: IRouter = Router();
 
@@ -30,12 +31,23 @@ function safeTokenEquals(expected: string, provided: string): boolean {
 }
 
 async function getActivePixGateway(): Promise<"appcnpay" | "dentpeg"> {
-  const row = await db
+  const tenantRow = await db
+    .select({ value: tenantSettingsTable.value })
+    .from(tenantSettingsTable)
+    .where(and(eq(tenantSettingsTable.tenantId, DEFAULT_TENANT_ID), eq(tenantSettingsTable.key, "checkout_pix_gateway")))
+    .limit(1);
+
+  if (tenantRow[0]?.value != null) {
+    return normalizePixGatewayProvider(tenantRow[0].value);
+  }
+
+  const legacyRow = await db
     .select({ value: siteSettingsTable.value })
     .from(siteSettingsTable)
     .where(eq(siteSettingsTable.key, "checkout_pix_gateway"))
     .limit(1);
-  return normalizePixGatewayProvider(row[0]?.value);
+
+  return normalizePixGatewayProvider(legacyRow[0]?.value);
 }
 
 // ---------------------------------------------------------------------------
@@ -44,6 +56,7 @@ async function getActivePixGateway(): Promise<"appcnpay" | "dentpeg"> {
 // ---------------------------------------------------------------------------
 router.post("/pix/generate", async (req, res) => {
   try {
+    const tenantId = await resolvePublicTenantId(req as any);
     const { client, amount, shippingType, includeInsurance, orderId } = req.body as {
       client: { name: string; email: string; phone: string; document: string };
       amount: number;
@@ -110,7 +123,7 @@ router.post("/pix/generate", async (req, res) => {
             status: "awaiting_payment",
             updatedAt: new Date(),
           })
-          .where(eq(ordersTable.id, orderId));
+          .where(and(eq(ordersTable.id, orderId), eq(ordersTable.tenantId, tenantId)));
       } catch (dbErr) {
         console.error("[PIX] DB update error:", dbErr);
       }
@@ -142,6 +155,7 @@ router.post("/pix/generate", async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get("/pix/status/:transactionId", async (req, res) => {
   try {
+    const tenantId = await resolvePublicTenantId(req as any);
     const { transactionId } = req.params;
 
     const rows = await db
@@ -151,7 +165,7 @@ router.get("/pix/status/:transactionId", async (req, res) => {
         updatedAt: ordersTable.updatedAt,
       })
       .from(ordersTable)
-      .where(eq(ordersTable.transactionId, transactionId))
+      .where(and(eq(ordersTable.transactionId, transactionId), eq(ordersTable.tenantId, tenantId)))
       .limit(1);
 
     const row = rows[0];
@@ -169,7 +183,7 @@ router.get("/pix/status/:transactionId", async (req, res) => {
           await db
             .update(ordersTable)
             .set({ status: nextOrderStatus, updatedAt: new Date() })
-            .where(eq(ordersTable.id, row.id));
+            .where(and(eq(ordersTable.id, row.id), eq(ordersTable.tenantId, tenantId)));
 
           if (nextOrderStatus === "paid") {
             await ensureOrderCommission(row.id);
@@ -207,6 +221,7 @@ router.get("/pix/status/:transactionId", async (req, res) => {
 // ---------------------------------------------------------------------------
 router.post("/pix/callback/:token", async (req, res) => {
   try {
+    const tenantId = await resolvePublicTenantId(req as any);
     const token = String(req.params.token || "").trim();
     if (!ENABLE_LEGACY_PIX_CALLBACK) {
       res.status(410).json({
@@ -231,13 +246,13 @@ router.post("/pix/callback/:token", async (req, res) => {
       const existing = await db
         .select({ id: ordersTable.id, status: ordersTable.status })
         .from(ordersTable)
-        .where(eq(ordersTable.transactionId, body.transactionId))
+        .where(and(eq(ordersTable.transactionId, body.transactionId), eq(ordersTable.tenantId, tenantId)))
         .limit(1);
 
       await db
         .update(ordersTable)
         .set({ status: "paid", updatedAt: new Date() })
-        .where(eq(ordersTable.transactionId, body.transactionId));
+        .where(and(eq(ordersTable.transactionId, body.transactionId), eq(ordersTable.tenantId, tenantId)));
 
       if (existing[0] && existing[0].status !== "paid" && existing[0].status !== "completed") {
         await ensureOrderCommission(existing[0].id);
@@ -251,7 +266,7 @@ router.post("/pix/callback/:token", async (req, res) => {
         transactionId: body.transactionId,
         status: "paid",
         source: "legacy_pix_callback",
-      });
+      }, { tenantId });
     }
 
     res.json({ ok: true });

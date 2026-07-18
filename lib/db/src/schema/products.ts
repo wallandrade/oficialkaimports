@@ -9,6 +9,7 @@ export interface BulkDiscountTier {
 
 export const productsTable = mysqlTable("products", {
   id: varchar("id", { length: 255 }).primaryKey(),
+  tenantId: varchar("tenant_id", { length: 255 }),
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
   category: varchar("category", { length: 255 }).notNull().default("Geral"),

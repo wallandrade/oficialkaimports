@@ -17,6 +17,7 @@ import {
 import { broadcastNotification } from "./notifications";
 
 const router: IRouter = Router();
+const DEFAULT_TENANT_ID = "tenant_loja1";
 
 function parseReshipmentProducts(raw: unknown): Array<{ id: string; name: string; quantity: number }> {
   const parsed = Array.isArray(raw)
@@ -56,7 +57,7 @@ function getReshipmentScope(req: Parameters<typeof router.get>[1] extends (req: 
     (res as any).status(403).json({ error: "FORBIDDEN", message: "Usuário sem seller vinculado." });
     return null;
   }
-  return { hasGlobalAccess: scope.hasGlobalAccess, sellerCode: normalizeSellerCode(scope.sellerCode) };
+  return { hasGlobalAccess: scope.hasGlobalAccess, sellerCode: normalizeSellerCode(scope.sellerCode), tenantId: scope.tenantId || DEFAULT_TENANT_ID };
 }
 
 async function isOrderInScope(orderId: string, scope: { hasGlobalAccess: boolean; sellerCode: string | null }): Promise<boolean> {
@@ -64,15 +65,16 @@ async function isOrderInScope(orderId: string, scope: { hasGlobalAccess: boolean
   const rows = await db
     .select({ id: ordersTable.id })
     .from(ordersTable)
-    .where(and(eq(ordersTable.id, orderId), eq(ordersTable.sellerCode, scope.sellerCode!)))
+    .where(and(eq(ordersTable.tenantId, scope.tenantId), eq(ordersTable.id, orderId), eq(ordersTable.sellerCode, scope.sellerCode!)))
     .limit(1);
   return !!rows[0];
 }
 
 router.get("/admin/inventory/overview", requirePrimaryAdmin, async (_req, res) => {
   try {
+    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const [inventory, manualReturnItems] = await Promise.all([
-      getInventoryOverview(),
+      getInventoryOverview(tenantId),
       db
         .select()
         .from(manualReturnItemsTable)
@@ -176,6 +178,7 @@ router.patch("/admin/manual-return-items/:id/status", requirePrimaryAdmin, async
 
 router.post("/admin/inventory/entries", requirePrimaryAdmin, async (req, res) => {
   try {
+    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const productId = String(req.body?.productId ?? "").trim();
     const quantity = Number(req.body?.quantity || 0);
     const movementType = String(req.body?.movementType ?? "entry").trim().toLowerCase();
@@ -213,7 +216,7 @@ router.post("/admin/inventory/entries", requirePrimaryAdmin, async (req, res) =>
         db
           .select({ productsSnapshot: manualReshipmentsTable.productsSnapshot })
           .from(manualReshipmentsTable)
-          .where(eq(manualReshipmentsTable.id, estornoReferenceId))
+            .where(and(eq(manualReshipmentsTable.tenantId, tenantId), eq(manualReshipmentsTable.id, estornoReferenceId)))
           .limit(1),
       ]);
 
@@ -244,7 +247,7 @@ router.post("/admin/inventory/entries", requirePrimaryAdmin, async (req, res) =>
       const [balance] = await db
         .select({ quantity: inventoryBalancesTable.quantity })
         .from(inventoryBalancesTable)
-        .where(eq(inventoryBalancesTable.productId, productId))
+        .where(and(eq(inventoryBalancesTable.tenantId, tenantId), eq(inventoryBalancesTable.productId, productId)))
         .limit(1);
       const current = Number(balance?.quantity || 0);
       if (current < quantity) {
@@ -265,8 +268,10 @@ router.post("/admin/inventory/entries", requirePrimaryAdmin, async (req, res) =>
     })();
 
     await registerInventoryEntry({
+      tenantId,
       productId,
       quantity: signedQuantity,
+        const releasedCount = movementType === "entry" && !isEstornoEntry ? await releasePendingReshipments(tenantId) : 0;
       reason: resolvedReason,
       referenceId: movementType === "entry" && estornoReferenceId ? estornoReferenceId : undefined,
       entrySource: movementType === "entry" ? (entrySource === "customer_return" ? "customer_return" : "purchase") : undefined,
@@ -291,6 +296,7 @@ router.post("/admin/inventory/entries", requirePrimaryAdmin, async (req, res) =>
 
 router.post("/admin/reshipments/manual", requirePrimaryAdmin, async (req, res) => {
   try {
+    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const clientName = String(req.body?.clientName ?? "").trim();
     const clientPhone = String(req.body?.clientPhone ?? "").trim();
     const clientDocument = String(req.body?.clientDocument ?? "").trim() || null;
@@ -325,6 +331,7 @@ router.post("/admin/reshipments/manual", requirePrimaryAdmin, async (req, res) =
     const createdByUsername = String((req as any).adminSession?.username || "").trim() || null;
 
     const created = await createManualReshipment({
+      tenantId,
       clientName,
       clientPhone,
       clientDocument,
@@ -359,12 +366,12 @@ router.get("/admin/reshipments", requireAdminAuth, async (req, res) => {
     if (!scope) return;
 
     const status = String(req.query?.status ?? "all");
-    const reshipments = await listReshipments(status);
+    const reshipments = await listReshipments(status, scope.tenantId);
     if (!scope.hasGlobalAccess) {
       const orderRows = await db
         .select({ id: ordersTable.id })
         .from(ordersTable)
-        .where(eq(ordersTable.sellerCode, scope.sellerCode!));
+        .where(and(eq(ordersTable.tenantId, scope.tenantId), eq(ordersTable.sellerCode, scope.sellerCode!)));
       const allowedOrderIds = new Set(orderRows.map((row) => row.id));
       res.json({
         reshipments: reshipments.filter((item) => !!item.orderId && allowedOrderIds.has(item.orderId)),
@@ -400,8 +407,11 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
     const rows = await db
       .select({ orderId: reshipmentsTable.orderId, currentStatus: reshipmentsTable.status })
       .from(reshipmentsTable)
-      .where(eq(reshipmentsTable.id, id))
+      .where(and(eq(reshipmentsTable.tenantId, scope.tenantId), eq(reshipmentsTable.id, id)))
       .limit(1);
+          const check = await ensureReshipmentReservation({ id, source: "support", tenantId: scope.tenantId });
+          const debit = await ensureReshipmentSendDebit({ id, source: "support", tenantId: scope.tenantId });
+  const ok = await setReshipmentStatus(id, status, scope.tenantId);
 
     if (rows[0]) {
       if (!(await isOrderInScope(rows[0].orderId, scope))) {
@@ -461,8 +471,11 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
       const manualRows = await db
         .select({ id: manualReshipmentsTable.id, currentStatus: manualReshipmentsTable.status })
         .from(manualReshipmentsTable)
-        .where(eq(manualReshipmentsTable.id, id))
+        .where(and(eq(manualReshipmentsTable.tenantId, scope.tenantId), eq(manualReshipmentsTable.id, id)))
         .limit(1);
+          const check = await ensureReshipmentReservation({ id, source: "manual", tenantId: scope.tenantId });
+          const debit = await ensureReshipmentSendDebit({ id, source: "manual", tenantId: scope.tenantId });
+  const ok = await setManualReshipmentStatus(id, status, scope.tenantId);
 
       if (!manualRows[0]) {
         res.status(404).json({ error: "NOT_FOUND", message: "Reenvio não encontrado." });

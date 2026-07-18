@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 
 export const manualReshipmentsTable = mysqlTable("manual_reshipments", {
   id: varchar("id", { length: 255 }).primaryKey(),
+  tenantId: varchar("tenant_id", { length: 255 }),
   status: varchar("status", { length: 50 }).notNull().default("reenvio_aguardando_estoque"),
   productsSnapshot: json("products_snapshot").notNull(),
   clientName: varchar("client_name", { length: 255 }).notNull(),

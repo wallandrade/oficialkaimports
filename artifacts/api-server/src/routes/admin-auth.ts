@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import crypto from "crypto";
-import { db, adminUsersTable, adminSessionsTable } from "@workspace/db";
+import { db, adminUserTenantsTable, adminUsersTable, adminSessionsTable } from "@workspace/db";
 import { lt, eq } from "drizzle-orm";
 
 const router: IRouter = Router();
@@ -22,10 +22,12 @@ const ADMIN_SESSION_COOKIE_SECURE = (() => {
   // Browsers require Secure when SameSite=None.
   return configured || ADMIN_SESSION_COOKIE_SAMESITE === "none";
 })();
+const DEFAULT_TENANT_ID = "tenant_loja1";
 
 type AdminSessionRecord = {
   username: string;
   isPrimary: number | boolean;
+  tenantId?: string | null;
 };
 
 export type AdminScope = {
@@ -33,6 +35,7 @@ export type AdminScope = {
   isPrimary: boolean;
   hasGlobalAccess: boolean;
   sellerCode: string | null;
+  tenantId: string;
 };
 
 let adminSellerScopeMapCache: Record<string, string> | null = null;
@@ -158,12 +161,14 @@ function getAdminSellerScopeMap(): Record<string, string> {
 export function resolveAdminScopeFromSession(session: AdminSessionRecord): AdminScope {
   const username = String(session.username || "").trim().toLowerCase();
   const isPrimary = !!session.isPrimary;
+  const tenantId = String(session.tenantId || "").trim() || DEFAULT_TENANT_ID;
   if (isPrimary) {
     return {
       username,
       isPrimary,
       hasGlobalAccess: true,
       sellerCode: null,
+      tenantId,
     };
   }
 
@@ -173,7 +178,36 @@ export function resolveAdminScopeFromSession(session: AdminSessionRecord): Admin
     isPrimary,
     hasGlobalAccess: false,
     sellerCode,
+    tenantId,
   };
+}
+
+async function resolveAdminTenantId(username: string): Promise<string> {
+  const normalizedUsername = String(username || "").trim().toLowerCase();
+  if (!normalizedUsername) return DEFAULT_TENANT_ID;
+
+  let user = (
+    await db
+      .select({ id: adminUsersTable.id, username: adminUsersTable.username })
+      .from(adminUsersTable)
+      .where(eq(adminUsersTable.username, normalizedUsername))
+      .limit(1)
+  )[0];
+
+  if (!user) {
+    const allUsers = await db.select({ id: adminUsersTable.id, username: adminUsersTable.username }).from(adminUsersTable);
+    user = allUsers.find((row) => String(row.username || "").trim().toLowerCase() === normalizedUsername);
+  }
+
+  if (!user) return DEFAULT_TENANT_ID;
+
+  const tenantRows = await db
+    .select({ tenantId: adminUserTenantsTable.tenantId })
+    .from(adminUserTenantsTable)
+    .where(eq(adminUserTenantsTable.adminUserId, user.id))
+    .limit(1);
+
+  return String(tenantRows[0]?.tenantId || "").trim() || DEFAULT_TENANT_ID;
 }
 
 export function getAdminScope(req: Request): AdminScope | null {
@@ -184,6 +218,7 @@ export function getAdminScope(req: Request): AdminScope | null {
     isPrimary: !!session.isPrimary,
     hasGlobalAccess: !!session.hasGlobalAccess,
     sellerCode: normalizeSellerCode(session.sellerCode),
+    tenantId: String(session.tenantId || "").trim() || DEFAULT_TENANT_ID,
   };
 }
 
@@ -296,7 +331,8 @@ export async function requireAdminAuth(req: Request, res: Response, next: NextFu
       res.status(401).json({ error: "UNAUTHORIZED", message: "Acesso não autorizado." });
       return;
     }
-    const scope = resolveAdminScopeFromSession(sessionRows[0]);
+    const tenantId = String(sessionRows[0].tenantId || "").trim() || await resolveAdminTenantId(sessionRows[0].username);
+    const scope = resolveAdminScopeFromSession({ ...sessionRows[0], tenantId });
 
     if (!scope.hasGlobalAccess && !scope.sellerCode) {
       res.status(403).json({
@@ -314,6 +350,7 @@ export async function requireAdminAuth(req: Request, res: Response, next: NextFu
         isPrimary: scope.isPrimary,
         hasGlobalAccess: scope.hasGlobalAccess,
         sellerCode: scope.sellerCode,
+        tenantId: scope.tenantId,
         expiresAt: sessionRows[0].expiresAt,
       });
     }
@@ -337,7 +374,8 @@ export async function requirePrimaryAdmin(req: Request, res: Response, next: Nex
     res.status(403).json({ error: "FORBIDDEN", message: "Apenas o administrador principal pode realizar esta ação." });
     return;
   }
-  const scope = resolveAdminScopeFromSession(sessionRows[0]);
+  const tenantId = String(sessionRows[0].tenantId || "").trim() || await resolveAdminTenantId(sessionRows[0].username);
+  const scope = resolveAdminScopeFromSession({ ...sessionRows[0], tenantId });
   (req as any).adminSession = { ...sessionRows[0], ...scope };
   next();
 }
@@ -347,7 +385,8 @@ export async function getSessionInfo(req: Request) {
   if (!token) return undefined;
   const sessionRows = await db.select().from(adminSessionsTable).where(eq(adminSessionsTable.token, token)).limit(1);
   if (!sessionRows[0]) return undefined;
-  return { ...sessionRows[0], ...resolveAdminScopeFromSession(sessionRows[0]) };
+  const tenantId = String(sessionRows[0].tenantId || "").trim() || await resolveAdminTenantId(sessionRows[0].username);
+  return { ...sessionRows[0], ...resolveAdminScopeFromSession({ ...sessionRows[0], tenantId }) };
 }
 
 // --------------------------------------------------------------------------
@@ -410,9 +449,11 @@ router.post("/admin/login", async (req, res) => {
     await purgeExpiredSessions();
     const token = crypto.randomBytes(32).toString("hex");
     const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
+    const tenantId = await resolveAdminTenantId(user.username);
     await db.insert(adminSessionsTable).values({
       token,
       username: user.username,
+      tenantId,
       isPrimary: user.isPrimary ? 1 : 0,
       expiresAt,
       createdAt: new Date(),
@@ -424,8 +465,8 @@ router.post("/admin/login", async (req, res) => {
       path: "/api",
       maxAge: TOKEN_TTL_MS,
     });
-    const sellerCode = resolveAdminScopeFromSession({ username: user.username, isPrimary: user.isPrimary }).sellerCode;
-    res.json({ token, expiresIn: TOKEN_TTL_MS / 1000, isPrimary: user.isPrimary, username: user.username, sellerCode });
+    const sellerCode = resolveAdminScopeFromSession({ username: user.username, isPrimary: user.isPrimary, tenantId }).sellerCode;
+    res.json({ token, expiresIn: TOKEN_TTL_MS / 1000, isPrimary: user.isPrimary, username: user.username, sellerCode, tenantId });
   } catch (err) {
     console.error("[AdminAuth] login error:", err, JSON.stringify(err, Object.getOwnPropertyNames(err)));
     respondInternalError(res, "Erro ao autenticar.", err);
@@ -472,9 +513,10 @@ router.get("/admin/verify", requireAdminAuth, async (req, res) => {
       username: (req as any).adminSession?.username,
       isPrimary: !!(req as any).adminSession?.isPrimary,
       sellerCode: (req as any).adminSession?.sellerCode ?? null,
+      tenantId: (req as any).adminSession?.tenantId ?? DEFAULT_TENANT_ID,
     });
     const session = (req as any).adminSession;
-    res.json({ ok: true, isPrimary: !!session?.isPrimary, username: session?.username ?? "" });
+    res.json({ ok: true, isPrimary: !!session?.isPrimary, username: session?.username ?? "", tenantId: session?.tenantId ?? DEFAULT_TENANT_ID });
     console.log('[admin/verify] SUCESSO', { username: session?.username });
   } catch (err) {
     console.error('[admin/verify] Erro:', err);

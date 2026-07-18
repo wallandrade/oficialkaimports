@@ -1,8 +1,9 @@
 import { Router, type IRouter } from "express";
-import { db, siteSettingsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
-import { requirePrimaryAdmin } from "./admin-auth";
+import { db, siteSettingsTable, tenantSettingsTable } from "@workspace/db";
+import { and, eq } from "drizzle-orm";
+import { getAdminScope, requirePrimaryAdmin } from "./admin-auth";
 import { getR2MissingConfig, isR2Configured, uploadSiteSettingImageToR2 } from "../lib/r2";
+import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 
 const router: IRouter = Router();
 
@@ -40,13 +41,60 @@ const IMAGE_SETTING_KEYS = new Set([
   "catalog_banner_mobile",
 ]);
 
+async function getTenantSettingsMap(tenantId: string): Promise<Record<string, string>> {
+  const rows = await db
+    .select()
+    .from(tenantSettingsTable)
+    .where(eq(tenantSettingsTable.tenantId, tenantId));
+
+  const out: Record<string, string> = {};
+  for (const row of rows) {
+    out[row.key] = row.value;
+  }
+
+  if (tenantId === DEFAULT_TENANT_ID) {
+    const legacyRows = await db.select().from(siteSettingsTable);
+    for (const row of legacyRows) {
+      if (!(row.key in out)) out[row.key] = row.value;
+    }
+  }
+
+  return out;
+}
+
+async function deleteTenantSetting(tenantId: string, key: string): Promise<void> {
+  await db.delete(tenantSettingsTable).where(and(eq(tenantSettingsTable.tenantId, tenantId), eq(tenantSettingsTable.key, key)));
+  if (tenantId === DEFAULT_TENANT_ID) {
+    await db.delete(siteSettingsTable).where(eq(siteSettingsTable.key, key));
+  }
+}
+
+async function upsertTenantSetting(tenantId: string, key: string, value: string): Promise<void> {
+  await db
+    .insert(tenantSettingsTable)
+    .values({ tenantId, key, value, updatedAt: new Date() })
+    .onDuplicateKeyUpdate({
+      set: { value, updatedAt: new Date() },
+    });
+
+  if (tenantId === DEFAULT_TENANT_ID) {
+    await db
+      .insert(siteSettingsTable)
+      .values({ tenantId, key, value, updatedAt: new Date() })
+      .onDuplicateKeyUpdate({
+        set: { value, updatedAt: new Date() },
+      });
+  }
+}
+
 /** GET /api/settings — public, returns only safe display keys */
 router.get("/settings", async (_req, res) => {
   try {
-    const rows = await db.select().from(siteSettingsTable);
+    const tenantId = await resolvePublicTenantId(_req as any);
+    const allSettings = await getTenantSettingsMap(tenantId);
     const out: Record<string, string> = {};
-    for (const row of rows) {
-      if (PUBLIC_KEYS.includes(row.key)) out[row.key] = row.value;
+    for (const key of PUBLIC_KEYS) {
+      if (key in allSettings) out[key] = allSettings[key]!;
     }
     res.json(out);
   } catch {
@@ -55,12 +103,13 @@ router.get("/settings", async (_req, res) => {
 });
 
 /** GET /api/admin/settings — admin only, returns all allowed keys */
-router.get("/admin/settings", requirePrimaryAdmin, async (_req, res) => {
+router.get("/admin/settings", requirePrimaryAdmin, async (req, res) => {
   try {
-    const rows = await db.select().from(siteSettingsTable);
+    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+    const allSettings = await getTenantSettingsMap(tenantId);
     const out: Record<string, string> = {};
-    for (const row of rows) {
-      if (ALLOWED_KEYS.includes(row.key)) out[row.key] = row.value;
+    for (const key of ALLOWED_KEYS) {
+      if (key in allSettings) out[key] = allSettings[key]!;
     }
     res.json(out);
   } catch {
@@ -71,6 +120,7 @@ router.get("/admin/settings", requirePrimaryAdmin, async (_req, res) => {
 /** PUT /api/admin/settings/:key — admin only, upsert a setting value */
 router.put("/admin/settings/:key", requirePrimaryAdmin, async (req, res) => {
   try {
+    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const key = String(req.params.key);
     if (!ALLOWED_KEYS.includes(key)) {
       res.status(400).json({ error: "INVALID_KEY" });
@@ -78,7 +128,7 @@ router.put("/admin/settings/:key", requirePrimaryAdmin, async (req, res) => {
     }
     const { value } = req.body as { value?: string };
     if (!value) {
-      await db.delete(siteSettingsTable).where(eq(siteSettingsTable.key, key));
+      await deleteTenantSetting(tenantId, key);
     } else {
       let storedValue = value;
       if (IMAGE_SETTING_KEYS.has(key) && value.startsWith("data:image/")) {
@@ -92,12 +142,7 @@ router.put("/admin/settings/:key", requirePrimaryAdmin, async (req, res) => {
         }
         storedValue = await uploadSiteSettingImageToR2({ dataUrl: value, settingKey: key });
       }
-      await db
-        .insert(siteSettingsTable)
-        .values({ key, value: storedValue, updatedAt: new Date() })
-        .onDuplicateKeyUpdate({
-          set: { value: storedValue, updatedAt: new Date() },
-        });
+      await upsertTenantSetting(tenantId, key, storedValue);
     }
     res.json({ ok: true });
   } catch (err) {
@@ -109,11 +154,12 @@ router.put("/admin/settings/:key", requirePrimaryAdmin, async (req, res) => {
 /** POST /api/verify-password — public endpoint to verify site or payment password */
 router.post("/verify-password", async (req, res) => {
   try {
+    const tenantId = await resolvePublicTenantId(req);
     const { type, password } = req.body as { type?: string; password?: string };
     if (!type || !password) { res.status(400).json({ ok: false }); return; }
     const key = type === "payment" ? "payment_password" : "site_password";
-    const row = await db.select().from(siteSettingsTable).where(eq(siteSettingsTable.key, key));
-    const stored = row[0]?.value;
+    const settings = await getTenantSettingsMap(tenantId);
+    const stored = settings[key];
     if (!stored) { res.json({ ok: true, protected: false }); return; }
     res.json({ ok: password === stored, protected: true });
   } catch {
@@ -124,9 +170,10 @@ router.post("/verify-password", async (req, res) => {
 /** GET /api/is-protected — check if site/payment is password protected */
 router.get("/is-protected", async (_req, res) => {
   try {
-    const rows = await db.select().from(siteSettingsTable);
-    const siteProtected = rows.some((r) => r.key === "site_password" && r.value);
-    const paymentProtected = rows.some((r) => r.key === "payment_password" && r.value);
+    const tenantId = await resolvePublicTenantId(_req as any);
+    const settings = await getTenantSettingsMap(tenantId);
+    const siteProtected = Boolean(settings.site_password);
+    const paymentProtected = Boolean(settings.payment_password);
     res.json({ site: siteProtected, payment: paymentProtected });
   } catch {
     res.json({ site: false, payment: false });
@@ -136,12 +183,13 @@ router.get("/is-protected", async (_req, res) => {
 /** DELETE /api/admin/settings/:key — remove a setting (restore default) */
 router.delete("/admin/settings/:key", requirePrimaryAdmin, async (req, res) => {
   try {
+    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const key = String(req.params.key);
     if (!ALLOWED_KEYS.includes(key)) {
       res.status(400).json({ error: "INVALID_KEY" });
       return;
     }
-    await db.delete(siteSettingsTable).where(eq(siteSettingsTable.key, key));
+    await deleteTenantSetting(tenantId, key);
     res.json({ ok: true });
   } catch (err) {
     console.error("[Settings] Delete error:", err);

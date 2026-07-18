@@ -1,5 +1,9 @@
 import { pool } from "@workspace/db";
 
+const DEFAULT_TENANT_ID = "tenant_loja1";
+const DEFAULT_TENANT_SLUG = "loja-1";
+const DEFAULT_TENANT_NAME = "Loja 1";
+
 function getDatabaseName(): string {
   const databaseUrl = process.env.DATABASE_URL || "";
   const parsed = new URL(databaseUrl);
@@ -46,6 +50,192 @@ async function indexExists(tableName: string, indexName: string, databaseName: s
   );
 
   return Array.isArray(rows) && rows.length > 0;
+}
+
+async function ensureTenantsTables(databaseName: string): Promise<void> {
+  if (!(await tableExists("tenants", databaseName))) {
+    await pool.query(`
+      CREATE TABLE tenants (
+        id VARCHAR(255) NOT NULL PRIMARY KEY,
+        slug VARCHAR(255) NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        status VARCHAR(32) NOT NULL DEFAULT 'active',
+        domain VARCHAR(255) NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY tenants_slug_unique (slug)
+      )
+    `);
+  }
+
+  if (!(await tableExists("admin_user_tenants", databaseName))) {
+    await pool.query(`
+      CREATE TABLE admin_user_tenants (
+        admin_user_id VARCHAR(255) NOT NULL,
+        tenant_id VARCHAR(255) NOT NULL,
+        role VARCHAR(64) NOT NULL DEFAULT 'owner',
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (admin_user_id, tenant_id),
+        KEY admin_user_tenants_tenant_id_idx (tenant_id)
+      )
+    `);
+  }
+}
+
+async function ensureTenantColumns(databaseName: string): Promise<void> {
+  const definitions = [
+    { table: "orders", index: "orders_tenant_id_idx", sql: "ALTER TABLE orders ADD COLUMN tenant_id VARCHAR(255) NULL" },
+    { table: "custom_charges", index: "custom_charges_tenant_id_idx", sql: "ALTER TABLE custom_charges ADD COLUMN tenant_id VARCHAR(255) NULL" },
+    { table: "products", index: "products_tenant_id_idx", sql: "ALTER TABLE products ADD COLUMN tenant_id VARCHAR(255) NULL" },
+    { table: "site_settings", index: "site_settings_tenant_id_idx", sql: "ALTER TABLE site_settings ADD COLUMN tenant_id VARCHAR(255) NULL" },
+    { table: "sellers", index: "sellers_tenant_id_idx", sql: "ALTER TABLE sellers ADD COLUMN tenant_id VARCHAR(255) NULL" },
+    { table: "coupons", index: "coupons_tenant_id_idx", sql: "ALTER TABLE coupons ADD COLUMN tenant_id VARCHAR(255) NULL" },
+    { table: "seller_commission_payments", index: "seller_commission_payments_tenant_id_idx", sql: "ALTER TABLE seller_commission_payments ADD COLUMN tenant_id VARCHAR(255) NULL" },
+    { table: "customer_users", index: "customer_users_tenant_id_idx", sql: "ALTER TABLE customer_users ADD COLUMN tenant_id VARCHAR(255) NULL" },
+    { table: "marketing_expenses", index: "marketing_expenses_tenant_id_idx", sql: "ALTER TABLE marketing_expenses ADD COLUMN tenant_id VARCHAR(255) NULL" },
+    { table: "shipping_options", index: "shipping_options_tenant_id_idx", sql: "ALTER TABLE shipping_options ADD COLUMN tenant_id VARCHAR(255) NULL" },
+    { table: "order_bumps", index: "order_bumps_tenant_id_idx", sql: "ALTER TABLE order_bumps ADD COLUMN tenant_id VARCHAR(255) NULL" },
+    { table: "affiliates", index: "affiliates_tenant_id_idx", sql: "ALTER TABLE affiliates ADD COLUMN tenant_id VARCHAR(255) NULL" },
+    { table: "affiliate_referrals", index: "affiliate_referrals_tenant_id_idx", sql: "ALTER TABLE affiliate_referrals ADD COLUMN tenant_id VARCHAR(255) NULL" },
+    { table: "affiliate_commissions", index: "affiliate_commissions_tenant_id_idx", sql: "ALTER TABLE affiliate_commissions ADD COLUMN tenant_id VARCHAR(255) NULL" },
+    { table: "affiliate_credit_uses", index: "affiliate_credit_uses_tenant_id_idx", sql: "ALTER TABLE affiliate_credit_uses ADD COLUMN tenant_id VARCHAR(255) NULL" },
+    { table: "support_tickets", index: "support_tickets_tenant_id_idx", sql: "ALTER TABLE support_tickets ADD COLUMN tenant_id VARCHAR(255) NULL" },
+    { table: "inventory_balances", index: "inventory_balances_tenant_id_idx", sql: "ALTER TABLE inventory_balances ADD COLUMN tenant_id VARCHAR(255) NULL" },
+    { table: "inventory_movements", index: "inventory_movements_tenant_id_idx", sql: "ALTER TABLE inventory_movements ADD COLUMN tenant_id VARCHAR(255) NULL" },
+    { table: "reshipments", index: "reshipments_tenant_id_idx", sql: "ALTER TABLE reshipments ADD COLUMN tenant_id VARCHAR(255) NULL" },
+    { table: "manual_reshipments", index: "manual_reshipments_tenant_id_idx", sql: "ALTER TABLE manual_reshipments ADD COLUMN tenant_id VARCHAR(255) NULL" },
+    { table: "raffles", index: "raffles_tenant_id_idx", sql: "ALTER TABLE raffles ADD COLUMN tenant_id VARCHAR(255) NULL" },
+    { table: "raffle_reservations", index: "raffle_reservations_tenant_id_idx", sql: "ALTER TABLE raffle_reservations ADD COLUMN tenant_id VARCHAR(255) NULL" },
+    { table: "raffle_results", index: "raffle_results_tenant_id_idx", sql: "ALTER TABLE raffle_results ADD COLUMN tenant_id VARCHAR(255) NULL" },
+    { table: "raffle_promotions", index: "raffle_promotions_tenant_id_idx", sql: "ALTER TABLE raffle_promotions ADD COLUMN tenant_id VARCHAR(255) NULL" },
+    { table: "kyc_documents", index: "kyc_documents_tenant_id_idx", sql: "ALTER TABLE kyc_documents ADD COLUMN tenant_id VARCHAR(255) NULL" },
+  ];
+
+  for (const definition of definitions) {
+    if (!(await tableExists(definition.table, databaseName))) continue;
+
+    if (!(await columnExists(definition.table, "tenant_id", databaseName))) {
+      await pool.query(definition.sql);
+    }
+
+    if (!(await indexExists(definition.table, definition.index, databaseName))) {
+      try {
+        await pool.query(`ALTER TABLE ${definition.table} ADD KEY ${definition.index} (tenant_id)`);
+      } catch {
+        // Ignore duplicate or unsupported index creation issues.
+      }
+    }
+  }
+}
+
+async function ensureTenantSettingsTable(databaseName: string): Promise<void> {
+  if (!(await tableExists("tenant_settings", databaseName))) {
+    await pool.query(`
+      CREATE TABLE tenant_settings (
+        tenant_id VARCHAR(255) NOT NULL,
+        key VARCHAR(255) NOT NULL,
+        value TEXT NOT NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (tenant_id, key),
+        KEY tenant_settings_key_idx (key)
+      )
+    `);
+  }
+}
+
+async function ensureAdminSessionsTenantColumn(databaseName: string): Promise<void> {
+  if (!(await tableExists("admin_sessions", databaseName))) return;
+
+  if (!(await columnExists("admin_sessions", "tenant_id", databaseName))) {
+    await pool.query("ALTER TABLE admin_sessions ADD COLUMN tenant_id VARCHAR(255) NULL AFTER username");
+  }
+
+  if (!(await indexExists("admin_sessions", "admin_sessions_tenant_id_idx", databaseName))) {
+    try {
+      await pool.query("ALTER TABLE admin_sessions ADD KEY admin_sessions_tenant_id_idx (tenant_id)");
+    } catch {
+      // Ignore duplicate or unsupported index creation issues.
+    }
+  }
+}
+
+async function seedDefaultTenantAndBackfill(databaseName: string): Promise<void> {
+  if (!(await tableExists("tenants", databaseName))) return;
+
+  await pool.query(
+    `
+      INSERT INTO tenants (id, slug, name, status)
+      SELECT ?, ?, ?, 'active'
+      FROM DUAL
+      WHERE NOT EXISTS (SELECT 1 FROM tenants WHERE id = ?)
+    `,
+    [DEFAULT_TENANT_ID, DEFAULT_TENANT_SLUG, DEFAULT_TENANT_NAME, DEFAULT_TENANT_ID],
+  );
+
+  const tables = [
+    "orders",
+    "custom_charges",
+    "products",
+    "site_settings",
+    "sellers",
+    "coupons",
+    "seller_commission_payments",
+    "customer_users",
+    "marketing_expenses",
+    "shipping_options",
+    "order_bumps",
+    "affiliates",
+    "affiliate_referrals",
+    "affiliate_commissions",
+    "affiliate_credit_uses",
+    "support_tickets",
+    "inventory_balances",
+    "inventory_movements",
+    "reshipments",
+    "manual_reshipments",
+    "raffles",
+    "raffle_reservations",
+    "raffle_results",
+    "raffle_promotions",
+    "kyc_documents",
+  ];
+
+  for (const tableName of tables) {
+    if (!(await tableExists(tableName, databaseName)) || !(await columnExists(tableName, "tenant_id", databaseName))) continue;
+    await pool.query(`UPDATE ${tableName} SET tenant_id = ? WHERE tenant_id IS NULL OR tenant_id = ''`, [DEFAULT_TENANT_ID]);
+  }
+
+  if (await tableExists("admin_users", databaseName) && await tableExists("admin_user_tenants", databaseName)) {
+    await pool.query(
+      `
+        INSERT INTO admin_user_tenants (admin_user_id, tenant_id, role)
+        SELECT au.id, ?, CASE WHEN au.is_primary = 1 THEN 'platform_admin' ELSE 'owner' END
+        FROM admin_users au
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM admin_user_tenants aut
+          WHERE aut.admin_user_id = au.id AND aut.tenant_id = ?
+        )
+      `,
+      [DEFAULT_TENANT_ID, DEFAULT_TENANT_ID],
+    );
+  }
+
+  if (await tableExists("site_settings", databaseName) && await tableExists("tenant_settings", databaseName)) {
+    await pool.query(
+      `
+        INSERT INTO tenant_settings (tenant_id, key, value, updated_at)
+        SELECT ?, ss.key, ss.value, ss.updated_at
+        FROM site_settings ss
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM tenant_settings ts
+          WHERE ts.tenant_id = ? AND ts.key = ss.key
+        )
+      `,
+      [DEFAULT_TENANT_ID, DEFAULT_TENANT_ID],
+    );
+  }
 }
 
 async function ensureOrdersColumns(databaseName: string): Promise<void> {
@@ -780,6 +970,7 @@ export async function ensureRuntimeSchema(): Promise<void> {
       return;
     }
 
+    await ensureTenantsTables(databaseName);
     await ensureOrdersColumns(databaseName);
     await ensureProductsColumns(databaseName);
     await ensureSellersColumns(databaseName);
@@ -797,6 +988,10 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureProductCostHistoryTable(databaseName);
     await ensureMarketingExpensesTable(databaseName);
     await ensureMarketingExpensesColumns(databaseName);
+    await ensureAdminSessionsTenantColumn(databaseName);
+    await ensureTenantColumns(databaseName);
+    await ensureTenantSettingsTable(databaseName);
+    await seedDefaultTenantAndBackfill(databaseName);
 
     console.log("[RuntimeSchema] Schema sync completed.");
   } catch (error) {

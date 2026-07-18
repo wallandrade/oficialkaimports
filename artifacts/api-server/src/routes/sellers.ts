@@ -1,17 +1,19 @@
 import { Router, type IRouter } from "express";
 import { db, sellersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
-import { requirePrimaryAdmin } from "./admin-auth";
+import { and, eq } from "drizzle-orm";
+import { getAdminScope, requirePrimaryAdmin } from "./admin-auth";
+import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 
 const router: IRouter = Router();
 
 /** GET /api/sellers — public, returns all sellers [{slug, whatsapp}] */
-router.get("/sellers", async (_req, res) => {
+router.get("/sellers", async (req, res) => {
   try {
+    const tenantId = await resolvePublicTenantId(req);
     const rows = await db.select({
       slug:     sellersTable.slug,
       whatsapp: sellersTable.whatsapp,
-    }).from(sellersTable);
+    }).from(sellersTable).where(eq(sellersTable.tenantId, tenantId));
     res.json({ sellers: rows });
   } catch {
     res.json({ sellers: [] });
@@ -21,11 +23,12 @@ router.get("/sellers", async (_req, res) => {
 /** GET /api/sellers/:slug — public, returns single seller or 404 */
 router.get("/sellers/:slug", async (req, res) => {
   try {
+    const tenantId = await resolvePublicTenantId(req);
     const slug = String(req.params.slug);
     const rows = await db.select({
       slug:     sellersTable.slug,
       whatsapp: sellersTable.whatsapp,
-    }).from(sellersTable).where(eq(sellersTable.slug, slug.toLowerCase()));
+    }).from(sellersTable).where(and(eq(sellersTable.tenantId, tenantId), eq(sellersTable.slug, slug.toLowerCase())));
     if (!rows[0]) { res.status(404).json({ error: "NOT_FOUND" }); return; }
     res.json(rows[0]);
   } catch {
@@ -34,14 +37,15 @@ router.get("/sellers/:slug", async (req, res) => {
 });
 
 /** GET /api/admin/sellers — admin only, returns full seller settings */
-router.get("/admin/sellers", requirePrimaryAdmin, async (_req, res) => {
+router.get("/admin/sellers", requirePrimaryAdmin, async (req, res) => {
   try {
+    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const rows = await db.select({
       slug: sellersTable.slug,
       whatsapp: sellersTable.whatsapp,
       hasCommission: sellersTable.hasCommission,
       commissionRate: sellersTable.commissionRate,
-    }).from(sellersTable);
+    }).from(sellersTable).where(eq(sellersTable.tenantId, tenantId));
     res.json({
       sellers: rows.map((s) => ({
         ...s,
@@ -56,6 +60,7 @@ router.get("/admin/sellers", requirePrimaryAdmin, async (_req, res) => {
 /** POST /api/admin/sellers — admin only, upsert seller */
 router.post("/admin/sellers", requirePrimaryAdmin, async (req, res) => {
   try {
+    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const { slug, whatsapp, hasCommission, commissionRate } = req.body as {
       slug?: string;
       whatsapp?: string;
@@ -72,6 +77,7 @@ router.post("/admin/sellers", requirePrimaryAdmin, async (req, res) => {
       .insert(sellersTable)
       .values({
         slug: clean,
+        tenantId,
         whatsapp: wNum,
         hasCommission: hasCommissionValue,
         commissionRate: String(normalizedRate),
@@ -103,8 +109,9 @@ router.post("/admin/sellers", requirePrimaryAdmin, async (req, res) => {
 /** DELETE /api/admin/sellers/:slug — admin only */
 router.delete("/admin/sellers/:slug", requirePrimaryAdmin, async (req, res) => {
   try {
+    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const slug = String(req.params.slug);
-    await db.delete(sellersTable).where(eq(sellersTable.slug, slug.toLowerCase()));
+    await db.delete(sellersTable).where(and(eq(sellersTable.tenantId, tenantId), eq(sellersTable.slug, slug.toLowerCase())));
     res.json({ ok: true });
   } catch (err) {
     console.error("[Sellers] DELETE error:", err);

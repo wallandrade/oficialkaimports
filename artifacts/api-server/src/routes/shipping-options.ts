@@ -1,10 +1,11 @@
 import { Router, type IRouter } from "express";
 import { db, shippingOptionsTable } from "@workspace/db";
-import { eq, asc } from "drizzle-orm";
+import { and, eq, asc } from "drizzle-orm";
 import crypto from "crypto";
-import { requirePrimaryAdmin } from "./admin-auth";
+import { getAdminScope, requirePrimaryAdmin } from "./admin-auth";
 
 const router: IRouter = Router();
+const DEFAULT_TENANT_ID = "tenant_loja1";
 
 // ---------------------------------------------------------------------------
 // GET /api/shipping-options  (public)
@@ -15,7 +16,7 @@ router.get("/shipping-options", async (_req, res) => {
     const options = await db
       .select()
       .from(shippingOptionsTable)
-      .where(eq(shippingOptionsTable.isActive, true))
+      .where(and(eq(shippingOptionsTable.tenantId, DEFAULT_TENANT_ID), eq(shippingOptionsTable.isActive, true)))
       .orderBy(asc(shippingOptionsTable.sortOrder), asc(shippingOptionsTable.createdAt));
 
     res.json({ options });
@@ -29,11 +30,13 @@ router.get("/shipping-options", async (_req, res) => {
 // GET /api/admin/shipping-options  (admin)
 // Returns ALL shipping options (active + inactive).
 // ---------------------------------------------------------------------------
-router.get("/admin/shipping-options", requirePrimaryAdmin, async (_req, res) => {
+router.get("/admin/shipping-options", requirePrimaryAdmin, async (req, res) => {
   try {
+    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const options = await db
       .select()
       .from(shippingOptionsTable)
+      .where(eq(shippingOptionsTable.tenantId, tenantId))
       .orderBy(asc(shippingOptionsTable.sortOrder), asc(shippingOptionsTable.createdAt));
 
     res.json({ options });
@@ -49,6 +52,7 @@ router.get("/admin/shipping-options", requirePrimaryAdmin, async (_req, res) => 
 // ---------------------------------------------------------------------------
 router.post("/admin/shipping-options", requirePrimaryAdmin, async (req, res) => {
   try {
+    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const { name, description, price, sortOrder } = req.body as {
       name?: string;
       description?: string;
@@ -70,6 +74,7 @@ router.post("/admin/shipping-options", requirePrimaryAdmin, async (req, res) => 
 
     await db.insert(shippingOptionsTable).values({
       id,
+      tenantId,
       name:        name.trim(),
       description: description?.trim() || null,
       price:       String(Number(price).toFixed(2)),
@@ -80,7 +85,7 @@ router.post("/admin/shipping-options", requirePrimaryAdmin, async (req, res) => 
     const created = await db
       .select()
       .from(shippingOptionsTable)
-      .where(eq(shippingOptionsTable.id, id))
+      .where(and(eq(shippingOptionsTable.tenantId, tenantId), eq(shippingOptionsTable.id, id)))
       .limit(1);
 
     res.status(201).json({ option: created[0] });
@@ -96,6 +101,7 @@ router.post("/admin/shipping-options", requirePrimaryAdmin, async (req, res) => 
 // ---------------------------------------------------------------------------
 router.patch("/admin/shipping-options/:id", requirePrimaryAdmin, async (req, res) => {
   try {
+    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
     const { name, description, price, sortOrder, isActive } = req.body as {
@@ -119,12 +125,12 @@ router.patch("/admin/shipping-options/:id", requirePrimaryAdmin, async (req, res
     await db
       .update(shippingOptionsTable)
       .set(updates)
-      .where(eq(shippingOptionsTable.id, id));
+      .where(and(eq(shippingOptionsTable.tenantId, tenantId), eq(shippingOptionsTable.id, id)));
 
     const updated = await db
       .select()
       .from(shippingOptionsTable)
-      .where(eq(shippingOptionsTable.id, id))
+      .where(and(eq(shippingOptionsTable.tenantId, tenantId), eq(shippingOptionsTable.id, id)))
       .limit(1);
 
     if (!updated[0]) {
@@ -144,9 +150,10 @@ router.patch("/admin/shipping-options/:id", requirePrimaryAdmin, async (req, res
 // ---------------------------------------------------------------------------
 router.delete("/admin/shipping-options/:id", requirePrimaryAdmin, async (req, res) => {
   try {
+    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
-    await db.delete(shippingOptionsTable).where(eq(shippingOptionsTable.id, id));
+    await db.delete(shippingOptionsTable).where(and(eq(shippingOptionsTable.tenantId, tenantId), eq(shippingOptionsTable.id, id)));
     res.json({ ok: true });
   } catch (err) {
     console.error("[ShippingOptions] delete error:", err);

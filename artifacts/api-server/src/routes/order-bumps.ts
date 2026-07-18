@@ -1,10 +1,11 @@
 import { Router, type IRouter } from "express";
 import { db, orderBumpsTable } from "@workspace/db";
-import { eq, asc } from "drizzle-orm";
+import { and, eq, asc } from "drizzle-orm";
 import crypto from "crypto";
-import { requirePrimaryAdmin } from "./admin-auth";
+import { getAdminScope, requirePrimaryAdmin } from "./admin-auth";
 
 const router: IRouter = Router();
+const DEFAULT_TENANT_ID = "tenant_loja1";
 
 function mapBump(b: typeof orderBumpsTable.$inferSelect) {
   return {
@@ -39,8 +40,8 @@ router.get("/order-bumps", async (req, res) => {
       .from(orderBumpsTable)
       .where(
         productId
-          ? eq(orderBumpsTable.productId, productId)
-          : eq(orderBumpsTable.isActive, true)
+          ? and(eq(orderBumpsTable.tenantId, DEFAULT_TENANT_ID), eq(orderBumpsTable.productId, productId))
+          : and(eq(orderBumpsTable.tenantId, DEFAULT_TENANT_ID), eq(orderBumpsTable.isActive, true))
       )
       .orderBy(asc(orderBumpsTable.sortOrder), asc(orderBumpsTable.createdAt));
 
@@ -55,11 +56,13 @@ router.get("/order-bumps", async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /api/admin/order-bumps   (admin — all bumps for all products)
 // ---------------------------------------------------------------------------
-router.get("/admin/order-bumps", requirePrimaryAdmin, async (_req, res) => {
+router.get("/admin/order-bumps", requirePrimaryAdmin, async (req, res) => {
   try {
+    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const rows = await db
       .select()
       .from(orderBumpsTable)
+      .where(eq(orderBumpsTable.tenantId, tenantId))
       .orderBy(asc(orderBumpsTable.sortOrder), asc(orderBumpsTable.createdAt));
     res.json({ bumps: rows.map(mapBump) });
   } catch (err) {
@@ -73,6 +76,7 @@ router.get("/admin/order-bumps", requirePrimaryAdmin, async (_req, res) => {
 // ---------------------------------------------------------------------------
 router.post("/admin/order-bumps", requirePrimaryAdmin, async (req, res) => {
   try {
+    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const { productId, offerProductId, title, cardTitle, description, image, discountType, discountValue, buyQuantity, getQuantity, tiers, unit, isActive, sortOrder } = req.body as {
       productId: string;
       offerProductId?: string;
@@ -97,6 +101,7 @@ router.post("/admin/order-bumps", requirePrimaryAdmin, async (req, res) => {
     const id = crypto.randomBytes(10).toString("hex");
     await db.insert(orderBumpsTable).values({
       id,
+      tenantId,
       productId:    productId.trim(),
       offerProductId: offerProductId?.trim() || productId.trim(),
       title:        title.trim(),
@@ -114,7 +119,7 @@ router.post("/admin/order-bumps", requirePrimaryAdmin, async (req, res) => {
       sortOrder:    sortOrder ?? 0,
       updatedAt:    new Date(),
     });
-    const [row] = await db.select().from(orderBumpsTable).where(eq(orderBumpsTable.id, id));
+    const [row] = await db.select().from(orderBumpsTable).where(and(eq(orderBumpsTable.tenantId, tenantId), eq(orderBumpsTable.id, id)));
 
     res.status(201).json({ bump: mapBump(row) });
   } catch (err) {
@@ -128,6 +133,7 @@ router.post("/admin/order-bumps", requirePrimaryAdmin, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.patch("/admin/order-bumps/:id", requirePrimaryAdmin, async (req, res) => {
   try {
+    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
     const body = req.body as {
@@ -167,8 +173,8 @@ router.patch("/admin/order-bumps/:id", requirePrimaryAdmin, async (req, res) => 
     await db
       .update(orderBumpsTable)
       .set(updates)
-      .where(eq(orderBumpsTable.id, id));
-    const [row] = await db.select().from(orderBumpsTable).where(eq(orderBumpsTable.id, id));
+      .where(and(eq(orderBumpsTable.tenantId, tenantId), eq(orderBumpsTable.id, id)));
+    const [row] = await db.select().from(orderBumpsTable).where(and(eq(orderBumpsTable.tenantId, tenantId), eq(orderBumpsTable.id, id)));
 
     if (!row) return res.status(404).json({ error: "Order bump não encontrado." });
     res.json({ bump: mapBump(row) });
@@ -183,8 +189,9 @@ router.patch("/admin/order-bumps/:id", requirePrimaryAdmin, async (req, res) => 
 // ---------------------------------------------------------------------------
 router.delete("/admin/order-bumps/:id", requirePrimaryAdmin, async (req, res) => {
   try {
+    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const id = String(req.params.id);
-    await db.delete(orderBumpsTable).where(eq(orderBumpsTable.id, id));
+    await db.delete(orderBumpsTable).where(and(eq(orderBumpsTable.tenantId, tenantId), eq(orderBumpsTable.id, id)));
     res.json({ ok: true });
   } catch (err) {
     console.error("Delete order-bump error:", err);

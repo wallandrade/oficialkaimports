@@ -1,13 +1,16 @@
 import { Router, type IRouter } from "express";
-import { db, marketingExpensesTable, ordersTable, productsTable, sellersTable, siteSettingsTable } from "@workspace/db";
+import { db, marketingExpensesTable, ordersTable, productsTable, sellersTable, siteSettingsTable, tenantSettingsTable } from "@workspace/db";
 import { and, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 
 const router: IRouter = Router();
+const DEFAULT_TENANT_ID = "tenant_loja1";
 
 // Utilitário para ler settings do banco
-async function getGatewayFees() {
-  const rows = await db.select().from(siteSettingsTable);
+async function getGatewayFees(tenantId: string) {
+  const tenantRows = await db.select().from(tenantSettingsTable).where(eq(tenantSettingsTable.tenantId, tenantId));
+  const legacyRows = tenantId === DEFAULT_TENANT_ID ? await db.select().from(siteSettingsTable) : [];
+  const rows = tenantRows.length > 0 ? tenantRows : legacyRows;
   const get = (key: string) => {
     const found = rows.find((r) => r.key === key);
     return found ? parseFloat(found.value) || 0 : 0;
@@ -75,8 +78,10 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
       return;
     }
 
+    const tenantId = adminScope.tenantId || DEFAULT_TENANT_ID;
     const { dateFrom, dateTo, sellerCode } = req.query as Record<string, string>;
     const conditions = [];
+    conditions.push(eq(ordersTable.tenantId, tenantId));
     if (dateFrom) conditions.push(gte(ordersTable.createdAt, toUTC(dateFrom, "00", "00", "00")));
     if (dateTo) conditions.push(lte(ordersTable.createdAt, toUTC(dateTo, "23", "59", "59")));
     // Considera apenas pedidos pagos
@@ -104,6 +109,7 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
 
     if (dateFrom && periodCustomerKeys.size > 0) {
       const historyConditions = [
+        eq(ordersTable.tenantId, tenantId),
         inArray(ordersTable.status, ["paid", "completed"]),
         lt(ordersTable.createdAt, toUTC(dateFrom, "00", "00", "00")),
       ];
@@ -144,7 +150,7 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
       : 0;
 
     // Lê taxas do settings
-    const fees = await getGatewayFees();
+    const fees = await getGatewayFees(tenantId);
 
     // Calcula taxas de transação, separando economia WhatsApp
     let totalGatewayFees = 0;
@@ -179,7 +185,7 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
       const rows = await db
         .select({ id: productsTable.id, costPrice: productsTable.costPrice })
         .from(productsTable)
-        .where(inArray(productsTable.id, Array.from(productIds)));
+        .where(and(eq(productsTable.tenantId, tenantId), inArray(productsTable.id, Array.from(productIds))));
       productCostMap = new Map(rows.map((row) => [String(row.id), Number(row.costPrice || 0)]));
     }
 
@@ -219,7 +225,7 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
           commissionRate: sellersTable.commissionRate,
         })
         .from(sellersTable)
-        .where(inArray(sellersTable.slug, sellerCodes));
+        .where(and(eq(sellersTable.tenantId, tenantId), inArray(sellersTable.slug, sellerCodes)));
 
       sellerRateMap = new Map(
         sellerRows.map((seller) => [
@@ -252,6 +258,7 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
     let totalWithdrawFees = 0; // implementar se necessário
 
     const expenseConditions = [];
+    expenseConditions.push(eq(marketingExpensesTable.tenantId, tenantId));
     if (dateFrom) {
       expenseConditions.push(sql`DATE(DATE_SUB(COALESCE(${marketingExpensesTable.expenseEndDate}, ${marketingExpensesTable.expenseDate}), INTERVAL 3 HOUR)) >= ${dateFrom}`);
     }

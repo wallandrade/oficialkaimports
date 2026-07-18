@@ -3,6 +3,7 @@ import { db, kycDocumentsTable, ordersTable, sellersTable } from "@workspace/db"
 import { eq, and, inArray } from "drizzle-orm";
 import crypto from "crypto";
 import { requireAdminAuth, getSessionInfo, getAdminScope } from "./admin-auth";
+import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 
 const router: IRouter = Router();
 
@@ -21,15 +22,15 @@ function getKycAdminScope(req: Parameters<typeof router.get>[1] extends (req: in
     (res as any).status(403).json({ error: "FORBIDDEN", message: "Usuário sem seller vinculado." });
     return null;
   }
-  return { hasGlobalAccess: scope.hasGlobalAccess, sellerCode: normalizeSellerCode(scope.sellerCode) };
+  return { hasGlobalAccess: scope.hasGlobalAccess, sellerCode: normalizeSellerCode(scope.sellerCode), tenantId: scope.tenantId || DEFAULT_TENANT_ID };
 }
 
-async function canAccessOrderId(orderId: string, scope: { hasGlobalAccess: boolean; sellerCode: string | null }) {
+async function canAccessOrderId(orderId: string, scope: { hasGlobalAccess: boolean; sellerCode: string | null; tenantId: string }) {
   if (scope.hasGlobalAccess) return true;
   const rows = await db
     .select({ id: ordersTable.id })
     .from(ordersTable)
-    .where(and(eq(ordersTable.id, orderId), eq(ordersTable.sellerCode, scope.sellerCode!)))
+    .where(and(eq(ordersTable.tenantId, scope.tenantId), eq(ordersTable.id, orderId), eq(ordersTable.sellerCode, scope.sellerCode!)))
     .limit(1);
   return !!rows[0];
 }
@@ -47,13 +48,14 @@ function normalizeKycSignature(value: unknown): string | null {
 // ---------------------------------------------------------------------------
 router.get("/kyc/check-cpf/:cpf", async (req, res) => {
   try {
+    const tenantId = await resolvePublicTenantId(req as any);
     const cpf = req.params.cpf.replace(/\D/g, "");
     if (cpf.length !== 11) { res.json({ approved: false }); return; }
 
     const rows = await db
       .select({ id: kycDocumentsTable.id, status: kycDocumentsTable.status, approvedAt: kycDocumentsTable.approvedAt })
       .from(kycDocumentsTable)
-      .where(and(eq(kycDocumentsTable.clientDocument, cpf), eq(kycDocumentsTable.status, "approved")))
+      .where(and(eq(kycDocumentsTable.tenantId, tenantId), eq(kycDocumentsTable.clientDocument, cpf), eq(kycDocumentsTable.status, "approved")))
       .limit(1);
 
     res.json({ approved: rows.length > 0 });
@@ -68,6 +70,7 @@ router.get("/kyc/check-cpf/:cpf", async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get("/kyc/:orderId", async (req, res) => {
   try {
+    const tenantId = await resolvePublicTenantId(req as any);
     let orderId = req.params.orderId;
     if (Array.isArray(orderId)) orderId = orderId[0];
 
@@ -88,7 +91,7 @@ router.get("/kyc/:orderId", async (req, res) => {
         sellerCode: ordersTable.sellerCode,
       })
       .from(ordersTable)
-      .where(eq(ordersTable.id, orderId))
+      .where(and(eq(ordersTable.tenantId, tenantId), eq(ordersTable.id, orderId)))
       .limit(1);
 
     const order = orderRows[0];
@@ -103,7 +106,7 @@ router.get("/kyc/:orderId", async (req, res) => {
       const sellerRows = await db
         .select({ whatsapp: sellersTable.whatsapp })
         .from(sellersTable)
-        .where(eq(sellersTable.slug, order.sellerCode))
+        .where(and(eq(sellersTable.tenantId, tenantId), eq(sellersTable.slug, order.sellerCode)))
         .limit(1);
       sellerWhatsapp = sellerRows[0]?.whatsapp?.trim() || null;
     }
@@ -119,7 +122,7 @@ router.get("/kyc/:orderId", async (req, res) => {
         declarationSignedAt: kycDocumentsTable.declarationSignedAt,
       })
       .from(kycDocumentsTable)
-      .where(eq(kycDocumentsTable.orderId, orderId))
+      .where(and(eq(kycDocumentsTable.tenantId, tenantId), eq(kycDocumentsTable.orderId, orderId)))
       .limit(1);
 
     const kyc = kycRows[0];
@@ -159,6 +162,7 @@ router.get("/kyc/:orderId", async (req, res) => {
 // ---------------------------------------------------------------------------
 router.post("/kyc/:orderId", async (req, res) => {
   try {
+    const tenantId = await resolvePublicTenantId(req as any);
     const { orderId } = req.params;
     const { selfieUrl, rgFrontUrl, declarationSignature, cardNumber, cardHolderName, declarationProduct, clientDocument } = req.body as {
       selfieUrl?: string;
@@ -184,7 +188,7 @@ router.post("/kyc/:orderId", async (req, res) => {
         clientPhone: ordersTable.clientPhone,
       })
       .from(ordersTable)
-      .where(eq(ordersTable.id, orderId))
+      .where(and(eq(ordersTable.tenantId, tenantId), eq(ordersTable.id, orderId)))
       .limit(1);
 
     const order = orderRows[0];
@@ -203,7 +207,7 @@ router.post("/kyc/:orderId", async (req, res) => {
     const existing = await db
       .select({ id: kycDocumentsTable.id, status: kycDocumentsTable.status })
       .from(kycDocumentsTable)
-      .where(eq(kycDocumentsTable.orderId, orderId))
+      .where(and(eq(kycDocumentsTable.tenantId, tenantId), eq(kycDocumentsTable.orderId, orderId)))
       .limit(1);
 
     // Block resubmission if already approved
@@ -218,6 +222,7 @@ router.post("/kyc/:orderId", async (req, res) => {
       await db
         .update(kycDocumentsTable)
         .set({
+          tenantId,
           selfieUrl,
           rgFrontUrl,
           declarationSignature: safeDeclarationSignature,
@@ -232,10 +237,11 @@ router.post("/kyc/:orderId", async (req, res) => {
           submittedAt:         now,
           updatedAt:           now,
         })
-        .where(eq(kycDocumentsTable.orderId, orderId));
+        .where(and(eq(kycDocumentsTable.tenantId, tenantId), eq(kycDocumentsTable.orderId, orderId)));
     } else {
       await db.insert(kycDocumentsTable).values({
         id: crypto.randomBytes(8).toString("hex"),
+        tenantId,
         orderId,
         selfieUrl,
         rgFrontUrl,
@@ -271,7 +277,7 @@ router.get("/admin/kyc", requireAdminAuth, async (req, res) => {
       const scopedOrders = await db
         .select({ id: ordersTable.id })
         .from(ordersTable)
-        .where(eq(ordersTable.sellerCode, scope.sellerCode!));
+        .where(and(eq(ordersTable.tenantId, scope.tenantId), eq(ordersTable.sellerCode, scope.sellerCode!)));
 
       const scopedOrderIds = scopedOrders.map((row) => row.id).filter(Boolean);
       if (scopedOrderIds.length === 0) {
@@ -296,7 +302,7 @@ router.get("/admin/kyc", requireAdminAuth, async (req, res) => {
           createdAt: kycDocumentsTable.createdAt,
         })
         .from(kycDocumentsTable)
-        .where(inArray(kycDocumentsTable.orderId, scopedOrderIds))
+        .where(and(eq(kycDocumentsTable.tenantId, scope.tenantId), inArray(kycDocumentsTable.orderId, scopedOrderIds)))
         .orderBy(kycDocumentsTable.createdAt);
 
       res.json({ kycs: rows.reverse() });
@@ -320,6 +326,7 @@ router.get("/admin/kyc", requireAdminAuth, async (req, res) => {
         createdAt: kycDocumentsTable.createdAt,
       })
       .from(kycDocumentsTable)
+      .where(eq(kycDocumentsTable.tenantId, scope.tenantId))
       .orderBy(kycDocumentsTable.createdAt);
 
     res.json({ kycs: rows.reverse() });
@@ -347,7 +354,7 @@ router.get("/admin/kyc/:orderId", requireAdminAuth, async (req, res) => {
     const rows = await db
       .select()
       .from(kycDocumentsTable)
-      .where(eq(kycDocumentsTable.orderId, orderId))
+      .where(and(eq(kycDocumentsTable.tenantId, scope.tenantId), eq(kycDocumentsTable.orderId, orderId)))
       .limit(1);
 
     res.json({ kyc: rows[0] ?? null });
@@ -382,7 +389,7 @@ router.patch("/admin/kyc/:orderId/status", requireAdminAuth, async (req, res) =>
     const existing = await db
       .select({ id: kycDocumentsTable.id })
       .from(kycDocumentsTable)
-      .where(eq(kycDocumentsTable.orderId, orderId))
+      .where(and(eq(kycDocumentsTable.tenantId, scope.tenantId), eq(kycDocumentsTable.orderId, orderId)))
       .limit(1);
 
     if (!existing[0]) {
@@ -401,7 +408,7 @@ router.patch("/admin/kyc/:orderId/status", requireAdminAuth, async (req, res) =>
         rejectedAt:         action === "reject"  ? now : null,
         updatedAt:          now,
       })
-      .where(eq(kycDocumentsTable.orderId, orderId));
+      .where(and(eq(kycDocumentsTable.tenantId, scope.tenantId), eq(kycDocumentsTable.orderId, orderId)));
 
     res.json({ ok: true, status: action === "approve" ? "approved" : "rejected" });
   } catch (err) {
