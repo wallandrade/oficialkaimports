@@ -4,6 +4,8 @@ import cookieParser from "cookie-parser";
 import router from "./routes";
 import { exec } from "child_process";
 import crypto from "crypto";
+import { db, tenantsTable } from "@workspace/db";
+import { eq } from "drizzle-orm";
 
 const DEFAULT_ALLOWED_ORIGINS = [
   "https://ka-imports.com",
@@ -22,6 +24,34 @@ function normalizeOrigin(origin: string): string {
   }
 }
 
+function extractOriginHost(origin?: string | null): string {
+  if (!origin) return "";
+  try {
+    return new URL(origin).hostname.trim().toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function normalizeDomain(value: string): string {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "";
+
+  try {
+    const parsed = new URL(raw.includes("://") ? raw : `https://${raw}`);
+    return parsed.hostname.trim().toLowerCase();
+  } catch {
+    return raw.replace(/^https?:\/\//, "").split("/")[0]?.split(":")[0]?.trim().toLowerCase() || "";
+  }
+}
+
+function withDomainVariants(domain: string): string[] {
+  const normalized = normalizeDomain(domain);
+  if (!normalized) return [];
+  const base = normalized.startsWith("www.") ? normalized.slice(4) : normalized;
+  return Array.from(new Set([normalized, base, `www.${base}`].filter(Boolean)));
+}
+
 function getAllowedOrigins(): Set<string> {
   const fromEnv = String(process.env.CORS_ALLOWED_ORIGINS || "")
     .split(",")
@@ -33,10 +63,82 @@ function getAllowedOrigins(): Set<string> {
 }
 
 const allowedOrigins = getAllowedOrigins();
+const tenantAllowedHosts = new Set<string>();
+let tenantHostsCacheRefreshedAt = 0;
+let tenantHostsRefreshPromise: Promise<void> | null = null;
+const TENANT_HOSTS_CACHE_TTL_MS = Number(process.env.CORS_TENANT_HOSTS_CACHE_TTL_MS || 5 * 60 * 1000);
+
+async function refreshTenantAllowedHosts(): Promise<void> {
+  const rows = await db
+    .select({ domain: tenantsTable.domain })
+    .from(tenantsTable);
+
+  tenantAllowedHosts.clear();
+  for (const row of rows) {
+    for (const host of withDomainVariants(String(row.domain || ""))) {
+      tenantAllowedHosts.add(host);
+    }
+  }
+  tenantHostsCacheRefreshedAt = Date.now();
+}
+
+async function ensureTenantHostsCacheFresh(): Promise<void> {
+  const now = Date.now();
+  if (now - tenantHostsCacheRefreshedAt <= TENANT_HOSTS_CACHE_TTL_MS && tenantAllowedHosts.size > 0) {
+    return;
+  }
+  if (!tenantHostsRefreshPromise) {
+    tenantHostsRefreshPromise = refreshTenantAllowedHosts()
+      .catch((err) => {
+        console.warn("[SECURITY] Failed to refresh tenant CORS hosts:", err);
+      })
+      .finally(() => {
+        tenantHostsRefreshPromise = null;
+      });
+  }
+  await tenantHostsRefreshPromise;
+}
+
+async function isTenantHostFromDb(host: string): Promise<boolean> {
+  const normalizedHost = normalizeDomain(host);
+  if (!normalizedHost) return false;
+
+  await ensureTenantHostsCacheFresh();
+  if (tenantAllowedHosts.has(normalizedHost)) return true;
+
+  const candidates = normalizedHost.startsWith("www.") ? [normalizedHost, normalizedHost.slice(4)] : [normalizedHost, `www.${normalizedHost}`];
+  for (const candidate of candidates.map(normalizeDomain)) {
+    if (!candidate) continue;
+    const row = await db
+      .select({ id: tenantsTable.id, domain: tenantsTable.domain })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.domain, candidate))
+      .limit(1);
+
+    if (row[0]?.id) {
+      for (const aliasHost of withDomainVariants(String(row[0].domain || candidate))) {
+        tenantAllowedHosts.add(aliasHost);
+      }
+      return true;
+    }
+  }
+
+  return false;
+}
 
 function isOriginAllowed(origin?: string | null): boolean {
   if (!origin) return true;
-  return allowedOrigins.has(normalizeOrigin(origin));
+  if (allowedOrigins.has(normalizeOrigin(origin))) return true;
+
+  const host = extractOriginHost(origin);
+  return !!host && tenantAllowedHosts.has(host);
+}
+
+async function isOriginAllowedAsync(origin?: string | null): Promise<boolean> {
+  if (isOriginAllowed(origin)) return true;
+  const host = extractOriginHost(origin);
+  if (!host) return false;
+  return isTenantHostFromDb(host);
 }
 
 function getRefererOrigin(referer?: string | null): string | null {
@@ -326,8 +428,8 @@ app.use((req, res, next) => {
 });
 
 app.use(cors({
-  origin: (origin, callback) => {
-    if (isOriginAllowed(origin)) {
+  origin: async (origin, callback) => {
+    if (await isOriginAllowedAsync(origin)) {
       callback(null, true);
       return;
     }
