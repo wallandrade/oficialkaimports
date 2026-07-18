@@ -334,7 +334,7 @@ export async function requireAdminAuth(req: Request, res: Response, next: NextFu
     const tenantId = String(sessionRows[0].tenantId || "").trim() || await resolveAdminTenantId(sessionRows[0].username);
     const scope = resolveAdminScopeFromSession({ ...sessionRows[0], tenantId });
 
-    if (!scope.hasGlobalAccess && !scope.sellerCode) {
+    if (!scope.hasGlobalAccess && !scope.sellerCode && scope.tenantId === DEFAULT_TENANT_ID) {
       res.status(403).json({
         error: "FORBIDDEN",
         message: "Usuário admin sem seller vinculado. Configure ADMIN_SELLER_SCOPE_MAP.",
