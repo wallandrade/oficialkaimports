@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { Router, type IRouter } from "express";
-import { and, desc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte } from "drizzle-orm";
 import { db, ordersTable, sellerCommissionPaymentsTable } from "@workspace/db";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 
@@ -14,6 +14,7 @@ type CommissionOrderRow = {
   status: string;
   createdAt: Date | string;
   sellerCommissionRateSnapshot: string | number | null;
+  sellerCommissionBatchId: string | null;
 };
 
 function parseOrderIds(raw: unknown): string[] {
@@ -81,6 +82,12 @@ function calcCommission(order: CommissionOrderRow): number {
   return Math.round(total * (rate / 100) * 100) / 100;
 }
 
+function isPendingByBatchLink(batchId: string | null | undefined, existingBatchIds: Set<string>): boolean {
+  const normalized = String(batchId || "").trim();
+  if (!normalized) return true;
+  return !existingBatchIds.has(normalized);
+}
+
 router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, res) => {
   try {
     const scope = getAdminScope(req);
@@ -105,7 +112,6 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
 
     const pendingConditions = [
       inArray(ordersTable.status, ["paid", "completed"]),
-      isNull(ordersTable.sellerCommissionBatchId),
     ];
     if (activeSellerCode) {
       pendingConditions.push(eq(ordersTable.sellerCode, activeSellerCode));
@@ -121,6 +127,7 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
         status: ordersTable.status,
         createdAt: ordersTable.createdAt,
         sellerCommissionRateSnapshot: ordersTable.sellerCommissionRateSnapshot,
+        sellerCommissionBatchId: ordersTable.sellerCommissionBatchId,
       })
       .from(ordersTable)
       .where(pendingConditions.length > 0 ? and(...pendingConditions) : undefined)
@@ -137,6 +144,8 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
       .where(batchConditions.length > 0 ? and(...batchConditions) : undefined)
       .orderBy(desc(sellerCommissionPaymentsTable.createdAt));
 
+    const existingBatchIds = new Set(batchRows.map((batch) => String(batch.id || "").trim()).filter(Boolean));
+
     const paidWindows = batchRows
       .filter((batch) => batch.status === "paid")
       .map((batch) => {
@@ -152,6 +161,7 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
       .filter((window): window is { sellerCode: string; start: string; end: string } => Boolean(window));
 
     const pendingOrders = pendingRows
+      .filter((row) => isPendingByBatchLink(row.sellerCommissionBatchId, existingBatchIds))
       .map((row) => ({
         id: row.id,
         sellerCode: row.sellerCode ?? null,
@@ -160,6 +170,7 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
         status: row.status,
         createdAt: toIso(row.createdAt),
         sellerCommissionRateSnapshot: Number(row.sellerCommissionRateSnapshot || 0),
+        sellerCommissionBatchId: row.sellerCommissionBatchId,
         commissionAmount: calcCommission(row),
       }))
       .filter((row) => row.commissionAmount > 0)
@@ -236,7 +247,6 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
     const conditions = [
       eq(ordersTable.sellerCode, targetSellerCode),
       inArray(ordersTable.status, ["paid", "completed"]),
-      isNull(ordersTable.sellerCommissionBatchId),
       ...dateConditions,
     ];
 
@@ -253,12 +263,20 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
         status: ordersTable.status,
         createdAt: ordersTable.createdAt,
         sellerCommissionRateSnapshot: ordersTable.sellerCommissionRateSnapshot,
+        sellerCommissionBatchId: ordersTable.sellerCommissionBatchId,
       })
       .from(ordersTable)
       .where(and(...conditions))
       .orderBy(desc(ordersTable.createdAt));
 
+    const sellerBatchRows = await db
+      .select({ id: sellerCommissionPaymentsTable.id })
+      .from(sellerCommissionPaymentsTable)
+      .where(eq(sellerCommissionPaymentsTable.sellerCode, targetSellerCode));
+    const sellerBatchIds = new Set(sellerBatchRows.map((batch) => String(batch.id || "").trim()).filter(Boolean));
+
     const eligibleOrders = rows
+      .filter((row) => isPendingByBatchLink(row.sellerCommissionBatchId, sellerBatchIds))
       .map((row) => ({
         id: row.id,
         sellerCode: row.sellerCode ?? null,
@@ -267,6 +285,7 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
         status: row.status,
         createdAt: toIso(row.createdAt),
         sellerCommissionRateSnapshot: Number(row.sellerCommissionRateSnapshot || 0),
+        sellerCommissionBatchId: row.sellerCommissionBatchId,
         commissionAmount: calcCommission(row),
       }))
       .filter((row) => row.commissionAmount > 0);
