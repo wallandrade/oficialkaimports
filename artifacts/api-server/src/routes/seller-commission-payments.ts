@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { and, desc, eq, gte, inArray, lte } from "drizzle-orm";
-import { db, ordersTable, sellerCommissionPaymentsTable } from "@workspace/db";
+import { and, desc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
+import { db, ordersTable, sellerCommissionPaymentsTable, sellersTable } from "@workspace/db";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 
 const router: IRouter = Router();
@@ -77,12 +77,43 @@ function normalizeSellerCode(value: string | null | undefined): string {
   return String(value || "").trim().toLowerCase();
 }
 
-function calcCommission(order: CommissionOrderRow): number {
+function calcCommission(order: CommissionOrderRow, sellerRateMap: Map<string, number>): number {
   const total = Number(order.total || 0);
-  const snapshotRate = Number(order.sellerCommissionRateSnapshot || 0);
-  const rate = snapshotRate > 0 ? snapshotRate : 5;
+  const normalizedSeller = normalizeSellerCode(order.sellerCode);
+  let rate = 0;
+
+  // Keep historical rate when snapshot exists.
+  if (order.sellerCommissionRateSnapshot !== undefined && order.sellerCommissionRateSnapshot !== null) {
+    rate = Number(order.sellerCommissionRateSnapshot) || 0;
+  } else if (normalizedSeller) {
+    // Fallback only for legacy orders without snapshot.
+    rate = sellerRateMap.get(normalizedSeller) ?? 0;
+  }
+
   if (!Number.isFinite(total) || !Number.isFinite(rate) || total <= 0 || rate <= 0) return 0;
+  if (!normalizedSeller) return 0;
   return Math.round(total * (rate / 100) * 100) / 100;
+}
+
+async function getSellerRateMap(sellerCodes: string[]): Promise<Map<string, number>> {
+  const unique = Array.from(new Set(sellerCodes.map((value) => normalizeSellerCode(value)).filter(Boolean)));
+  if (unique.length === 0) return new Map<string, number>();
+
+  const rows = await db
+    .select({
+      slug: sellersTable.slug,
+      hasCommission: sellersTable.hasCommission,
+      commissionRate: sellersTable.commissionRate,
+    })
+    .from(sellersTable)
+    .where(inArray(sellersTable.slug, unique));
+
+  return new Map(
+    rows.map((seller) => [
+      normalizeSellerCode(seller.slug),
+      seller.hasCommission ? Number(seller.commissionRate ?? 0) : 0,
+    ]),
+  );
 }
 
 function createBatchId(): string {
@@ -116,6 +147,8 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
 
     const pendingConditions = [
       inArray(ordersTable.status, ["paid", "completed"]),
+      isNull(ordersTable.sellerCommissionBatchId),
+      isNull(ordersTable.sellerCommissionPaidAt),
     ];
     pendingConditions.push(...dateConditions);
 
@@ -128,6 +161,8 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
         status: ordersTable.status,
         createdAt: ordersTable.createdAt,
         sellerCommissionRateSnapshot: ordersTable.sellerCommissionRateSnapshot,
+        sellerCommissionBatchId: ordersTable.sellerCommissionBatchId,
+        sellerCommissionPaidAt: ordersTable.sellerCommissionPaidAt,
       })
       .from(ordersTable)
       .where(pendingConditions.length > 0 ? and(...pendingConditions) : undefined)
@@ -143,19 +178,17 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
       return normalizeSellerCode(batch.sellerCode) === activeSellerCode;
     });
 
-    const paidWindows = scopedBatchRows
+    const paidOrderIds = new Set(
+      scopedBatchRows
       .filter((batch) => batch.status === "paid")
-      .map((batch) => {
-        const start = getBatchDateKey(batch.periodStartDate || batch.periodStart);
-        const end = getBatchDateKey(batch.periodEndDate || batch.periodEnd);
-        if (!start || !end) return null;
-        return {
-          sellerCode: String(batch.sellerCode || "").trim().toLowerCase(),
-          start,
-          end,
-        };
-      })
-      .filter((window): window is { sellerCode: string; start: string; end: string } => Boolean(window));
+      .flatMap((batch) => parseOrderIds(batch.orderIds)),
+    );
+
+    const sellerRateMap = await getSellerRateMap(
+      pendingRows
+        .map((row) => String(row.sellerCode || ""))
+        .filter(Boolean),
+    );
 
     const pendingOrders = pendingRows
       .filter((row) => {
@@ -170,20 +203,10 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
         status: row.status,
         createdAt: toIso(row.createdAt),
         sellerCommissionRateSnapshot: Number(row.sellerCommissionRateSnapshot || 0),
-        commissionAmount: calcCommission(row),
+        commissionAmount: calcCommission(row, sellerRateMap),
       }))
       .filter((row) => row.commissionAmount > 0)
-      .filter((row) => {
-        const rowSeller = String(row.sellerCode || "").trim().toLowerCase();
-        const rowDateKey = toSaoPauloDateKey(row.createdAt);
-        if (!rowSeller || !rowDateKey) return true;
-        return !paidWindows.some((window) => {
-          if (window.sellerCode !== rowSeller) return false;
-          const start = window.start <= window.end ? window.start : window.end;
-          const end = window.start <= window.end ? window.end : window.start;
-          return rowDateKey >= start && rowDateKey <= end;
-        });
-      });
+      .filter((row) => !paidOrderIds.has(row.id));
 
     const batches = scopedBatchRows.map((batch) => ({
       id: batch.id,
@@ -245,7 +268,10 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
     const orderIdList = Array.isArray(orderIds) ? Array.from(new Set(orderIds.map((value) => String(value || "").trim()).filter(Boolean))) : [];
 
     const conditions = [
+      eq(ordersTable.sellerCode, targetSellerCode),
       inArray(ordersTable.status, ["paid", "completed"]),
+      isNull(ordersTable.sellerCommissionBatchId),
+      isNull(ordersTable.sellerCommissionPaidAt),
       ...dateConditions,
     ];
 
@@ -274,16 +300,12 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
 
     const paidWindows = sellerBatchRows
       .filter((batch) => batch.status === "paid")
-      .map((batch) => {
-        const start = getBatchDateKey(batch.periodStartDate || batch.periodStart);
-        const end = getBatchDateKey(batch.periodEndDate || batch.periodEnd);
-        if (!start || !end) return null;
-        return { sellerCode: targetSellerCode, start, end };
-      })
-      .filter((window): window is { sellerCode: string; start: string; end: string } => Boolean(window));
+      .flatMap((batch) => parseOrderIds(batch.orderIds));
+
+    const paidOrderIds = new Set(paidWindows);
+    const sellerRateMap = await getSellerRateMap([targetSellerCode]);
 
     const eligibleOrders = rows
-      .filter((row) => normalizeSellerCode(row.sellerCode) === targetSellerCode)
       .map((row) => ({
         id: row.id,
         sellerCode: row.sellerCode ?? null,
@@ -292,20 +314,10 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
         status: row.status,
         createdAt: toIso(row.createdAt),
         sellerCommissionRateSnapshot: Number(row.sellerCommissionRateSnapshot || 0),
-        commissionAmount: calcCommission(row),
+        commissionAmount: calcCommission(row, sellerRateMap),
       }))
       .filter((row) => row.commissionAmount > 0)
-      .filter((row) => {
-        const rowSeller = String(row.sellerCode || "").trim().toLowerCase();
-        const rowDateKey = toSaoPauloDateKey(row.createdAt);
-        if (!rowSeller || !rowDateKey) return true;
-        return !paidWindows.some((window) => {
-          if (window.sellerCode !== rowSeller) return false;
-          const start = window.start <= window.end ? window.start : window.end;
-          const end = window.start <= window.end ? window.end : window.start;
-          return rowDateKey >= start && rowDateKey <= end;
-        });
-      });
+      .filter((row) => !paidOrderIds.has(row.id));
 
     if (eligibleOrders.length === 0) {
       res.status(400).json({ error: "NO_ELIGIBLE_ORDERS", message: "Nenhum pedido elegível encontrado." });
