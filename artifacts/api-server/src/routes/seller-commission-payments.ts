@@ -74,36 +74,6 @@ function getBatchDateKey(value: Date | string | null | undefined): string | null
   return direct || toSaoPauloDateKey(value);
 }
 
-type PaidWindow = { sellerCode: string; start: string; end: string };
-
-function buildPaidWindows(batches: Array<typeof sellerCommissionPaymentsTable.$inferSelect>): PaidWindow[] {
-  return batches
-    .filter((batch) => batch.status === "paid")
-    .map((batch) => {
-      const start = getBatchDateKey(batch.periodStartDate || batch.periodStart);
-      const end = getBatchDateKey(batch.periodEndDate || batch.periodEnd);
-      if (!start || !end) return null;
-      return {
-        sellerCode: String(batch.sellerCode || "").trim().toLowerCase(),
-        start,
-        end,
-      };
-    })
-    .filter((window): window is PaidWindow => Boolean(window));
-}
-
-function isOrderCoveredByPaidWindow(order: { sellerCode: string | null; createdAt: string | null }, paidWindows: PaidWindow[]): boolean {
-  const rowSeller = String(order.sellerCode || "").trim().toLowerCase();
-  const rowDateKey = toSaoPauloDateKey(order.createdAt);
-  if (!rowSeller || !rowDateKey) return false;
-  return paidWindows.some((window) => {
-    if (window.sellerCode !== rowSeller) return false;
-    const start = window.start <= window.end ? window.start : window.end;
-    const end = window.start <= window.end ? window.end : window.start;
-    return rowDateKey >= start && rowDateKey <= end;
-  });
-}
-
 function calcCommission(order: CommissionOrderRow): number {
   const total = Number(order.total || 0);
   const rate = Number(order.sellerCommissionRateSnapshot || 0);
@@ -167,7 +137,19 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
       .where(batchConditions.length > 0 ? and(...batchConditions) : undefined)
       .orderBy(desc(sellerCommissionPaymentsTable.createdAt));
 
-    const paidWindows = buildPaidWindows(batchRows);
+    const paidWindows = batchRows
+      .filter((batch) => batch.status === "paid")
+      .map((batch) => {
+        const start = getBatchDateKey(batch.periodStartDate || batch.periodStart);
+        const end = getBatchDateKey(batch.periodEndDate || batch.periodEnd);
+        if (!start || !end) return null;
+        return {
+          sellerCode: String(batch.sellerCode || "").trim().toLowerCase(),
+          start,
+          end,
+        };
+      })
+      .filter((window): window is { sellerCode: string; start: string; end: string } => Boolean(window));
 
     const pendingOrders = pendingRows
       .map((row) => ({
@@ -181,7 +163,17 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
         commissionAmount: calcCommission(row),
       }))
       .filter((row) => row.commissionAmount > 0)
-      .filter((row) => !isOrderCoveredByPaidWindow({ sellerCode: row.sellerCode, createdAt: row.createdAt }, paidWindows));
+      .filter((row) => {
+        const rowSeller = String(row.sellerCode || "").trim().toLowerCase();
+        const rowDateKey = toSaoPauloDateKey(row.createdAt);
+        if (!rowSeller || !rowDateKey) return true;
+        return !paidWindows.some((window) => {
+          if (window.sellerCode !== rowSeller) return false;
+          const start = window.start <= window.end ? window.start : window.end;
+          const end = window.start <= window.end ? window.end : window.start;
+          return rowDateKey >= start && rowDateKey <= end;
+        });
+      });
 
     const batches = batchRows.map((batch) => ({
       id: batch.id,
@@ -266,15 +258,6 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
       .where(and(...conditions))
       .orderBy(desc(ordersTable.createdAt));
 
-    const paidBatchRows = await db
-      .select()
-      .from(sellerCommissionPaymentsTable)
-      .where(and(
-        eq(sellerCommissionPaymentsTable.sellerCode, targetSellerCode),
-        eq(sellerCommissionPaymentsTable.status, "paid"),
-      ));
-    const paidWindows = buildPaidWindows(paidBatchRows);
-
     const eligibleOrders = rows
       .map((row) => ({
         id: row.id,
@@ -286,8 +269,7 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
         sellerCommissionRateSnapshot: Number(row.sellerCommissionRateSnapshot || 0),
         commissionAmount: calcCommission(row),
       }))
-      .filter((row) => row.commissionAmount > 0)
-      .filter((row) => !isOrderCoveredByPaidWindow({ sellerCode: row.sellerCode, createdAt: row.createdAt }, paidWindows));
+      .filter((row) => row.commissionAmount > 0);
 
     if (eligibleOrders.length === 0) {
       res.status(400).json({ error: "NO_ELIGIBLE_ORDERS", message: "Nenhum pedido elegível encontrado." });
