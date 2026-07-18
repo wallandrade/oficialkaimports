@@ -1,4 +1,3 @@
-import crypto from "crypto";
 import { Router, type IRouter } from "express";
 import { and, desc, eq, gte, inArray, lte } from "drizzle-orm";
 import { db, ordersTable, sellerCommissionPaymentsTable } from "@workspace/db";
@@ -84,6 +83,12 @@ function calcCommission(order: CommissionOrderRow): number {
   const rate = snapshotRate > 0 ? snapshotRate : 5;
   if (!Number.isFinite(total) || !Number.isFinite(rate) || total <= 0 || rate <= 0) return 0;
   return Math.round(total * (rate / 100) * 100) / 100;
+}
+
+function createBatchId(): string {
+  const timePart = Date.now().toString(36);
+  const randomPart = Math.random().toString(36).slice(2, 12);
+  return `scb_${timePart}_${randomPart}`;
 }
 
 router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, res) => {
@@ -307,7 +312,7 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
       return;
     }
 
-    const batchId = crypto.randomUUID();
+    const batchId = createBatchId();
     const totalAmount = eligibleOrders.reduce((sum, order) => sum + order.commissionAmount, 0);
     const now = new Date();
     const periodStartDate = normalizeDateKey(dateFrom);
