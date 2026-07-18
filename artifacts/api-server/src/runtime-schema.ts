@@ -133,11 +133,11 @@ async function ensureTenantSettingsTable(databaseName: string): Promise<void> {
     await pool.query(`
       CREATE TABLE tenant_settings (
         tenant_id VARCHAR(255) NOT NULL,
-        key VARCHAR(255) NOT NULL,
+        \`key\` VARCHAR(255) NOT NULL,
         value TEXT NOT NULL,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (tenant_id, key),
-        KEY tenant_settings_key_idx (key)
+        PRIMARY KEY (tenant_id, \`key\`),
+        KEY tenant_settings_key_idx (\`key\`)
       )
     `);
   }
@@ -224,13 +224,13 @@ async function seedDefaultTenantAndBackfill(databaseName: string): Promise<void>
   if (await tableExists("site_settings", databaseName) && await tableExists("tenant_settings", databaseName)) {
     await pool.query(
       `
-        INSERT INTO tenant_settings (tenant_id, key, value, updated_at)
+        INSERT INTO tenant_settings (tenant_id, \`key\`, value, updated_at)
         SELECT ?, ss.key, ss.value, ss.updated_at
         FROM site_settings ss
         WHERE NOT EXISTS (
           SELECT 1
           FROM tenant_settings ts
-          WHERE ts.tenant_id = ? AND ts.key = ss.key
+          WHERE ts.tenant_id = ? AND ts.\`key\` = ss.key
         )
       `,
       [DEFAULT_TENANT_ID, DEFAULT_TENANT_ID],

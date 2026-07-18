@@ -63,11 +63,11 @@ async function ensureTenantSettingsTableExists(): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS tenant_settings (
       tenant_id VARCHAR(255) NOT NULL,
-      key VARCHAR(255) NOT NULL,
+      \`key\` VARCHAR(255) NOT NULL,
       value TEXT NOT NULL,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (tenant_id, key),
-      KEY tenant_settings_key_idx (key)
+      PRIMARY KEY (tenant_id, \`key\`),
+      KEY tenant_settings_key_idx (\`key\`)
     )
   `);
 }
