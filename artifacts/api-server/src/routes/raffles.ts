@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, rafflesTable, raffleReservationsTable, raffleResultsTable, rafflePromotionsTable, siteSettingsTable } from "@workspace/db";
-import { eq, and, inArray, sql } from "drizzle-orm";
+import { eq, and, inArray, isNull, or, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import {
@@ -14,6 +14,46 @@ import {
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 
 const router: IRouter = Router();
+
+function buildRafflesTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(eq(rafflesTable.tenantId, tenantId), isNull(rafflesTable.tenantId), eq(rafflesTable.tenantId, ""));
+  }
+
+  return eq(rafflesTable.tenantId, tenantId);
+}
+
+function buildRaffleReservationsTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(
+      eq(raffleReservationsTable.tenantId, tenantId),
+      isNull(raffleReservationsTable.tenantId),
+      eq(raffleReservationsTable.tenantId, ""),
+    );
+  }
+
+  return eq(raffleReservationsTable.tenantId, tenantId);
+}
+
+function buildRaffleResultsTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(eq(raffleResultsTable.tenantId, tenantId), isNull(raffleResultsTable.tenantId), eq(raffleResultsTable.tenantId, ""));
+  }
+
+  return eq(raffleResultsTable.tenantId, tenantId);
+}
+
+function buildRafflePromotionsTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(
+      eq(rafflePromotionsTable.tenantId, tenantId),
+      isNull(rafflePromotionsTable.tenantId),
+      eq(rafflePromotionsTable.tenantId, ""),
+    );
+  }
+
+  return eq(rafflePromotionsTable.tenantId, tenantId);
+}
 
 async function getActivePixGateway(): Promise<"appcnpay" | "dentpeg"> {
   const row = await db
@@ -75,8 +115,8 @@ type RafflePromotion = {
   sortOrder: number;
 };
 
-async function getRafflePromotions(raffleId: string, onlyActive = true): Promise<RafflePromotion[]> {
-  const conditions = [eq(rafflePromotionsTable.tenantId, DEFAULT_TENANT_ID), eq(rafflePromotionsTable.raffleId, raffleId)];
+async function getRafflePromotions(raffleId: string, onlyActive = true, tenantId = DEFAULT_TENANT_ID): Promise<RafflePromotion[]> {
+  const conditions = [buildRafflePromotionsTenantWhere(tenantId), eq(rafflePromotionsTable.raffleId, raffleId)];
   if (onlyActive) conditions.push(eq(rafflePromotionsTable.isActive, 1));
   return db
     .select()
@@ -85,7 +125,7 @@ async function getRafflePromotions(raffleId: string, onlyActive = true): Promise
     .orderBy(sql`sort_order ASC`, sql`quantity ASC`, sql`created_at ASC`);
 }
 
-async function getRaffleRanking(raffleId: string, limit = 3): Promise<RaffleRankingEntry[]> {
+async function getRaffleRanking(raffleId: string, limit = 3, tenantId = DEFAULT_TENANT_ID): Promise<RaffleRankingEntry[]> {
   const rows = await db
     .select({
       clientName: raffleReservationsTable.clientName,
@@ -97,7 +137,7 @@ async function getRaffleRanking(raffleId: string, limit = 3): Promise<RaffleRank
     })
     .from(raffleReservationsTable)
     .where(and(
-      eq(raffleReservationsTable.tenantId, DEFAULT_TENANT_ID),
+      buildRaffleReservationsTenantWhere(tenantId),
       eq(raffleReservationsTable.raffleId, raffleId),
       eq(raffleReservationsTable.status, "paid"),
     ));
@@ -133,23 +173,23 @@ async function getRaffleRanking(raffleId: string, limit = 3): Promise<RaffleRank
     .slice(0, limit);
 }
 
-async function getRaffleResult(raffleId: string) {
+async function getRaffleResult(raffleId: string, tenantId = DEFAULT_TENANT_ID) {
   const [result] = await db
     .select()
     .from(raffleResultsTable)
-    .where(and(eq(raffleResultsTable.tenantId, DEFAULT_TENANT_ID), eq(raffleResultsTable.raffleId, raffleId)))
+    .where(and(buildRaffleResultsTenantWhere(tenantId), eq(raffleResultsTable.raffleId, raffleId)))
     .limit(1);
   return result ?? null;
 }
 
 /** Return set of numbers already taken (reserved/paid) for a raffle */
-async function getTakenNumbers(raffleId: string): Promise<Set<number>> {
+async function getTakenNumbers(raffleId: string, tenantId = DEFAULT_TENANT_ID): Promise<Set<number>> {
   const now = new Date();
   const rows = await db
     .select({ numbers: raffleReservationsTable.numbers, status: raffleReservationsTable.status, expiresAt: raffleReservationsTable.expiresAt })
     .from(raffleReservationsTable)
     .where(and(
-      eq(raffleReservationsTable.tenantId, DEFAULT_TENANT_ID),
+      buildRaffleReservationsTenantWhere(tenantId),
       eq(raffleReservationsTable.raffleId, raffleId),
       inArray(raffleReservationsTable.status, ["reserved", "paid"]),
     ));
@@ -171,7 +211,7 @@ router.get("/raffles", async (_req, res) => {
   const raffles = await db
     .select()
     .from(rafflesTable)
-    .where(and(eq(rafflesTable.tenantId, tenantId), eq(rafflesTable.status, "active")))
+    .where(and(buildRafflesTenantWhere(tenantId), eq(rafflesTable.status, "active")))
     .orderBy(sql`created_at DESC`);
   res.json(raffles);
 });
@@ -185,7 +225,7 @@ router.get("/raffles/:id", async (req, res) => {
   const [raffle] = await db
     .select()
     .from(rafflesTable)
-    .where(and(eq(rafflesTable.tenantId, tenantId), eq(rafflesTable.id, raffleIdParam)))
+    .where(and(buildRafflesTenantWhere(tenantId), eq(rafflesTable.id, raffleIdParam)))
     .limit(1);
 
   if (!raffle) {
@@ -204,7 +244,7 @@ router.get("/raffles/:id", async (req, res) => {
     })
     .from(raffleReservationsTable)
     .where(and(
-      eq(raffleReservationsTable.tenantId, tenantId),
+      buildRaffleReservationsTenantWhere(tenantId),
       eq(raffleReservationsTable.raffleId, raffle.id),
       inArray(raffleReservationsTable.status, ["reserved", "paid"]),
     ));
@@ -219,9 +259,9 @@ router.get("/raffles/:id", async (req, res) => {
   }
 
   const [result, ranking, promotions] = await Promise.all([
-    getRaffleResult(raffle.id),
-    getRaffleRanking(raffle.id, 3),
-    getRafflePromotions(raffle.id, true),
+    getRaffleResult(raffle.id, tenantId),
+    getRaffleRanking(raffle.id, 3, tenantId),
+    getRafflePromotions(raffle.id, true, tenantId),
   ]);
 
   res.json({ raffle, numberStatus, result, ranking, promotions });
@@ -251,7 +291,7 @@ router.post("/raffles/:id/reserve", async (req, res) => {
   const [raffle] = await db
     .select()
     .from(rafflesTable)
-    .where(and(eq(rafflesTable.tenantId, tenantId), eq(rafflesTable.id, reserveRaffleId), eq(rafflesTable.status, "active")))
+    .where(and(buildRafflesTenantWhere(tenantId), eq(rafflesTable.id, reserveRaffleId), eq(rafflesTable.status, "active")))
     .limit(1);
 
   if (!raffle) {
@@ -269,14 +309,14 @@ router.post("/raffles/:id/reserve", async (req, res) => {
   }
 
   // Check conflicts
-  const taken = await getTakenNumbers(raffle.id);
+  const taken = await getTakenNumbers(raffle.id, tenantId);
   const conflict = numbers.find((n) => taken.has(n));
   if (conflict !== undefined) {
     res.status(409).json({ error: "NUMBER_TAKEN", message: `O número ${conflict} já está reservado.` });
     return;
   }
 
-  const promotions = await getRafflePromotions(raffle.id, true);
+  const promotions = await getRafflePromotions(raffle.id, true, tenantId);
   const matchingPromotions = promotions.filter((p) => p.quantity === numbers.length);
   const bestPromotion = matchingPromotions.sort((a, b) => Number(a.promoPrice) - Number(b.promoPrice))[0] ?? null;
 
@@ -364,6 +404,7 @@ router.post("/raffles/:id/reserve", async (req, res) => {
 // PUBLIC: GET /api/raffles/reservations/lookup?phone=XX|cpf=YYY|query=ZZZ&raffleId=ID — consulta por tel/CPF.
 // ---------------------------------------------------------------------------
 router.get("/raffles/reservations/lookup", async (req, res) => {
+  const tenantId = await resolvePublicTenantId(req as any);
   const rawQuery = String(req.query.query || "").trim();
   const queryDigits = rawQuery.replace(/\D/g, "");
   const phone = String(req.query.phone || "").replace(/\D/g, "");
@@ -415,6 +456,7 @@ router.get("/raffles/reservations/lookup", async (req, res) => {
   if (raffleId) {
     conditions.push(eq(raffleReservationsTable.raffleId, raffleId));
   }
+  conditions.push(buildRaffleReservationsTenantWhere(tenantId));
 
   const rows = await db
     .select({
@@ -446,7 +488,7 @@ router.get("/raffles/reservations/lookup", async (req, res) => {
     const raffleRows = await db
       .select({ id: rafflesTable.id, title: rafflesTable.title })
       .from(rafflesTable)
-      .where(inArray(rafflesTable.id, raffleIds));
+      .where(and(buildRafflesTenantWhere(tenantId), inArray(rafflesTable.id, raffleIds)));
     for (const r of raffleRows) raffleMap[r.id] = r.title;
   }
 
@@ -472,7 +514,7 @@ router.post("/raffles/reservations/:reservationId/refresh-pix", async (req, res)
   const [reservation] = await db
     .select()
     .from(raffleReservationsTable)
-    .where(and(eq(raffleReservationsTable.tenantId, tenantId), eq(raffleReservationsTable.id, reservationId)))
+    .where(and(buildRaffleReservationsTenantWhere(tenantId), eq(raffleReservationsTable.id, reservationId)))
     .limit(1);
 
   if (!reservation) {
@@ -549,7 +591,7 @@ router.post("/raffles/reservations/:reservationId/refresh-pix", async (req, res)
       pixExpiresAt,
       updatedAt: new Date(),
     })
-    .where(and(eq(raffleReservationsTable.tenantId, tenantId), eq(raffleReservationsTable.id, reservation.id)));
+    .where(and(buildRaffleReservationsTenantWhere(tenantId), eq(raffleReservationsTable.id, reservation.id)));
 
   res.json({
     reservationId: reservation.id,
@@ -565,8 +607,9 @@ router.post("/raffles/reservations/:reservationId/refresh-pix", async (req, res)
 // PUBLIC: GET /api/raffles/:id/ranking — top buyers (paid numbers)
 // ---------------------------------------------------------------------------
 router.get("/raffles/:id/ranking", async (req, res) => {
+  const tenantId = await resolvePublicTenantId(req as any);
   const { id: raffleId } = req.params as { id: string };
-  const ranking = await getRaffleRanking(raffleId, 3);
+  const ranking = await getRaffleRanking(raffleId, 3, tenantId);
   res.json({ ranking });
 });
 
@@ -574,8 +617,9 @@ router.get("/raffles/:id/ranking", async (req, res) => {
 // PUBLIC: GET /api/raffles/:id/result — winner data
 // ---------------------------------------------------------------------------
 router.get("/raffles/:id/result", async (req, res) => {
+  const tenantId = await resolvePublicTenantId(req as any);
   const { id: raffleId } = req.params as { id: string };
-  const result = await getRaffleResult(raffleId);
+  const result = await getRaffleResult(raffleId, tenantId);
   res.json({ result });
 });
 
@@ -603,7 +647,7 @@ router.get("/admin/raffles", requireAdminAuth, async (req, res) => {
         updatedAt: rafflesTable.updatedAt,
       })
       .from(rafflesTable)
-      .where(eq(rafflesTable.tenantId, tenantId))
+      .where(buildRafflesTenantWhere(tenantId))
       .orderBy(sql`created_at DESC`);
 
     if (raffles.length === 0) {
@@ -618,7 +662,7 @@ router.get("/admin/raffles", requireAdminAuth, async (req, res) => {
         totalAmount: raffleReservationsTable.totalAmount,
       })
       .from(raffleReservationsTable)
-      .where(and(eq(raffleReservationsTable.tenantId, tenantId), inArray(raffleReservationsTable.raffleId, raffles.map((r) => r.id))));
+      .where(and(buildRaffleReservationsTenantWhere(tenantId), inArray(raffleReservationsTable.raffleId, raffles.map((r) => r.id))));
 
     const paidStatuses = new Set([
       "paid",
@@ -687,7 +731,7 @@ router.post("/admin/raffles", requireAdminAuth, async (req, res) => {
       status: status ?? "active",
     });
 
-    const [created] = await db.select().from(rafflesTable).where(and(eq(rafflesTable.tenantId, tenantId), eq(rafflesTable.id, id))).limit(1);
+    const [created] = await db.select().from(rafflesTable).where(and(buildRafflesTenantWhere(tenantId), eq(rafflesTable.id, id))).limit(1);
     res.json(created);
   } catch (err) {
     console.error("[Raffles] POST create error:", err);
@@ -720,8 +764,8 @@ router.patch("/admin/raffles/:id", requireAdminAuth, async (req, res) => {
   if (reservationHours !== undefined) updates.reservationHours = Number(reservationHours);
   if (status !== undefined) updates.status = String(status);
 
-  await db.update(rafflesTable).set(updates as never).where(and(eq(rafflesTable.tenantId, tenantId), eq(rafflesTable.id, raffleId)));
-  const [updated] = await db.select().from(rafflesTable).where(and(eq(rafflesTable.tenantId, tenantId), eq(rafflesTable.id, raffleId))).limit(1);
+  await db.update(rafflesTable).set(updates as never).where(and(buildRafflesTenantWhere(tenantId), eq(rafflesTable.id, raffleId)));
+  const [updated] = await db.select().from(rafflesTable).where(and(buildRafflesTenantWhere(tenantId), eq(rafflesTable.id, raffleId))).limit(1);
   res.json(updated);
 });
 
@@ -731,8 +775,8 @@ router.patch("/admin/raffles/:id", requireAdminAuth, async (req, res) => {
 router.delete("/admin/raffles/:id", requireAdminAuth, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: delId } = req.params as { id: string };
-  await db.delete(raffleReservationsTable).where(and(eq(raffleReservationsTable.tenantId, tenantId), eq(raffleReservationsTable.raffleId, delId)));
-  await db.delete(rafflesTable).where(and(eq(rafflesTable.tenantId, tenantId), eq(rafflesTable.id, delId)));
+  await db.delete(raffleReservationsTable).where(and(buildRaffleReservationsTenantWhere(tenantId), eq(raffleReservationsTable.raffleId, delId)));
+  await db.delete(rafflesTable).where(and(buildRafflesTenantWhere(tenantId), eq(rafflesTable.id, delId)));
   res.json({ ok: true });
 });
 
@@ -745,7 +789,7 @@ router.get("/admin/raffles/:id/reservations", requireAdminAuth, async (req, res)
   const rows = await db
     .select()
     .from(raffleReservationsTable)
-    .where(and(eq(raffleReservationsTable.tenantId, tenantId), eq(raffleReservationsTable.raffleId, resRaffleId)))
+    .where(and(buildRaffleReservationsTenantWhere(tenantId), eq(raffleReservationsTable.raffleId, resRaffleId)))
     .orderBy(sql`created_at DESC`);
 
   const now = new Date();
@@ -768,7 +812,7 @@ router.patch("/admin/raffles/:id/reservations/:reservationId/cancel", requireAdm
     .select()
     .from(raffleReservationsTable)
     .where(and(
-      eq(raffleReservationsTable.tenantId, tenantId),
+      buildRaffleReservationsTenantWhere(tenantId),
       eq(raffleReservationsTable.id, reservationId),
       eq(raffleReservationsTable.raffleId, raffleId),
     ))
@@ -792,7 +836,7 @@ router.patch("/admin/raffles/:id/reservations/:reservationId/cancel", requireAdm
   await db
     .update(raffleReservationsTable)
     .set({ status: "expired", expiresAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(raffleReservationsTable.tenantId, tenantId), eq(raffleReservationsTable.id, reservation.id)));
+    .where(and(buildRaffleReservationsTenantWhere(tenantId), eq(raffleReservationsTable.id, reservation.id)));
 
   res.json({ ok: true, status: "expired" });
 });
@@ -801,8 +845,9 @@ router.patch("/admin/raffles/:id/reservations/:reservationId/cancel", requireAdm
 // ADMIN: GET /api/admin/raffles/:id/ranking — ranking for admin panel
 // ---------------------------------------------------------------------------
 router.get("/admin/raffles/:id/ranking", requireAdminAuth, async (req, res) => {
+  const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: raffleId } = req.params as { id: string };
-  const ranking = await getRaffleRanking(raffleId, 3);
+  const ranking = await getRaffleRanking(raffleId, 3, tenantId);
   res.json({ ranking });
 });
 
@@ -810,8 +855,9 @@ router.get("/admin/raffles/:id/ranking", requireAdminAuth, async (req, res) => {
 // ADMIN: GET /api/admin/raffles/:id/result — current winner/result
 // ---------------------------------------------------------------------------
 router.get("/admin/raffles/:id/result", requireAdminAuth, async (req, res) => {
+  const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: raffleId } = req.params as { id: string };
-  const result = await getRaffleResult(raffleId);
+  const result = await getRaffleResult(raffleId, tenantId);
   res.json({ result });
 });
 
@@ -827,7 +873,7 @@ router.put("/admin/raffles/:id/result", requireAdminAuth, async (req, res) => {
     drawMethod?: string;
   };
 
-  const [raffle] = await db.select().from(rafflesTable).where(and(eq(rafflesTable.tenantId, tenantId), eq(rafflesTable.id, raffleId))).limit(1);
+  const [raffle] = await db.select().from(rafflesTable).where(and(buildRafflesTenantWhere(tenantId), eq(rafflesTable.id, raffleId))).limit(1);
   if (!raffle) {
     res.status(404).json({ error: "NOT_FOUND", message: "Rifa não encontrada." });
     return;
@@ -848,7 +894,7 @@ router.put("/admin/raffles/:id/result", requireAdminAuth, async (req, res) => {
     })
     .from(raffleReservationsTable)
     .where(and(
-      eq(raffleReservationsTable.tenantId, tenantId),
+      buildRaffleReservationsTenantWhere(tenantId),
       eq(raffleReservationsTable.raffleId, raffleId),
       eq(raffleReservationsTable.status, "paid"),
     ));
@@ -858,7 +904,7 @@ router.put("/admin/raffles/:id/result", requireAdminAuth, async (req, res) => {
   const [existing] = await db
     .select({ id: raffleResultsTable.id })
     .from(raffleResultsTable)
-    .where(and(eq(raffleResultsTable.tenantId, tenantId), eq(raffleResultsTable.raffleId, raffleId)))
+    .where(and(buildRaffleResultsTenantWhere(tenantId), eq(raffleResultsTable.raffleId, raffleId)))
     .limit(1);
 
   if (existing) {
@@ -874,7 +920,7 @@ router.put("/admin/raffles/:id/result", requireAdminAuth, async (req, res) => {
         drawnAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(and(eq(raffleResultsTable.tenantId, tenantId), eq(raffleResultsTable.id, existing.id)));
+      .where(and(buildRaffleResultsTenantWhere(tenantId), eq(raffleResultsTable.id, existing.id)));
   } else {
     await db.insert(raffleResultsTable).values({
       id: crypto.randomBytes(8).toString("hex"),
@@ -893,9 +939,9 @@ router.put("/admin/raffles/:id/result", requireAdminAuth, async (req, res) => {
   await db
     .update(rafflesTable)
     .set({ status: "drawn", updatedAt: new Date() })
-    .where(and(eq(rafflesTable.tenantId, tenantId), eq(rafflesTable.id, raffleId)));
+    .where(and(buildRafflesTenantWhere(tenantId), eq(rafflesTable.id, raffleId)));
 
-  const result = await getRaffleResult(raffleId);
+  const result = await getRaffleResult(raffleId, tenantId);
   res.json({ result });
 });
 
@@ -903,8 +949,9 @@ router.put("/admin/raffles/:id/result", requireAdminAuth, async (req, res) => {
 // ADMIN: GET /api/admin/raffles/:id/promotions — list promotions
 // ---------------------------------------------------------------------------
 router.get("/admin/raffles/:id/promotions", requireAdminAuth, async (req, res) => {
+  const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: raffleId } = req.params as { id: string };
-  const promotions = await getRafflePromotions(raffleId, false);
+  const promotions = await getRafflePromotions(raffleId, false, tenantId);
   res.json({ promotions });
 });
 
@@ -946,7 +993,7 @@ router.post("/admin/raffles/:id/promotions", requireAdminAuth, async (req, res) 
   const [created] = await db
     .select()
     .from(rafflePromotionsTable)
-    .where(and(eq(rafflePromotionsTable.tenantId, tenantId), eq(rafflePromotionsTable.id, id)))
+    .where(and(buildRafflePromotionsTenantWhere(tenantId), eq(rafflePromotionsTable.id, id)))
     .limit(1);
   res.json(created);
 });
@@ -987,12 +1034,12 @@ router.patch("/admin/raffles/:id/promotions/:promotionId", requireAdminAuth, asy
   await db
     .update(rafflePromotionsTable)
     .set(updates as never)
-    .where(and(eq(rafflePromotionsTable.tenantId, tenantId), eq(rafflePromotionsTable.id, promotionId)));
+    .where(and(buildRafflePromotionsTenantWhere(tenantId), eq(rafflePromotionsTable.id, promotionId)));
 
   const [updated] = await db
     .select()
     .from(rafflePromotionsTable)
-    .where(and(eq(rafflePromotionsTable.tenantId, tenantId), eq(rafflePromotionsTable.id, promotionId)))
+    .where(and(buildRafflePromotionsTenantWhere(tenantId), eq(rafflePromotionsTable.id, promotionId)))
     .limit(1);
   res.json(updated);
 });
@@ -1003,7 +1050,7 @@ router.patch("/admin/raffles/:id/promotions/:promotionId", requireAdminAuth, asy
 router.delete("/admin/raffles/:id/promotions/:promotionId", requireAdminAuth, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { promotionId } = req.params as { id: string; promotionId: string };
-  await db.delete(rafflePromotionsTable).where(and(eq(rafflePromotionsTable.tenantId, tenantId), eq(rafflePromotionsTable.id, promotionId)));
+  await db.delete(rafflePromotionsTable).where(and(buildRafflePromotionsTenantWhere(tenantId), eq(rafflePromotionsTable.id, promotionId)));
   res.json({ ok: true });
 });
 
@@ -1071,7 +1118,7 @@ router.post("/webhook/raffle-pix", async (req, res) => {
         })
         .from(raffleReservationsTable)
         .where(and(
-          eq(raffleReservationsTable.tenantId, tenantId),
+          buildRaffleReservationsTenantWhere(tenantId),
           eq(raffleReservationsTable.raffleId, reservation.raffleId),
           inArray(raffleReservationsTable.status, ["reserved", "paid"]),
         ))
@@ -1089,7 +1136,7 @@ router.post("/webhook/raffle-pix", async (req, res) => {
       await db
         .update(raffleReservationsTable)
         .set({ status: "expired", updatedAt: new Date() })
-        .where(and(eq(raffleReservationsTable.tenantId, tenantId), eq(raffleReservationsTable.id, reservation.id)));
+        .where(and(buildRaffleReservationsTenantWhere(tenantId), eq(raffleReservationsTable.id, reservation.id)));
 
       console.log("[RaffleWebhook] Ignored late/conflicting payment", JSON.stringify({
         reservationId: reservation.id,
@@ -1112,7 +1159,7 @@ router.post("/webhook/raffle-pix", async (req, res) => {
     await db
       .update(raffleReservationsTable)
       .set({ status: "paid", updatedAt: new Date() })
-      .where(and(eq(raffleReservationsTable.tenantId, tenantId), eq(raffleReservationsTable.id, reservation.id)));
+      .where(and(buildRaffleReservationsTenantWhere(tenantId), eq(raffleReservationsTable.id, reservation.id)));
     console.log("[RaffleWebhook] Reservation paid", JSON.stringify({ id: reservation.id, transactionId, status }));
   }
 
