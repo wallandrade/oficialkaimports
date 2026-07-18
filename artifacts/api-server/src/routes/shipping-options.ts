@@ -1,11 +1,23 @@
 import { Router, type IRouter } from "express";
 import { db, shippingOptionsTable } from "@workspace/db";
-import { and, eq, asc } from "drizzle-orm";
+import { and, eq, asc, isNull, or } from "drizzle-orm";
 import crypto from "crypto";
 import { getAdminScope, requirePrimaryAdmin } from "./admin-auth";
 
 const router: IRouter = Router();
 const DEFAULT_TENANT_ID = "tenant_loja1";
+
+function buildShippingTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(
+      eq(shippingOptionsTable.tenantId, tenantId),
+      isNull(shippingOptionsTable.tenantId),
+      eq(shippingOptionsTable.tenantId, ""),
+    );
+  }
+
+  return eq(shippingOptionsTable.tenantId, tenantId);
+}
 
 // ---------------------------------------------------------------------------
 // GET /api/shipping-options  (public)
@@ -16,7 +28,7 @@ router.get("/shipping-options", async (_req, res) => {
     const options = await db
       .select()
       .from(shippingOptionsTable)
-      .where(and(eq(shippingOptionsTable.tenantId, DEFAULT_TENANT_ID), eq(shippingOptionsTable.isActive, true)))
+      .where(and(buildShippingTenantWhere(DEFAULT_TENANT_ID), eq(shippingOptionsTable.isActive, true)))
       .orderBy(asc(shippingOptionsTable.sortOrder), asc(shippingOptionsTable.createdAt));
 
     res.json({ options });
@@ -36,7 +48,7 @@ router.get("/admin/shipping-options", requirePrimaryAdmin, async (req, res) => {
     const options = await db
       .select()
       .from(shippingOptionsTable)
-      .where(eq(shippingOptionsTable.tenantId, tenantId))
+      .where(buildShippingTenantWhere(tenantId))
       .orderBy(asc(shippingOptionsTable.sortOrder), asc(shippingOptionsTable.createdAt));
 
     res.json({ options });
@@ -85,7 +97,7 @@ router.post("/admin/shipping-options", requirePrimaryAdmin, async (req, res) => 
     const created = await db
       .select()
       .from(shippingOptionsTable)
-      .where(and(eq(shippingOptionsTable.tenantId, tenantId), eq(shippingOptionsTable.id, id)))
+      .where(and(buildShippingTenantWhere(tenantId), eq(shippingOptionsTable.id, id)))
       .limit(1);
 
     res.status(201).json({ option: created[0] });
@@ -125,12 +137,12 @@ router.patch("/admin/shipping-options/:id", requirePrimaryAdmin, async (req, res
     await db
       .update(shippingOptionsTable)
       .set(updates)
-      .where(and(eq(shippingOptionsTable.tenantId, tenantId), eq(shippingOptionsTable.id, id)));
+      .where(and(buildShippingTenantWhere(tenantId), eq(shippingOptionsTable.id, id)));
 
     const updated = await db
       .select()
       .from(shippingOptionsTable)
-      .where(and(eq(shippingOptionsTable.tenantId, tenantId), eq(shippingOptionsTable.id, id)))
+      .where(and(buildShippingTenantWhere(tenantId), eq(shippingOptionsTable.id, id)))
       .limit(1);
 
     if (!updated[0]) {
@@ -153,7 +165,7 @@ router.delete("/admin/shipping-options/:id", requirePrimaryAdmin, async (req, re
     const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
-    await db.delete(shippingOptionsTable).where(and(eq(shippingOptionsTable.tenantId, tenantId), eq(shippingOptionsTable.id, id)));
+    await db.delete(shippingOptionsTable).where(and(buildShippingTenantWhere(tenantId), eq(shippingOptionsTable.id, id)));
     res.json({ ok: true });
   } catch (err) {
     console.error("[ShippingOptions] delete error:", err);

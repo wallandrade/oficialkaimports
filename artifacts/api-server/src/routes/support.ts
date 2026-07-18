@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { db, ordersTable, supportTicketsTable } from "@workspace/db";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
@@ -8,6 +8,26 @@ import { createOrRefreshReshipment } from "../lib/reshipments";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 
 const router: IRouter = Router();
+
+function buildOrdersTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(eq(ordersTable.tenantId, tenantId), isNull(ordersTable.tenantId), eq(ordersTable.tenantId, ""));
+  }
+
+  return eq(ordersTable.tenantId, tenantId);
+}
+
+function buildSupportTicketsTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(
+      eq(supportTicketsTable.tenantId, tenantId),
+      isNull(supportTicketsTable.tenantId),
+      eq(supportTicketsTable.tenantId, ""),
+    );
+  }
+
+  return eq(supportTicketsTable.tenantId, tenantId);
+}
 
 function normalizeSellerCode(value: unknown): string | null {
   const normalized = String(value ?? "").trim().toLowerCase();
@@ -32,7 +52,7 @@ async function ticketBelongsToScope(orderId: string, scope: { hasGlobalAccess: b
   const rows = await db
     .select({ id: ordersTable.id })
     .from(ordersTable)
-    .where(and(eq(ordersTable.tenantId, scope.tenantId), eq(ordersTable.id, orderId), eq(ordersTable.sellerCode, scope.sellerCode!)))
+    .where(and(buildOrdersTenantWhere(scope.tenantId), eq(ordersTable.id, orderId), eq(ordersTable.sellerCode, scope.sellerCode!)))
     .limit(1);
   return !!rows[0];
 }
@@ -152,8 +172,8 @@ async function applyAddressChangeToOrder(params: {
       updatedAt: new Date(),
     })
     .where(params.scope.hasGlobalAccess
-      ? and(eq(ordersTable.tenantId, params.scope.tenantId), eq(ordersTable.id, params.orderId))
-      : and(eq(ordersTable.tenantId, params.scope.tenantId), eq(ordersTable.id, params.orderId), eq(ordersTable.sellerCode, params.scope.sellerCode!)));
+      ? and(buildOrdersTenantWhere(params.scope.tenantId), eq(ordersTable.id, params.orderId))
+      : and(buildOrdersTenantWhere(params.scope.tenantId), eq(ordersTable.id, params.orderId), eq(ordersTable.sellerCode, params.scope.sellerCode!)));
 }
 
 // ---------------------------------------------------------------------------
@@ -180,7 +200,7 @@ router.post("/support/orders-by-cpf", async (req, res) => {
       .from(ordersTable)
       .where(
         and(
-          eq(ordersTable.tenantId, tenantId),
+          buildOrdersTenantWhere(tenantId),
           inArray(ordersTable.status, ["paid", "completed"]),
           sql`${normalizedDocumentSql(ordersTable.clientDocument)} = ${cpf}`,
         ),
@@ -258,7 +278,7 @@ router.post("/support/tickets", async (req, res) => {
       .from(ordersTable)
       .where(
         and(
-          eq(ordersTable.tenantId, tenantId),
+          buildOrdersTenantWhere(tenantId),
           eq(ordersTable.id, orderId),
           sql`${normalizedDocumentSql(ordersTable.clientDocument)} = ${cpf}`,
         ),
@@ -316,7 +336,7 @@ router.get("/admin/support-tickets", requireAdminAuth, async (req, res) => {
       const scopedOrders = await db
         .select({ id: ordersTable.id })
         .from(ordersTable)
-        .where(and(eq(ordersTable.tenantId, scope.tenantId), eq(ordersTable.sellerCode, scope.sellerCode!)));
+        .where(and(buildOrdersTenantWhere(scope.tenantId), eq(ordersTable.sellerCode, scope.sellerCode!)));
 
       const scopedOrderIds = scopedOrders.map((row) => row.id).filter(Boolean);
       if (scopedOrderIds.length === 0) {
@@ -327,7 +347,7 @@ router.get("/admin/support-tickets", requireAdminAuth, async (req, res) => {
       const rows = await db
         .select()
         .from(supportTicketsTable)
-        .where(whereClause ? and(eq(supportTicketsTable.tenantId, scope.tenantId), whereClause, inArray(supportTicketsTable.orderId, scopedOrderIds)) : and(eq(supportTicketsTable.tenantId, scope.tenantId), inArray(supportTicketsTable.orderId, scopedOrderIds)))
+        .where(whereClause ? and(buildSupportTicketsTenantWhere(scope.tenantId), whereClause, inArray(supportTicketsTable.orderId, scopedOrderIds)) : and(buildSupportTicketsTenantWhere(scope.tenantId), inArray(supportTicketsTable.orderId, scopedOrderIds)))
         .orderBy(desc(supportTicketsTable.createdAt));
 
       const tickets = rows.map((row) => {
@@ -367,7 +387,7 @@ router.get("/admin/support-tickets", requireAdminAuth, async (req, res) => {
     const rows = await db
       .select()
       .from(supportTicketsTable)
-      .where(whereClause ? and(eq(supportTicketsTable.tenantId, scope.tenantId), whereClause) : eq(supportTicketsTable.tenantId, scope.tenantId))
+      .where(whereClause ? and(buildSupportTicketsTenantWhere(scope.tenantId), whereClause) : buildSupportTicketsTenantWhere(scope.tenantId))
       .orderBy(desc(supportTicketsTable.createdAt));
 
     const tickets = rows.map((row) => {
@@ -424,7 +444,7 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
     const ticketRows = await db
       .select()
       .from(supportTicketsTable)
-      .where(and(eq(supportTicketsTable.tenantId, scope.tenantId), eq(supportTicketsTable.id, id)))
+      .where(and(buildSupportTicketsTenantWhere(scope.tenantId), eq(supportTicketsTable.id, id)))
       .limit(1);
 
     const ticket = ticketRows[0];
@@ -452,8 +472,8 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
       .select({ id: ordersTable.id, products: ordersTable.products })
       .from(ordersTable)
       .where(scope.hasGlobalAccess
-        ? and(eq(ordersTable.tenantId, scope.tenantId), eq(ordersTable.id, ticket.orderId))
-        : and(eq(ordersTable.tenantId, scope.tenantId), eq(ordersTable.id, ticket.orderId), eq(ordersTable.sellerCode, scope.sellerCode!)))
+        ? and(buildOrdersTenantWhere(scope.tenantId), eq(ordersTable.id, ticket.orderId))
+        : and(buildOrdersTenantWhere(scope.tenantId), eq(ordersTable.id, ticket.orderId), eq(ordersTable.sellerCode, scope.sellerCode!)))
       .limit(1);
 
     const order = orderRows[0];
@@ -478,7 +498,7 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
         resolvedAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(and(eq(supportTicketsTable.tenantId, scope.tenantId), eq(supportTicketsTable.id, id)));
+      .where(and(buildSupportTicketsTenantWhere(scope.tenantId), eq(supportTicketsTable.id, id)));
 
     broadcastNotification({
       type: "support_ticket_reshipment_authorized",
@@ -526,7 +546,7 @@ router.patch("/admin/support-tickets/:id/status", requireAdminAuth, async (req, 
         addressChangeJson: supportTicketsTable.addressChangeJson,
       })
       .from(supportTicketsTable)
-      .where(and(eq(supportTicketsTable.tenantId, scope.tenantId), eq(supportTicketsTable.id, id)))
+      .where(and(buildSupportTicketsTenantWhere(scope.tenantId), eq(supportTicketsTable.id, id)))
       .limit(1);
 
     const ticket = ticketRows[0];
@@ -561,8 +581,8 @@ router.patch("/admin/support-tickets/:id/status", requireAdminAuth, async (req, 
           .select({ id: ordersTable.id, products: ordersTable.products })
           .from(ordersTable)
           .where(scope.hasGlobalAccess
-            ? and(eq(ordersTable.tenantId, scope.tenantId), eq(ordersTable.id, ticket.orderId))
-            : and(eq(ordersTable.tenantId, scope.tenantId), eq(ordersTable.id, ticket.orderId), eq(ordersTable.sellerCode, scope.sellerCode!)))
+            ? and(buildOrdersTenantWhere(scope.tenantId), eq(ordersTable.id, ticket.orderId))
+            : and(buildOrdersTenantWhere(scope.tenantId), eq(ordersTable.id, ticket.orderId), eq(ordersTable.sellerCode, scope.sellerCode!)))
           .limit(1);
 
         const order = orderRows[0];
@@ -586,7 +606,7 @@ router.patch("/admin/support-tickets/:id/status", requireAdminAuth, async (req, 
         resolvedAt: status === "resolved" ? new Date() : null,
         updatedAt: new Date(),
       })
-      .where(and(eq(supportTicketsTable.tenantId, scope.tenantId), eq(supportTicketsTable.id, id)));
+      .where(and(buildSupportTicketsTenantWhere(scope.tenantId), eq(supportTicketsTable.id, id)));
 
     if (reshipment) {
       broadcastNotification({
@@ -624,7 +644,7 @@ router.delete("/admin/support-tickets/:id", requireAdminAuth, async (req, res) =
     const rows = await db
       .select({ id: supportTicketsTable.id, orderId: supportTicketsTable.orderId })
       .from(supportTicketsTable)
-      .where(and(eq(supportTicketsTable.tenantId, scope.tenantId), eq(supportTicketsTable.id, id)))
+      .where(and(buildSupportTicketsTenantWhere(scope.tenantId), eq(supportTicketsTable.id, id)))
       .limit(1);
 
     if (!rows[0]) {
@@ -636,7 +656,7 @@ router.delete("/admin/support-tickets/:id", requireAdminAuth, async (req, res) =
       return;
     }
 
-    await db.delete(supportTicketsTable).where(and(eq(supportTicketsTable.tenantId, scope.tenantId), eq(supportTicketsTable.id, id)));
+    await db.delete(supportTicketsTable).where(and(buildSupportTicketsTenantWhere(scope.tenantId), eq(supportTicketsTable.id, id)));
 
     res.json({ ok: true, id });
   } catch (err) {

@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import crypto from "crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull, or } from "drizzle-orm";
 import { db, inventoryBalancesTable, manualReshipmentsTable, manualReturnItemsTable, ordersTable, reshipmentsTable } from "@workspace/db";
 import { getAdminScope, requireAdminAuth, requirePrimaryAdmin } from "./admin-auth";
 import {
@@ -18,6 +18,46 @@ import { broadcastNotification } from "./notifications";
 
 const router: IRouter = Router();
 const DEFAULT_TENANT_ID = "tenant_loja1";
+
+function buildOrdersTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(eq(ordersTable.tenantId, tenantId), isNull(ordersTable.tenantId), eq(ordersTable.tenantId, ""));
+  }
+
+  return eq(ordersTable.tenantId, tenantId);
+}
+
+function buildReshipmentsTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(eq(reshipmentsTable.tenantId, tenantId), isNull(reshipmentsTable.tenantId), eq(reshipmentsTable.tenantId, ""));
+  }
+
+  return eq(reshipmentsTable.tenantId, tenantId);
+}
+
+function buildManualReshipmentsTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(
+      eq(manualReshipmentsTable.tenantId, tenantId),
+      isNull(manualReshipmentsTable.tenantId),
+      eq(manualReshipmentsTable.tenantId, ""),
+    );
+  }
+
+  return eq(manualReshipmentsTable.tenantId, tenantId);
+}
+
+function buildInventoryBalancesTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(
+      eq(inventoryBalancesTable.tenantId, tenantId),
+      isNull(inventoryBalancesTable.tenantId),
+      eq(inventoryBalancesTable.tenantId, ""),
+    );
+  }
+
+  return eq(inventoryBalancesTable.tenantId, tenantId);
+}
 
 function parseReshipmentProducts(raw: unknown): Array<{ id: string; name: string; quantity: number }> {
   const parsed = Array.isArray(raw)
@@ -65,7 +105,7 @@ async function isOrderInScope(orderId: string, scope: { hasGlobalAccess: boolean
   const rows = await db
     .select({ id: ordersTable.id })
     .from(ordersTable)
-    .where(and(eq(ordersTable.tenantId, scope.tenantId), eq(ordersTable.id, orderId), eq(ordersTable.sellerCode, scope.sellerCode!)))
+    .where(and(buildOrdersTenantWhere(scope.tenantId), eq(ordersTable.id, orderId), eq(ordersTable.sellerCode, scope.sellerCode!)))
     .limit(1);
   return !!rows[0];
 }
@@ -216,7 +256,7 @@ router.post("/admin/inventory/entries", requirePrimaryAdmin, async (req, res) =>
         db
           .select({ productsSnapshot: manualReshipmentsTable.productsSnapshot })
           .from(manualReshipmentsTable)
-            .where(and(eq(manualReshipmentsTable.tenantId, tenantId), eq(manualReshipmentsTable.id, estornoReferenceId)))
+            .where(and(buildManualReshipmentsTenantWhere(tenantId), eq(manualReshipmentsTable.id, estornoReferenceId)))
           .limit(1),
       ]);
 
@@ -247,7 +287,7 @@ router.post("/admin/inventory/entries", requirePrimaryAdmin, async (req, res) =>
       const [balance] = await db
         .select({ quantity: inventoryBalancesTable.quantity })
         .from(inventoryBalancesTable)
-        .where(and(eq(inventoryBalancesTable.tenantId, tenantId), eq(inventoryBalancesTable.productId, productId)))
+        .where(and(buildInventoryBalancesTenantWhere(tenantId), eq(inventoryBalancesTable.productId, productId)))
         .limit(1);
       const current = Number(balance?.quantity || 0);
       if (current < quantity) {
@@ -370,7 +410,7 @@ router.get("/admin/reshipments", requireAdminAuth, async (req, res) => {
       const orderRows = await db
         .select({ id: ordersTable.id })
         .from(ordersTable)
-        .where(and(eq(ordersTable.tenantId, scope.tenantId), eq(ordersTable.sellerCode, scope.sellerCode!)));
+        .where(and(buildOrdersTenantWhere(scope.tenantId), eq(ordersTable.sellerCode, scope.sellerCode!)));
       const allowedOrderIds = new Set(orderRows.map((row) => row.id));
       res.json({
         reshipments: reshipments.filter((item) => !!item.orderId && allowedOrderIds.has(item.orderId)),
@@ -406,7 +446,7 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
     const rows = await db
       .select({ orderId: reshipmentsTable.orderId, currentStatus: reshipmentsTable.status })
       .from(reshipmentsTable)
-      .where(and(eq(reshipmentsTable.tenantId, scope.tenantId), eq(reshipmentsTable.id, id)))
+      .where(and(buildReshipmentsTenantWhere(scope.tenantId), eq(reshipmentsTable.id, id)))
       .limit(1);
           const check = await ensureReshipmentReservation({ id, source: "support", tenantId: scope.tenantId });
           const debit = await ensureReshipmentSendDebit({ id, source: "support", tenantId: scope.tenantId });
@@ -470,7 +510,7 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
       const manualRows = await db
         .select({ id: manualReshipmentsTable.id, currentStatus: manualReshipmentsTable.status })
         .from(manualReshipmentsTable)
-        .where(and(eq(manualReshipmentsTable.tenantId, scope.tenantId), eq(manualReshipmentsTable.id, id)))
+        .where(and(buildManualReshipmentsTenantWhere(scope.tenantId), eq(manualReshipmentsTable.id, id)))
         .limit(1);
           const check = await ensureReshipmentReservation({ id, source: "manual", tenantId: scope.tenantId });
           const debit = await ensureReshipmentSendDebit({ id, source: "manual", tenantId: scope.tenantId });

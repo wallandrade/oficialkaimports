@@ -1,11 +1,19 @@
 import { Router, type IRouter } from "express";
 import { db, orderBumpsTable } from "@workspace/db";
-import { and, eq, asc } from "drizzle-orm";
+import { and, eq, asc, isNull, or } from "drizzle-orm";
 import crypto from "crypto";
 import { getAdminScope, requirePrimaryAdmin } from "./admin-auth";
 
 const router: IRouter = Router();
 const DEFAULT_TENANT_ID = "tenant_loja1";
+
+function buildOrderBumpsTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(eq(orderBumpsTable.tenantId, tenantId), isNull(orderBumpsTable.tenantId), eq(orderBumpsTable.tenantId, ""));
+  }
+
+  return eq(orderBumpsTable.tenantId, tenantId);
+}
 
 function mapBump(b: typeof orderBumpsTable.$inferSelect) {
   return {
@@ -40,8 +48,8 @@ router.get("/order-bumps", async (req, res) => {
       .from(orderBumpsTable)
       .where(
         productId
-          ? and(eq(orderBumpsTable.tenantId, DEFAULT_TENANT_ID), eq(orderBumpsTable.productId, productId))
-          : and(eq(orderBumpsTable.tenantId, DEFAULT_TENANT_ID), eq(orderBumpsTable.isActive, true))
+          ? and(buildOrderBumpsTenantWhere(DEFAULT_TENANT_ID), eq(orderBumpsTable.productId, productId))
+          : and(buildOrderBumpsTenantWhere(DEFAULT_TENANT_ID), eq(orderBumpsTable.isActive, true))
       )
       .orderBy(asc(orderBumpsTable.sortOrder), asc(orderBumpsTable.createdAt));
 
@@ -62,7 +70,7 @@ router.get("/admin/order-bumps", requirePrimaryAdmin, async (req, res) => {
     const rows = await db
       .select()
       .from(orderBumpsTable)
-      .where(eq(orderBumpsTable.tenantId, tenantId))
+      .where(buildOrderBumpsTenantWhere(tenantId))
       .orderBy(asc(orderBumpsTable.sortOrder), asc(orderBumpsTable.createdAt));
     res.json({ bumps: rows.map(mapBump) });
   } catch (err) {
@@ -119,7 +127,7 @@ router.post("/admin/order-bumps", requirePrimaryAdmin, async (req, res) => {
       sortOrder:    sortOrder ?? 0,
       updatedAt:    new Date(),
     });
-    const [row] = await db.select().from(orderBumpsTable).where(and(eq(orderBumpsTable.tenantId, tenantId), eq(orderBumpsTable.id, id)));
+    const [row] = await db.select().from(orderBumpsTable).where(and(buildOrderBumpsTenantWhere(tenantId), eq(orderBumpsTable.id, id)));
 
     res.status(201).json({ bump: mapBump(row) });
   } catch (err) {
@@ -173,8 +181,8 @@ router.patch("/admin/order-bumps/:id", requirePrimaryAdmin, async (req, res) => 
     await db
       .update(orderBumpsTable)
       .set(updates)
-      .where(and(eq(orderBumpsTable.tenantId, tenantId), eq(orderBumpsTable.id, id)));
-    const [row] = await db.select().from(orderBumpsTable).where(and(eq(orderBumpsTable.tenantId, tenantId), eq(orderBumpsTable.id, id)));
+      .where(and(buildOrderBumpsTenantWhere(tenantId), eq(orderBumpsTable.id, id)));
+    const [row] = await db.select().from(orderBumpsTable).where(and(buildOrderBumpsTenantWhere(tenantId), eq(orderBumpsTable.id, id)));
 
     if (!row) return res.status(404).json({ error: "Order bump não encontrado." });
     res.json({ bump: mapBump(row) });
@@ -191,7 +199,7 @@ router.delete("/admin/order-bumps/:id", requirePrimaryAdmin, async (req, res) =>
   try {
     const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const id = String(req.params.id);
-    await db.delete(orderBumpsTable).where(and(eq(orderBumpsTable.tenantId, tenantId), eq(orderBumpsTable.id, id)));
+    await db.delete(orderBumpsTable).where(and(buildOrderBumpsTenantWhere(tenantId), eq(orderBumpsTable.id, id)));
     res.json({ ok: true });
   } catch (err) {
     console.error("Delete order-bump error:", err);

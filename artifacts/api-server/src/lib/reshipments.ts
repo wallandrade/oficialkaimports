@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or } from "drizzle-orm";
 import {
   db,
   inventoryBalancesTable,
@@ -12,6 +12,58 @@ import {
 } from "@workspace/db";
 
 const DEFAULT_TENANT_ID = "tenant_loja1";
+
+function buildInventoryBalancesTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(
+      eq(inventoryBalancesTable.tenantId, tenantId),
+      isNull(inventoryBalancesTable.tenantId),
+      eq(inventoryBalancesTable.tenantId, ""),
+    );
+  }
+
+  return eq(inventoryBalancesTable.tenantId, tenantId);
+}
+
+function buildInventoryMovementsTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(
+      eq(inventoryMovementsTable.tenantId, tenantId),
+      isNull(inventoryMovementsTable.tenantId),
+      eq(inventoryMovementsTable.tenantId, ""),
+    );
+  }
+
+  return eq(inventoryMovementsTable.tenantId, tenantId);
+}
+
+function buildProductsTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(eq(productsTable.tenantId, tenantId), isNull(productsTable.tenantId), eq(productsTable.tenantId, ""));
+  }
+
+  return eq(productsTable.tenantId, tenantId);
+}
+
+function buildReshipmentsTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(eq(reshipmentsTable.tenantId, tenantId), isNull(reshipmentsTable.tenantId), eq(reshipmentsTable.tenantId, ""));
+  }
+
+  return eq(reshipmentsTable.tenantId, tenantId);
+}
+
+function buildManualReshipmentsTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(
+      eq(manualReshipmentsTable.tenantId, tenantId),
+      isNull(manualReshipmentsTable.tenantId),
+      eq(manualReshipmentsTable.tenantId, ""),
+    );
+  }
+
+  return eq(manualReshipmentsTable.tenantId, tenantId);
+}
 
 export type ReshipmentStatus =
   | "reenvio_aguardando_estoque"
@@ -61,7 +113,7 @@ async function getStockMap(productIds: string[], tenantId = DEFAULT_TENANT_ID): 
   const rows = await db
     .select({ productId: inventoryBalancesTable.productId, quantity: inventoryBalancesTable.quantity })
     .from(inventoryBalancesTable)
-    .where(and(eq(inventoryBalancesTable.tenantId, tenantId), inArray(inventoryBalancesTable.productId, productIds)));
+    .where(and(buildInventoryBalancesTenantWhere(tenantId), inArray(inventoryBalancesTable.productId, productIds)));
 
   return new Map(rows.map((row) => [row.productId, Number(row.quantity) || 0]));
 }
@@ -312,7 +364,7 @@ export async function createOrRefreshReshipment(params: {
   const existingProductRows = await db
     .select({ id: productsTable.id })
     .from(productsTable)
-    .where(and(eq(productsTable.tenantId, tenantId), inArray(productsTable.id, productIds)));
+    .where(and(buildProductsTenantWhere(tenantId), inArray(productsTable.id, productIds)));
 
   const existingProductIds = new Set(existingProductRows.map((row) => row.id));
   const validItems = items.filter((item) => existingProductIds.has(item.id));
@@ -324,7 +376,7 @@ export async function createOrRefreshReshipment(params: {
   const existingRows = await db
     .select({ id: reshipmentsTable.id, status: reshipmentsTable.status })
     .from(reshipmentsTable)
-    .where(and(eq(reshipmentsTable.tenantId, tenantId), eq(reshipmentsTable.orderId, params.orderId)))
+    .where(and(buildReshipmentsTenantWhere(tenantId), eq(reshipmentsTable.orderId, params.orderId)))
     .limit(1);
 
   const validProductIds = Array.from(new Set(validItems.map((item) => item.id)));
@@ -578,7 +630,7 @@ export async function listReshipments(status?: string, tenantId = DEFAULT_TENANT
     })
     .from(reshipmentsTable)
     .leftJoin(ordersTable, eq(ordersTable.id, reshipmentsTable.orderId))
-    .where(status && status !== "all" ? and(eq(reshipmentsTable.tenantId, tenantId), eq(reshipmentsTable.status, status)) : eq(reshipmentsTable.tenantId, tenantId))
+    .where(status && status !== "all" ? and(buildReshipmentsTenantWhere(tenantId), eq(reshipmentsTable.status, status)) : buildReshipmentsTenantWhere(tenantId))
     .orderBy(asc(reshipmentsTable.createdAt));
 
   const manualRows = await db
@@ -595,7 +647,7 @@ export async function listReshipments(status?: string, tenantId = DEFAULT_TENANT
       notes: manualReshipmentsTable.notes,
     })
     .from(manualReshipmentsTable)
-    .where(status && status !== "all" ? and(eq(manualReshipmentsTable.tenantId, tenantId), eq(manualReshipmentsTable.status, status)) : eq(manualReshipmentsTable.tenantId, tenantId))
+    .where(status && status !== "all" ? and(buildManualReshipmentsTenantWhere(tenantId), eq(manualReshipmentsTable.status, status)) : buildManualReshipmentsTenantWhere(tenantId))
     .orderBy(asc(manualReshipmentsTable.createdAt));
 
   const fromSupport = rows.map((row) => ({
@@ -643,7 +695,7 @@ export async function setReshipmentStatus(id: string, status: ReshipmentStatus, 
   const rows = await db
     .select({ id: reshipmentsTable.id, status: reshipmentsTable.status })
     .from(reshipmentsTable)
-    .where(and(eq(reshipmentsTable.tenantId, tenantId), eq(reshipmentsTable.id, id)))
+    .where(and(buildReshipmentsTenantWhere(tenantId), eq(reshipmentsTable.id, id)))
     .limit(1);
 
   if (!rows[0]) return false;
@@ -655,7 +707,7 @@ export async function setReshipmentStatus(id: string, status: ReshipmentStatus, 
       sentAt: status === "reenvio_enviado" ? new Date() : null,
       updatedAt: new Date(),
     })
-    .where(and(eq(reshipmentsTable.tenantId, tenantId), eq(reshipmentsTable.id, id)));
+    .where(and(buildReshipmentsTenantWhere(tenantId), eq(reshipmentsTable.id, id)));
 
   return true;
 }
@@ -664,7 +716,7 @@ export async function setManualReshipmentStatus(id: string, status: ReshipmentSt
   const rows = await db
     .select({ id: manualReshipmentsTable.id })
     .from(manualReshipmentsTable)
-    .where(and(eq(manualReshipmentsTable.tenantId, tenantId), eq(manualReshipmentsTable.id, id)))
+    .where(and(buildManualReshipmentsTenantWhere(tenantId), eq(manualReshipmentsTable.id, id)))
     .limit(1);
 
   if (!rows[0]) return false;
@@ -676,7 +728,7 @@ export async function setManualReshipmentStatus(id: string, status: ReshipmentSt
       sentAt: status === "reenvio_enviado" ? new Date() : null,
       updatedAt: new Date(),
     })
-    .where(and(eq(manualReshipmentsTable.tenantId, tenantId), eq(manualReshipmentsTable.id, id)));
+    .where(and(buildManualReshipmentsTenantWhere(tenantId), eq(manualReshipmentsTable.id, id)));
 
   return true;
 }
@@ -701,15 +753,15 @@ export async function getInventoryOverview(tenantId = DEFAULT_TENANT_ID): Promis
     db
       .select({ productId: inventoryBalancesTable.productId, quantity: inventoryBalancesTable.quantity })
       .from(inventoryBalancesTable)
-      .where(eq(inventoryBalancesTable.tenantId, tenantId)),
+      .where(buildInventoryBalancesTenantWhere(tenantId)),
     db
       .select({ id: productsTable.id, name: productsTable.name })
       .from(productsTable)
-      .where(eq(productsTable.tenantId, tenantId)),
+      .where(buildProductsTenantWhere(tenantId)),
     db
       .select()
       .from(inventoryMovementsTable)
-      .where(eq(inventoryMovementsTable.tenantId, tenantId))
+      .where(buildInventoryMovementsTenantWhere(tenantId))
       .orderBy(asc(inventoryMovementsTable.createdAt)),
   ]);
 
@@ -765,7 +817,7 @@ export async function getReshipmentByOrderIds(orderIds: string[], tenantId = DEF
     })
     .from(reshipmentsTable)
     .leftJoin(supportTicketsTable, eq(reshipmentsTable.supportTicketId, supportTicketsTable.id))
-    .where(and(eq(reshipmentsTable.tenantId, tenantId), inArray(reshipmentsTable.orderId, orderIds)));
+    .where(and(buildReshipmentsTenantWhere(tenantId), inArray(reshipmentsTable.orderId, orderIds)));
 
   return new Map(rows.map((row) => [
     row.orderId,

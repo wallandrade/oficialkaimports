@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, couponsTable } from "@workspace/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import crypto from "crypto";
 import { getAdminScope, requireAdminAuth, requirePrimaryAdmin } from "./admin-auth";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
@@ -38,6 +38,14 @@ type CouponEvaluation = {
   eligibleSubtotal: number;
   discountAmount: number;
 };
+
+function buildCouponsTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(eq(couponsTable.tenantId, tenantId), isNull(couponsTable.tenantId), eq(couponsTable.tenantId, ""));
+  }
+
+  return eq(couponsTable.tenantId, tenantId);
+}
 
 function normalizeEligibleProductIds(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
@@ -148,7 +156,7 @@ router.post("/coupons/validate", async (req, res) => {
     const [coupon] = await db
       .select()
       .from(couponsTable)
-      .where(and(eq(couponsTable.tenantId, tenantId), eq(couponsTable.code, code.trim().toUpperCase())));
+      .where(and(buildCouponsTenantWhere(tenantId), eq(couponsTable.code, code.trim().toUpperCase())));
 
     if (!coupon) {
       res.status(404).json({ error: "NOT_FOUND", message: "Cupom não encontrado." });
@@ -205,7 +213,7 @@ router.post("/coupons/validate", async (req, res) => {
 router.get("/admin/coupons", requireAdminAuth, requirePrimaryAdmin, async (req, res) => {
   try {
     const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
-    const coupons = await db.select().from(couponsTable).where(eq(couponsTable.tenantId, tenantId)).orderBy(couponsTable.createdAt);
+    const coupons = await db.select().from(couponsTable).where(buildCouponsTenantWhere(tenantId)).orderBy(couponsTable.createdAt);
     res.json({ coupons: coupons.map(mapCoupon) });
   } catch (err) {
     console.error("List coupons error:", err);
@@ -251,7 +259,7 @@ router.post("/admin/coupons", requireAdminAuth, requirePrimaryAdmin, async (req,
     const cleanEligibleProductIds = normalizeEligibleProductIds(eligibleProductIds);
 
     // Check duplicate
-    const [existing] = await db.select().from(couponsTable).where(and(eq(couponsTable.tenantId, tenantId), eq(couponsTable.code, cleanCode)));
+    const [existing] = await db.select().from(couponsTable).where(and(buildCouponsTenantWhere(tenantId), eq(couponsTable.code, cleanCode)));
     if (existing) {
       res.status(409).json({ error: "DUPLICATE", message: `Cupom "${cleanCode}" já existe.` });
       return;
@@ -280,7 +288,7 @@ router.post("/admin/coupons", requireAdminAuth, requirePrimaryAdmin, async (req,
       eligibleProductIds: cleanEligibleProductIds,
     });
 
-    const [created] = await db.select().from(couponsTable).where(and(eq(couponsTable.tenantId, tenantId), eq(couponsTable.id, id)));
+    const [created] = await db.select().from(couponsTable).where(and(buildCouponsTenantWhere(tenantId), eq(couponsTable.id, id)));
     res.status(201).json(mapCoupon(created!));
   } catch (err) {
     console.error("Create coupon error:", err);
@@ -303,7 +311,7 @@ router.patch("/admin/coupons/:id", requireAdminAuth, requirePrimaryAdmin, async 
 
     await db.update(couponsTable)
       .set({ isActive, updatedAt: new Date() })
-      .where(and(eq(couponsTable.tenantId, tenantId), eq(couponsTable.id, id)));
+      .where(and(buildCouponsTenantWhere(tenantId), eq(couponsTable.id, id)));
 
     console.warn("[COUPON/ADMIN] updated", {
       admin: (req as any).adminSession?.username || "unknown",
@@ -332,7 +340,7 @@ router.delete("/admin/coupons/:id", requireAdminAuth, requirePrimaryAdmin, async
       id,
     });
 
-    await db.delete(couponsTable).where(and(eq(couponsTable.tenantId, tenantId), eq(couponsTable.id, id)));
+    await db.delete(couponsTable).where(and(buildCouponsTenantWhere(tenantId), eq(couponsTable.id, id)));
     res.json({ ok: true });
   } catch (err) {
     console.error("Delete coupon error:", err);
@@ -345,11 +353,11 @@ router.delete("/admin/coupons/:id", requireAdminAuth, requirePrimaryAdmin, async
 // ---------------------------------------------------------------------------
 export async function incrementCouponUse(code: string, tenantId = DEFAULT_TENANT_ID) {
   try {
-    const [coupon] = await db.select().from(couponsTable).where(and(eq(couponsTable.tenantId, tenantId), eq(couponsTable.code, code.toUpperCase())));
+    const [coupon] = await db.select().from(couponsTable).where(and(buildCouponsTenantWhere(tenantId), eq(couponsTable.code, code.toUpperCase())));
     if (coupon) {
       await db.update(couponsTable)
         .set({ usedCount: coupon.usedCount + 1, updatedAt: new Date() })
-        .where(and(eq(couponsTable.tenantId, tenantId), eq(couponsTable.id, coupon.id)));
+        .where(and(buildCouponsTenantWhere(tenantId), eq(couponsTable.id, coupon.id)));
     }
   } catch (err) {
     console.error("incrementCouponUse error:", err);
