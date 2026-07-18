@@ -202,12 +202,29 @@ async function resolveAdminTenantId(username: string): Promise<string> {
   if (!user) return DEFAULT_TENANT_ID;
 
   const tenantRows = await db
-    .select({ tenantId: adminUserTenantsTable.tenantId })
+    .select({ tenantId: adminUserTenantsTable.tenantId, role: adminUserTenantsTable.role })
     .from(adminUserTenantsTable)
-    .where(eq(adminUserTenantsTable.adminUserId, user.id))
-    .limit(1);
+    .where(eq(adminUserTenantsTable.adminUserId, user.id));
 
-  return String(tenantRows[0]?.tenantId || "").trim() || DEFAULT_TENANT_ID;
+  if (tenantRows.length === 0) return DEFAULT_TENANT_ID;
+
+  const normalizedRows = tenantRows
+    .map((row) => ({
+      tenantId: String(row.tenantId || "").trim(),
+      role: String(row.role || "").trim().toLowerCase(),
+    }))
+    .filter((row) => !!row.tenantId);
+
+  if (normalizedRows.length === 0) return DEFAULT_TENANT_ID;
+
+  // Prefer explicit owner link outside Loja 1, then any non-default link, then fallback.
+  const nonDefaultOwner = normalizedRows.find((row) => row.tenantId !== DEFAULT_TENANT_ID && row.role === "owner");
+  if (nonDefaultOwner) return nonDefaultOwner.tenantId;
+
+  const nonDefault = normalizedRows.find((row) => row.tenantId !== DEFAULT_TENANT_ID);
+  if (nonDefault) return nonDefault.tenantId;
+
+  return normalizedRows[0].tenantId || DEFAULT_TENANT_ID;
 }
 
 export function getAdminScope(req: Request): AdminScope | null {

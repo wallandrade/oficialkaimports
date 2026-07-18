@@ -2877,8 +2877,8 @@ export default function Admin() {
     fetch(`${BASE}/api/admin/verify`, { headers: authHeaders(), credentials: "include" })
       .then(async (res) => {
         console.log('[DEBUG] Resposta /api/admin/verify:', res.status);
-        if (res.status === 401) {
-          console.log('[DEBUG] Não autorizado, chamando handleUnauthorized');
+        if (!res.ok) {
+          console.log('[DEBUG] /api/admin/verify não autorizado/forbidden, chamando handleUnauthorized');
           handleUnauthorized();
           return;
         }
