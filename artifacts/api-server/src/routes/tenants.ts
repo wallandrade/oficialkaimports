@@ -1,12 +1,13 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db, adminUserTenantsTable, adminUsersTable, tenantSettingsTable, tenantsTable } from "@workspace/db";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import dns from "node:dns/promises";
 import crypto from "node:crypto";
 import { getAdminScope, requirePrimaryAdmin } from "./admin-auth";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-context";
 
 const router: IRouter = Router();
+const TENANT_DNS_TARGET_HOST_KEY = "tenant_dns_target_host";
 
 function normalizeSlug(value: string): string {
   return String(value || "")
@@ -89,6 +90,51 @@ function getDnsTargetHost(req: Request): string {
   return normalizeDomain(getCurrentRequestHost(req));
 }
 
+async function getStoredTenantDnsTargetHost(tenantId: string): Promise<string> {
+  const normalizedTenantId = String(tenantId || "").trim();
+  if (!normalizedTenantId) return "";
+
+  const row = await db
+    .select({ value: tenantSettingsTable.value })
+    .from(tenantSettingsTable)
+    .where(and(eq(tenantSettingsTable.tenantId, normalizedTenantId), eq(tenantSettingsTable.key, TENANT_DNS_TARGET_HOST_KEY)))
+    .limit(1);
+
+  return normalizeDomain(String(row[0]?.value || ""));
+}
+
+async function findTenantIdByDomain(domain: string): Promise<string | null> {
+  const normalizedDomain = normalizeDomain(domain);
+  if (!normalizedDomain) return null;
+
+  const row = await db
+    .select({ id: tenantsTable.id })
+    .from(tenantsTable)
+    .where(eq(tenantsTable.domain, normalizedDomain))
+    .limit(1);
+
+  return row[0]?.id || null;
+}
+
+async function resolveDnsTargetHostForTenant(req: Request, tenantId?: string, domain?: string): Promise<string> {
+  const normalizedTenantId = String(tenantId || "").trim();
+  if (normalizedTenantId) {
+    const stored = await getStoredTenantDnsTargetHost(normalizedTenantId);
+    if (stored) return stored;
+  }
+
+  const normalizedDomain = normalizeDomain(domain || "");
+  if (normalizedDomain) {
+    const matchedTenantId = await findTenantIdByDomain(normalizedDomain);
+    if (matchedTenantId) {
+      const stored = await getStoredTenantDnsTargetHost(matchedTenantId);
+      if (stored) return stored;
+    }
+  }
+
+  return getDnsTargetHost(req);
+}
+
 function getDnsInstructions(domain: string, targetHost: string): {
   host: string;
   type: "CNAME" | "ALIAS/A";
@@ -153,8 +199,9 @@ router.get("/admin/tenants/dns-guide", requirePrimaryAdmin, async (req, res) => 
   try {
     if (!ensureDefaultTenantScope(req, res)) return;
 
-    const targetHost = getDnsTargetHost(req);
     const domain = normalizeDomain(String(req.query.domain || ""));
+    const tenantId = String(req.query.tenantId || "").trim();
+    const targetHost = await resolveDnsTargetHostForTenant(req, tenantId, domain);
     const instructions = domain && targetHost ? getDnsInstructions(domain, targetHost) : null;
 
     res.json({
@@ -173,12 +220,13 @@ router.get("/admin/tenants/dns-check", requirePrimaryAdmin, async (req, res) => 
     if (!ensureDefaultTenantScope(req, res)) return;
 
     const domain = normalizeDomain(String(req.query.domain || ""));
+    const tenantId = String(req.query.tenantId || "").trim();
     if (!domain) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Informe um domínio para verificar." });
       return;
     }
 
-    const targetHost = getDnsTargetHost(req);
+    const targetHost = await resolveDnsTargetHostForTenant(req, tenantId, domain);
     const [domainCname, domainA, targetA, nameservers] = await Promise.all([
       safeResolveCname(domain),
       safeResolveA(domain),
@@ -237,10 +285,76 @@ router.get("/admin/tenants", requirePrimaryAdmin, async (req, res) => {
       .from(tenantsTable)
       .orderBy(asc(tenantsTable.createdAt));
 
-    res.json({ tenants: rows });
+    const tenantIds = rows.map((row) => row.id);
+    const targetRows = tenantIds.length > 0
+      ? await db
+          .select({ tenantId: tenantSettingsTable.tenantId, value: tenantSettingsTable.value })
+          .from(tenantSettingsTable)
+          .where(and(inArray(tenantSettingsTable.tenantId, tenantIds), eq(tenantSettingsTable.key, TENANT_DNS_TARGET_HOST_KEY)))
+      : [];
+
+    const targetByTenantId = new Map(targetRows.map((row) => [row.tenantId, normalizeDomain(String(row.value || ""))]));
+
+    res.json({
+      tenants: rows.map((row) => ({
+        ...row,
+        dnsTargetHost: targetByTenantId.get(row.id) || null,
+      })),
+    });
   } catch (err) {
     console.error("[Tenants] GET error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao carregar lojas." });
+  }
+});
+
+router.patch("/admin/tenants/:tenantId/dns-target", requirePrimaryAdmin, async (req, res) => {
+  try {
+    if (!ensureDefaultTenantScope(req, res)) return;
+
+    const tenantId = String(req.params.tenantId || "").trim();
+    const dnsTargetHost = normalizeDomain(String(req.body?.dnsTargetHost || ""));
+
+    if (!tenantId) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Informe a loja a ser atualizada." });
+      return;
+    }
+
+    const existing = await db
+      .select({ id: tenantsTable.id })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, tenantId))
+      .limit(1);
+
+    if (!existing[0]) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Loja não encontrada." });
+      return;
+    }
+
+    if (dnsTargetHost) {
+      await db
+        .insert(tenantSettingsTable)
+        .values({
+          tenantId,
+          key: TENANT_DNS_TARGET_HOST_KEY,
+          value: dnsTargetHost,
+          updatedAt: new Date(),
+        })
+        .onDuplicateKeyUpdate({
+          set: {
+            value: dnsTargetHost,
+            updatedAt: new Date(),
+          },
+        });
+    } else {
+      await db
+        .delete(tenantSettingsTable)
+        .where(and(eq(tenantSettingsTable.tenantId, tenantId), eq(tenantSettingsTable.key, TENANT_DNS_TARGET_HOST_KEY)));
+    }
+
+    res.json({ ok: true, tenantId, dnsTargetHost: dnsTargetHost || null });
+  } catch (err) {
+    console.error("[Tenants] PATCH dns-target error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao salvar host alvo da loja." });
   }
 });
 
@@ -297,6 +411,7 @@ router.post("/admin/tenants", requirePrimaryAdmin, async (req, res) => {
       newAdminUsername,
       newAdminPassword,
       cloneSettingsFromDefault,
+      dnsTargetHost,
     } = req.body as {
       name?: string;
       slug?: string;
@@ -306,11 +421,13 @@ router.post("/admin/tenants", requirePrimaryAdmin, async (req, res) => {
       newAdminUsername?: string;
       newAdminPassword?: string;
       cloneSettingsFromDefault?: boolean;
+      dnsTargetHost?: string;
     };
 
     const cleanName = String(name || "").trim();
     const cleanSlug = normalizeSlug(String(slug || ""));
     const cleanDomain = normalizeDomain(String(domain || ""));
+    const cleanDnsTargetHost = normalizeDomain(String(dnsTargetHost || ""));
     const cleanAdminUsername = String(adminUsername || "").trim().toLowerCase();
     const shouldCreateAdminUser = createAdminUser === true;
     const cleanNewAdminUsername = String(newAdminUsername || "").trim().toLowerCase();
@@ -416,6 +533,23 @@ router.post("/admin/tenants", requirePrimaryAdmin, async (req, res) => {
           });
       }
 
+      if (cleanDnsTargetHost) {
+        await tx
+          .insert(tenantSettingsTable)
+          .values({
+            tenantId,
+            key: TENANT_DNS_TARGET_HOST_KEY,
+            value: cleanDnsTargetHost,
+            updatedAt: new Date(),
+          })
+          .onDuplicateKeyUpdate({
+            set: {
+              value: cleanDnsTargetHost,
+              updatedAt: new Date(),
+            },
+          });
+      }
+
       if (cloneSettingsFromDefault !== false) {
         try {
           const sourceSettings = await tx
@@ -453,9 +587,14 @@ router.post("/admin/tenants", requirePrimaryAdmin, async (req, res) => {
         name: tenantsTable.name,
         status: tenantsTable.status,
         domain: tenantsTable.domain,
+        dnsTargetHost: tenantSettingsTable.value,
         createdAt: tenantsTable.createdAt,
       })
       .from(tenantsTable)
+      .leftJoin(
+        tenantSettingsTable,
+        and(eq(tenantSettingsTable.tenantId, tenantsTable.id), eq(tenantSettingsTable.key, TENANT_DNS_TARGET_HOST_KEY)),
+      )
       .where(and(eq(tenantsTable.id, tenantId), eq(tenantsTable.slug, cleanSlug)))
       .limit(1);
 

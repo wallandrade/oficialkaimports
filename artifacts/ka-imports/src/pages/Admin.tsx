@@ -1071,6 +1071,7 @@ interface AdminTenant {
   name: string;
   status: string;
   domain: string | null;
+  dnsTargetHost?: string | null;
   createdAt: string;
 }
 
@@ -1395,10 +1396,13 @@ export default function Admin() {
   const [tenantsLoading, setTenantsLoading] = useState(false);
   const [tenantCreating, setTenantCreating] = useState(false);
   const [tenantDeletingId, setTenantDeletingId] = useState<string | null>(null);
+  const [tenantDnsTargetSavingId, setTenantDnsTargetSavingId] = useState<string | null>(null);
+  const [tenantDnsTargetDrafts, setTenantDnsTargetDrafts] = useState<Record<string, string>>({});
   const [tenantForm, setTenantForm] = useState({
     name: "",
     slug: "",
     domain: "",
+    dnsTargetHost: "",
     adminUsername: "",
     createAdminUser: false,
     newAdminUsername: "",
@@ -2067,6 +2071,7 @@ export default function Admin() {
       }
       const data = await res.json() as { tenants: AdminTenant[] };
       setTenants(data.tenants || []);
+      setTenantDnsTargetDrafts(Object.fromEntries((data.tenants || []).map((tenant) => [tenant.id, tenant.dnsTargetHost || ""])));
     } catch {
       toast.error("Erro ao carregar lojas.");
     } finally {
@@ -2081,6 +2086,7 @@ export default function Admin() {
       name: tenantForm.name.trim(),
       slug: tenantForm.slug.trim(),
       domain: tenantForm.domain.trim(),
+      dnsTargetHost: tenantForm.dnsTargetHost.trim(),
       adminUsername: tenantForm.adminUsername.trim(),
       createAdminUser: tenantForm.createAdminUser,
       newAdminUsername: tenantForm.newAdminUsername.trim(),
@@ -2128,6 +2134,7 @@ export default function Admin() {
         name: "",
         slug: "",
         domain: "",
+        dnsTargetHost: "",
         adminUsername: "",
         createAdminUser: false,
         newAdminUsername: "",
@@ -2179,13 +2186,14 @@ export default function Admin() {
     }
   }, [canManageTenants, fetchTenants, handleUnauthorized]);
 
-  const fetchDnsGuide = useCallback(async (domain?: string) => {
+  const fetchDnsGuide = useCallback(async (domain?: string, tenantId?: string) => {
     if (!canManageTenants) return;
     setDnsGuideLoading(true);
     try {
       const params = new URLSearchParams();
       const normalizedDomain = String(domain || "").trim();
       if (normalizedDomain) params.set("domain", normalizedDomain);
+      if (tenantId) params.set("tenantId", tenantId);
       const suffix = params.toString() ? `?${params.toString()}` : "";
 
       const res = await fetch(`${BASE}/api/admin/tenants/dns-guide${suffix}`, { headers: authHeaders() });
@@ -2204,7 +2212,40 @@ export default function Admin() {
     }
   }, [canManageTenants, handleUnauthorized]);
 
-  const checkDns = useCallback(async (domain: string) => {
+  const saveTenantDnsTarget = useCallback(async (tenant: AdminTenant) => {
+    if (!canManageTenants) return;
+
+    const dnsTargetHost = String(tenantDnsTargetDrafts[tenant.id] || "").trim();
+    setTenantDnsTargetSavingId(tenant.id);
+    try {
+      const res = await fetch(`${BASE}/api/admin/tenants/${encodeURIComponent(tenant.id)}/dns-target`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({ dnsTargetHost }),
+      });
+
+      if (res.status === 401) { handleUnauthorized(); return; }
+
+      const data = await res.json().catch(() => null) as { message?: string } | null;
+      if (!res.ok) {
+        toast.error(data?.message || "Erro ao salvar host alvo da loja.");
+        return;
+      }
+
+      toast.success(dnsTargetHost ? "Host alvo da loja salvo." : "Host alvo da loja removido.");
+      await fetchTenants();
+      if ((tenant.domain || "").trim()) {
+        setDnsDomainInput(tenant.domain || "");
+        await fetchDnsGuide(tenant.domain || "", tenant.id);
+      }
+    } catch {
+      toast.error("Erro ao salvar host alvo da loja.");
+    } finally {
+      setTenantDnsTargetSavingId(null);
+    }
+  }, [canManageTenants, fetchDnsGuide, fetchTenants, handleUnauthorized, tenantDnsTargetDrafts]);
+
+  const checkDns = useCallback(async (domain: string, tenantId?: string) => {
     if (!canManageTenants) return;
     const cleanDomain = String(domain || "").trim();
     if (!cleanDomain) {
@@ -2215,6 +2256,7 @@ export default function Admin() {
     setDnsCheckLoading(true);
     try {
       const params = new URLSearchParams({ domain: cleanDomain });
+      if (tenantId) params.set("tenantId", tenantId);
       const res = await fetch(`${BASE}/api/admin/tenants/dns-check?${params.toString()}`, { headers: authHeaders() });
       if (res.status === 401) { handleUnauthorized(); return; }
       const data = await res.json().catch(() => null) as (DnsCheckResponse & { message?: string }) | null;
@@ -6173,6 +6215,13 @@ export default function Admin() {
                   placeholder="Domínio público (ex: loja2.seudominio.com)"
                   className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
                 />
+                <input
+                  type="text"
+                  value={tenantForm.dnsTargetHost}
+                  onChange={(e) => setTenantForm((p) => ({ ...p, dnsTargetHost: e.target.value }))}
+                  placeholder="Host alvo DNS/Railway (opcional)"
+                  className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+                />
                 {!tenantForm.createAdminUser ? (
                   <input
                     type="text"
@@ -6324,6 +6373,7 @@ export default function Admin() {
                           <p className="text-sm font-semibold text-foreground">{tenant.name}</p>
                           <p className="text-xs text-muted-foreground">ID: {tenant.id} · Slug: {tenant.slug}</p>
                           <p className="text-xs text-muted-foreground">Domínio: {tenant.domain || "não definido"}</p>
+                          <p className="text-xs text-muted-foreground break-all">Host alvo: {tenant.dnsTargetHost || "usando alvo global"}</p>
                         </div>
                         <div className="text-xs flex items-center gap-2">
                           {tenant.domain ? (
@@ -6333,8 +6383,8 @@ export default function Admin() {
                               className="h-7 px-2 text-xs"
                               onClick={() => {
                                 setDnsDomainInput(tenant.domain || "");
-                                fetchDnsGuide(tenant.domain || "");
-                                checkDns(tenant.domain || "");
+                                fetchDnsGuide(tenant.domain || "", tenant.id);
+                                checkDns(tenant.domain || "", tenant.id);
                               }}
                             >
                               Verificar DNS
@@ -6360,6 +6410,25 @@ export default function Admin() {
                             {tenant.status}
                           </span>
                         </div>
+                      </div>
+                      <div className="mt-3 flex flex-col md:flex-row gap-2">
+                        <input
+                          type="text"
+                          value={tenantDnsTargetDrafts[tenant.id] ?? tenant.dnsTargetHost ?? ""}
+                          onChange={(e) => setTenantDnsTargetDrafts((prev) => ({ ...prev, [tenant.id]: e.target.value }))}
+                          placeholder="Host alvo DNS/Railway desta loja"
+                          className="h-10 flex-1 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-10"
+                          onClick={() => saveTenantDnsTarget(tenant)}
+                          disabled={tenantDnsTargetSavingId === tenant.id}
+                        >
+                          {tenantDnsTargetSavingId === tenant.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                          <span className="ml-2">Salvar alvo</span>
+                        </Button>
                       </div>
                     </div>
                   ))}
