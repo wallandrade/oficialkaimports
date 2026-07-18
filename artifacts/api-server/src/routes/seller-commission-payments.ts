@@ -52,6 +52,28 @@ function normalizeDate(value: string | undefined, boundary: "start" | "end" = "s
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function toSaoPauloDateKey(value: Date | string | null | undefined): string | null {
+  if (!value) return null;
+  const parsed = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(parsed);
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+  if (!year || !month || !day) return null;
+  return `${year}-${month}-${day}`;
+}
+
+function getBatchDateKey(value: Date | string | null | undefined): string | null {
+  const direct = normalizeDateKey(typeof value === "string" ? value : undefined);
+  return direct || toSaoPauloDateKey(value);
+}
+
 function calcCommission(order: CommissionOrderRow): number {
   const total = Number(order.total || 0);
   const rate = Number(order.sellerCommissionRateSnapshot || 0);
@@ -104,6 +126,31 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
       .where(pendingConditions.length > 0 ? and(...pendingConditions) : undefined)
       .orderBy(desc(ordersTable.createdAt));
 
+    const batchConditions = [];
+    if (activeSellerCode) {
+      batchConditions.push(eq(sellerCommissionPaymentsTable.sellerCode, activeSellerCode));
+    }
+
+    const batchRows = await db
+      .select()
+      .from(sellerCommissionPaymentsTable)
+      .where(batchConditions.length > 0 ? and(...batchConditions) : undefined)
+      .orderBy(desc(sellerCommissionPaymentsTable.createdAt));
+
+    const paidWindows = batchRows
+      .filter((batch) => batch.status === "paid")
+      .map((batch) => {
+        const start = getBatchDateKey(batch.periodStartDate || batch.periodStart);
+        const end = getBatchDateKey(batch.periodEndDate || batch.periodEnd);
+        if (!start || !end) return null;
+        return {
+          sellerCode: String(batch.sellerCode || "").trim().toLowerCase(),
+          start,
+          end,
+        };
+      })
+      .filter((window): window is { sellerCode: string; start: string; end: string } => Boolean(window));
+
     const pendingOrders = pendingRows
       .map((row) => ({
         id: row.id,
@@ -115,18 +162,18 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
         sellerCommissionRateSnapshot: Number(row.sellerCommissionRateSnapshot || 0),
         commissionAmount: calcCommission(row),
       }))
-      .filter((row) => row.commissionAmount > 0);
-
-    const batchConditions = [];
-    if (activeSellerCode) {
-      batchConditions.push(eq(sellerCommissionPaymentsTable.sellerCode, activeSellerCode));
-    }
-
-    const batchRows = await db
-      .select()
-      .from(sellerCommissionPaymentsTable)
-      .where(batchConditions.length > 0 ? and(...batchConditions) : undefined)
-      .orderBy(desc(sellerCommissionPaymentsTable.createdAt));
+      .filter((row) => row.commissionAmount > 0)
+      .filter((row) => {
+        const rowSeller = String(row.sellerCode || "").trim().toLowerCase();
+        const rowDateKey = toSaoPauloDateKey(row.createdAt);
+        if (!rowSeller || !rowDateKey) return true;
+        return !paidWindows.some((window) => {
+          if (window.sellerCode !== rowSeller) return false;
+          const start = window.start <= window.end ? window.start : window.end;
+          const end = window.start <= window.end ? window.end : window.start;
+          return rowDateKey >= start && rowDateKey <= end;
+        });
+      });
 
     const batches = batchRows.map((batch) => ({
       id: batch.id,
