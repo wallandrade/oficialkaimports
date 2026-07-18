@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db, pool, ordersTable, customChargesTable, sellersTable, productsTable, siteSettingsTable, reshipmentsTable, couponsTable, inventoryBalancesTable } from "@workspace/db";
-import { desc, and, gte, lte, eq, inArray, isNull, sql } from "drizzle-orm";
+import { desc, and, gte, lte, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { getAdminScope, requireAdminAuth, verifyCurrentAdminPassword } from "./admin-auth";
 import { broadcastNotification } from "./notifications";
@@ -833,21 +833,30 @@ function ensureSellerScopeOnOrderQuery(
   return { hasGlobalAccess: scope.hasGlobalAccess, sellerCode: scope.sellerCode, tenantId: scope.tenantId || DEFAULT_TENANT_ID };
 }
 
+function buildOrderTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    // Keep Loja 1 backward compatible while legacy rows are normalized.
+    return or(eq(ordersTable.tenantId, tenantId), isNull(ordersTable.tenantId), eq(ordersTable.tenantId, ""));
+  }
+
+  return eq(ordersTable.tenantId, tenantId);
+}
+
 function buildAdminOrderWhere(orderId: string, scope: { hasGlobalAccess: boolean; sellerCode: string | null; tenantId: string }) {
-  if (scope.hasGlobalAccess) return and(eq(ordersTable.id, orderId), eq(ordersTable.tenantId, scope.tenantId));
-  return and(eq(ordersTable.id, orderId), eq(ordersTable.tenantId, scope.tenantId), eq(ordersTable.sellerCode, scope.sellerCode!));
+  if (scope.hasGlobalAccess) return and(eq(ordersTable.id, orderId), buildOrderTenantWhere(scope.tenantId));
+  return and(eq(ordersTable.id, orderId), buildOrderTenantWhere(scope.tenantId), eq(ordersTable.sellerCode, scope.sellerCode!));
 }
 
 function buildOpenTrackingCandidatesWhere(scope: { hasGlobalAccess: boolean; sellerCode: string | null; tenantId: string }) {
   if (scope.hasGlobalAccess) {
     return and(
-      eq(ordersTable.tenantId, scope.tenantId),
+      buildOrderTenantWhere(scope.tenantId),
       inArray(ordersTable.status, ["paid", "completed"]),
       eq(ordersTable.enviado, false),
     );
   }
   return and(
-    eq(ordersTable.tenantId, scope.tenantId),
+    buildOrderTenantWhere(scope.tenantId),
     eq(ordersTable.sellerCode, scope.sellerCode!),
     inArray(ordersTable.status, ["paid", "completed"]),
     eq(ordersTable.enviado, false),
@@ -1380,7 +1389,7 @@ router.get("/orders/guest/:id", async (req, res) => {
     const rows = await db
       .select()
       .from(ordersTable)
-      .where(and(eq(ordersTable.id, id), eq(ordersTable.tenantId, tenantId), eq(ordersTable.guestAccessToken, token)))
+      .where(and(eq(ordersTable.id, id), buildOrderTenantWhere(tenantId), eq(ordersTable.guestAccessToken, token)))
       .limit(1);
 
     if (!rows[0]) {
@@ -1426,7 +1435,7 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
     }
     if (paymentMethod && paymentMethod !== "all") nonDateConditions.push(eq(ordersTable.paymentMethod, paymentMethod));
     if (whatsappGroup && whatsappGroup !== "all") nonDateConditions.push(eq(ordersTable.whatsappGroup, whatsappGroup));
-    nonDateConditions.push(eq(ordersTable.tenantId, adminScope.tenantId));
+    nonDateConditions.push(buildOrderTenantWhere(adminScope.tenantId));
     if (!adminScope.hasGlobalAccess) {
       if (sellerCode && sellerCode !== "all" && sellerCode !== adminScope.sellerCode) {
         res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para acessar outro seller." });
@@ -1994,7 +2003,7 @@ router.get("/admin/export", requireAdminAuth, async (req, res) => {
     // São Paulo = UTC-3: midnight SP = 03:00 UTC; end-of-day SP 23:59:59 = next day 02:59:59 UTC
     const SP_OFFSET_MS = 3 * 60 * 60 * 1000;
     const conditions = [];
-    conditions.push(eq(ordersTable.tenantId, adminScope.tenantId));
+    conditions.push(buildOrderTenantWhere(adminScope.tenantId));
     if (dateFrom) {
       const from = new Date(dateFrom + "T00:00:00.000Z");
       from.setTime(from.getTime() + SP_OFFSET_MS);
