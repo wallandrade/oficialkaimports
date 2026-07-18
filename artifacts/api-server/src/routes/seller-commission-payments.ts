@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { Router, type IRouter } from "express";
-import { and, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
-import { db, ordersTable, sellerCommissionPaymentsTable, sellersTable } from "@workspace/db";
+import { and, desc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
+import { db, ordersTable, sellerCommissionPaymentsTable } from "@workspace/db";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 
 const router: IRouter = Router();
@@ -14,11 +14,6 @@ type CommissionOrderRow = {
   status: string;
   createdAt: Date | string;
   sellerCommissionRateSnapshot: string | number | null;
-};
-
-type SellerCommissionProfile = {
-  hasCommission: boolean;
-  commissionRate: number;
 };
 
 function parseOrderIds(raw: unknown): string[] {
@@ -83,32 +78,10 @@ function normalizeSellerCode(value: string | null | undefined): string {
   return String(value || "").trim().toLowerCase();
 }
 
-async function loadSellerCommissionMap(): Promise<Map<string, SellerCommissionProfile>> {
-  const rows = await db
-    .select({
-      slug: sellersTable.slug,
-      hasCommission: sellersTable.hasCommission,
-      commissionRate: sellersTable.commissionRate,
-    })
-    .from(sellersTable);
-
-  return new Map(
-    rows.map((seller) => [normalizeSellerCode(seller.slug), {
-      hasCommission: Boolean(seller.hasCommission),
-      commissionRate: Number(seller.commissionRate || 0),
-    }] as const),
-  );
-}
-
-function calcCommission(order: CommissionOrderRow, sellerCommissionMap: Map<string, SellerCommissionProfile>): number {
+function calcCommission(order: CommissionOrderRow): number {
   const total = Number(order.total || 0);
   const snapshotRate = Number(order.sellerCommissionRateSnapshot || 0);
-  const sellerProfile = sellerCommissionMap.get(normalizeSellerCode(order.sellerCode));
-  const rate = snapshotRate > 0
-    ? snapshotRate
-    : sellerProfile
-      ? (sellerProfile.hasCommission ? sellerProfile.commissionRate : 0)
-      : 5;
+  const rate = snapshotRate > 0 ? snapshotRate : 5;
   if (!Number.isFinite(total) || !Number.isFinite(rate) || total <= 0 || rate <= 0) return 0;
   return Math.round(total * (rate / 100) * 100) / 100;
 }
@@ -130,7 +103,6 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
     }
 
     const activeSellerCode = scope.hasGlobalAccess ? effectiveSellerCode : scopedSellerCode;
-    const sellerCommissionMap = await loadSellerCommissionMap();
     const dateConditions = [];
     const startDate = normalizeDate(dateFrom, "start");
     const endDate = normalizeDate(dateTo, "end");
@@ -141,9 +113,6 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
       inArray(ordersTable.status, ["paid", "completed"]),
       isNull(ordersTable.sellerCommissionBatchId),
     ];
-    if (activeSellerCode) {
-      pendingConditions.push(eq(sql`lower(${ordersTable.sellerCode})`, activeSellerCode));
-    }
     pendingConditions.push(...dateConditions);
 
     const pendingRows = await db
@@ -160,15 +129,9 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
       .where(pendingConditions.length > 0 ? and(...pendingConditions) : undefined)
       .orderBy(desc(ordersTable.createdAt));
 
-    const batchConditions = [];
-    if (activeSellerCode) {
-      batchConditions.push(eq(sql`lower(${sellerCommissionPaymentsTable.sellerCode})`, activeSellerCode));
-    }
-
     const batchRows = await db
       .select()
       .from(sellerCommissionPaymentsTable)
-      .where(batchConditions.length > 0 ? and(...batchConditions) : undefined)
       .orderBy(desc(sellerCommissionPaymentsTable.createdAt));
 
     const paidWindows = batchRows
@@ -186,6 +149,7 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
       .filter((window): window is { sellerCode: string; start: string; end: string } => Boolean(window));
 
     const pendingOrders = pendingRows
+      .filter((row) => !activeSellerCode || normalizeSellerCode(row.sellerCode) === activeSellerCode)
       .map((row) => ({
         id: row.id,
         sellerCode: row.sellerCode ?? null,
@@ -194,7 +158,7 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
         status: row.status,
         createdAt: toIso(row.createdAt),
         sellerCommissionRateSnapshot: Number(row.sellerCommissionRateSnapshot || 0),
-        commissionAmount: calcCommission(row, sellerCommissionMap),
+        commissionAmount: calcCommission(row),
       }))
       .filter((row) => row.commissionAmount > 0)
       .filter((row) => {
@@ -209,21 +173,23 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
         });
       });
 
-    const batches = batchRows.map((batch) => ({
-      id: batch.id,
-      sellerCode: batch.sellerCode,
-      orderIds: parseOrderIds(batch.orderIds),
-      periodStart: batch.periodStartDate || toIso(batch.periodStart),
-      periodEnd: batch.periodEndDate || toIso(batch.periodEnd),
-      totalAmount: Number(batch.totalAmount || 0),
-      orderCount: Number(batch.orderCount || 0),
-      status: batch.status,
-      paymentMethod: batch.paymentMethod || null,
-      paidAt: toIso(batch.paidAt),
-      notes: batch.notes || null,
-      createdAt: toIso(batch.createdAt) || new Date().toISOString(),
-      updatedAt: toIso(batch.updatedAt) || new Date().toISOString(),
-    }));
+    const batches = batchRows
+      .filter((batch) => !activeSellerCode || normalizeSellerCode(batch.sellerCode) === activeSellerCode)
+      .map((batch) => ({
+        id: batch.id,
+        sellerCode: batch.sellerCode,
+        orderIds: parseOrderIds(batch.orderIds),
+        periodStart: batch.periodStartDate || toIso(batch.periodStart),
+        periodEnd: batch.periodEndDate || toIso(batch.periodEnd),
+        totalAmount: Number(batch.totalAmount || 0),
+        orderCount: Number(batch.orderCount || 0),
+        status: batch.status,
+        paymentMethod: batch.paymentMethod || null,
+        paidAt: toIso(batch.paidAt),
+        notes: batch.notes || null,
+        createdAt: toIso(batch.createdAt) || new Date().toISOString(),
+        updatedAt: toIso(batch.updatedAt) || new Date().toISOString(),
+      }));
 
     res.json({ pendingOrders, batches });
   } catch (err) {
@@ -260,8 +226,6 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
       return;
     }
 
-    const sellerCommissionMap = await loadSellerCommissionMap();
-
     const dateConditions = [];
     const startDate = normalizeDate(dateFrom, "start");
     const endDate = normalizeDate(dateTo, "end");
@@ -271,7 +235,6 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
     const orderIdList = Array.isArray(orderIds) ? Array.from(new Set(orderIds.map((value) => String(value || "").trim()).filter(Boolean))) : [];
 
     const conditions = [
-      eq(sql`lower(${ordersTable.sellerCode})`, targetSellerCode),
       inArray(ordersTable.status, ["paid", "completed"]),
       isNull(ordersTable.sellerCommissionBatchId),
       ...dateConditions,
@@ -296,6 +259,7 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
       .orderBy(desc(ordersTable.createdAt));
 
     const eligibleOrders = rows
+      .filter((row) => normalizeSellerCode(row.sellerCode) === targetSellerCode)
       .map((row) => ({
         id: row.id,
         sellerCode: row.sellerCode ?? null,
@@ -304,7 +268,7 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
         status: row.status,
         createdAt: toIso(row.createdAt),
         sellerCommissionRateSnapshot: Number(row.sellerCommissionRateSnapshot || 0),
-        commissionAmount: calcCommission(row, sellerCommissionMap),
+        commissionAmount: calcCommission(row),
       }))
       .filter((row) => row.commissionAmount > 0);
 
