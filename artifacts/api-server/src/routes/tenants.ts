@@ -171,6 +171,15 @@ function unique(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean).map((v) => v.trim().toLowerCase())));
 }
 
+function isRootDomain(domain: string): boolean {
+  return normalizeDomain(domain).split(".").length <= 2;
+}
+
+function getIpv4Subnet24(ip: string): string {
+  const parts = String(ip || "").trim().split(".");
+  return parts.length === 4 ? parts.slice(0, 3).join(".") : "";
+}
+
 async function safeResolveCname(host: string): Promise<string[]> {
   try {
     return unique(await dns.resolveCname(host));
@@ -237,8 +246,19 @@ router.get("/admin/tenants/dns-check", requirePrimaryAdmin, async (req, res) => 
     const cnameMatch = targetHost ? domainCname.some((entry) => normalizeDomain(entry) === targetHost) : false;
     const targetASet = new Set(targetA);
     const aMatch = domainA.some((ip) => targetASet.has(ip));
+    const rootAliasFlattenedMatch =
+      !cnameMatch &&
+      !aMatch &&
+      isRootDomain(domain) &&
+      domainA.length > 0 &&
+      targetA.length > 0 &&
+      targetHost.endsWith(".railway.app") &&
+      domainA.some((ip) => {
+        const subnet = getIpv4Subnet24(ip);
+        return subnet && targetA.some((targetIp) => getIpv4Subnet24(targetIp) === subnet);
+      });
 
-    const status = cnameMatch || aMatch
+    const status = cnameMatch || aMatch || rootAliasFlattenedMatch
       ? "configured"
       : domainCname.length > 0 || domainA.length > 0
         ? "misconfigured"
@@ -250,6 +270,7 @@ router.get("/admin/tenants/dns-check", requirePrimaryAdmin, async (req, res) => 
       status,
       cnameMatch,
       aMatch,
+      rootAliasFlattenedMatch,
       dns: {
         cname: domainCname,
         a: domainA,
@@ -258,7 +279,9 @@ router.get("/admin/tenants/dns-check", requirePrimaryAdmin, async (req, res) => 
       },
       message:
         status === "configured"
-          ? "Domínio apontado corretamente."
+          ? rootAliasFlattenedMatch
+            ? "Domínio raiz publicado via ALIAS/ANAME; o IP flattenado pode diferir do host alvo e ainda assim estar correto."
+            : "Domínio apontado corretamente."
           : status === "misconfigured"
             ? "Domínio encontrado, mas ainda não aponta para este servidor."
             : "Nenhum registro DNS encontrado para este domínio.",

@@ -1093,6 +1093,7 @@ interface DnsCheckResponse {
   status: "configured" | "misconfigured" | "not_found";
   cnameMatch: boolean;
   aMatch: boolean;
+  rootAliasFlattenedMatch?: boolean;
   dns: {
     cname: string[];
     a: string[];
@@ -2267,7 +2268,7 @@ export default function Admin() {
 
       setDnsCheckResult(data);
       if (data.status === "configured") {
-        toast.success("Domínio apontado corretamente.");
+        toast.success(data.rootAliasFlattenedMatch ? "Domínio validado via ALIAS/ANAME." : "Domínio apontado corretamente.");
       } else if (data.status === "misconfigured") {
         toast.warning("Domínio encontrado, mas ainda não aponta para este servidor.");
       } else {
@@ -6340,7 +6341,7 @@ export default function Admin() {
                 <div className="rounded-xl border border-border bg-white p-3 text-sm space-y-2">
                   <div className="flex items-center gap-2">
                     <span className={`px-2 py-1 rounded-full text-xs font-semibold ${dnsCheckResult.status === "configured" ? "bg-emerald-100 text-emerald-700" : dnsCheckResult.status === "misconfigured" ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-700"}`}>
-                      {dnsCheckResult.status === "configured" ? "Configurado" : dnsCheckResult.status === "misconfigured" ? "Incorreto" : "Sem registro"}
+                      {dnsCheckResult.status === "configured" ? (dnsCheckResult.rootAliasFlattenedMatch ? "Configurado via ALIAS" : "Configurado") : dnsCheckResult.status === "misconfigured" ? "Incorreto" : "Sem registro"}
                     </span>
                     <span className="text-muted-foreground">{dnsCheckResult.message}</span>
                   </div>
