@@ -10284,7 +10284,11 @@ function CommissionPaymentsPanel({
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Observação</p>
             <input value={paymentNotes} onChange={(e) => setPaymentNotes(e.target.value)} placeholder="Ex: fechamento quinzenal" className="h-10 w-full rounded-xl border border-border bg-white px-3 text-sm" />
           </div>
-          <Button onClick={onCreateBatch} disabled={creating || selectedOrderIds.length === 0 || sellerFilter === "all"} className="h-10 min-w-[180px]">
+          <Button
+            onClick={onCreateBatch}
+            disabled={creating || selectedOrderIds.length === 0 || sellerFilter === "all"}
+            className="h-10 min-w-[180px] bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-emerald-300 disabled:text-white"
+          >
             {creating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <DollarSign className="w-4 h-4 mr-2" />}
             Criar lote
           </Button>
