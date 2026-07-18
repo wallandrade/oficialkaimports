@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, productsTable, productCostHistoryTable, ordersTable, siteSettingsTable } from "@workspace/db";
-import { and, eq, asc, desc, gte } from "drizzle-orm";
+import { and, eq, asc, desc, gte, isNull, or } from "drizzle-orm";
 import crypto from "crypto";
 import { getAdminScope, requirePrimaryAdmin } from "./admin-auth";
 import { getR2MissingConfig, isR2Configured, uploadProductImageToR2 } from "../lib/r2";
@@ -278,6 +278,15 @@ function mapProduct(p: typeof productsTable.$inferSelect, includeCostPrice = fal
   return product;
 }
 
+function buildProductTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    // Keep Loja 1 compatible with legacy rows created before tenant_id backfill.
+    return or(eq(productsTable.tenantId, tenantId), isNull(productsTable.tenantId), eq(productsTable.tenantId, ""));
+  }
+
+  return eq(productsTable.tenantId, tenantId);
+}
+
 // ─── Public ──────────────────────────────────────────────────────────────────
 
 /**
@@ -290,7 +299,7 @@ router.get("/products", async (req, res) => {
     const rows = await db
       .select()
       .from(productsTable)
-      .where(and(eq(productsTable.tenantId, tenantId), eq(productsTable.isActive, true)))
+      .where(and(buildProductTenantWhere(tenantId), eq(productsTable.isActive, true)))
       .orderBy(desc(productsTable.isLaunch), asc(productsTable.createdAt));
 
     // Products with explicit positive position (1,2,3...) come first.
@@ -331,7 +340,7 @@ router.get("/admin/products", requirePrimaryAdmin, async (req, res) => {
     const rows = await db
       .select()
       .from(productsTable)
-      .where(eq(productsTable.tenantId, tenantId))
+      .where(buildProductTenantWhere(tenantId))
       .orderBy(asc(productsTable.sortOrder), asc(productsTable.createdAt));
     res.json({ products: rows.map((row) => mapProduct(row, true)) });
   } catch (err) {
@@ -347,7 +356,7 @@ router.get("/admin/products/backup", requirePrimaryAdmin, async (req, res) => {
     const rows = await db
       .select()
       .from(productsTable)
-      .where(eq(productsTable.tenantId, tenantId))
+      .where(buildProductTenantWhere(tenantId))
       .orderBy(asc(productsTable.sortOrder), asc(productsTable.createdAt));
 
     const settingsRows = await db
@@ -402,7 +411,7 @@ router.post("/admin/products/restore", requirePrimaryAdmin, async (req, res) => 
 
     await db.transaction(async (tx) => {
       if (normalizedMode === "replace") {
-        await tx.delete(productsTable).where(eq(productsTable.tenantId, tenantId));
+        await tx.delete(productsTable).where(buildProductTenantWhere(tenantId));
       }
 
       for (const product of products) {
@@ -585,7 +594,7 @@ router.post("/admin/products", requirePrimaryAdmin, async (req, res) => {
       sortOrder:   sortOrder ?? 0,
     });
 
-    const [created] = await db.select().from(productsTable).where(and(eq(productsTable.id, id), eq(productsTable.tenantId, tenantId)));
+    const [created] = await db.select().from(productsTable).where(and(eq(productsTable.id, id), buildProductTenantWhere(tenantId)));
     res.status(201).json(mapProduct(created!, true));
   } catch (err) {
     console.error("Create product error:", err);
@@ -643,7 +652,7 @@ router.patch("/admin/products/:id", requirePrimaryAdmin, async (req, res) => {
 
     // Record cost price history and backfill recent orders when costPrice changes
     if (costPrice !== undefined) {
-      const [current] = await db.select({ costPrice: productsTable.costPrice }).from(productsTable).where(and(eq(productsTable.id, id), eq(productsTable.tenantId, tenantId)));
+      const [current] = await db.select({ costPrice: productsTable.costPrice }).from(productsTable).where(and(eq(productsTable.id, id), buildProductTenantWhere(tenantId)));
       const newCost = Number(costPrice ?? 0);
       if (current && Number(current.costPrice) !== newCost) {
         // 1. Gravar histórico
@@ -680,9 +689,9 @@ router.patch("/admin/products/:id", requirePrimaryAdmin, async (req, res) => {
       }
     }
 
-    await db.update(productsTable).set(updates).where(and(eq(productsTable.id, id), eq(productsTable.tenantId, tenantId)));
+    await db.update(productsTable).set(updates).where(and(eq(productsTable.id, id), buildProductTenantWhere(tenantId)));
 
-    const [updated] = await db.select().from(productsTable).where(and(eq(productsTable.id, id), eq(productsTable.tenantId, tenantId)));
+    const [updated] = await db.select().from(productsTable).where(and(eq(productsTable.id, id), buildProductTenantWhere(tenantId)));
     if (!updated) { res.status(404).json({ error: "NOT_FOUND" }); return; }
     res.json(mapProduct(updated, true));
   } catch (err) {
@@ -697,7 +706,7 @@ router.get("/admin/products/:id/cost-history", requirePrimaryAdmin, async (req, 
     const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
-    const [product] = await db.select({ id: productsTable.id }).from(productsTable).where(and(eq(productsTable.id, id), eq(productsTable.tenantId, tenantId)));
+    const [product] = await db.select({ id: productsTable.id }).from(productsTable).where(and(eq(productsTable.id, id), buildProductTenantWhere(tenantId)));
     if (!product) { res.status(404).json({ error: "NOT_FOUND" }); return; }
     const rows = await db
       .select()
@@ -717,7 +726,7 @@ router.delete("/admin/products/:id", requirePrimaryAdmin, async (req, res) => {
     const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
-    await db.delete(productsTable).where(and(eq(productsTable.id, id), eq(productsTable.tenantId, tenantId)));
+    await db.delete(productsTable).where(and(eq(productsTable.id, id), buildProductTenantWhere(tenantId)));
     res.json({ ok: true });
   } catch (err) {
     console.error("Delete product error:", err);
