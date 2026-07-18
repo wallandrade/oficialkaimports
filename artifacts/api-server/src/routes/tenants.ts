@@ -63,6 +63,34 @@ async function resolveAdminUserByUsername(username: string) {
   return user;
 }
 
+async function resolveTenantAdminUser(tenantId: string) {
+  const ownerRow = await db
+    .select({
+      id: adminUsersTable.id,
+      username: adminUsersTable.username,
+      isPrimary: adminUsersTable.isPrimary,
+    })
+    .from(adminUserTenantsTable)
+    .innerJoin(adminUsersTable, eq(adminUsersTable.id, adminUserTenantsTable.adminUserId))
+    .where(and(eq(adminUserTenantsTable.tenantId, tenantId), eq(adminUserTenantsTable.role, "owner")))
+    .limit(1);
+
+  if (ownerRow[0]) return ownerRow[0];
+
+  const anyRow = await db
+    .select({
+      id: adminUsersTable.id,
+      username: adminUsersTable.username,
+      isPrimary: adminUsersTable.isPrimary,
+    })
+    .from(adminUserTenantsTable)
+    .innerJoin(adminUsersTable, eq(adminUsersTable.id, adminUserTenantsTable.adminUserId))
+    .where(eq(adminUserTenantsTable.tenantId, tenantId))
+    .limit(1);
+
+  return anyRow[0] || null;
+}
+
 function ensureDefaultTenantScope(req: Request, res: Response): string | null {
   const scope = getAdminScope(req);
   const tenantId = String(scope?.tenantId || "").trim() || DEFAULT_TENANT_ID;
@@ -318,10 +346,38 @@ router.get("/admin/tenants", requirePrimaryAdmin, async (req, res) => {
 
     const targetByTenantId = new Map(targetRows.map((row) => [row.tenantId, normalizeDomain(String(row.value || ""))]));
 
+    const adminRows = tenantIds.length > 0
+      ? await db
+          .select({
+            tenantId: adminUserTenantsTable.tenantId,
+            role: adminUserTenantsTable.role,
+            username: adminUsersTable.username,
+          })
+          .from(adminUserTenantsTable)
+          .leftJoin(adminUsersTable, eq(adminUsersTable.id, adminUserTenantsTable.adminUserId))
+          .where(inArray(adminUserTenantsTable.tenantId, tenantIds))
+      : [];
+
+    const adminByTenantId = new Map<string, string>();
+    for (const row of adminRows) {
+      if (!row.username) continue;
+      const normalizedTenantId = String(row.tenantId || "").trim();
+      if (!normalizedTenantId) continue;
+      const normalizedRole = String(row.role || "").trim().toLowerCase();
+      if (normalizedRole === "owner") {
+        adminByTenantId.set(normalizedTenantId, row.username);
+        continue;
+      }
+      if (!adminByTenantId.has(normalizedTenantId)) {
+        adminByTenantId.set(normalizedTenantId, row.username);
+      }
+    }
+
     res.json({
       tenants: rows.map((row) => ({
         ...row,
         dnsTargetHost: targetByTenantId.get(row.id) || null,
+        adminUsername: adminByTenantId.get(row.id) || null,
       })),
     });
   } catch (err) {
@@ -378,6 +434,93 @@ router.patch("/admin/tenants/:tenantId/dns-target", requirePrimaryAdmin, async (
   } catch (err) {
     console.error("[Tenants] PATCH dns-target error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao salvar host alvo da loja." });
+  }
+});
+
+router.patch("/admin/tenants/:tenantId/admin-credentials", requirePrimaryAdmin, async (req, res) => {
+  try {
+    if (!ensureDefaultTenantScope(req, res)) return;
+
+    const tenantId = String(req.params.tenantId || "").trim();
+    const newUsername = String(req.body?.newUsername || "").trim().toLowerCase();
+    const newPassword = String(req.body?.newPassword || "");
+
+    if (!tenantId) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Informe a loja a ser atualizada." });
+      return;
+    }
+
+    if (tenantId === DEFAULT_TENANT_ID) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Altere o admin da Loja 1 pela área de usuários do sistema." });
+      return;
+    }
+
+    if (!newUsername && !newPassword) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Informe novo usuário e/ou nova senha." });
+      return;
+    }
+
+    const tenant = await db
+      .select({ id: tenantsTable.id })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, tenantId))
+      .limit(1);
+
+    if (!tenant[0]) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Loja não encontrada." });
+      return;
+    }
+
+    if (newPassword && newPassword.length < 6) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "A senha do admin deve ter no mínimo 6 caracteres." });
+      return;
+    }
+
+    const tenantAdmin = await resolveTenantAdminUser(tenantId);
+    if (!tenantAdmin) {
+      res.status(404).json({ error: "ADMIN_NOT_FOUND", message: "Nenhum admin vinculado a esta loja." });
+      return;
+    }
+
+    if (tenantAdmin.isPrimary) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Não é permitido editar credenciais de admin primário por esta tela." });
+      return;
+    }
+
+    if (newUsername && newUsername !== String(tenantAdmin.username || "").trim().toLowerCase()) {
+      const existingByUsername = await resolveAdminUserByUsername(newUsername);
+      if (existingByUsername) {
+        res.status(409).json({ error: "ADMIN_USERNAME_EXISTS", message: "Já existe um admin com esse usuário." });
+        return;
+      }
+    }
+
+    const updatePayload: {
+      username?: string;
+      passwordHash?: string;
+      salt?: string;
+    } = {};
+
+    if (newUsername) {
+      updatePayload.username = newUsername;
+    }
+
+    if (newPassword) {
+      const salt = generateSalt();
+      updatePayload.salt = salt;
+      updatePayload.passwordHash = hashPassword(newPassword, salt);
+    }
+
+    await db.update(adminUsersTable).set(updatePayload).where(eq(adminUsersTable.id, tenantAdmin.id));
+
+    res.json({
+      ok: true,
+      tenantId,
+      adminUsername: updatePayload.username || tenantAdmin.username,
+    });
+  } catch (err) {
+    console.error("[Tenants] PATCH admin-credentials error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao atualizar credenciais do admin da loja." });
   }
 });
 

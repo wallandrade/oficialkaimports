@@ -1072,6 +1072,7 @@ interface AdminTenant {
   status: string;
   domain: string | null;
   dnsTargetHost?: string | null;
+  adminUsername?: string | null;
   createdAt: string;
 }
 
@@ -1399,6 +1400,9 @@ export default function Admin() {
   const [tenantDeletingId, setTenantDeletingId] = useState<string | null>(null);
   const [tenantDnsTargetSavingId, setTenantDnsTargetSavingId] = useState<string | null>(null);
   const [tenantDnsTargetDrafts, setTenantDnsTargetDrafts] = useState<Record<string, string>>({});
+  const [tenantAdminSavingId, setTenantAdminSavingId] = useState<string | null>(null);
+  const [tenantAdminUsernameDrafts, setTenantAdminUsernameDrafts] = useState<Record<string, string>>({});
+  const [tenantAdminPasswordDrafts, setTenantAdminPasswordDrafts] = useState<Record<string, string>>({});
   const [tenantForm, setTenantForm] = useState({
     name: "",
     slug: "",
@@ -2073,6 +2077,7 @@ export default function Admin() {
       const data = await res.json() as { tenants: AdminTenant[] };
       setTenants(data.tenants || []);
       setTenantDnsTargetDrafts(Object.fromEntries((data.tenants || []).map((tenant) => [tenant.id, tenant.dnsTargetHost || ""])));
+      setTenantAdminUsernameDrafts(Object.fromEntries((data.tenants || []).map((tenant) => [tenant.id, tenant.adminUsername || ""])));
     } catch {
       toast.error("Erro ao carregar lojas.");
     } finally {
@@ -2245,6 +2250,57 @@ export default function Admin() {
       setTenantDnsTargetSavingId(null);
     }
   }, [canManageTenants, fetchDnsGuide, fetchTenants, handleUnauthorized, tenantDnsTargetDrafts]);
+
+  const saveTenantAdminCredentials = useCallback(async (tenant: AdminTenant) => {
+    if (!canManageTenants) return;
+    if (tenant.id === "tenant_loja1") {
+      toast.warning("Altere o admin da Loja 1 pela aba de usuários.");
+      return;
+    }
+
+    const newUsername = String(tenantAdminUsernameDrafts[tenant.id] || "").trim().toLowerCase();
+    const newPassword = String(tenantAdminPasswordDrafts[tenant.id] || "");
+    const currentUsername = String(tenant.adminUsername || "").trim().toLowerCase();
+    const usernameChanged = !!newUsername && newUsername !== currentUsername;
+    const passwordChanged = newPassword.length > 0;
+
+    if (!usernameChanged && !passwordChanged) {
+      toast.info("Informe um novo usuário e/ou uma nova senha para salvar.");
+      return;
+    }
+    if (passwordChanged && newPassword.length < 6) {
+      toast.error("A nova senha deve ter no mínimo 6 caracteres.");
+      return;
+    }
+
+    setTenantAdminSavingId(tenant.id);
+    try {
+      const res = await fetch(`${BASE}/api/admin/tenants/${encodeURIComponent(tenant.id)}/admin-credentials`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          newUsername: usernameChanged ? newUsername : "",
+          newPassword: passwordChanged ? newPassword : "",
+        }),
+      });
+
+      if (res.status === 401) { handleUnauthorized(); return; }
+
+      const data = await res.json().catch(() => null) as { message?: string } | null;
+      if (!res.ok) {
+        toast.error(data?.message || "Erro ao atualizar usuário/senha do admin da loja.");
+        return;
+      }
+
+      toast.success("Credenciais do admin da loja atualizadas.");
+      setTenantAdminPasswordDrafts((prev) => ({ ...prev, [tenant.id]: "" }));
+      await fetchTenants();
+    } catch {
+      toast.error("Erro ao atualizar usuário/senha do admin da loja.");
+    } finally {
+      setTenantAdminSavingId(null);
+    }
+  }, [canManageTenants, fetchTenants, handleUnauthorized, tenantAdminPasswordDrafts, tenantAdminUsernameDrafts]);
 
   const checkDns = useCallback(async (domain: string, tenantId?: string) => {
     if (!canManageTenants) return;
@@ -6375,6 +6431,7 @@ export default function Admin() {
                           <p className="text-xs text-muted-foreground">ID: {tenant.id} · Slug: {tenant.slug}</p>
                           <p className="text-xs text-muted-foreground">Domínio: {tenant.domain || "não definido"}</p>
                           <p className="text-xs text-muted-foreground break-all">Host alvo: {tenant.dnsTargetHost || "usando alvo global"}</p>
+                          <p className="text-xs text-muted-foreground">Admin da loja: {tenant.adminUsername || "não vinculado"}</p>
                         </div>
                         <div className="text-xs flex items-center gap-2">
                           {tenant.domain ? (
@@ -6431,6 +6488,34 @@ export default function Admin() {
                           <span className="ml-2">Salvar alvo</span>
                         </Button>
                       </div>
+                      {tenant.id !== "tenant_loja1" ? (
+                        <div className="mt-2 grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2">
+                          <input
+                            type="text"
+                            value={tenantAdminUsernameDrafts[tenant.id] ?? tenant.adminUsername ?? ""}
+                            onChange={(e) => setTenantAdminUsernameDrafts((prev) => ({ ...prev, [tenant.id]: e.target.value }))}
+                            placeholder="Novo usuário admin da loja"
+                            className="h-10 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+                          />
+                          <input
+                            type="password"
+                            value={tenantAdminPasswordDrafts[tenant.id] ?? ""}
+                            onChange={(e) => setTenantAdminPasswordDrafts((prev) => ({ ...prev, [tenant.id]: e.target.value }))}
+                            placeholder="Nova senha admin (mínimo 6)"
+                            className="h-10 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-10"
+                            onClick={() => saveTenantAdminCredentials(tenant)}
+                            disabled={tenantAdminSavingId === tenant.id}
+                          >
+                            {tenantAdminSavingId === tenant.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                            <span className="ml-2">Salvar admin</span>
+                          </Button>
+                        </div>
+                      ) : null}
                     </div>
                   ))}
                 </div>
