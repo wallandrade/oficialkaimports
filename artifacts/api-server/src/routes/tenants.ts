@@ -244,6 +244,45 @@ router.get("/admin/tenants", requirePrimaryAdmin, async (req, res) => {
   }
 });
 
+router.delete("/admin/tenants/:tenantId", requirePrimaryAdmin, async (req, res) => {
+  try {
+    if (!ensureDefaultTenantScope(req, res)) return;
+
+    const tenantId = String(req.params.tenantId || "").trim();
+    if (!tenantId) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Informe a loja a ser excluída." });
+      return;
+    }
+
+    if (tenantId === DEFAULT_TENANT_ID) {
+      res.status(403).json({ error: "FORBIDDEN", message: "A Loja 1 não pode ser excluída." });
+      return;
+    }
+
+    const existing = await db
+      .select({ id: tenantsTable.id, name: tenantsTable.name })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, tenantId))
+      .limit(1);
+
+    if (!existing[0]) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Loja não encontrada." });
+      return;
+    }
+
+    await db.transaction(async (tx) => {
+      await tx.delete(adminUserTenantsTable).where(eq(adminUserTenantsTable.tenantId, tenantId));
+      await tx.delete(tenantSettingsTable).where(eq(tenantSettingsTable.tenantId, tenantId));
+      await tx.delete(tenantsTable).where(eq(tenantsTable.id, tenantId));
+    });
+
+    res.json({ ok: true, tenantId, name: existing[0].name });
+  } catch (err) {
+    console.error("[Tenants] DELETE error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao excluir loja." });
+  }
+});
+
 router.post("/admin/tenants", requirePrimaryAdmin, async (req, res) => {
   try {
     if (!ensureDefaultTenantScope(req, res)) return;

@@ -1394,6 +1394,7 @@ export default function Admin() {
   const [tenants, setTenants] = useState<AdminTenant[]>([]);
   const [tenantsLoading, setTenantsLoading] = useState(false);
   const [tenantCreating, setTenantCreating] = useState(false);
+  const [tenantDeletingId, setTenantDeletingId] = useState<string | null>(null);
   const [tenantForm, setTenantForm] = useState({
     name: "",
     slug: "",
@@ -2143,6 +2144,40 @@ export default function Admin() {
       setTenantCreating(false);
     }
   }, [canManageTenants, fetchTenants, handleUnauthorized, tenantForm]);
+
+  const deleteTenant = useCallback(async (tenant: AdminTenant) => {
+    if (!canManageTenants) return;
+    if (tenant.id === "tenant_loja1") {
+      toast.error("A Loja 1 não pode ser excluída.");
+      return;
+    }
+
+    const confirmed = window.confirm(`Excluir a loja ${tenant.name}? Essa ação não pode ser desfeita.`);
+    if (!confirmed) return;
+
+    setTenantDeletingId(tenant.id);
+    try {
+      const res = await fetch(`${BASE}/api/admin/tenants/${encodeURIComponent(tenant.id)}`, {
+        method: "DELETE",
+        headers: authHeaders(),
+      });
+
+      if (res.status === 401) { handleUnauthorized(); return; }
+
+      const data = await res.json().catch(() => null) as { message?: string } | null;
+      if (!res.ok) {
+        toast.error(data?.message || "Erro ao excluir loja.");
+        return;
+      }
+
+      toast.success(`Loja ${tenant.name} excluída com sucesso.`);
+      await fetchTenants();
+    } catch {
+      toast.error("Erro ao excluir loja.");
+    } finally {
+      setTenantDeletingId(null);
+    }
+  }, [canManageTenants, fetchTenants, handleUnauthorized]);
 
   const fetchDnsGuide = useCallback(async (domain?: string) => {
     if (!canManageTenants) return;
@@ -6303,6 +6338,22 @@ export default function Admin() {
                               }}
                             >
                               Verificar DNS
+                            </Button>
+                          ) : null}
+                          {tenant.id !== "tenant_loja1" ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-7 px-2 text-xs border-red-200 text-red-700 hover:bg-red-50"
+                              onClick={() => deleteTenant(tenant)}
+                              disabled={tenantDeletingId === tenant.id}
+                            >
+                              {tenantDeletingId === tenant.id ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="w-3.5 h-3.5" />
+                              )}
+                              <span className="ml-1">Excluir</span>
                             </Button>
                           ) : null}
                           <span className={`px-2 py-1 rounded-full ${tenant.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-700"}`}>
