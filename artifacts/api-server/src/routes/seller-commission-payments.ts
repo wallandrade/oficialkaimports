@@ -14,7 +14,6 @@ type CommissionOrderRow = {
   status: string;
   createdAt: Date | string;
   sellerCommissionRateSnapshot: string | number | null;
-  sellerCommissionBatchId: string | null;
 };
 
 function parseOrderIds(raw: unknown): string[] {
@@ -75,17 +74,16 @@ function getBatchDateKey(value: Date | string | null | undefined): string | null
   return direct || toSaoPauloDateKey(value);
 }
 
-function calcCommission(order: CommissionOrderRow): number {
-  const total = Number(order.total || 0);
-  const rate = Number(order.sellerCommissionRateSnapshot || 0);
-  if (!Number.isFinite(total) || !Number.isFinite(rate) || total <= 0 || rate <= 0) return 0;
-  return Math.round(total * (rate / 100) * 100) / 100;
+function normalizeSellerCode(value: string | null | undefined): string {
+  return String(value || "").trim().toLowerCase();
 }
 
-function isPendingByBatchLink(batchId: string | null | undefined, existingBatchIds: Set<string>): boolean {
-  const normalized = String(batchId || "").trim();
-  if (!normalized) return true;
-  return !existingBatchIds.has(normalized);
+function calcCommission(order: CommissionOrderRow): number {
+  const total = Number(order.total || 0);
+  const snapshotRate = Number(order.sellerCommissionRateSnapshot || 0);
+  const rate = snapshotRate > 0 ? snapshotRate : 5;
+  if (!Number.isFinite(total) || !Number.isFinite(rate) || total <= 0 || rate <= 0) return 0;
+  return Math.round(total * (rate / 100) * 100) / 100;
 }
 
 router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, res) => {
@@ -98,12 +96,13 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
 
     const { sellerCode, dateFrom, dateTo } = req.query as Record<string, string>;
     const effectiveSellerCode = String(sellerCode || "").trim().toLowerCase();
-    if (!scope.hasGlobalAccess && effectiveSellerCode && effectiveSellerCode !== scope.sellerCode) {
+    const scopedSellerCode = normalizeSellerCode(scope.sellerCode);
+    if (!scope.hasGlobalAccess && effectiveSellerCode && effectiveSellerCode !== scopedSellerCode) {
       res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para outro vendedor." });
       return;
     }
 
-    const activeSellerCode = scope.hasGlobalAccess ? effectiveSellerCode : (scope.sellerCode || "");
+    const activeSellerCode = scope.hasGlobalAccess ? effectiveSellerCode : scopedSellerCode;
     const dateConditions = [];
     const startDate = normalizeDate(dateFrom, "start");
     const endDate = normalizeDate(dateTo, "end");
@@ -113,9 +112,6 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
     const pendingConditions = [
       inArray(ordersTable.status, ["paid", "completed"]),
     ];
-    if (activeSellerCode) {
-      pendingConditions.push(eq(ordersTable.sellerCode, activeSellerCode));
-    }
     pendingConditions.push(...dateConditions);
 
     const pendingRows = await db
@@ -127,26 +123,22 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
         status: ordersTable.status,
         createdAt: ordersTable.createdAt,
         sellerCommissionRateSnapshot: ordersTable.sellerCommissionRateSnapshot,
-        sellerCommissionBatchId: ordersTable.sellerCommissionBatchId,
       })
       .from(ordersTable)
       .where(pendingConditions.length > 0 ? and(...pendingConditions) : undefined)
       .orderBy(desc(ordersTable.createdAt));
 
-    const batchConditions = [];
-    if (activeSellerCode) {
-      batchConditions.push(eq(sellerCommissionPaymentsTable.sellerCode, activeSellerCode));
-    }
-
     const batchRows = await db
       .select()
       .from(sellerCommissionPaymentsTable)
-      .where(batchConditions.length > 0 ? and(...batchConditions) : undefined)
       .orderBy(desc(sellerCommissionPaymentsTable.createdAt));
 
-    const existingBatchIds = new Set(batchRows.map((batch) => String(batch.id || "").trim()).filter(Boolean));
+    const scopedBatchRows = batchRows.filter((batch) => {
+      if (!activeSellerCode) return true;
+      return normalizeSellerCode(batch.sellerCode) === activeSellerCode;
+    });
 
-    const paidWindows = batchRows
+    const paidWindows = scopedBatchRows
       .filter((batch) => batch.status === "paid")
       .map((batch) => {
         const start = getBatchDateKey(batch.periodStartDate || batch.periodStart);
@@ -161,7 +153,10 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
       .filter((window): window is { sellerCode: string; start: string; end: string } => Boolean(window));
 
     const pendingOrders = pendingRows
-      .filter((row) => isPendingByBatchLink(row.sellerCommissionBatchId, existingBatchIds))
+      .filter((row) => {
+        if (!activeSellerCode) return true;
+        return normalizeSellerCode(row.sellerCode) === activeSellerCode;
+      })
       .map((row) => ({
         id: row.id,
         sellerCode: row.sellerCode ?? null,
@@ -170,7 +165,6 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
         status: row.status,
         createdAt: toIso(row.createdAt),
         sellerCommissionRateSnapshot: Number(row.sellerCommissionRateSnapshot || 0),
-        sellerCommissionBatchId: row.sellerCommissionBatchId,
         commissionAmount: calcCommission(row),
       }))
       .filter((row) => row.commissionAmount > 0)
@@ -186,7 +180,7 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
         });
       });
 
-    const batches = batchRows.map((batch) => ({
+    const batches = scopedBatchRows.map((batch) => ({
       id: batch.id,
       sellerCode: batch.sellerCode,
       orderIds: parseOrderIds(batch.orderIds),
@@ -225,12 +219,13 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
     };
 
     const effectiveSellerCode = String(sellerCode || "").trim().toLowerCase();
-    if (!scope.hasGlobalAccess && effectiveSellerCode && effectiveSellerCode !== scope.sellerCode) {
+    const scopedSellerCode = normalizeSellerCode(scope.sellerCode);
+    if (!scope.hasGlobalAccess && effectiveSellerCode && effectiveSellerCode !== scopedSellerCode) {
       res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para outro vendedor." });
       return;
     }
 
-    const targetSellerCode = scope.hasGlobalAccess ? effectiveSellerCode : (scope.sellerCode || "");
+    const targetSellerCode = scope.hasGlobalAccess ? effectiveSellerCode : scopedSellerCode;
     if (!targetSellerCode) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Selecione um vendedor." });
       return;
@@ -245,7 +240,6 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
     const orderIdList = Array.isArray(orderIds) ? Array.from(new Set(orderIds.map((value) => String(value || "").trim()).filter(Boolean))) : [];
 
     const conditions = [
-      eq(ordersTable.sellerCode, targetSellerCode),
       inArray(ordersTable.status, ["paid", "completed"]),
       ...dateConditions,
     ];
@@ -263,20 +257,28 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
         status: ordersTable.status,
         createdAt: ordersTable.createdAt,
         sellerCommissionRateSnapshot: ordersTable.sellerCommissionRateSnapshot,
-        sellerCommissionBatchId: ordersTable.sellerCommissionBatchId,
       })
       .from(ordersTable)
       .where(and(...conditions))
       .orderBy(desc(ordersTable.createdAt));
 
     const sellerBatchRows = await db
-      .select({ id: sellerCommissionPaymentsTable.id })
+      .select()
       .from(sellerCommissionPaymentsTable)
       .where(eq(sellerCommissionPaymentsTable.sellerCode, targetSellerCode));
-    const sellerBatchIds = new Set(sellerBatchRows.map((batch) => String(batch.id || "").trim()).filter(Boolean));
+
+    const paidWindows = sellerBatchRows
+      .filter((batch) => batch.status === "paid")
+      .map((batch) => {
+        const start = getBatchDateKey(batch.periodStartDate || batch.periodStart);
+        const end = getBatchDateKey(batch.periodEndDate || batch.periodEnd);
+        if (!start || !end) return null;
+        return { sellerCode: targetSellerCode, start, end };
+      })
+      .filter((window): window is { sellerCode: string; start: string; end: string } => Boolean(window));
 
     const eligibleOrders = rows
-      .filter((row) => isPendingByBatchLink(row.sellerCommissionBatchId, sellerBatchIds))
+      .filter((row) => normalizeSellerCode(row.sellerCode) === targetSellerCode)
       .map((row) => ({
         id: row.id,
         sellerCode: row.sellerCode ?? null,
@@ -285,10 +287,20 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
         status: row.status,
         createdAt: toIso(row.createdAt),
         sellerCommissionRateSnapshot: Number(row.sellerCommissionRateSnapshot || 0),
-        sellerCommissionBatchId: row.sellerCommissionBatchId,
         commissionAmount: calcCommission(row),
       }))
-      .filter((row) => row.commissionAmount > 0);
+      .filter((row) => row.commissionAmount > 0)
+      .filter((row) => {
+        const rowSeller = String(row.sellerCode || "").trim().toLowerCase();
+        const rowDateKey = toSaoPauloDateKey(row.createdAt);
+        if (!rowSeller || !rowDateKey) return true;
+        return !paidWindows.some((window) => {
+          if (window.sellerCode !== rowSeller) return false;
+          const start = window.start <= window.end ? window.start : window.end;
+          const end = window.start <= window.end ? window.end : window.start;
+          return rowDateKey >= start && rowDateKey <= end;
+        });
+      });
 
     if (eligibleOrders.length === 0) {
       res.status(400).json({ error: "NO_ELIGIBLE_ORDERS", message: "Nenhum pedido elegível encontrado." });
@@ -368,7 +380,7 @@ router.patch("/admin/seller-commission-payments/:id/pay", requireAdminAuth, asyn
       return;
     }
 
-    if (!scope.hasGlobalAccess && existing[0].sellerCode !== scope.sellerCode) {
+    if (!scope.hasGlobalAccess && normalizeSellerCode(existing[0].sellerCode) !== normalizeSellerCode(scope.sellerCode)) {
       res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para este lote." });
       return;
     }
