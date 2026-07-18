@@ -1,6 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db, adminUserTenantsTable, adminUsersTable, tenantSettingsTable, tenantsTable } from "@workspace/db";
 import { and, asc, eq } from "drizzle-orm";
+import dns from "node:dns/promises";
 import { getAdminScope, requirePrimaryAdmin } from "./admin-auth";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-context";
 
@@ -57,6 +58,155 @@ function ensureDefaultTenantScope(req: Request, res: Response): string | null {
   }
   return tenantId;
 }
+
+function getCurrentRequestHost(req: Request): string {
+  const fromForwarded = String(req.get("x-forwarded-host") || "").trim().toLowerCase();
+  if (fromForwarded) return fromForwarded.split(",")[0]?.trim() || "";
+  return String(req.get("host") || "").trim().toLowerCase();
+}
+
+function getDnsTargetHost(req: Request): string {
+  const explicit = normalizeDomain(String(process.env.TENANT_DNS_TARGET_HOST || process.env.APP_PRIMARY_DOMAIN || ""));
+  if (explicit) return explicit;
+
+  const replitPrimary = String(process.env.REPLIT_DOMAINS || "").split(",")[0]?.trim();
+  const fromReplit = normalizeDomain(replitPrimary || "");
+  if (fromReplit) return fromReplit;
+
+  return normalizeDomain(getCurrentRequestHost(req));
+}
+
+function getDnsInstructions(domain: string, targetHost: string): {
+  host: string;
+  type: "CNAME" | "ALIAS/A";
+  name: string;
+  value: string;
+  note: string;
+} {
+  const normalizedDomain = normalizeDomain(domain);
+  const parts = normalizedDomain.split(".");
+  const isSubdomain = parts.length > 2;
+
+  if (isSubdomain) {
+    const root = parts.slice(-2).join(".");
+    const name = normalizedDomain.slice(0, Math.max(0, normalizedDomain.length - root.length - 1));
+    return {
+      host: normalizedDomain,
+      type: "CNAME",
+      name,
+      value: targetHost,
+      note: "Crie este CNAME no seu provedor DNS. Exemplo: Cloudflare/Registro.br.",
+    };
+  }
+
+  return {
+    host: normalizedDomain,
+    type: "ALIAS/A",
+    name: "@",
+    value: targetHost,
+    note: "Para domínio raiz, use ALIAS/ANAME para o host alvo, ou A record conforme instrução da hospedagem.",
+  };
+}
+
+function unique(values: string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean).map((v) => v.trim().toLowerCase())));
+}
+
+async function safeResolveCname(host: string): Promise<string[]> {
+  try {
+    return unique(await dns.resolveCname(host));
+  } catch {
+    return [];
+  }
+}
+
+async function safeResolveA(host: string): Promise<string[]> {
+  try {
+    return unique(await dns.resolve4(host));
+  } catch {
+    return [];
+  }
+}
+
+async function safeResolveNs(host: string): Promise<string[]> {
+  try {
+    return unique(await dns.resolveNs(host));
+  } catch {
+    return [];
+  }
+}
+
+router.get("/admin/tenants/dns-guide", requirePrimaryAdmin, async (req, res) => {
+  try {
+    if (!ensureDefaultTenantScope(req, res)) return;
+
+    const targetHost = getDnsTargetHost(req);
+    const domain = normalizeDomain(String(req.query.domain || ""));
+    const instructions = domain && targetHost ? getDnsInstructions(domain, targetHost) : null;
+
+    res.json({
+      targetHost,
+      envTargetHost: normalizeDomain(String(process.env.TENANT_DNS_TARGET_HOST || process.env.APP_PRIMARY_DOMAIN || "")) || null,
+      instructions,
+    });
+  } catch (err) {
+    console.error("[Tenants] DNS guide error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao gerar instruções de DNS." });
+  }
+});
+
+router.get("/admin/tenants/dns-check", requirePrimaryAdmin, async (req, res) => {
+  try {
+    if (!ensureDefaultTenantScope(req, res)) return;
+
+    const domain = normalizeDomain(String(req.query.domain || ""));
+    if (!domain) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Informe um domínio para verificar." });
+      return;
+    }
+
+    const targetHost = getDnsTargetHost(req);
+    const [domainCname, domainA, targetA, nameservers] = await Promise.all([
+      safeResolveCname(domain),
+      safeResolveA(domain),
+      targetHost ? safeResolveA(targetHost) : Promise.resolve([]),
+      safeResolveNs(domain),
+    ]);
+
+    const cnameMatch = targetHost ? domainCname.some((entry) => normalizeDomain(entry) === targetHost) : false;
+    const targetASet = new Set(targetA);
+    const aMatch = domainA.some((ip) => targetASet.has(ip));
+
+    const status = cnameMatch || aMatch
+      ? "configured"
+      : domainCname.length > 0 || domainA.length > 0
+        ? "misconfigured"
+        : "not_found";
+
+    res.json({
+      domain,
+      targetHost,
+      status,
+      cnameMatch,
+      aMatch,
+      dns: {
+        cname: domainCname,
+        a: domainA,
+        targetA,
+        nameservers,
+      },
+      message:
+        status === "configured"
+          ? "Domínio apontado corretamente."
+          : status === "misconfigured"
+            ? "Domínio encontrado, mas ainda não aponta para este servidor."
+            : "Nenhum registro DNS encontrado para este domínio.",
+    });
+  } catch (err) {
+    console.error("[Tenants] DNS check error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao verificar DNS." });
+  }
+});
 
 router.get("/admin/tenants", requirePrimaryAdmin, async (req, res) => {
   try {

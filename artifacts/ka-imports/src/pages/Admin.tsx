@@ -1074,6 +1074,33 @@ interface AdminTenant {
   createdAt: string;
 }
 
+interface DnsGuideResponse {
+  targetHost: string;
+  envTargetHost: string | null;
+  instructions: {
+    host: string;
+    type: "CNAME" | "ALIAS/A";
+    name: string;
+    value: string;
+    note: string;
+  } | null;
+}
+
+interface DnsCheckResponse {
+  domain: string;
+  targetHost: string;
+  status: "configured" | "misconfigured" | "not_found";
+  cnameMatch: boolean;
+  aMatch: boolean;
+  dns: {
+    cname: string[];
+    a: string[];
+    targetA: string[];
+    nameservers: string[];
+  };
+  message: string;
+}
+
 // ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
@@ -1374,6 +1401,11 @@ export default function Admin() {
     adminUsername: "",
     cloneSettingsFromDefault: true,
   });
+  const [dnsDomainInput, setDnsDomainInput] = useState("");
+  const [dnsGuide, setDnsGuide] = useState<DnsGuideResponse | null>(null);
+  const [dnsGuideLoading, setDnsGuideLoading] = useState(false);
+  const [dnsCheckLoading, setDnsCheckLoading] = useState(false);
+  const [dnsCheckResult, setDnsCheckResult] = useState<DnsCheckResponse | null>(null);
   const [brevoApiKey, setBrevoApiKey] = useState("");
   const [brevoConfigured, setBrevoConfigured] = useState(false);
   const [brevoTesting, setBrevoTesting] = useState(false);
@@ -2079,12 +2111,74 @@ export default function Admin() {
         cloneSettingsFromDefault: true,
       });
       fetchTenants();
+      if (payload.domain) {
+        setDnsDomainInput(payload.domain);
+      }
     } catch {
       toast.error("Erro ao criar loja.");
     } finally {
       setTenantCreating(false);
     }
   }, [canManageTenants, fetchTenants, handleUnauthorized, tenantForm]);
+
+  const fetchDnsGuide = useCallback(async (domain?: string) => {
+    if (!canManageTenants) return;
+    setDnsGuideLoading(true);
+    try {
+      const params = new URLSearchParams();
+      const normalizedDomain = String(domain || "").trim();
+      if (normalizedDomain) params.set("domain", normalizedDomain);
+      const suffix = params.toString() ? `?${params.toString()}` : "";
+
+      const res = await fetch(`${BASE}/api/admin/tenants/dns-guide${suffix}`, { headers: authHeaders() });
+      if (res.status === 401) { handleUnauthorized(); return; }
+      if (!res.ok) {
+        const data = await res.json().catch(() => null) as { message?: string } | null;
+        toast.error(data?.message || "Erro ao carregar instruções DNS.");
+        return;
+      }
+      const data = await res.json() as DnsGuideResponse;
+      setDnsGuide(data);
+    } catch {
+      toast.error("Erro ao carregar instruções DNS.");
+    } finally {
+      setDnsGuideLoading(false);
+    }
+  }, [canManageTenants, handleUnauthorized]);
+
+  const checkDns = useCallback(async (domain: string) => {
+    if (!canManageTenants) return;
+    const cleanDomain = String(domain || "").trim();
+    if (!cleanDomain) {
+      toast.error("Informe um domínio para verificar.");
+      return;
+    }
+
+    setDnsCheckLoading(true);
+    try {
+      const params = new URLSearchParams({ domain: cleanDomain });
+      const res = await fetch(`${BASE}/api/admin/tenants/dns-check?${params.toString()}`, { headers: authHeaders() });
+      if (res.status === 401) { handleUnauthorized(); return; }
+      const data = await res.json().catch(() => null) as (DnsCheckResponse & { message?: string }) | null;
+      if (!res.ok || !data) {
+        toast.error(data?.message || "Erro ao verificar DNS.");
+        return;
+      }
+
+      setDnsCheckResult(data);
+      if (data.status === "configured") {
+        toast.success("Domínio apontado corretamente.");
+      } else if (data.status === "misconfigured") {
+        toast.warning("Domínio encontrado, mas ainda não aponta para este servidor.");
+      } else {
+        toast.info("Domínio sem registros detectados no momento.");
+      }
+    } catch {
+      toast.error("Erro ao verificar DNS.");
+    } finally {
+      setDnsCheckLoading(false);
+    }
+  }, [canManageTenants, handleUnauthorized]);
 
   const fetchBrevoStatus = useCallback(async () => {
     try {
@@ -2467,9 +2561,9 @@ export default function Admin() {
     else if (tab === "commissions") { fetchCommissionPayments(); }
     else if (tab === "socialProof") { fetchSocialProof(); fetchProducts(); }
     else if (tab === "raffles")    fetchRaffles();
-    else if (tab === "lojas")      fetchTenants();
+    else if (tab === "lojas")      { fetchTenants(); fetchDnsGuide(dnsDomainInput); }
     else setLoading(false);
-  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchSellers, fetchSellerData, fetchShippingOptions, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchCommissionPayments, fetchSocialProof, fetchRaffles, fetchTenants]);
+  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchSellers, fetchSellerData, fetchShippingOptions, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchCommissionPayments, fetchSocialProof, fetchRaffles, fetchTenants, fetchDnsGuide, dnsDomainInput]);
 
   // -------------------------------------------------------------------------
   // SSE
@@ -6013,7 +6107,11 @@ export default function Admin() {
                 <input
                   type="text"
                   value={tenantForm.domain}
-                  onChange={(e) => setTenantForm((p) => ({ ...p, domain: e.target.value }))}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setTenantForm((p) => ({ ...p, domain: value }));
+                    setDnsDomainInput(value);
+                  }}
                   placeholder="Domínio público (ex: loja2.seudominio.com)"
                   className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
                 />
@@ -6046,6 +6144,68 @@ export default function Admin() {
               </div>
             </div>
 
+            <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-base font-bold">Assistente DNS</h3>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9"
+                  onClick={() => fetchDnsGuide(dnsDomainInput)}
+                  disabled={dnsGuideLoading}
+                >
+                  {dnsGuideLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                  <span className="ml-2">Atualizar alvo</span>
+                </Button>
+              </div>
+
+              <div className="rounded-xl border border-border bg-muted/20 p-3 text-sm">
+                <p className="text-muted-foreground">Host alvo da aplicação</p>
+                <p className="font-semibold text-foreground break-all">{dnsGuide?.targetHost || "carregando..."}</p>
+                <p className="text-xs text-muted-foreground mt-1">Configure TENANT_DNS_TARGET_HOST no backend se quiser forçar um host alvo específico.</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-2">
+                <input
+                  type="text"
+                  value={dnsDomainInput}
+                  onChange={(e) => setDnsDomainInput(e.target.value)}
+                  placeholder="Domínio para verificar (ex: loja2.seudominio.com)"
+                  className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+                />
+                <Button type="button" variant="outline" className="h-11" onClick={() => fetchDnsGuide(dnsDomainInput)} disabled={dnsGuideLoading}>
+                  Instrução
+                </Button>
+                <Button type="button" className="h-11" onClick={() => checkDns(dnsDomainInput)} disabled={dnsCheckLoading}>
+                  {dnsCheckLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Verificar DNS"}
+                </Button>
+              </div>
+
+              {dnsGuide?.instructions && (
+                <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm space-y-1">
+                  <p className="font-semibold text-blue-900">Registro recomendado</p>
+                  <p className="text-blue-900">Tipo: <strong>{dnsGuide.instructions.type}</strong></p>
+                  <p className="text-blue-900">Nome/Host: <strong>{dnsGuide.instructions.name}</strong></p>
+                  <p className="text-blue-900 break-all">Valor/Destino: <strong>{dnsGuide.instructions.value}</strong></p>
+                  <p className="text-xs text-blue-800">{dnsGuide.instructions.note}</p>
+                </div>
+              )}
+
+              {dnsCheckResult && (
+                <div className="rounded-xl border border-border bg-white p-3 text-sm space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2 py-1 rounded-full text-xs font-semibold ${dnsCheckResult.status === "configured" ? "bg-emerald-100 text-emerald-700" : dnsCheckResult.status === "misconfigured" ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-700"}`}>
+                      {dnsCheckResult.status === "configured" ? "Configurado" : dnsCheckResult.status === "misconfigured" ? "Incorreto" : "Sem registro"}
+                    </span>
+                    <span className="text-muted-foreground">{dnsCheckResult.message}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground break-all">CNAME: {dnsCheckResult.dns.cname.length ? dnsCheckResult.dns.cname.join(", ") : "-"}</p>
+                  <p className="text-xs text-muted-foreground break-all">A: {dnsCheckResult.dns.a.length ? dnsCheckResult.dns.a.join(", ") : "-"}</p>
+                  <p className="text-xs text-muted-foreground break-all">Target A: {dnsCheckResult.dns.targetA.length ? dnsCheckResult.dns.targetA.join(", ") : "-"}</p>
+                </div>
+              )}
+            </div>
+
             <div className="rounded-2xl border border-border bg-card p-5">
               <div className="flex items-center justify-between mb-4 gap-2">
                 <h3 className="text-base font-bold">Lojas cadastradas</h3>
@@ -6069,7 +6229,21 @@ export default function Admin() {
                           <p className="text-xs text-muted-foreground">ID: {tenant.id} · Slug: {tenant.slug}</p>
                           <p className="text-xs text-muted-foreground">Domínio: {tenant.domain || "não definido"}</p>
                         </div>
-                        <div className="text-xs">
+                        <div className="text-xs flex items-center gap-2">
+                          {tenant.domain ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-7 px-2 text-xs"
+                              onClick={() => {
+                                setDnsDomainInput(tenant.domain || "");
+                                fetchDnsGuide(tenant.domain || "");
+                                checkDns(tenant.domain || "");
+                              }}
+                            >
+                              Verificar DNS
+                            </Button>
+                          ) : null}
                           <span className={`px-2 py-1 rounded-full ${tenant.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-700"}`}>
                             {tenant.status}
                           </span>
