@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, siteSettingsTable, tenantSettingsTable } from "@workspace/db";
+import { db, pool, siteSettingsTable, tenantSettingsTable } from "@workspace/db";
 import { and, eq, isNull, or } from "drizzle-orm";
 import { getAdminScope, requirePrimaryAdmin } from "./admin-auth";
 import { getR2MissingConfig, isR2Configured, uploadSiteSettingImageToR2 } from "../lib/r2";
@@ -53,11 +53,40 @@ function buildTenantSettingsTenantWhere(tenantId: string) {
   return eq(tenantSettingsTable.tenantId, tenantId);
 }
 
+function isMissingTenantSettingsTableError(err: unknown): boolean {
+  const e = err as { code?: string; message?: string; sqlMessage?: string } | null;
+  const text = `${String(e?.message || "")} ${String(e?.sqlMessage || "")}`.toLowerCase();
+  return String(e?.code || "") === "ER_NO_SUCH_TABLE" || text.includes("tenant_settings") && text.includes("doesn't exist");
+}
+
+async function ensureTenantSettingsTableExists(): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS tenant_settings (
+      tenant_id VARCHAR(255) NOT NULL,
+      key VARCHAR(255) NOT NULL,
+      value TEXT NOT NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (tenant_id, key),
+      KEY tenant_settings_key_idx (key)
+    )
+  `);
+}
+
 async function getTenantSettingsMap(tenantId: string): Promise<Record<string, string>> {
-  const rows = await db
-    .select()
-    .from(tenantSettingsTable)
-    .where(buildTenantSettingsTenantWhere(tenantId));
+  let rows: Array<typeof tenantSettingsTable.$inferSelect> = [];
+  try {
+    rows = await db
+      .select()
+      .from(tenantSettingsTable)
+      .where(buildTenantSettingsTenantWhere(tenantId));
+  } catch (err) {
+    if (!isMissingTenantSettingsTableError(err)) throw err;
+    await ensureTenantSettingsTableExists();
+    rows = await db
+      .select()
+      .from(tenantSettingsTable)
+      .where(buildTenantSettingsTenantWhere(tenantId));
+  }
 
   const out: Record<string, string> = {};
   for (const row of rows) {
@@ -75,19 +104,36 @@ async function getTenantSettingsMap(tenantId: string): Promise<Record<string, st
 }
 
 async function deleteTenantSetting(tenantId: string, key: string): Promise<void> {
-  await db.delete(tenantSettingsTable).where(and(buildTenantSettingsTenantWhere(tenantId), eq(tenantSettingsTable.key, key)));
+  try {
+    await db.delete(tenantSettingsTable).where(and(buildTenantSettingsTenantWhere(tenantId), eq(tenantSettingsTable.key, key)));
+  } catch (err) {
+    if (!isMissingTenantSettingsTableError(err)) throw err;
+    await ensureTenantSettingsTableExists();
+    await db.delete(tenantSettingsTable).where(and(buildTenantSettingsTenantWhere(tenantId), eq(tenantSettingsTable.key, key)));
+  }
   if (tenantId === DEFAULT_TENANT_ID) {
     await db.delete(siteSettingsTable).where(eq(siteSettingsTable.key, key));
   }
 }
 
 async function upsertTenantSetting(tenantId: string, key: string, value: string): Promise<void> {
-  await db
-    .insert(tenantSettingsTable)
-    .values({ tenantId, key, value, updatedAt: new Date() })
-    .onDuplicateKeyUpdate({
-      set: { value, updatedAt: new Date() },
-    });
+  try {
+    await db
+      .insert(tenantSettingsTable)
+      .values({ tenantId, key, value, updatedAt: new Date() })
+      .onDuplicateKeyUpdate({
+        set: { value, updatedAt: new Date() },
+      });
+  } catch (err) {
+    if (!isMissingTenantSettingsTableError(err)) throw err;
+    await ensureTenantSettingsTableExists();
+    await db
+      .insert(tenantSettingsTable)
+      .values({ tenantId, key, value, updatedAt: new Date() })
+      .onDuplicateKeyUpdate({
+        set: { value, updatedAt: new Date() },
+      });
+  }
 
   if (tenantId === DEFAULT_TENANT_ID) {
     await db
