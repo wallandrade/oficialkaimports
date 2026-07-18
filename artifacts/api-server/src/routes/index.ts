@@ -25,6 +25,7 @@ import marketingExpensesRouter from "./marketing-expenses";
 import supportRouter from "./support";
 import reshipmentsRouter from "./reshipments";
 import clientErrorsRouter from "./client-errors";
+import tenantsRouter from "./tenants";
 
 import brevoRouter from "./brevo";
 const router: IRouter = Router();
@@ -55,6 +56,7 @@ router.use(rafflesRouter);
 router.use(supportRouter);
 router.use(reshipmentsRouter);
 router.use(clientErrorsRouter);
+router.use(tenantsRouter);
 router.use(brevoRouter);
 
 export default router;

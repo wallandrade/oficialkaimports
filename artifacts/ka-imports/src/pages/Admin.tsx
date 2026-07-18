@@ -45,6 +45,9 @@ function getIsPrimary() {
 function getAdminUsername() {
   return localStorage.getItem("adminUsername") || "";
 }
+function getAdminTenantId() {
+  return localStorage.getItem("adminTenantId") || "tenant_loja1";
+}
 
 // Recupera o token do admin do localStorage
 function getToken() {
@@ -383,7 +386,7 @@ function formatRaffleDescriptionPreview(value: string | undefined | null): strin
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
-import { Loader2, Save, Plus, Trash2, X, CheckCircle, XCircle, Zap, Info, Pencil, MessageCircle, Tag, Bell, RefreshCw, Download, LogOut, QrCode, LinkIcon, Ticket, ShoppingBag, Clock, Upload, ChevronDown, ChevronUp, Copy, Users, Percent, Calendar, DollarSign, ShieldCheck, CreditCard, Truck, UserPlus, Eye, EyeOff, ToggleLeft, Webhook, ImageOff, Lock, AlertTriangle, Star, Send, Mail } from "lucide-react";
+import { Loader2, Save, Plus, Trash2, X, CheckCircle, XCircle, Zap, Info, Pencil, MessageCircle, Tag, Bell, RefreshCw, Download, LogOut, QrCode, LinkIcon, Ticket, ShoppingBag, Clock, Upload, ChevronDown, ChevronUp, Copy, Users, Percent, Calendar, DollarSign, ShieldCheck, CreditCard, Truck, UserPlus, Eye, EyeOff, ToggleLeft, Webhook, ImageOff, Lock, AlertTriangle, Star, Send, Mail, Store } from "lucide-react";
 import { IconLucide } from "@/components/ui/IconLucide";
 
 import { toast } from "sonner";
@@ -853,7 +856,7 @@ function OrderBumpsPanel({ bumps, products, form, setForm, creating, toggling, d
   );
 }
 
-type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "socialProof" | "raffles";
+type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "socialProof" | "raffles" | "lojas";
 
 const PRIMARY_ONLY_TABS = new Set<TabType>([
   "users",
@@ -865,6 +868,7 @@ const PRIMARY_ONLY_TABS = new Set<TabType>([
   "socialProof",
   "raffles",
   "configuracoes",
+  "lojas",
 ]);
 
 interface AdminRaffle {
@@ -1061,6 +1065,15 @@ interface ClientErrorEvent {
   ts: string;
 }
 
+interface AdminTenant {
+  id: string;
+  slug: string;
+  name: string;
+  status: string;
+  domain: string | null;
+  createdAt: string;
+}
+
 // ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
@@ -1184,6 +1197,7 @@ export default function Admin() {
   const [authChecked, setAuthChecked] = useState(false);
   const [isPrimary, setIsPrimary] = useState(getIsPrimary);
   const [currentUsername, setCurrentUsername] = useState(getAdminUsername);
+  const [adminTenantId, setAdminTenantId] = useState(getAdminTenantId);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [methodFilter, setMethodFilter] = useState("all");
@@ -1350,6 +1364,16 @@ export default function Admin() {
   // Site settings (logo, banners)
   const [settings, setSettings]         = useState<Record<string, string>>({});
   const [settingsLoading, setSettingsLoading] = useState<Record<string, boolean>>({});
+  const [tenants, setTenants] = useState<AdminTenant[]>([]);
+  const [tenantsLoading, setTenantsLoading] = useState(false);
+  const [tenantCreating, setTenantCreating] = useState(false);
+  const [tenantForm, setTenantForm] = useState({
+    name: "",
+    slug: "",
+    domain: "",
+    adminUsername: "",
+    cloneSettingsFromDefault: true,
+  });
   const [brevoApiKey, setBrevoApiKey] = useState("");
   const [brevoConfigured, setBrevoConfigured] = useState(false);
   const [brevoTesting, setBrevoTesting] = useState(false);
@@ -1362,6 +1386,7 @@ export default function Admin() {
   const swRef  = useRef<ServiceWorkerRegistration | null>(null);
   // Live Visitors Tracking
   const [liveStats, setLiveStats] = useState({ catalog: 0, checkout: 0 });
+  const canManageTenants = isPrimary && adminTenantId === "tenant_loja1";
 
   // -------------------- FIM DOS useState --------------------
 
@@ -1521,6 +1546,7 @@ export default function Admin() {
     localStorage.removeItem("adminIsPrimary");
     localStorage.removeItem("adminUsername");
     localStorage.removeItem("adminTenantId");
+    setAdminTenantId("tenant_loja1");
     setLocation("/admin/login");
   }, [setLocation]);
 
@@ -1992,6 +2018,74 @@ export default function Admin() {
     } catch { /* ignore */ }
   }, [handleUnauthorized]);
 
+  const fetchTenants = useCallback(async () => {
+    if (!canManageTenants) return;
+    setTenantsLoading(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/tenants`, { headers: authHeaders() });
+      if (res.status === 401) { handleUnauthorized(); return; }
+      if (!res.ok) {
+        const data = await res.json().catch(() => null) as { message?: string } | null;
+        toast.error(data?.message || "Erro ao carregar lojas.");
+        return;
+      }
+      const data = await res.json() as { tenants: AdminTenant[] };
+      setTenants(data.tenants || []);
+    } catch {
+      toast.error("Erro ao carregar lojas.");
+    } finally {
+      setTenantsLoading(false);
+    }
+  }, [canManageTenants, handleUnauthorized]);
+
+  const createTenant = useCallback(async () => {
+    if (!canManageTenants) return;
+
+    const payload = {
+      name: tenantForm.name.trim(),
+      slug: tenantForm.slug.trim(),
+      domain: tenantForm.domain.trim(),
+      adminUsername: tenantForm.adminUsername.trim(),
+      cloneSettingsFromDefault: tenantForm.cloneSettingsFromDefault,
+    };
+
+    if (!payload.name || !payload.slug) {
+      toast.error("Preencha nome e slug da loja.");
+      return;
+    }
+
+    setTenantCreating(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/tenants`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify(payload),
+      });
+
+      if (res.status === 401) { handleUnauthorized(); return; }
+
+      const data = await res.json().catch(() => null) as { message?: string } | null;
+      if (!res.ok) {
+        toast.error(data?.message || "Erro ao criar loja.");
+        return;
+      }
+
+      toast.success("Loja criada com sucesso.");
+      setTenantForm({
+        name: "",
+        slug: "",
+        domain: "",
+        adminUsername: "",
+        cloneSettingsFromDefault: true,
+      });
+      fetchTenants();
+    } catch {
+      toast.error("Erro ao criar loja.");
+    } finally {
+      setTenantCreating(false);
+    }
+  }, [canManageTenants, fetchTenants, handleUnauthorized, tenantForm]);
+
   const fetchBrevoStatus = useCallback(async () => {
     try {
       const res = await fetch(`${BASE}/api/admin/brevo/config`, { headers: authHeaders() });
@@ -2373,8 +2467,9 @@ export default function Admin() {
     else if (tab === "commissions") { fetchCommissionPayments(); }
     else if (tab === "socialProof") { fetchSocialProof(); fetchProducts(); }
     else if (tab === "raffles")    fetchRaffles();
+    else if (tab === "lojas")      fetchTenants();
     else setLoading(false);
-  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchSellers, fetchSellerData, fetchShippingOptions, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchCommissionPayments, fetchSocialProof, fetchRaffles]);
+  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchSellers, fetchSellerData, fetchShippingOptions, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchCommissionPayments, fetchSocialProof, fetchRaffles, fetchTenants]);
 
   // -------------------------------------------------------------------------
   // SSE
@@ -2540,6 +2635,7 @@ export default function Admin() {
         console.log('[DEBUG] Dados recebidos do backend:', data);
         setIsPrimary(data.isPrimary);
         setCurrentUsername(data.username || "");
+        setAdminTenantId(data.tenantId || "tenant_loja1");
         localStorage.setItem("adminIsPrimary", String(data.isPrimary));
         localStorage.setItem("adminUsername", data.username || "");
         if (data.tenantId) localStorage.setItem("adminTenantId", data.tenantId);
@@ -2604,10 +2700,10 @@ export default function Admin() {
   }, [tab, authChecked, fetchUsers, fetchCustomers, fetchRecurringCustomers]);
 
   useEffect(() => {
-    if (!isPrimary && PRIMARY_ONLY_TABS.has(tab)) {
+    if ((!isPrimary && PRIMARY_ONLY_TABS.has(tab)) || (tab === "lojas" && !canManageTenants)) {
       setTab("orders");
     }
-  }, [isPrimary, tab]);
+  }, [isPrimary, tab, canManageTenants]);
 
   // -------------------------------------------------------------------------
   // Handlers
@@ -2619,6 +2715,7 @@ export default function Admin() {
     localStorage.removeItem("adminIsPrimary");
     localStorage.removeItem("adminUsername");
     localStorage.removeItem("adminTenantId");
+    setAdminTenantId("tenant_loja1");
     if (sseReconnectTimerRef.current !== null) {
       window.clearTimeout(sseReconnectTimerRef.current);
       sseReconnectTimerRef.current = null;
@@ -3964,6 +4061,7 @@ export default function Admin() {
               { key: "socialProof",   label: "Prova Social",     icon: "ShoppingBag" },
               { key: "raffles",       label: "Rifas",            icon: "Ticket",      count: rafflesList.length || undefined },
               { key: "configuracoes", label: "Configurações",    icon: "Settings" },
+              ...(canManageTenants ? [{ key: "lojas" as TabType, label: "Lojas", icon: "Store" }] : []),
             ] : []),
             { key: "webhook",       label: "Webhook",          icon: "Link" },
           ] as Array<{ key: TabType; label: string; icon: string; count?: number }>).map(({ key, label, icon, count }) => (
@@ -5889,6 +5987,99 @@ export default function Admin() {
                 )}
               </>
             )}
+          </div>
+        ) : tab === "lojas" ? (
+          <div className="space-y-6">
+            <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
+              <div className="flex items-center gap-2 text-foreground">
+                <Store className="w-4 h-4" />
+                <h3 className="text-base font-bold">Criar nova loja</h3>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <input
+                  type="text"
+                  value={tenantForm.name}
+                  onChange={(e) => setTenantForm((p) => ({ ...p, name: e.target.value }))}
+                  placeholder="Nome da loja"
+                  className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+                />
+                <input
+                  type="text"
+                  value={tenantForm.slug}
+                  onChange={(e) => setTenantForm((p) => ({ ...p, slug: e.target.value }))}
+                  placeholder="Slug (ex: loja-2)"
+                  className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+                />
+                <input
+                  type="text"
+                  value={tenantForm.domain}
+                  onChange={(e) => setTenantForm((p) => ({ ...p, domain: e.target.value }))}
+                  placeholder="Domínio público (ex: loja2.seudominio.com)"
+                  className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+                />
+                <input
+                  type="text"
+                  value={tenantForm.adminUsername}
+                  onChange={(e) => setTenantForm((p) => ({ ...p, adminUsername: e.target.value }))}
+                  placeholder="Usuário admin para vincular (opcional)"
+                  className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={tenantForm.cloneSettingsFromDefault}
+                  onChange={(e) => setTenantForm((p) => ({ ...p, cloneSettingsFromDefault: e.target.checked }))}
+                />
+                Clonar configurações atuais da Loja 1 para a nova loja
+              </label>
+              <div>
+                <Button
+                  type="button"
+                  onClick={createTenant}
+                  disabled={tenantCreating}
+                  className="h-10 rounded-xl"
+                >
+                  {tenantCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                  <span className="ml-2">Criar loja</span>
+                </Button>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-border bg-card p-5">
+              <div className="flex items-center justify-between mb-4 gap-2">
+                <h3 className="text-base font-bold">Lojas cadastradas</h3>
+                <Button type="button" variant="outline" className="h-9" onClick={fetchTenants} disabled={tenantsLoading}>
+                  {tenantsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                  <span className="ml-2">Atualizar</span>
+                </Button>
+              </div>
+
+              {tenantsLoading ? (
+                <div className="text-sm text-muted-foreground">Carregando lojas...</div>
+              ) : tenants.length === 0 ? (
+                <div className="text-sm text-muted-foreground">Nenhuma loja cadastrada.</div>
+              ) : (
+                <div className="space-y-2">
+                  {tenants.map((tenant) => (
+                    <div key={tenant.id} className="rounded-xl border border-border bg-muted/20 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">{tenant.name}</p>
+                          <p className="text-xs text-muted-foreground">ID: {tenant.id} · Slug: {tenant.slug}</p>
+                          <p className="text-xs text-muted-foreground">Domínio: {tenant.domain || "não definido"}</p>
+                        </div>
+                        <div className="text-xs">
+                          <span className={`px-2 py-1 rounded-full ${tenant.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-700"}`}>
+                            {tenant.status}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         ) : tab === "webhook" ? (
           <WebhookPanel
