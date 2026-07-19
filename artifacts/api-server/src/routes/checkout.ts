@@ -165,18 +165,18 @@ function parseEnabledSetting(value?: string | null): boolean {
   return !["0", "false", "off", "no", "disabled"].includes(normalized);
 }
 
-async function isPaymentMethodEnabled(key: "checkout_enable_pix" | "checkout_enable_card"): Promise<boolean> {
-  const value = await getSettingValue(key);
+async function isPaymentMethodEnabled(key: "checkout_enable_pix" | "checkout_enable_card", tenantId: string): Promise<boolean> {
+  const value = await getSettingValue(key, tenantId);
   return parseEnabledSetting(value ?? null);
 }
 
-async function getActivePixGateway(): Promise<"appcnpay" | "dentpeg"> {
-  const value = await getSettingValue("checkout_pix_gateway");
+async function getActivePixGateway(tenantId: string): Promise<"appcnpay" | "dentpeg"> {
+  const value = await getSettingValue("checkout_pix_gateway", tenantId);
   return normalizePixGatewayProvider(value ?? null);
 }
 
-async function getFreeShippingMinSubtotal(): Promise<number | null> {
-  const value = await getSettingValue("checkout_free_shipping_min_subtotal");
+async function getFreeShippingMinSubtotal(tenantId: string): Promise<number | null> {
+  const value = await getSettingValue("checkout_free_shipping_min_subtotal", tenantId);
   return parseFreeShippingMinSubtotalSetting(value ?? "");
 }
 
@@ -226,7 +226,7 @@ router.post("/checkout/pix", async (req, res) => {
   }));
 
   try {
-    const pixEnabled = await isPaymentMethodEnabled("checkout_enable_pix");
+    const pixEnabled = await isPaymentMethodEnabled("checkout_enable_pix", tenantId);
     if (!pixEnabled) {
       res.status(403).json({
         error: "PAYMENT_METHOD_DISABLED",
@@ -380,7 +380,7 @@ router.post("/checkout/pix", async (req, res) => {
 
     const computedSubtotal = orderProducts.reduce((acc, p) => acc + (Number(p.quantity) || 0) * (Number(p.price) || 0), 0);
     const shippingBaseCost = Math.max(0, Number(shippingCost) || 0);
-    const freeShippingMinSubtotal = await getFreeShippingMinSubtotal();
+    const freeShippingMinSubtotal = await getFreeShippingMinSubtotal(tenantId);
     const computedShippingCost = resolveShippingCostWithFreeThreshold({
       subtotal: computedSubtotal,
       shippingBaseCost,
@@ -554,7 +554,7 @@ router.post("/checkout/pix", async (req, res) => {
     }
 
     // ── Generate PIX charge ───────────────────────────────────────────────
-    const gatewayProvider = await getActivePixGateway();
+    const gatewayProvider = await getActivePixGateway(tenantId);
     const identifier  = genIdentifier();
     const webhookSecret = String(process.env.WEBHOOK_SHARED_SECRET || "").trim();
     const callbackBase = buildCallbackUrl(req as never, "/webhook/pix");

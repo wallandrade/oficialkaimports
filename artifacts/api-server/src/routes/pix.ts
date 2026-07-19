@@ -30,22 +30,24 @@ function safeTokenEquals(expected: string, provided: string): boolean {
   return crypto.timingSafeEqual(a, b);
 }
 
-async function getActivePixGateway(): Promise<"appcnpay" | "dentpeg"> {
+async function getActivePixGateway(tenantId: string): Promise<"appcnpay" | "dentpeg"> {
   const tenantRow = await db
     .select({ value: tenantSettingsTable.value })
     .from(tenantSettingsTable)
-    .where(and(eq(tenantSettingsTable.tenantId, DEFAULT_TENANT_ID), eq(tenantSettingsTable.key, "checkout_pix_gateway")))
+    .where(and(eq(tenantSettingsTable.tenantId, tenantId), eq(tenantSettingsTable.key, "checkout_pix_gateway")))
     .limit(1);
 
   if (tenantRow[0]?.value != null) {
     return normalizePixGatewayProvider(tenantRow[0].value);
   }
 
-  const legacyRow = await db
-    .select({ value: siteSettingsTable.value })
-    .from(siteSettingsTable)
-    .where(eq(siteSettingsTable.key, "checkout_pix_gateway"))
-    .limit(1);
+  const legacyRow = tenantId === DEFAULT_TENANT_ID
+    ? await db
+      .select({ value: siteSettingsTable.value })
+      .from(siteSettingsTable)
+      .where(eq(siteSettingsTable.key, "checkout_pix_gateway"))
+      .limit(1)
+    : [];
 
   return normalizePixGatewayProvider(legacyRow[0]?.value);
 }
@@ -75,7 +77,7 @@ router.post("/pix/generate", async (req, res) => {
       return;
     }
 
-    const gatewayProvider = await getActivePixGateway();
+    const gatewayProvider = await getActivePixGateway(tenantId);
     const identifier = genIdentifier();
     // Single fixed callback URL — avoids the gateway's 20-webhook registration limit.
     // The generic handler matches transactions by transactionId in the body.

@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, customChargesTable, ordersTable, siteSettingsTable } from "@workspace/db";
+import { db, customChargesTable, ordersTable, siteSettingsTable, tenantSettingsTable } from "@workspace/db";
 import { desc, and, gte, lte, eq } from "drizzle-orm";
 import crypto from "crypto";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
@@ -16,13 +16,26 @@ import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context"
 
 const router: IRouter = Router();
 
-async function getActivePixGateway(): Promise<"appcnpay" | "dentpeg"> {
-  const row = await db
-    .select({ value: siteSettingsTable.value })
-    .from(siteSettingsTable)
-    .where(eq(siteSettingsTable.key, "checkout_pix_gateway"))
+async function getActivePixGateway(tenantId: string): Promise<"appcnpay" | "dentpeg"> {
+  const tenantRow = await db
+    .select({ value: tenantSettingsTable.value })
+    .from(tenantSettingsTable)
+    .where(and(eq(tenantSettingsTable.tenantId, tenantId), eq(tenantSettingsTable.key, "checkout_pix_gateway")))
     .limit(1);
-  return normalizePixGatewayProvider(row[0]?.value);
+
+  if (tenantRow[0]?.value != null) {
+    return normalizePixGatewayProvider(tenantRow[0].value);
+  }
+
+  const legacyRow = tenantId === DEFAULT_TENANT_ID
+    ? await db
+      .select({ value: siteSettingsTable.value })
+      .from(siteSettingsTable)
+      .where(eq(siteSettingsTable.key, "checkout_pix_gateway"))
+      .limit(1)
+    : [];
+
+  return normalizePixGatewayProvider(legacyRow[0]?.value);
 }
 
 function normalizeSellerCode(value: unknown): string | null {
@@ -127,7 +140,7 @@ router.post("/custom-charges", async (req, res) => {
     console.log(`[CustomCharge:${requestId}] Validation OK — client=${client.name} amount=${amount} seller=${sellerCode || "none"}`);
 
     const id = crypto.randomBytes(8).toString("hex");
-    const gatewayProvider = await getActivePixGateway();
+    const gatewayProvider = await getActivePixGateway(tenantId);
     const identifier = genIdentifier();
     // Single fixed callback URL — avoids the gateway's 20-webhook registration limit.
     // The generic handler matches transactions by transactionId in the body.

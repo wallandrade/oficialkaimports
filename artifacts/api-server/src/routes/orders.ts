@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { db, pool, ordersTable, customChargesTable, sellersTable, productsTable, siteSettingsTable, reshipmentsTable, couponsTable, inventoryBalancesTable } from "@workspace/db";
+import { db, pool, ordersTable, customChargesTable, sellersTable, productsTable, siteSettingsTable, tenantSettingsTable, reshipmentsTable, couponsTable, inventoryBalancesTable } from "@workspace/db";
 import { desc, and, gte, lte, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { getAdminScope, requireAdminAuth, verifyCurrentAdminPassword } from "./admin-auth";
@@ -210,23 +210,34 @@ async function loadOrderPriorityMap(orderIds: string[]): Promise<Map<string, boo
   return map;
 }
 
-async function getActivePixGateway(): Promise<"appcnpay" | "dentpeg"> {
-  const row = await db
-    .select({ value: siteSettingsTable.value })
-    .from(siteSettingsTable)
-    .where(eq(siteSettingsTable.key, "checkout_pix_gateway"))
+async function getSettingValue(key: string, tenantId: string): Promise<string | null> {
+  const tenantRows = await db
+    .select({ value: tenantSettingsTable.value })
+    .from(tenantSettingsTable)
+    .where(and(eq(tenantSettingsTable.tenantId, tenantId), eq(tenantSettingsTable.key, key)))
     .limit(1);
-  return normalizePixGatewayProvider(row[0]?.value);
+
+  if (tenantRows[0]?.value != null) return tenantRows[0].value;
+
+  const legacyRows = tenantId === DEFAULT_TENANT_ID
+    ? await db
+      .select({ value: siteSettingsTable.value })
+      .from(siteSettingsTable)
+      .where(eq(siteSettingsTable.key, key))
+      .limit(1)
+    : [];
+
+  return legacyRows[0]?.value ?? null;
 }
 
-async function getFreeShippingMinSubtotal(): Promise<number | null> {
-  const row = await db
-    .select({ value: siteSettingsTable.value })
-    .from(siteSettingsTable)
-    .where(eq(siteSettingsTable.key, "checkout_free_shipping_min_subtotal"))
-    .limit(1);
+async function getActivePixGateway(tenantId: string): Promise<"appcnpay" | "dentpeg"> {
+  const value = await getSettingValue("checkout_pix_gateway", tenantId);
+  return normalizePixGatewayProvider(value ?? null);
+}
 
-  return parseFreeShippingMinSubtotalSetting(row[0]?.value ?? "");
+async function getFreeShippingMinSubtotal(tenantId: string): Promise<number | null> {
+  const value = await getSettingValue("checkout_free_shipping_min_subtotal", tenantId);
+  return parseFreeShippingMinSubtotalSetting(value ?? "");
 }
 
 type BulkDiscountTierInput = {
@@ -761,9 +772,9 @@ function parseEnabledSetting(value?: string | null): boolean {
   return !["0", "false", "off", "no", "disabled"].includes(normalized);
 }
 
-async function isPaymentMethodEnabled(key: "checkout_enable_pix" | "checkout_enable_card" | "checkout_enable_whatsapp"): Promise<boolean> {
-  const rows = await db.select().from(siteSettingsTable).where(eq(siteSettingsTable.key, key)).limit(1);
-  return parseEnabledSetting(rows[0]?.value ?? null);
+async function isPaymentMethodEnabled(key: "checkout_enable_pix" | "checkout_enable_card" | "checkout_enable_whatsapp", tenantId: string): Promise<boolean> {
+  const value = await getSettingValue(key, tenantId);
+  return parseEnabledSetting(value ?? null);
 }
 
 function buildGuestAccessToken(): string {
@@ -1062,7 +1073,7 @@ router.post("/orders", async (req, res) => {
     const method = paymentMethod || "pix";
 
     if (method === "pix") {
-      const pixEnabled = await isPaymentMethodEnabled("checkout_enable_pix");
+      const pixEnabled = await isPaymentMethodEnabled("checkout_enable_pix", tenantId);
       if (!pixEnabled) {
         res.status(403).json({
           error: "PAYMENT_METHOD_DISABLED",
@@ -1073,7 +1084,7 @@ router.post("/orders", async (req, res) => {
     }
 
     if (method === "card_simulation") {
-      const cardEnabled = await isPaymentMethodEnabled("checkout_enable_card");
+      const cardEnabled = await isPaymentMethodEnabled("checkout_enable_card", tenantId);
       if (!cardEnabled) {
         res.status(403).json({
           error: "PAYMENT_METHOD_DISABLED",
@@ -1084,7 +1095,7 @@ router.post("/orders", async (req, res) => {
     }
 
     if (method === "whatsapp_pix") {
-      const whatsappEnabled = await isPaymentMethodEnabled("checkout_enable_whatsapp");
+      const whatsappEnabled = await isPaymentMethodEnabled("checkout_enable_whatsapp", tenantId);
       if (!whatsappEnabled) {
         res.status(403).json({
           error: "PAYMENT_METHOD_DISABLED",
@@ -1186,7 +1197,7 @@ router.post("/orders", async (req, res) => {
       return acc + qty * price;
     }, 0);
     const shippingBaseCost = Math.max(0, Number(shippingCost) || 0);
-    const freeShippingMinSubtotal = await getFreeShippingMinSubtotal();
+    const freeShippingMinSubtotal = await getFreeShippingMinSubtotal(tenantId);
     const computedShippingCost = resolveShippingCostWithFreeThreshold({
       subtotal: computedSubtotal,
       shippingBaseCost,
@@ -1945,7 +1956,7 @@ router.post("/admin/orders/:id/difference-charge", requireAdminAuth, async (req,
     const order = orders[0];
 
     const chargeId = crypto.randomBytes(8).toString("hex");
-    const gatewayProvider = await getActivePixGateway();
+    const gatewayProvider = await getActivePixGateway(adminScope.tenantId);
     const identifier = genIdentifier();
     const webhookSecret = String(process.env.WEBHOOK_SHARED_SECRET || "").trim();
     const callbackBase = buildCallbackUrl(req as never, "/webhook/pix");

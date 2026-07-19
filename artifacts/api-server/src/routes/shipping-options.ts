@@ -3,6 +3,7 @@ import { db, shippingOptionsTable } from "@workspace/db";
 import { and, eq, asc, isNull, or } from "drizzle-orm";
 import crypto from "crypto";
 import { getAdminScope, requirePrimaryAdmin } from "./admin-auth";
+import { resolvePublicTenantId } from "../lib/tenant-context";
 
 const router: IRouter = Router();
 const DEFAULT_TENANT_ID = "tenant_loja1";
@@ -25,10 +26,11 @@ function buildShippingTenantWhere(tenantId: string) {
 // ---------------------------------------------------------------------------
 router.get("/shipping-options", async (_req, res) => {
   try {
+    const tenantId = await resolvePublicTenantId(_req as any);
     const options = await db
       .select()
       .from(shippingOptionsTable)
-      .where(and(buildShippingTenantWhere(DEFAULT_TENANT_ID), eq(shippingOptionsTable.isActive, true)))
+      .where(and(buildShippingTenantWhere(tenantId), eq(shippingOptionsTable.isActive, true)))
       .orderBy(asc(shippingOptionsTable.sortOrder), asc(shippingOptionsTable.createdAt));
 
     res.json({ options });
