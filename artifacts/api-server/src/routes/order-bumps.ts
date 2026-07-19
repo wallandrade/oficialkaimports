@@ -2,10 +2,17 @@ import { Router, type IRouter } from "express";
 import { db, orderBumpsTable } from "@workspace/db";
 import { and, eq, asc, isNull, or } from "drizzle-orm";
 import crypto from "crypto";
-import { getAdminScope, requirePrimaryAdmin } from "./admin-auth";
+import { getAdminScope, requireAdminAuth } from "./admin-auth";
+import { resolvePublicTenantId } from "../lib/tenant-context";
 
 const router: IRouter = Router();
 const DEFAULT_TENANT_ID = "tenant_loja1";
+
+function canManageOrderBumps(scope: ReturnType<typeof getAdminScope>): boolean {
+  if (!scope) return false;
+  if (scope.isPrimary) return true;
+  return scope.tenantId !== DEFAULT_TENANT_ID;
+}
 
 function buildOrderBumpsTenantWhere(tenantId: string) {
   if (tenantId === DEFAULT_TENANT_ID) {
@@ -42,14 +49,15 @@ function mapBump(b: typeof orderBumpsTable.$inferSelect) {
 // ---------------------------------------------------------------------------
 router.get("/order-bumps", async (req, res) => {
   try {
+    const tenantId = await resolvePublicTenantId(req as any);
     const { productId } = req.query as Record<string, string>;
     const rows = await db
       .select()
       .from(orderBumpsTable)
       .where(
         productId
-          ? and(buildOrderBumpsTenantWhere(DEFAULT_TENANT_ID), eq(orderBumpsTable.productId, productId))
-          : and(buildOrderBumpsTenantWhere(DEFAULT_TENANT_ID), eq(orderBumpsTable.isActive, true))
+          ? and(buildOrderBumpsTenantWhere(tenantId), eq(orderBumpsTable.productId, productId))
+          : and(buildOrderBumpsTenantWhere(tenantId), eq(orderBumpsTable.isActive, true))
       )
       .orderBy(asc(orderBumpsTable.sortOrder), asc(orderBumpsTable.createdAt));
 
@@ -64,9 +72,14 @@ router.get("/order-bumps", async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /api/admin/order-bumps   (admin — all bumps for all products)
 // ---------------------------------------------------------------------------
-router.get("/admin/order-bumps", requirePrimaryAdmin, async (req, res) => {
+router.get("/admin/order-bumps", requireAdminAuth, async (req, res) => {
   try {
-    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+    const scope = getAdminScope(req);
+    if (!canManageOrderBumps(scope)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar order bumps." });
+      return;
+    }
+    const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
     const rows = await db
       .select()
       .from(orderBumpsTable)
@@ -82,9 +95,14 @@ router.get("/admin/order-bumps", requirePrimaryAdmin, async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /api/admin/order-bumps   (admin — create)
 // ---------------------------------------------------------------------------
-router.post("/admin/order-bumps", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/order-bumps", requireAdminAuth, async (req, res) => {
   try {
-    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+    const scope = getAdminScope(req);
+    if (!canManageOrderBumps(scope)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar order bumps." });
+      return;
+    }
+    const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
     const { productId, offerProductId, title, cardTitle, description, image, discountType, discountValue, buyQuantity, getQuantity, tiers, unit, isActive, sortOrder } = req.body as {
       productId: string;
       offerProductId?: string;
@@ -139,9 +157,14 @@ router.post("/admin/order-bumps", requirePrimaryAdmin, async (req, res) => {
 // ---------------------------------------------------------------------------
 // PATCH /api/admin/order-bumps/:id   (admin — update)
 // ---------------------------------------------------------------------------
-router.patch("/admin/order-bumps/:id", requirePrimaryAdmin, async (req, res) => {
+router.patch("/admin/order-bumps/:id", requireAdminAuth, async (req, res) => {
   try {
-    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+    const scope = getAdminScope(req);
+    if (!canManageOrderBumps(scope)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar order bumps." });
+      return;
+    }
+    const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
     const body = req.body as {
@@ -195,9 +218,14 @@ router.patch("/admin/order-bumps/:id", requirePrimaryAdmin, async (req, res) => 
 // ---------------------------------------------------------------------------
 // DELETE /api/admin/order-bumps/:id   (admin — delete)
 // ---------------------------------------------------------------------------
-router.delete("/admin/order-bumps/:id", requirePrimaryAdmin, async (req, res) => {
+router.delete("/admin/order-bumps/:id", requireAdminAuth, async (req, res) => {
   try {
-    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+    const scope = getAdminScope(req);
+    if (!canManageOrderBumps(scope)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar order bumps." });
+      return;
+    }
+    const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
     const id = String(req.params.id);
     await db.delete(orderBumpsTable).where(and(buildOrderBumpsTenantWhere(tenantId), eq(orderBumpsTable.id, id)));
     res.json({ ok: true });

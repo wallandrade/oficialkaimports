@@ -1,13 +1,26 @@
 import { Router, type IRouter, type Response } from "express";
-import { requirePrimaryAdmin } from "./admin-auth";
+import { getAdminScope, requireAdminAuth } from "./admin-auth";
+import { DEFAULT_TENANT_ID } from "../lib/tenant-context";
 
 const router: IRouter = Router();
 
-const clients = new Set<Response>();
+const clients = new Map<Response, string>();
 
-export function broadcastNotification(event: { type: string; data: Record<string, unknown> }) {
+type NotificationEvent = { type: string; data: Record<string, unknown> };
+
+function resolveEventTenantId(event: NotificationEvent): string {
+  const rawTenantId = event?.data?.tenantId;
+  const tenantId = typeof rawTenantId === "string" ? rawTenantId.trim() : "";
+  return tenantId || DEFAULT_TENANT_ID;
+}
+
+export function broadcastNotification(event: NotificationEvent) {
+  const eventTenantId = resolveEventTenantId(event);
   const payload = `data: ${JSON.stringify(event)}\n\n`;
-  for (const res of clients) {
+  for (const [res, clientTenantId] of clients.entries()) {
+    if (clientTenantId !== eventTenantId) {
+      continue;
+    }
     try {
       res.write(payload);
     } catch {
@@ -25,16 +38,17 @@ router.get("/admin/notifications", (req, res, next) => {
   }
 
   next();
-}, requirePrimaryAdmin, (req, res) => {
+}, requireAdminAuth, (req, res) => {
+  const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders();
 
-  res.write(`data: ${JSON.stringify({ type: "connected" })}\n\n`);
+  res.write(`data: ${JSON.stringify({ type: "connected", data: { tenantId } })}\n\n`);
 
-  clients.add(res);
+  clients.set(res, tenantId);
 
   const heartbeat = setInterval(() => {
     try {

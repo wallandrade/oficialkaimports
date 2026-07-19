@@ -260,7 +260,7 @@ router.post("/pix/callback/:token", async (req, res) => {
 
       broadcastNotification({
         type: "order_paid",
-        data: { transactionId: body.transactionId, status: "paid" },
+        data: { transactionId: body.transactionId, status: "paid", tenantId },
       });
       void sendOutboundWebhook("order_paid", {
         transactionId: body.transactionId,

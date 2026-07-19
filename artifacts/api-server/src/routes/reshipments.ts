@@ -323,7 +323,7 @@ router.post("/admin/inventory/entries", requirePrimaryAdmin, async (req, res) =>
     const releasedCount = movementType === "entry" && !isEstornoEntry ? await releasePendingReshipments(tenantId) : 0;
 
     if (releasedCount > 0) {
-      broadcastNotification({ type: "reshipment_stock_released", data: { releasedCount } });
+      broadcastNotification({ type: "reshipment_stock_released", data: { releasedCount, tenantId } });
     }
 
     res.status(201).json({ ok: true, releasedCount, balanceChanged: !isEstornoEntry });
@@ -389,7 +389,7 @@ router.post("/admin/reshipments/manual", requirePrimaryAdmin, async (req, res) =
 
     broadcastNotification({
       type: "support_ticket_reshipment_authorized",
-      data: { id: created.id, orderId: null, clientName },
+      data: { id: created.id, orderId: null, clientName, tenantId },
     });
 
     res.status(201).json({ ok: true, ...created });
@@ -503,7 +503,7 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
         return;
       }
 
-      broadcastNotification({ type: "reshipment_updated", data: { id, status: nextStatus } });
+      broadcastNotification({ type: "reshipment_updated", data: { id, status: nextStatus, tenantId: scope.tenantId } });
       res.json({ ok: true, id, status: nextStatus, requestedStatus: status, debitedProducts: debitSummary, alreadySent });
       return;
     } else {
@@ -572,7 +572,7 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
         return;
       }
 
-      broadcastNotification({ type: "reshipment_updated", data: { id, status: nextStatus } });
+      broadcastNotification({ type: "reshipment_updated", data: { id, status: nextStatus, tenantId: scope.tenantId } });
       res.json({ ok: true, id, status: nextStatus, requestedStatus: status, debitedProducts: debitSummary, alreadySent });
       return;
     }

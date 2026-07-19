@@ -22,7 +22,7 @@ async function expireStaleOrders(): Promise<void> {
     const cutoff = new Date(Date.now() - EXPIRY_THRESHOLD);
 
     const expired = await db
-      .select({ id: ordersTable.id })
+      .select({ id: ordersTable.id, tenantId: ordersTable.tenantId })
       .from(ordersTable)
       .where(
         and(
@@ -41,7 +41,7 @@ async function expireStaleOrders(): Promise<void> {
 
       broadcastNotification({
         type: "order_expired",
-        data: { id: row.id, status: "cancelled" },
+        data: { id: row.id, status: "cancelled", tenantId: row.tenantId || "tenant_loja1" },
       });
 
       console.log(`[EXPIRE] Order ${row.id} expired (> 24h without payment).`);

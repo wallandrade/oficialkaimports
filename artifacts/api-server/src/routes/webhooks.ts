@@ -111,7 +111,7 @@ async function handleCallback(body: GatewayCallback) {
 
           broadcastNotification({
             type: confirmed ? "order_paid" : "order_status_updated",
-            data: { id: row.id, transactionId, status: newStatus },
+            data: { id: row.id, transactionId, status: newStatus, tenantId: row.tenantId || "tenant_loja1" },
           });
           if (confirmed && newStatus === "paid") {
             void sendOutboundWebhook("order_paid", {
@@ -164,7 +164,7 @@ async function handleCallback(body: GatewayCallback) {
 
           broadcastNotification({
             type: confirmed ? "charge_paid" : "charge_status_updated",
-            data: { id: row.id, transactionId, status: newStatus },
+            data: { id: row.id, transactionId, status: newStatus, tenantId: row.tenantId || "tenant_loja1" },
           });
 
           console.log(`[WEBHOOK] Charge ${row.id} updated to ${newStatus}`);
@@ -194,7 +194,7 @@ async function handleCallback(body: GatewayCallback) {
 
               broadcastNotification({
                 type: newOrderStatus === "paid" || newOrderStatus === "completed" ? "order_paid" : "order_status_updated",
-                data: { id: row.orderId, status: newOrderStatus },
+                data: { id: row.orderId, status: newOrderStatus, tenantId: row.tenantId || "tenant_loja1" },
               });
               if (newOrderStatus === "paid" || newOrderStatus === "completed") {
                 void sendOutboundWebhook("order_paid", {
@@ -410,7 +410,7 @@ router.post("/webhook", async (req, res) => {
         await db.update(ordersTable).set(setFields).where(and(eq(ordersTable.id, rawOrderId), eq(ordersTable.tenantId, rows[0]!.tenantId || "tenant_loja1")));
         if (isConfirmed && rows[0]!.couponCode) await incrementCouponUse(rows[0]!.couponCode, rows[0]!.tenantId || "tenant_loja1");
         if (isConfirmed && newStatus === "paid") await ensureOrderCommission(rawOrderId);
-        broadcastNotification({ type: isConfirmed ? "order_paid" : "order_status_updated", data: { id: rawOrderId, status: newStatus } });
+        broadcastNotification({ type: isConfirmed ? "order_paid" : "order_status_updated", data: { id: rawOrderId, status: newStatus, tenantId: rows[0]!.tenantId || "tenant_loja1" } });
         if (isConfirmed && newStatus === "paid") {
           void sendOutboundWebhook("order_paid", {
             id: rawOrderId,
@@ -467,7 +467,7 @@ router.post("/webhook/pix/order/:token/:orderId", async (req, res) => {
 
         await ensureOrderCommission(orderId);
 
-        broadcastNotification({ type: "order_paid", data: { id: orderId, status: "paid" } });
+        broadcastNotification({ type: "order_paid", data: { id: orderId, status: "paid", tenantId: rows[0]!.tenantId || "tenant_loja1" } });
         void sendOutboundWebhook("order_paid", {
           id: orderId,
           status: "paid",
@@ -513,7 +513,7 @@ router.post("/webhook/pix/charge/:token/:chargeId", async (req, res) => {
           .set({ status: "paid", transactionId: body.transactionId || rows[0]!.id, updatedAt: new Date() })
           .where(and(eq(customChargesTable.id, chargeId), eq(customChargesTable.tenantId, rows[0]!.tenantId || "tenant_loja1")));
 
-        broadcastNotification({ type: "charge_paid", data: { id: chargeId, status: "paid" } });
+        broadcastNotification({ type: "charge_paid", data: { id: chargeId, status: "paid", tenantId: rows[0]!.tenantId || "tenant_loja1" } });
         console.log(`[WEBHOOK] Charge ${chargeId} paid via direct URL`);
 
         // Propagate to parent order if this is a diff charge
@@ -540,7 +540,7 @@ router.post("/webhook/pix/charge/:token/:chargeId", async (req, res) => {
 
             broadcastNotification({
               type: newOrderStatus === "paid" || newOrderStatus === "completed" ? "order_paid" : "order_status_updated",
-              data: { id: rows[0]!.orderId, status: newOrderStatus },
+              data: { id: rows[0]!.orderId, status: newOrderStatus, tenantId: rows[0]!.tenantId || "tenant_loja1" },
             });
             if (newOrderStatus === "paid" || newOrderStatus === "completed") {
               void sendOutboundWebhook("order_paid", {

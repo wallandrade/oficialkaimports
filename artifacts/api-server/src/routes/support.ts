@@ -311,7 +311,7 @@ router.post("/support/tickets", async (req, res) => {
 
     broadcastNotification({
       type: "support_ticket_created",
-      data: { id, orderId: order.id, clientName: order.clientName },
+      data: { id, orderId: order.id, clientName: order.clientName, tenantId },
     });
 
     res.status(201).json({ ok: true, ticketId: id });
@@ -507,6 +507,7 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
         orderId: order.id,
         reshipmentId: reshipment.id,
         reshipmentStatus: reshipment.status,
+        tenantId: scope.tenantId,
       },
     });
 
@@ -616,6 +617,7 @@ router.patch("/admin/support-tickets/:id/status", requireAdminAuth, async (req, 
           orderId: ticket.orderId,
           reshipmentId: reshipment.id,
           reshipmentStatus: reshipment.status,
+          tenantId: scope.tenantId,
         },
       });
     }

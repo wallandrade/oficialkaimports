@@ -487,6 +487,7 @@ router.post("/checkout/pix", async (req, res) => {
 
     if (affiliateUserId) {
       await registerAffiliateLead({
+        tenantId,
         affiliateUserId,
         referredUserId: customerSession?.userId ?? null,
         referredEmail: client?.email ?? null,
@@ -512,6 +513,7 @@ router.post("/checkout/pix", async (req, res) => {
         total:         amount,
         paymentMethod: "pix",
         sellerCode:    sellerCode || null,
+        tenantId,
         createdAt:     new Date().toISOString(),
       },
     });
@@ -532,7 +534,7 @@ router.post("/checkout/pix", async (req, res) => {
     const payableAmount = Math.max(0, amount - affiliateCreditUsed);
     if (payableAmount <= 0) {
       await ensureOrderCommission(orderId);
-      broadcastNotification({ type: "order_paid", data: { id: orderId, status: "paid" } });
+      broadcastNotification({ type: "order_paid", data: { id: orderId, status: "paid", tenantId } });
       void sendOutboundWebhook("order_paid", {
         id: orderId,
         status: "paid",

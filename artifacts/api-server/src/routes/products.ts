@@ -46,6 +46,11 @@ type ProductBackupEntry = {
 const PRODUCT_BACKUP_VERSION = 1;
 const ADMIN_SAVED_BRANDS_KEY = "admin_saved_brands";
 
+function getAdminSavedBrandsKey(tenantId: string): string {
+  const normalizedTenantId = String(tenantId || "").trim() || DEFAULT_TENANT_ID;
+  return `${ADMIN_SAVED_BRANDS_KEY}:${normalizedTenantId}`;
+}
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 /** Resolve effective price respecting promo expiry */
@@ -375,10 +380,11 @@ router.get("/admin/products/backup", requireAdminAuth, async (req, res) => {
       .where(buildProductTenantWhere(tenantId))
       .orderBy(asc(productsTable.sortOrder), asc(productsTable.createdAt));
 
+    const tenantBrandsKey = getAdminSavedBrandsKey(tenantId);
     const settingsRows = await db
       .select()
       .from(siteSettingsTable)
-      .where(eq(siteSettingsTable.key, ADMIN_SAVED_BRANDS_KEY));
+      .where(eq(siteSettingsTable.key, tenantBrandsKey));
 
     const savedBrands = parseSavedBrands(settingsRows[0]?.value ?? "[]");
     const exportedAt = new Date().toISOString();
@@ -402,6 +408,7 @@ router.get("/admin/products/backup", requireAdminAuth, async (req, res) => {
 /** POST /api/admin/products/restore */
 router.post("/admin/products/restore", requireAdminAuth, async (req, res) => {
   try {
+      const tenantBrandsKey = getAdminSavedBrandsKey(tenantId);
     const scope = getAdminScope(req);
     if (!canManageProducts(scope)) {
       res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar produtos." });
@@ -487,12 +494,12 @@ router.post("/admin/products/restore", requireAdminAuth, async (req, res) => {
 
       if (hasSavedBrands) {
         if (savedBrands.length === 0) {
-          await tx.delete(siteSettingsTable).where(eq(siteSettingsTable.key, ADMIN_SAVED_BRANDS_KEY));
+          await tx.delete(siteSettingsTable).where(eq(siteSettingsTable.key, tenantBrandsKey));
         } else {
           await tx
             .insert(siteSettingsTable)
             .values({
-              key: ADMIN_SAVED_BRANDS_KEY,
+              key: tenantBrandsKey,
               value: JSON.stringify(savedBrands),
               updatedAt: new Date(),
             })

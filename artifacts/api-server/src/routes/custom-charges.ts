@@ -186,7 +186,7 @@ router.post("/custom-charges", async (req, res) => {
 
     broadcastNotification({
       type: "new_charge",
-      data: { id, clientName: client.name, amount, createdAt: new Date().toISOString() },
+      data: { id, clientName: client.name, amount, createdAt: new Date().toISOString(), tenantId },
     });
 
     const expiresAt = new Date(Date.now() + PIX_DURATION_MS).toISOString();
@@ -218,12 +218,13 @@ router.post("/custom-charges", async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get("/custom-charges/status/:transactionId", async (req, res) => {
   try {
+    const tenantId = await resolvePublicTenantId(req as any);
     const { transactionId } = req.params;
 
     const rows = await db
       .select({ id: customChargesTable.id, status: customChargesTable.status })
       .from(customChargesTable)
-      .where(eq(customChargesTable.transactionId, transactionId))
+      .where(and(eq(customChargesTable.transactionId, transactionId), eq(customChargesTable.tenantId, tenantId)))
       .limit(1);
 
     const row = rows[0];
@@ -265,7 +266,7 @@ router.post("/custom-charges/callback/:token/:chargeId", async (req, res) => {
           .set({ status: "paid", updatedAt: new Date() })
           .where(and(eq(customChargesTable.id, chargeId), eq(customChargesTable.tenantId, existing[0].tenantId || DEFAULT_TENANT_ID)));
 
-        broadcastNotification({ type: "charge_paid", data: { id: chargeId } });
+        broadcastNotification({ type: "charge_paid", data: { id: chargeId, tenantId: existing[0].tenantId || DEFAULT_TENANT_ID } });
 
         // Propagate to parent order if this is a diff charge
         if (existing[0].orderId) {
@@ -287,7 +288,7 @@ router.post("/custom-charges/callback/:token/:chargeId", async (req, res) => {
               .set({ status: newOrderStatus, paidAmount: String(totalPaid), updatedAt: new Date() })
               .where(and(eq(ordersTable.id, existing[0].orderId), eq(ordersTable.tenantId, existing[0].tenantId || DEFAULT_TENANT_ID)));
 
-            broadcastNotification({ type: "order_paid", data: { id: existing[0].orderId, status: newOrderStatus } });
+            broadcastNotification({ type: "order_paid", data: { id: existing[0].orderId, status: newOrderStatus, tenantId: existing[0].tenantId || DEFAULT_TENANT_ID } });
           }
         }
       }
@@ -477,7 +478,7 @@ router.patch("/admin/custom-charges/:id/status", requireAdminAuth, async (req, r
       .where(and(eq(customChargesTable.id, id), eq(customChargesTable.tenantId, scoped.scope.tenantId)));
 
     if (status === "paid") {
-      broadcastNotification({ type: "charge_paid", data: { id, status } });
+      broadcastNotification({ type: "charge_paid", data: { id, status, tenantId: scoped.scope.tenantId } });
 
       // Propagate to parent order if this is a diff charge
       if (existing.orderId && existing.status !== "paid") {
@@ -503,7 +504,7 @@ router.patch("/admin/custom-charges/:id/status", requireAdminAuth, async (req, r
 
           broadcastNotification({
             type: newOrderStatus === "paid" || newOrderStatus === "completed" ? "order_paid" : "order_status_updated",
-            data: { id: existing.orderId, status: newOrderStatus },
+            data: { id: existing.orderId, status: newOrderStatus, tenantId: scoped.scope.tenantId },
           });
         }
       }
@@ -549,7 +550,7 @@ router.patch("/admin/custom-charges/:id/proof", requireAdminAuth, async (req, re
       .set({ proofUrl: proofData, proofUrls: JSON.stringify(urls), status: "paid", updatedAt: new Date() })
       .where(and(eq(customChargesTable.id, id), eq(customChargesTable.tenantId, scoped.scope.tenantId)));
 
-    broadcastNotification({ type: "charge_paid", data: { id, status: "paid" } });
+    broadcastNotification({ type: "charge_paid", data: { id, status: "paid", tenantId: scoped.scope.tenantId } });
 
     // If this charge is linked to an order, propagate cumulative paid amount.
     if (existing.orderId && existing.status !== "paid") {
@@ -575,7 +576,7 @@ router.patch("/admin/custom-charges/:id/proof", requireAdminAuth, async (req, re
 
         broadcastNotification({
           type: newOrderStatus === "paid" || newOrderStatus === "completed" ? "order_paid" : "order_status_updated",
-          data: { id: existing.orderId, status: newOrderStatus },
+          data: { id: existing.orderId, status: newOrderStatus, tenantId: scoped.scope.tenantId },
         });
       }
     }

@@ -1286,6 +1286,7 @@ router.post("/orders", async (req, res) => {
         total: computedTotal,
         paymentMethod: method,
         sellerCode: sellerCode || null,
+        tenantId,
         createdAt: new Date().toISOString(),
       },
     });
@@ -1657,7 +1658,7 @@ router.patch("/admin/orders/:id/status", requireAdminAuth, async (req, res) => {
       await ensureOrderCommission(id);
     }
 
-    broadcastNotification({ type: "order_status_updated", data: { id, status } });
+    broadcastNotification({ type: "order_status_updated", data: { id, status, tenantId: adminScope.tenantId } });
     res.json({ ok: true, id, status });
   } catch (err) {
     console.error("Update order status error:", err);
@@ -1781,7 +1782,7 @@ router.patch("/admin/orders/:id/proof", requireAdminAuth, async (req, res) => {
 
     await ensureOrderCommission(id);
 
-    broadcastNotification({ type: "order_status_updated", data: { id, status: "completed" } });
+    broadcastNotification({ type: "order_status_updated", data: { id, status: "completed", tenantId: adminScope.tenantId } });
     res.json({ ok: true, proofUrls: urls });
   } catch (err) {
     console.error("Upload proof error:", err);
@@ -1914,7 +1915,7 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
     const updated = await db.select().from(ordersTable).where(buildAdminOrderWhere(id, adminScope)).limit(1);
     if (!updated[0]) { res.status(404).json({ error: "NOT_FOUND" }); return; }
 
-    broadcastNotification({ type: "order_updated", data: { id } });
+    broadcastNotification({ type: "order_updated", data: { id, tenantId: adminScope.tenantId } });
     res.json({ ok: true, order: mapOrder(updated[0]) });
   } catch (err) {
     console.error("Edit order error:", err);
@@ -2231,7 +2232,7 @@ router.patch("/admin/orders/:id/prioridade", requireAdminAuth, async (req, res) 
       .where(buildAdminOrderWhere(id, adminScope))
       .limit(1);
 
-    broadcastNotification({ type: "order_priority_updated", data: { id, isPrioridade } });
+    broadcastNotification({ type: "order_priority_updated", data: { id, isPrioridade, tenantId: adminScope.tenantId } });
     res.json({
       ok: true,
       id,
@@ -2381,7 +2382,7 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
     await db.update(ordersTable)
       .set({ enviado, updatedAt: new Date() })
       .where(buildAdminOrderWhere(id, adminScope));
-    broadcastNotification({ type: "order_enviado_updated", data: { id, enviado } });
+    broadcastNotification({ type: "order_enviado_updated", data: { id, enviado, tenantId: adminScope.tenantId } });
     res.json({ ok: true, id, enviado });
   } catch (err) {
     console.error("Update order enviado error:", err);
@@ -2443,7 +2444,7 @@ router.patch("/admin/orders/:id/tracking-code", requireAdminAuth, async (req, re
       .where(buildAdminOrderWhere(id, adminScope))
       .limit(1);
 
-    broadcastNotification({ type: "order_tracking_updated", data: { id, trackingCode: normalized } });
+    broadcastNotification({ type: "order_tracking_updated", data: { id, trackingCode: normalized, tenantId: adminScope.tenantId } });
     res.json({ ok: true, order: updated[0] ? mapOrder(updated[0]) : null });
   } catch (err) {
     console.error("Update order tracking code error:", err);
