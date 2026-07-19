@@ -173,6 +173,16 @@ export function resolveAdminScopeFromSession(session: AdminSessionRecord): Admin
   }
 
   const sellerCode = getAdminSellerScopeMap()[username] ?? null;
+  if (tenantId !== DEFAULT_TENANT_ID) {
+    return {
+      username,
+      isPrimary,
+      hasGlobalAccess: true,
+      sellerCode,
+      tenantId,
+    };
+  }
+
   return {
     username,
     isPrimary,
