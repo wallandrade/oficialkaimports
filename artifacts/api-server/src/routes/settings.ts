@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db, pool, siteSettingsTable, tenantSettingsTable } from "@workspace/db";
 import { and, eq, isNull, or } from "drizzle-orm";
-import { getAdminScope, requirePrimaryAdmin } from "./admin-auth";
+import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { getR2MissingConfig, isR2Configured, uploadSiteSettingImageToR2 } from "../lib/r2";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 
@@ -40,6 +40,12 @@ const IMAGE_SETTING_KEYS = new Set([
   "catalog_banner_desktop",
   "catalog_banner_mobile",
 ]);
+
+function canManageSettings(scope: ReturnType<typeof getAdminScope>): boolean {
+  if (!scope) return false;
+  if (scope.isPrimary) return true;
+  return scope.tenantId !== DEFAULT_TENANT_ID;
+}
 
 function buildTenantSettingsTenantWhere(tenantId: string) {
   if (tenantId === DEFAULT_TENANT_ID) {
@@ -161,9 +167,15 @@ router.get("/settings", async (_req, res) => {
 });
 
 /** GET /api/admin/settings — admin only, returns all allowed keys */
-router.get("/admin/settings", requirePrimaryAdmin, async (req, res) => {
+router.get("/admin/settings", requireAdminAuth, async (req, res) => {
   try {
-    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+    const scope = getAdminScope(req);
+    if (!canManageSettings(scope)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar configurações." });
+      return;
+    }
+
+    const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
     const allSettings = await getTenantSettingsMap(tenantId);
     const out: Record<string, string> = {};
     for (const key of ALLOWED_KEYS) {
@@ -176,9 +188,15 @@ router.get("/admin/settings", requirePrimaryAdmin, async (req, res) => {
 });
 
 /** PUT /api/admin/settings/:key — admin only, upsert a setting value */
-router.put("/admin/settings/:key", requirePrimaryAdmin, async (req, res) => {
+router.put("/admin/settings/:key", requireAdminAuth, async (req, res) => {
   try {
-    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+    const scope = getAdminScope(req);
+    if (!canManageSettings(scope)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar configurações." });
+      return;
+    }
+
+    const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
     const key = String(req.params.key);
     if (!ALLOWED_KEYS.includes(key)) {
       res.status(400).json({ error: "INVALID_KEY" });
@@ -239,9 +257,15 @@ router.get("/is-protected", async (_req, res) => {
 });
 
 /** DELETE /api/admin/settings/:key — remove a setting (restore default) */
-router.delete("/admin/settings/:key", requirePrimaryAdmin, async (req, res) => {
+router.delete("/admin/settings/:key", requireAdminAuth, async (req, res) => {
   try {
-    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+    const scope = getAdminScope(req);
+    if (!canManageSettings(scope)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar configurações." });
+      return;
+    }
+
+    const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
     const key = String(req.params.key);
     if (!ALLOWED_KEYS.includes(key)) {
       res.status(400).json({ error: "INVALID_KEY" });

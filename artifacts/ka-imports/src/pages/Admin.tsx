@@ -866,7 +866,6 @@ const PRIMARY_ONLY_TABS = new Set<TabType>([
   "inventory",
   "socialProof",
   "raffles",
-  "configuracoes",
   "lojas",
 ]);
 
@@ -4304,6 +4303,7 @@ export default function Admin() {
             { key: "support",       label: "Suporte",          icon: "MessageCircle", count: supportTickets.filter((t) => t.status === "open").length || undefined },
             ...(canManageProductsTab ? [
               { key: "products" as TabType, label: "Produtos", icon: "ShoppingBag", count: products.length },
+              { key: "configuracoes" as TabType, label: "Configurações", icon: "Settings" },
             ] : []),
             ...(isPrimary ? [
               { key: "coupons",       label: "Cupons",           icon: "Ticket",      count: coupons.length },
@@ -4313,7 +4313,6 @@ export default function Admin() {
               { key: "users",         label: "Usuários",         icon: "User" },
               { key: "socialProof",   label: "Prova Social",     icon: "ShoppingBag" },
               { key: "raffles",       label: "Rifas",            icon: "Ticket",      count: rafflesList.length || undefined },
-              { key: "configuracoes", label: "Configurações",    icon: "Settings" },
               ...(canManageTenants ? [{ key: "lojas" as TabType, label: "Lojas", icon: "Store" }] : []),
             ] : []),
             { key: "webhook",       label: "Webhook",          icon: "Link" },
