@@ -4292,7 +4292,7 @@ export default function Admin() {
         </div>
 
         {/* Tabs */}
-        <div className="flex flex-wrap gap-0 mb-6 border-b border-border bg-white rounded-t-xl">
+        <div className="flex gap-0 mb-6 border-b border-border overflow-x-auto bg-white rounded-t-xl">
           {([
             { key: "orders",        label: "Pedidos",          icon: "QrCode",      count: orders.length },
             { key: "charges",       label: "Links Pagamento",  icon: "LinkIcon",    count: charges.length },
