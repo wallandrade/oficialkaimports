@@ -962,6 +962,53 @@ async function ensureMarketingExpensesColumns(databaseName: string): Promise<voi
   }
 }
 
+async function ensureFilialPurchaseTables(databaseName: string): Promise<void> {
+  if (!(await tableExists("filial_purchase_requests", databaseName))) {
+    await pool.query(`
+      CREATE TABLE filial_purchase_requests (
+        id VARCHAR(255) NOT NULL PRIMARY KEY,
+        filial_tenant_id VARCHAR(255) NOT NULL,
+        order_id VARCHAR(255) NOT NULL,
+        status VARCHAR(64) NOT NULL DEFAULT 'aguardando_compra_loja1',
+        client_name VARCHAR(255) NOT NULL,
+        order_total DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+        repasse_total DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+        items_snapshot JSON NOT NULL,
+        costs_snapshot JSON NULL,
+        loja1_real_cost_total DECIMAL(10,2) NULL,
+        loja1_real_profit DECIMAL(10,2) NULL,
+        purchase_recorded_at TIMESTAMP NULL,
+        stock_launched_at TIMESTAMP NULL,
+        finalized_at TIMESTAMP NULL,
+        created_by_admin VARCHAR(255) NULL,
+        updated_by_admin VARCHAR(255) NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY filial_purchase_requests_order_id_unique (order_id),
+        KEY filial_purchase_requests_tenant_status_idx (filial_tenant_id, status),
+        KEY filial_purchase_requests_status_idx (status),
+        KEY filial_purchase_requests_created_at_idx (created_at)
+      )
+    `);
+  }
+
+  if (!(await tableExists("filial_purchase_request_audits", databaseName))) {
+    await pool.query(`
+      CREATE TABLE filial_purchase_request_audits (
+        id VARCHAR(255) NOT NULL PRIMARY KEY,
+        request_id VARCHAR(255) NOT NULL,
+        action VARCHAR(64) NOT NULL,
+        actor_username VARCHAR(255) NULL,
+        payload JSON NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY filial_purchase_request_audits_request_idx (request_id),
+        KEY filial_purchase_request_audits_action_idx (action),
+        KEY filial_purchase_request_audits_created_at_idx (created_at)
+      )
+    `);
+  }
+}
+
 export async function ensureRuntimeSchema(): Promise<void> {
   try {
     const databaseName = getDatabaseName();
@@ -988,6 +1035,7 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureProductCostHistoryTable(databaseName);
     await ensureMarketingExpensesTable(databaseName);
     await ensureMarketingExpensesColumns(databaseName);
+    await ensureFilialPurchaseTables(databaseName);
     await ensureAdminSessionsTenantColumn(databaseName);
     await ensureTenantColumns(databaseName);
     await ensureTenantSettingsTable(databaseName);

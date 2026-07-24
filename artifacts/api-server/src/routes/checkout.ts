@@ -17,6 +17,7 @@ import { sendOutboundWebhook } from "../lib/outbound-webhook";
 import { lookupIpGeo } from "../lib/ip-geo";
 import { parseFreeShippingMinSubtotalSetting, resolveShippingCostWithFreeThreshold } from "../lib/free-shipping";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
+import { enqueueFilialOrderPurchaseRequest } from "../lib/filial-purchase-queue";
 
 const router: IRouter = Router();
 
@@ -534,6 +535,7 @@ router.post("/checkout/pix", async (req, res) => {
     const payableAmount = Math.max(0, amount - affiliateCreditUsed);
     if (payableAmount <= 0) {
       await ensureOrderCommission(orderId);
+      await enqueueFilialOrderPurchaseRequest(orderId);
       broadcastNotification({ type: "order_paid", data: { id: orderId, status: "paid", tenantId } });
       void sendOutboundWebhook("order_paid", {
         id: orderId,

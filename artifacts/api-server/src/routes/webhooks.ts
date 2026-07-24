@@ -21,6 +21,7 @@ import { incrementCouponUse } from "./coupons";
 import { ensureOrderCommission } from "../lib/affiliates";
 import { sendOutboundWebhook } from "../lib/outbound-webhook";
 import { requirePrimaryAdmin } from "./admin-auth";
+import { enqueueFilialOrderPurchaseRequest } from "../lib/filial-purchase-queue";
 
 const router: IRouter = Router();
 
@@ -107,6 +108,7 @@ async function handleCallback(body: GatewayCallback) {
 
           if (confirmed && newStatus === "paid") {
             await ensureOrderCommission(row.id);
+            await enqueueFilialOrderPurchaseRequest(row.id);
           }
 
           broadcastNotification({
@@ -206,6 +208,7 @@ async function handleCallback(body: GatewayCallback) {
 
               if (newOrderStatus === "paid" || newOrderStatus === "completed") {
                 await ensureOrderCommission(row.orderId);
+                await enqueueFilialOrderPurchaseRequest(row.orderId);
               }
 
               console.log(`[WEBHOOK] Order ${row.orderId} auto-updated to ${newOrderStatus} after diff charge paid (paid=${totalPaid}, total=${orderTotal})`);
@@ -410,6 +413,7 @@ router.post("/webhook", async (req, res) => {
         await db.update(ordersTable).set(setFields).where(and(eq(ordersTable.id, rawOrderId), eq(ordersTable.tenantId, rows[0]!.tenantId || "tenant_loja1")));
         if (isConfirmed && rows[0]!.couponCode) await incrementCouponUse(rows[0]!.couponCode, rows[0]!.tenantId || "tenant_loja1");
         if (isConfirmed && newStatus === "paid") await ensureOrderCommission(rawOrderId);
+        if (isConfirmed && newStatus === "paid") await enqueueFilialOrderPurchaseRequest(rawOrderId);
         broadcastNotification({ type: isConfirmed ? "order_paid" : "order_status_updated", data: { id: rawOrderId, status: newStatus, tenantId: rows[0]!.tenantId || "tenant_loja1" } });
         if (isConfirmed && newStatus === "paid") {
           void sendOutboundWebhook("order_paid", {
@@ -466,6 +470,7 @@ router.post("/webhook/pix/order/:token/:orderId", async (req, res) => {
         if (rows[0]!.couponCode) await incrementCouponUse(rows[0]!.couponCode, rows[0]!.tenantId || "tenant_loja1");
 
         await ensureOrderCommission(orderId);
+        await enqueueFilialOrderPurchaseRequest(orderId);
 
         broadcastNotification({ type: "order_paid", data: { id: orderId, status: "paid", tenantId: rows[0]!.tenantId || "tenant_loja1" } });
         void sendOutboundWebhook("order_paid", {
@@ -553,6 +558,7 @@ router.post("/webhook/pix/charge/:token/:chargeId", async (req, res) => {
 
             if (newOrderStatus === "paid" || newOrderStatus === "completed") {
               await ensureOrderCommission(rows[0]!.orderId);
+              await enqueueFilialOrderPurchaseRequest(rows[0]!.orderId);
             }
           }
         }

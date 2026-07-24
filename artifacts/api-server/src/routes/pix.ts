@@ -15,6 +15,7 @@ import {
 import { ensureOrderCommission } from "../lib/affiliates";
 import { sendOutboundWebhook } from "../lib/outbound-webhook";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
+import { enqueueFilialOrderPurchaseRequest } from "../lib/filial-purchase-queue";
 
 const router: IRouter = Router();
 
@@ -189,6 +190,7 @@ router.get("/pix/status/:transactionId", async (req, res) => {
 
           if (nextOrderStatus === "paid") {
             await ensureOrderCommission(row.id);
+            await enqueueFilialOrderPurchaseRequest(row.id);
           }
         }
 
@@ -258,6 +260,7 @@ router.post("/pix/callback/:token", async (req, res) => {
 
       if (existing[0] && existing[0].status !== "paid" && existing[0].status !== "completed") {
         await ensureOrderCommission(existing[0].id);
+        await enqueueFilialOrderPurchaseRequest(existing[0].id);
       }
 
       broadcastNotification({

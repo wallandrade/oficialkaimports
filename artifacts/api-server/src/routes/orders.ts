@@ -1,3 +1,4 @@
+import { enqueueFilialOrderPurchaseRequest } from "../lib/filial-purchase-queue";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db, pool, ordersTable, customChargesTable, sellersTable, productsTable, siteSettingsTable, tenantSettingsTable, reshipmentsTable, couponsTable, inventoryBalancesTable } from "@workspace/db";
 import { desc, and, gte, lte, eq, inArray, isNull, or, sql } from "drizzle-orm";
@@ -1667,6 +1668,9 @@ router.patch("/admin/orders/:id/status", requireAdminAuth, async (req, res) => {
 
     if (isBeingPaid) {
       await ensureOrderCommission(id);
+      if (!wasAlreadyPaid) {
+        await enqueueFilialOrderPurchaseRequest(id);
+      }
     }
 
     broadcastNotification({ type: "order_status_updated", data: { id, status, tenantId: adminScope.tenantId } });
@@ -1764,7 +1768,7 @@ router.patch("/admin/orders/:id/proof", requireAdminAuth, async (req, res) => {
     }
 
     const existing = await db
-      .select({ proofUrl: ordersTable.proofUrl, proofUrls: ordersTable.proofUrls, total: ordersTable.total, paidAmount: ordersTable.paidAmount })
+      .select({ proofUrl: ordersTable.proofUrl, proofUrls: ordersTable.proofUrls, total: ordersTable.total, paidAmount: ordersTable.paidAmount, status: ordersTable.status })
       .from(ordersTable)
       .where(buildAdminOrderWhere(id, adminScope))
       .limit(1);
@@ -1792,6 +1796,10 @@ router.patch("/admin/orders/:id/proof", requireAdminAuth, async (req, res) => {
       .where(buildAdminOrderWhere(id, adminScope));
 
     await ensureOrderCommission(id);
+    const priorStatus = String(existing[0]?.status || "").trim().toLowerCase();
+    if (priorStatus !== "paid" && priorStatus !== "completed") {
+      await enqueueFilialOrderPurchaseRequest(id);
+    }
 
     broadcastNotification({ type: "order_status_updated", data: { id, status: "completed", tenantId: adminScope.tenantId } });
     res.json({ ok: true, proofUrls: urls });

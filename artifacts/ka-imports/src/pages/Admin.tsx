@@ -1088,6 +1088,41 @@ interface TenantProfitSummary {
   groupEstimatedGrossProfit: number;
 }
 
+interface FilialPurchaseRequestItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+  saleUnitPrice: number;
+  repasseUnitCost: number;
+}
+
+interface FilialPurchaseRequest {
+  id: string;
+  filialTenantId: string;
+  filialTenantName: string;
+  orderId: string;
+  status: string;
+  clientName: string;
+  orderTotal: number;
+  repasseTotal: number;
+  items: FilialPurchaseRequestItem[];
+  loja1RealCostTotal: number;
+  loja1RealProfit: number;
+  createdAt: string | null;
+  updatedAt: string | null;
+  finalizedAt: string | null;
+}
+
+function filialPurchaseStatusLabel(status: string): string {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (normalized === "pago_na_filial") return "Pago na filial";
+  if (normalized === "aguardando_compra_loja1") return "Aguardando compra Loja 1";
+  if (normalized === "compra_registrada") return "Compra registrada";
+  if (normalized === "estoque_lancado_filial") return "Estoque lançado na filial";
+  if (normalized === "finalizado") return "Finalizado";
+  return status || "-";
+}
+
 interface DnsGuideResponse {
   targetHost: string;
   envTargetHost: string | null;
@@ -1416,6 +1451,11 @@ export default function Admin() {
   const [tenantSupplyMarginSavingId, setTenantSupplyMarginSavingId] = useState<string | null>(null);
   const [tenantProfitSummary, setTenantProfitSummary] = useState<TenantProfitSummary[]>([]);
   const [tenantProfitLoading, setTenantProfitLoading] = useState(false);
+  const [filialPurchaseRequests, setFilialPurchaseRequests] = useState<FilialPurchaseRequest[]>([]);
+  const [filialPurchaseLoading, setFilialPurchaseLoading] = useState(false);
+  const [filialPurchaseConfirmingId, setFilialPurchaseConfirmingId] = useState<string | null>(null);
+  const [filialPurchaseCostDrafts, setFilialPurchaseCostDrafts] = useState<Record<string, Record<string, string>>>({});
+  const [filialPurchaseOpenId, setFilialPurchaseOpenId] = useState<string | null>(null);
   const [tenantAdminSavingId, setTenantAdminSavingId] = useState<string | null>(null);
   const [tenantAdminUsernameDrafts, setTenantAdminUsernameDrafts] = useState<Record<string, string>>({});
   const [tenantAdminPasswordDrafts, setTenantAdminPasswordDrafts] = useState<Record<string, string>>({});
@@ -2382,6 +2422,93 @@ export default function Admin() {
     }
   }, [canManageTenants, fetchTenants, fetchTenantProfitSummary, handleUnauthorized, tenantSupplyMarginDrafts]);
 
+  const fetchFilialPurchaseRequests = useCallback(async () => {
+    if (!canManageTenants) return;
+    setFilialPurchaseLoading(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/filial-purchases?status=pending`, { headers: authHeaders() });
+      if (res.status === 401) { handleUnauthorized(); return; }
+      if (!res.ok) {
+        const data = await res.json().catch(() => null) as { message?: string } | null;
+        toast.error(data?.message || "Erro ao carregar fila de compras das filiais.");
+        return;
+      }
+
+      const data = await res.json() as { requests: FilialPurchaseRequest[] };
+      const requests = data.requests || [];
+      setFilialPurchaseRequests(requests);
+
+      setFilialPurchaseCostDrafts((prev) => {
+        const next = { ...prev };
+        for (const request of requests) {
+          if (!next[request.id]) next[request.id] = {};
+          for (const item of request.items || []) {
+            if (next[request.id][item.productId] === undefined) {
+              next[request.id][item.productId] = String(item.repasseUnitCost || 0);
+            }
+          }
+        }
+        return next;
+      });
+    } catch {
+      toast.error("Erro ao carregar fila de compras das filiais.");
+    } finally {
+      setFilialPurchaseLoading(false);
+    }
+  }, [canManageTenants, handleUnauthorized]);
+
+  const confirmFilialPurchase = useCallback(async (request: FilialPurchaseRequest) => {
+    if (!canManageTenants) return;
+
+    const drafts = filialPurchaseCostDrafts[request.id] || {};
+    const items = request.items.map((item) => {
+      const raw = String(drafts[item.productId] ?? "").replace(",", ".").trim();
+      const unitCost = Number(raw);
+      return {
+        productId: item.productId,
+        unitCost,
+        valid: Number.isFinite(unitCost) && unitCost >= 0,
+      };
+    });
+
+    const invalidItem = items.find((item) => !item.valid);
+    if (invalidItem) {
+      toast.error("Preencha o custo real de todos os produtos antes de confirmar.");
+      return;
+    }
+
+    setFilialPurchaseConfirmingId(request.id);
+    try {
+      const res = await fetch(`${BASE}/api/admin/filial-purchases/${encodeURIComponent(request.id)}/confirm`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          items: items.map((item) => ({ productId: item.productId, unitCost: item.unitCost })),
+        }),
+      });
+
+      if (res.status === 401) { handleUnauthorized(); return; }
+
+      const data = await res.json().catch(() => null) as { message?: string; idempotent?: boolean } | null;
+      if (!res.ok) {
+        toast.error(data?.message || "Erro ao confirmar compra da filial.");
+        return;
+      }
+
+      if (data?.idempotent) {
+        toast.success("Compra já estava finalizada. Nenhum estoque duplicado foi lançado.");
+      } else {
+        toast.success("Compra confirmada e estoque lançado na filial.");
+      }
+
+      await fetchFilialPurchaseRequests();
+    } catch {
+      toast.error("Erro ao confirmar compra da filial.");
+    } finally {
+      setFilialPurchaseConfirmingId(null);
+    }
+  }, [canManageTenants, fetchFilialPurchaseRequests, filialPurchaseCostDrafts, handleUnauthorized]);
+
   const checkDns = useCallback(async (domain: string, tenantId?: string) => {
     if (!canManageTenants) return;
     const cleanDomain = String(domain || "").trim();
@@ -2798,9 +2925,9 @@ export default function Admin() {
     else if (tab === "commissions") { fetchCommissionPayments(); }
     else if (tab === "socialProof") { fetchSocialProof(); fetchProducts(); }
     else if (tab === "raffles")    fetchRaffles();
-    else if (tab === "lojas")      { fetchTenants(); fetchDnsGuide(dnsDomainInput); fetchTenantProfitSummary(); }
+    else if (tab === "lojas")      { fetchTenants(); fetchDnsGuide(dnsDomainInput); fetchTenantProfitSummary(); fetchFilialPurchaseRequests(); }
     else setLoading(false);
-  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchSellers, fetchSellerData, fetchShippingOptions, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchCommissionPayments, fetchSocialProof, fetchRaffles, fetchTenants, fetchDnsGuide, fetchTenantProfitSummary, dnsDomainInput]);
+  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchSellers, fetchSellerData, fetchShippingOptions, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchCommissionPayments, fetchSocialProof, fetchRaffles, fetchTenants, fetchDnsGuide, fetchTenantProfitSummary, fetchFilialPurchaseRequests, dnsDomainInput]);
 
   // -------------------------------------------------------------------------
   // SSE
@@ -6500,8 +6627,8 @@ export default function Admin() {
                   type="button"
                   variant="outline"
                   className="h-9"
-                  onClick={() => { fetchTenants(); fetchTenantProfitSummary(); }}
-                  disabled={tenantsLoading || tenantProfitLoading}
+                  onClick={() => { fetchTenants(); fetchTenantProfitSummary(); fetchFilialPurchaseRequests(); }}
+                  disabled={tenantsLoading || tenantProfitLoading || filialPurchaseLoading}
                 >
                   {tenantsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                   <span className="ml-2">Atualizar</span>
@@ -6535,6 +6662,98 @@ export default function Admin() {
                 </div>
               ) : (
                 <div className="text-sm text-muted-foreground mb-4">Sem pedidos pagos no período para calcular lucro por loja.</div>
+              )}
+
+              <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+                <p className="text-xs font-semibold text-amber-900 uppercase tracking-wide">Pedidos de compra das filiais</p>
+                <p className="text-xs text-amber-800 mt-1">
+                  Pedidos pagos em lojas filiais entram aqui automaticamente. Ao confirmar a compra, o custo real é salvo e o estoque entra direto na filial.
+                </p>
+              </div>
+
+              {filialPurchaseLoading ? (
+                <div className="text-sm text-muted-foreground mb-4">Carregando fila de compras das filiais...</div>
+              ) : filialPurchaseRequests.length === 0 ? (
+                <div className="text-sm text-muted-foreground mb-4">Nenhum pedido pendente na fila de compras das filiais.</div>
+              ) : (
+                <div className="space-y-3 mb-4">
+                  {filialPurchaseRequests.map((request) => (
+                    <div key={request.id} className="rounded-xl border border-amber-200 bg-white p-3">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">{request.filialTenantName} · Pedido {request.orderId}</p>
+                          <p className="text-xs text-muted-foreground">Cliente: {request.clientName}</p>
+                          <p className="text-xs text-muted-foreground">
+                            Status: {filialPurchaseStatusLabel(request.status)} · Criado em {formatDateBR(request.createdAt) || "-"}
+                          </p>
+                        </div>
+                        <div className="text-right text-xs">
+                          <p className="text-muted-foreground">Total pago na filial</p>
+                          <p className="font-semibold text-foreground">{formatCurrency(request.orderTotal)}</p>
+                          <p className="text-muted-foreground mt-1">Repasse estimado Loja 1</p>
+                          <p className="font-semibold text-blue-700">{formatCurrency(request.repasseTotal)}</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex justify-end">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-9"
+                          onClick={() => setFilialPurchaseOpenId((prev) => (prev === request.id ? null : request.id))}
+                        >
+                          <span>{filialPurchaseOpenId === request.id ? "Fechar compra" : "Abrir compra"}</span>
+                        </Button>
+                      </div>
+
+                      {filialPurchaseOpenId === request.id ? (
+                        <>
+                          <div className="mt-3 space-y-2">
+                            {request.items.map((item) => (
+                              <div key={`${request.id}-${item.productId}`} className="grid grid-cols-1 md:grid-cols-[1.6fr_auto_auto_auto] gap-2 items-center rounded-lg border border-border p-2">
+                                <div>
+                                  <p className="text-sm font-medium text-foreground">{item.productName}</p>
+                                  <p className="text-xs text-muted-foreground">ID: {item.productId}</p>
+                                </div>
+                                <p className="text-xs text-muted-foreground">Qtd: <span className="font-semibold text-foreground">{item.quantity}</span></p>
+                                <p className="text-xs text-muted-foreground">Repasse un.: <span className="font-semibold text-foreground">{formatCurrency(item.repasseUnitCost)}</span></p>
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={filialPurchaseCostDrafts[request.id]?.[item.productId] ?? String(item.repasseUnitCost || 0)}
+                                  onChange={(e) => {
+                                    const sanitized = e.target.value.replace(/[^0-9.,]/g, "");
+                                    setFilialPurchaseCostDrafts((prev) => ({
+                                      ...prev,
+                                      [request.id]: {
+                                        ...(prev[request.id] || {}),
+                                        [item.productId]: sanitized,
+                                      },
+                                    }));
+                                  }}
+                                  placeholder="Custo real unit."
+                                  className="h-9 px-2 rounded-lg border border-border bg-white focus:border-primary outline-none text-sm text-right"
+                                />
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="mt-3 flex justify-end">
+                            <Button
+                              type="button"
+                              className="h-9"
+                              onClick={() => confirmFilialPurchase(request)}
+                              disabled={filialPurchaseConfirmingId === request.id}
+                            >
+                              {filialPurchaseConfirmingId === request.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                              <span className="ml-2">Confirmar compra e lançar estoque</span>
+                            </Button>
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
               )}
 
               {tenantsLoading ? (
