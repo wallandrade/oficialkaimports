@@ -1070,7 +1070,22 @@ interface AdminTenant {
   domain: string | null;
   dnsTargetHost?: string | null;
   adminUsername?: string | null;
+  supplyMarginPercent?: number;
   createdAt: string;
+}
+
+interface TenantProfitSummary {
+  tenantId: string;
+  tenantName: string;
+  tenantSlug: string;
+  marginPercent: number;
+  ordersCount: number;
+  totalPaid: number;
+  childRepasseCost: number;
+  loja1EstimatedCost: number;
+  loja1EstimatedProfit: number;
+  childGrossProfit: number;
+  groupEstimatedGrossProfit: number;
 }
 
 interface DnsGuideResponse {
@@ -1397,6 +1412,10 @@ export default function Admin() {
   const [tenantDeletingId, setTenantDeletingId] = useState<string | null>(null);
   const [tenantDnsTargetSavingId, setTenantDnsTargetSavingId] = useState<string | null>(null);
   const [tenantDnsTargetDrafts, setTenantDnsTargetDrafts] = useState<Record<string, string>>({});
+  const [tenantSupplyMarginDrafts, setTenantSupplyMarginDrafts] = useState<Record<string, string>>({});
+  const [tenantSupplyMarginSavingId, setTenantSupplyMarginSavingId] = useState<string | null>(null);
+  const [tenantProfitSummary, setTenantProfitSummary] = useState<TenantProfitSummary[]>([]);
+  const [tenantProfitLoading, setTenantProfitLoading] = useState(false);
   const [tenantAdminSavingId, setTenantAdminSavingId] = useState<string | null>(null);
   const [tenantAdminUsernameDrafts, setTenantAdminUsernameDrafts] = useState<Record<string, string>>({});
   const [tenantAdminPasswordDrafts, setTenantAdminPasswordDrafts] = useState<Record<string, string>>({});
@@ -2077,6 +2096,7 @@ export default function Admin() {
       const data = await res.json() as { tenants: AdminTenant[] };
       setTenants(data.tenants || []);
       setTenantDnsTargetDrafts(Object.fromEntries((data.tenants || []).map((tenant) => [tenant.id, tenant.dnsTargetHost || ""])));
+      setTenantSupplyMarginDrafts(Object.fromEntries((data.tenants || []).map((tenant) => [tenant.id, String(tenant.supplyMarginPercent ?? 0)])));
       setTenantAdminUsernameDrafts(Object.fromEntries((data.tenants || []).map((tenant) => [tenant.id, tenant.adminUsername || ""])));
     } catch {
       toast.error("Erro ao carregar lojas.");
@@ -2301,6 +2321,66 @@ export default function Admin() {
       setTenantAdminSavingId(null);
     }
   }, [canManageTenants, fetchTenants, handleUnauthorized, tenantAdminPasswordDrafts, tenantAdminUsernameDrafts]);
+
+  const fetchTenantProfitSummary = useCallback(async () => {
+    if (!canManageTenants) return;
+    setTenantProfitLoading(true);
+    try {
+      const params = new URLSearchParams({
+        dateFrom: statsDateFrom,
+        dateTo: statsDateTo,
+      });
+      const res = await fetch(`${BASE}/api/admin/tenants/profit-summary?${params.toString()}`, { headers: authHeaders() });
+      if (res.status === 401) { handleUnauthorized(); return; }
+      if (!res.ok) {
+        const data = await res.json().catch(() => null) as { message?: string } | null;
+        toast.error(data?.message || "Erro ao carregar lucro por loja.");
+        return;
+      }
+      const data = await res.json() as { summaries: TenantProfitSummary[] };
+      setTenantProfitSummary(data.summaries || []);
+    } catch {
+      toast.error("Erro ao carregar lucro por loja.");
+    } finally {
+      setTenantProfitLoading(false);
+    }
+  }, [canManageTenants, statsDateFrom, statsDateTo, handleUnauthorized]);
+
+  const saveTenantSupplyMargin = useCallback(async (tenant: AdminTenant) => {
+    if (!canManageTenants) return;
+    const raw = String(tenantSupplyMarginDrafts[tenant.id] || "").replace(",", ".").trim();
+    const marginPercent = Number(raw);
+
+    if (!Number.isFinite(marginPercent) || marginPercent < 0) {
+      toast.error("Informe uma margem válida (>= 0).");
+      return;
+    }
+
+    setTenantSupplyMarginSavingId(tenant.id);
+    try {
+      const res = await fetch(`${BASE}/api/admin/tenants/${encodeURIComponent(tenant.id)}/supply-margin`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({ marginPercent }),
+      });
+
+      if (res.status === 401) { handleUnauthorized(); return; }
+
+      const data = await res.json().catch(() => null) as { message?: string } | null;
+      if (!res.ok) {
+        toast.error(data?.message || "Erro ao salvar margem de repasse.");
+        return;
+      }
+
+      toast.success("Margem de repasse salva.");
+      await fetchTenants();
+      await fetchTenantProfitSummary();
+    } catch {
+      toast.error("Erro ao salvar margem de repasse.");
+    } finally {
+      setTenantSupplyMarginSavingId(null);
+    }
+  }, [canManageTenants, fetchTenants, fetchTenantProfitSummary, handleUnauthorized, tenantSupplyMarginDrafts]);
 
   const checkDns = useCallback(async (domain: string, tenantId?: string) => {
     if (!canManageTenants) return;
@@ -2718,9 +2798,9 @@ export default function Admin() {
     else if (tab === "commissions") { fetchCommissionPayments(); }
     else if (tab === "socialProof") { fetchSocialProof(); fetchProducts(); }
     else if (tab === "raffles")    fetchRaffles();
-    else if (tab === "lojas")      { fetchTenants(); fetchDnsGuide(dnsDomainInput); }
+    else if (tab === "lojas")      { fetchTenants(); fetchDnsGuide(dnsDomainInput); fetchTenantProfitSummary(); }
     else setLoading(false);
-  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchSellers, fetchSellerData, fetchShippingOptions, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchCommissionPayments, fetchSocialProof, fetchRaffles, fetchTenants, fetchDnsGuide, dnsDomainInput]);
+  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchSellers, fetchSellerData, fetchShippingOptions, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchCommissionPayments, fetchSocialProof, fetchRaffles, fetchTenants, fetchDnsGuide, fetchTenantProfitSummary, dnsDomainInput]);
 
   // -------------------------------------------------------------------------
   // SSE
@@ -6416,11 +6496,46 @@ export default function Admin() {
             <div className="rounded-2xl border border-border bg-card p-5">
               <div className="flex items-center justify-between mb-4 gap-2">
                 <h3 className="text-base font-bold">Lojas cadastradas</h3>
-                <Button type="button" variant="outline" className="h-9" onClick={fetchTenants} disabled={tenantsLoading}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9"
+                  onClick={() => { fetchTenants(); fetchTenantProfitSummary(); }}
+                  disabled={tenantsLoading || tenantProfitLoading}
+                >
                   {tenantsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                   <span className="ml-2">Atualizar</span>
                 </Button>
               </div>
+
+              <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50/70 p-3">
+                <p className="text-xs font-semibold text-blue-900 uppercase tracking-wide">Resumo de lucro por loja</p>
+                <p className="text-xs text-blue-800 mt-1">
+                  Período: {formatDateOnlyLocal(statsDateFrom)} até {formatDateOnlyLocal(statsDateTo)} ·
+                  lucro da Loja 1 estimado com base na margem de repasse configurada por loja.
+                </p>
+              </div>
+
+              {tenantProfitLoading ? (
+                <div className="text-sm text-muted-foreground mb-4">Calculando lucro por loja...</div>
+              ) : tenantProfitSummary.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mb-4">
+                  {tenantProfitSummary.map((summary) => (
+                    <div key={`profit-${summary.tenantId}`} className="rounded-xl border border-border bg-muted/20 p-3">
+                      <p className="text-sm font-semibold text-foreground">{summary.tenantName}</p>
+                      <p className="text-xs text-muted-foreground">{summary.ordersCount} pedido(s) pago(s)</p>
+                      <div className="mt-2 space-y-1 text-xs">
+                        <p className="text-muted-foreground">Faturamento: <span className="font-semibold text-foreground">{formatCurrency(summary.totalPaid)}</span></p>
+                        <p className="text-muted-foreground">Custo repasse (loja filha): <span className="font-semibold text-foreground">{formatCurrency(summary.childRepasseCost)}</span></p>
+                        <p className="text-muted-foreground">Lucro loja filha (bruto): <span className="font-semibold text-emerald-700">{formatCurrency(summary.childGrossProfit)}</span></p>
+                        <p className="text-muted-foreground">Lucro Loja 1 (estimado): <span className="font-semibold text-blue-700">{formatCurrency(summary.loja1EstimatedProfit)}</span></p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-sm text-muted-foreground mb-4">Sem pedidos pagos no período para calcular lucro por loja.</div>
+              )}
 
               {tenantsLoading ? (
                 <div className="text-sm text-muted-foreground">Carregando lojas...</div>
@@ -6493,6 +6608,31 @@ export default function Admin() {
                           <span className="ml-2">Salvar alvo</span>
                         </Button>
                       </div>
+                      {tenant.id !== "tenant_loja1" ? (
+                        <div className="mt-2 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2">
+                          <div className="flex items-center gap-2 rounded-xl border-2 border-border bg-white px-3 h-10">
+                            <span className="text-xs text-muted-foreground whitespace-nowrap">Margem repasse Loja 1 (%)</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={tenantSupplyMarginDrafts[tenant.id] ?? String(tenant.supplyMarginPercent ?? 0)}
+                              onChange={(e) => setTenantSupplyMarginDrafts((prev) => ({ ...prev, [tenant.id]: e.target.value }))}
+                              className="w-full bg-transparent outline-none text-sm text-right"
+                            />
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-10"
+                            onClick={() => saveTenantSupplyMargin(tenant)}
+                            disabled={tenantSupplyMarginSavingId === tenant.id}
+                          >
+                            {tenantSupplyMarginSavingId === tenant.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                            <span className="ml-2">Salvar margem</span>
+                          </Button>
+                        </div>
+                      ) : null}
                       {tenant.id !== "tenant_loja1" ? (
                         <div className="mt-2 grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2">
                           <input

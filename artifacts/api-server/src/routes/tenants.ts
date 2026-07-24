@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { db, adminUserTenantsTable, adminUsersTable, tenantSettingsTable, tenantsTable } from "@workspace/db";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { db, adminUserTenantsTable, adminUsersTable, ordersTable, tenantSettingsTable, tenantsTable } from "@workspace/db";
+import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
 import dns from "node:dns/promises";
 import crypto from "node:crypto";
 import { getAdminScope, requirePrimaryAdmin } from "./admin-auth";
@@ -8,6 +8,15 @@ import { DEFAULT_TENANT_ID } from "../lib/tenant-context";
 
 const router: IRouter = Router();
 const TENANT_DNS_TARGET_HOST_KEY = "tenant_dns_target_host";
+const TENANT_SUPPLY_MARGIN_PERCENT_KEY = "tenant_supply_margin_percent";
+
+type OrderProductSnapshot = {
+  quantity?: unknown;
+  qty?: unknown;
+  costPrice?: unknown;
+  costprice?: unknown;
+  cost?: unknown;
+};
 
 function normalizeSlug(value: string): string {
   return String(value || "")
@@ -203,6 +212,37 @@ function isRootDomain(domain: string): boolean {
   return normalizeDomain(domain).split(".").length <= 2;
 }
 
+function toUTC(dateStr: string, hour: string, minute: string, second: string): Date {
+  const local = new Date(`${dateStr}T${hour}:${minute}:${second}-03:00`);
+  return new Date(local.toISOString());
+}
+
+function parseOrderProducts(raw: unknown): OrderProductSnapshot[] {
+  if (Array.isArray(raw)) return raw as OrderProductSnapshot[];
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? (parsed as OrderProductSnapshot[]) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function sumOrderCost(rawProducts: unknown): number {
+  const products = parseOrderProducts(rawProducts);
+  let total = 0;
+  for (const item of products) {
+    const qty = Number(item.quantity ?? item.qty ?? 0);
+    if (!Number.isFinite(qty) || qty <= 0) continue;
+    const unitCost = Number(item.costPrice ?? item.costprice ?? item.cost ?? 0);
+    if (!Number.isFinite(unitCost) || unitCost <= 0) continue;
+    total += qty * unitCost;
+  }
+  return total;
+}
+
 function getIpv4Subnet24(ip: string): string {
   const parts = String(ip || "").trim().split(".");
   return parts.length === 4 ? parts.slice(0, 3).join(".") : "";
@@ -373,16 +413,197 @@ router.get("/admin/tenants", requirePrimaryAdmin, async (req, res) => {
       }
     }
 
+    const marginRows = tenantIds.length > 0
+      ? await db
+          .select({ tenantId: tenantSettingsTable.tenantId, value: tenantSettingsTable.value })
+          .from(tenantSettingsTable)
+          .where(and(inArray(tenantSettingsTable.tenantId, tenantIds), eq(tenantSettingsTable.key, TENANT_SUPPLY_MARGIN_PERCENT_KEY)))
+      : [];
+
+    const marginByTenantId = new Map(
+      marginRows.map((row) => [row.tenantId, Number.parseFloat(String(row.value || "0")) || 0]),
+    );
+
     res.json({
       tenants: rows.map((row) => ({
         ...row,
         dnsTargetHost: targetByTenantId.get(row.id) || null,
         adminUsername: adminByTenantId.get(row.id) || null,
+        supplyMarginPercent: Number(marginByTenantId.get(row.id) || 0),
       })),
     });
   } catch (err) {
     console.error("[Tenants] GET error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao carregar lojas." });
+  }
+});
+
+router.patch("/admin/tenants/:tenantId/supply-margin", requirePrimaryAdmin, async (req, res) => {
+  try {
+    if (!ensureDefaultTenantScope(req, res)) return;
+
+    const tenantId = String(req.params.tenantId || "").trim();
+    const marginRaw = Number(req.body?.marginPercent);
+
+    if (!tenantId) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Informe a loja a ser atualizada." });
+      return;
+    }
+
+    if (!Number.isFinite(marginRaw) || marginRaw < 0) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Informe uma margem válida (>= 0)." });
+      return;
+    }
+
+    const marginPercent = Math.round(marginRaw * 100) / 100;
+
+    const existing = await db
+      .select({ id: tenantsTable.id })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, tenantId))
+      .limit(1);
+
+    if (!existing[0]) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Loja não encontrada." });
+      return;
+    }
+
+    await db
+      .insert(tenantSettingsTable)
+      .values({
+        tenantId,
+        key: TENANT_SUPPLY_MARGIN_PERCENT_KEY,
+        value: String(marginPercent),
+        updatedAt: new Date(),
+      })
+      .onDuplicateKeyUpdate({
+        set: {
+          value: String(marginPercent),
+          updatedAt: new Date(),
+        },
+      });
+
+    res.json({ ok: true, tenantId, marginPercent });
+  } catch (err) {
+    console.error("[Tenants] PATCH supply-margin error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao salvar margem de repasse." });
+  }
+});
+
+router.get("/admin/tenants/profit-summary", requirePrimaryAdmin, async (req, res) => {
+  try {
+    if (!ensureDefaultTenantScope(req, res)) return;
+
+    const { dateFrom, dateTo } = req.query as Record<string, string>;
+
+    const tenants = await db
+      .select({ id: tenantsTable.id, name: tenantsTable.name, slug: tenantsTable.slug })
+      .from(tenantsTable)
+      .orderBy(asc(tenantsTable.createdAt));
+
+    const tenantIds = tenants.map((tenant) => tenant.id);
+    if (tenantIds.length === 0) {
+      res.json({ summaries: [] });
+      return;
+    }
+
+    const marginRows = await db
+      .select({ tenantId: tenantSettingsTable.tenantId, value: tenantSettingsTable.value })
+      .from(tenantSettingsTable)
+      .where(and(inArray(tenantSettingsTable.tenantId, tenantIds), eq(tenantSettingsTable.key, TENANT_SUPPLY_MARGIN_PERCENT_KEY)));
+
+    const marginByTenantId = new Map(
+      marginRows.map((row) => [row.tenantId, Number.parseFloat(String(row.value || "0")) || 0]),
+    );
+
+    const conditions = [
+      inArray(ordersTable.tenantId, tenantIds),
+      inArray(ordersTable.status, ["paid", "completed"]),
+    ];
+    if (dateFrom) conditions.push(gte(ordersTable.createdAt, toUTC(dateFrom, "00", "00", "00")));
+    if (dateTo) conditions.push(lte(ordersTable.createdAt, toUTC(dateTo, "23", "59", "59")));
+
+    const orders = await db
+      .select({
+        tenantId: ordersTable.tenantId,
+        total: ordersTable.total,
+        products: ordersTable.products,
+      })
+      .from(ordersTable)
+      .where(and(...conditions));
+
+    const byTenant = new Map<string, {
+      ordersCount: number;
+      totalPaid: number;
+      childRepasseCost: number;
+      loja1EstimatedCost: number;
+      loja1EstimatedProfit: number;
+      childGrossProfit: number;
+      groupEstimatedGrossProfit: number;
+      marginPercent: number;
+    }>();
+
+    for (const tenant of tenants) {
+      const marginPercent = Number(marginByTenantId.get(tenant.id) || 0);
+      byTenant.set(tenant.id, {
+        ordersCount: 0,
+        totalPaid: 0,
+        childRepasseCost: 0,
+        loja1EstimatedCost: 0,
+        loja1EstimatedProfit: 0,
+        childGrossProfit: 0,
+        groupEstimatedGrossProfit: 0,
+        marginPercent,
+      });
+    }
+
+    for (const order of orders) {
+      const tenantId = String(order.tenantId || "").trim();
+      if (!tenantId) continue;
+
+      const bucket = byTenant.get(tenantId);
+      if (!bucket) continue;
+
+      const totalPaid = Number(order.total || 0);
+      const childRepasseCost = sumOrderCost(order.products);
+      const divisor = 1 + bucket.marginPercent / 100;
+      const loja1EstimatedCost = divisor > 0 ? childRepasseCost / divisor : childRepasseCost;
+      const loja1EstimatedProfit = childRepasseCost - loja1EstimatedCost;
+      const childGrossProfit = totalPaid - childRepasseCost;
+      const groupEstimatedGrossProfit = totalPaid - loja1EstimatedCost;
+
+      bucket.ordersCount += 1;
+      bucket.totalPaid += totalPaid;
+      bucket.childRepasseCost += childRepasseCost;
+      bucket.loja1EstimatedCost += loja1EstimatedCost;
+      bucket.loja1EstimatedProfit += loja1EstimatedProfit;
+      bucket.childGrossProfit += childGrossProfit;
+      bucket.groupEstimatedGrossProfit += groupEstimatedGrossProfit;
+    }
+
+    const summaries = tenants
+      .filter((tenant) => tenant.id !== DEFAULT_TENANT_ID)
+      .map((tenant) => {
+        const bucket = byTenant.get(tenant.id)!;
+        return {
+          tenantId: tenant.id,
+          tenantName: tenant.name,
+          tenantSlug: tenant.slug,
+          marginPercent: bucket.marginPercent,
+          ordersCount: bucket.ordersCount,
+          totalPaid: Number(bucket.totalPaid.toFixed(2)),
+          childRepasseCost: Number(bucket.childRepasseCost.toFixed(2)),
+          loja1EstimatedCost: Number(bucket.loja1EstimatedCost.toFixed(2)),
+          loja1EstimatedProfit: Number(bucket.loja1EstimatedProfit.toFixed(2)),
+          childGrossProfit: Number(bucket.childGrossProfit.toFixed(2)),
+          groupEstimatedGrossProfit: Number(bucket.groupEstimatedGrossProfit.toFixed(2)),
+        };
+      });
+
+    res.json({ summaries });
+  } catch (err) {
+    console.error("[Tenants] GET profit-summary error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao carregar resumo de lucro por loja." });
   }
 });
 
