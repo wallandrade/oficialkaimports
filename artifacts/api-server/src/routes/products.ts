@@ -408,13 +408,13 @@ router.get("/admin/products/backup", requireAdminAuth, async (req, res) => {
 /** POST /api/admin/products/restore */
 router.post("/admin/products/restore", requireAdminAuth, async (req, res) => {
   try {
-      const tenantBrandsKey = getAdminSavedBrandsKey(tenantId);
     const scope = getAdminScope(req);
     if (!canManageProducts(scope)) {
       res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar produtos." });
       return;
     }
     const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
+    const tenantBrandsKey = getAdminSavedBrandsKey(tenantId);
     const { mode, backup } = req.body as {
       mode?: "merge" | "replace";
       backup?: unknown;
