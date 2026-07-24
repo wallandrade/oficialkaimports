@@ -1,10 +1,16 @@
 import { Router, type IRouter } from "express";
 import { db, sellersTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
-import { getAdminScope, requirePrimaryAdmin } from "./admin-auth";
+import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 
 const router: IRouter = Router();
+
+function canManageSellers(scope: ReturnType<typeof getAdminScope>): boolean {
+  if (!scope) return false;
+  if (scope.isPrimary) return true;
+  return scope.tenantId !== DEFAULT_TENANT_ID;
+}
 
 /** GET /api/sellers — public, returns all sellers [{slug, whatsapp}] */
 router.get("/sellers", async (req, res) => {
@@ -37,9 +43,14 @@ router.get("/sellers/:slug", async (req, res) => {
 });
 
 /** GET /api/admin/sellers — admin only, returns full seller settings */
-router.get("/admin/sellers", requirePrimaryAdmin, async (req, res) => {
+router.get("/admin/sellers", requireAdminAuth, async (req, res) => {
   try {
-    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+    const scope = getAdminScope(req);
+    if (!canManageSellers(scope)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar vendedores." });
+      return;
+    }
+    const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
     const rows = await db.select({
       slug: sellersTable.slug,
       whatsapp: sellersTable.whatsapp,
@@ -58,9 +69,14 @@ router.get("/admin/sellers", requirePrimaryAdmin, async (req, res) => {
 });
 
 /** POST /api/admin/sellers — admin only, upsert seller */
-router.post("/admin/sellers", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/sellers", requireAdminAuth, async (req, res) => {
   try {
-    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+    const scope = getAdminScope(req);
+    if (!canManageSellers(scope)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar vendedores." });
+      return;
+    }
+    const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
     const { slug, whatsapp, hasCommission, commissionRate } = req.body as {
       slug?: string;
       whatsapp?: string;
@@ -107,9 +123,14 @@ router.post("/admin/sellers", requirePrimaryAdmin, async (req, res) => {
 });
 
 /** DELETE /api/admin/sellers/:slug — admin only */
-router.delete("/admin/sellers/:slug", requirePrimaryAdmin, async (req, res) => {
+router.delete("/admin/sellers/:slug", requireAdminAuth, async (req, res) => {
   try {
-    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+    const scope = getAdminScope(req);
+    if (!canManageSellers(scope)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar vendedores." });
+      return;
+    }
+    const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
     const slug = String(req.params.slug);
     await db.delete(sellersTable).where(and(eq(sellersTable.tenantId, tenantId), eq(sellersTable.slug, slug.toLowerCase())));
     res.json({ ok: true });

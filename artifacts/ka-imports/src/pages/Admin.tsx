@@ -1431,6 +1431,7 @@ export default function Admin() {
   const [liveStats, setLiveStats] = useState({ catalog: 0, checkout: 0 });
   const canManageTenants = isPrimary && adminTenantId === "tenant_loja1";
   const canManageProductsTab = isPrimary || adminTenantId !== "tenant_loja1";
+  const canManageSellerLinks = isPrimary || adminTenantId !== "tenant_loja1";
 
   // -------------------- FIM DOS useState --------------------
 
@@ -4580,6 +4581,7 @@ export default function Admin() {
             orders={sellerAllOrders}
             charges={sellerAllCharges}
             isPrimary={isPrimary}
+            canManageSellerLinks={canManageSellerLinks}
             currentUsername={currentUsername}
           />
         ) : tab === "customers" ? (
@@ -10516,7 +10518,7 @@ function SellerAnalyticsCard({ seller, orders, charges }: { seller: SavedSellerI
   );
 }
 
-function SellersPanel({ siteOrigin, savedSellersList, sellerInput, setSellerInput, sellerWhatsappInput, setSellerWhatsappInput, sellerHasCommissionInput, setSellerHasCommissionInput, sellerCommissionRateInput, setSellerCommissionRateInput, saveSeller, updateSellerCommission, sellerCommissionUpdatingSlug, removeSeller, copySeller, copiedSeller, orders, charges, isPrimary, currentUsername }: {
+function SellersPanel({ siteOrigin, savedSellersList, sellerInput, setSellerInput, sellerWhatsappInput, setSellerWhatsappInput, sellerHasCommissionInput, setSellerHasCommissionInput, sellerCommissionRateInput, setSellerCommissionRateInput, saveSeller, updateSellerCommission, sellerCommissionUpdatingSlug, removeSeller, copySeller, copiedSeller, orders, charges, isPrimary, canManageSellerLinks, currentUsername }: {
   siteOrigin: string;
   savedSellersList: SavedSellerItem[];
   sellerInput: string; setSellerInput: (v: string) => void;
@@ -10528,6 +10530,7 @@ function SellersPanel({ siteOrigin, savedSellersList, sellerInput, setSellerInpu
   sellerCommissionUpdatingSlug: string | null;
   copySeller: (s: string) => void; copiedSeller: string | null;
   orders: AdminOrder[]; charges: CustomCharge[];
+  canManageSellerLinks: boolean;
   isPrimary: boolean; currentUsername: string;
 }) {
   const [copiedPaymentLink, setCopiedPaymentLink] = useState<string | null>(null);
@@ -10568,7 +10571,7 @@ function SellersPanel({ siteOrigin, savedSellersList, sellerInput, setSellerInpu
   // For non-primary users, only show their own seller entry.
   // Match by: exact slug, or slug starts with cleaned username, or cleaned username starts with slug.
   const cleanUsername = currentUsername.toLowerCase().replace(/[^a-z]/g, "");
-  const visibleSellers = isPrimary
+  const visibleSellers = canManageSellerLinks
     ? savedSellersList
     : savedSellersList.filter((s) => {
         const slug = s.slug.toLowerCase();
@@ -10586,11 +10589,13 @@ function SellersPanel({ siteOrigin, savedSellersList, sellerInput, setSellerInpu
         <p className="text-muted-foreground text-sm mb-5">
           {isPrimary
             ? "Gere um link personalizado para cada vendedor com o número do WhatsApp. O cliente que acessar por esse link terá suporte direto com o vendedor."
+            : canManageSellerLinks
+            ? "Gere e gerencie os links de vendedor desta loja com os números de WhatsApp."
             : "Seu link de vendedor. Compartilhe com seus clientes para que o suporte chegue diretamente a você."}
         </p>
 
         {/* Create form — only for full-access admins */}
-        {isPrimary && (
+        {canManageSellerLinks && (
           <div className="space-y-3 mb-4">
             <div className="flex gap-2">
               <input
@@ -10740,7 +10745,7 @@ function SellersPanel({ siteOrigin, savedSellersList, sellerInput, setSellerInpu
                       <Pencil className="w-3 h-3" />
                       WhatsApp
                     </Button>
-                    {isPrimary && (
+                    {canManageSellerLinks && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -10756,7 +10761,7 @@ function SellersPanel({ siteOrigin, savedSellersList, sellerInput, setSellerInpu
                         Comissão
                       </Button>
                     )}
-                    {isPrimary && (
+                    {canManageSellerLinks && (
                       <Button size="sm" variant="outline" className="h-7 text-red-600 border-red-200 hover:bg-red-50 px-2" onClick={() => removeSeller(slug)}>
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
@@ -10768,7 +10773,7 @@ function SellersPanel({ siteOrigin, savedSellersList, sellerInput, setSellerInpu
           </div>
         ) : (
           <p className="text-center text-sm text-muted-foreground mt-4">
-            {isPrimary ? "Nenhum link criado ainda." : "Nenhum link de vendedor encontrado para o seu usuário."}
+            {canManageSellerLinks ? "Nenhum link criado ainda." : "Nenhum link de vendedor encontrado para o seu usuário."}
           </p>
         )}
       </div>
