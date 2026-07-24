@@ -861,7 +861,6 @@ type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "p
 const PRIMARY_ONLY_TABS = new Set<TabType>([
   "users",
   "coupons",
-  "fretes",
   "orderBumps",
   "inventory",
   "socialProof",
@@ -1431,6 +1430,7 @@ export default function Admin() {
   const [liveStats, setLiveStats] = useState({ catalog: 0, checkout: 0 });
   const canManageTenants = isPrimary && adminTenantId === "tenant_loja1";
   const canManageProductsTab = isPrimary || adminTenantId !== "tenant_loja1";
+  const canManageShippingTab = isPrimary || adminTenantId !== "tenant_loja1";
   const canManageSellerLinks = isPrimary || adminTenantId !== "tenant_loja1";
 
   // -------------------- FIM DOS useState --------------------
@@ -4306,9 +4306,11 @@ export default function Admin() {
               { key: "products" as TabType, label: "Produtos", icon: "ShoppingBag", count: products.length },
               { key: "configuracoes" as TabType, label: "Configurações", icon: "Settings" },
             ] : []),
+            ...(canManageShippingTab ? [
+              { key: "fretes" as TabType, label: "Fretes", icon: "Truck", count: shippingOptions.length },
+            ] : []),
             ...(isPrimary ? [
               { key: "coupons",       label: "Cupons",           icon: "Ticket",      count: coupons.length },
-              { key: "fretes",        label: "Fretes",           icon: "Truck",       count: shippingOptions.length },
               { key: "orderBumps",    label: "Order Bumps",      icon: "Zap",         count: orderBumps.length },
               { key: "inventory",     label: "Estoque",          icon: "Package",     count: pendingReshipments.length || undefined },
               { key: "users",         label: "Usuários",         icon: "User" },

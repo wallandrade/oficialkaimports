@@ -2,11 +2,17 @@ import { Router, type IRouter } from "express";
 import { db, shippingOptionsTable } from "@workspace/db";
 import { and, eq, asc, isNull, or } from "drizzle-orm";
 import crypto from "crypto";
-import { getAdminScope, requirePrimaryAdmin } from "./admin-auth";
+import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { resolvePublicTenantId } from "../lib/tenant-context";
 
 const router: IRouter = Router();
 const DEFAULT_TENANT_ID = "tenant_loja1";
+
+function canManageShippingOptions(scope: ReturnType<typeof getAdminScope>): boolean {
+  if (!scope) return false;
+  if (scope.isPrimary) return true;
+  return scope.tenantId !== DEFAULT_TENANT_ID;
+}
 
 function buildShippingTenantWhere(tenantId: string) {
   if (tenantId === DEFAULT_TENANT_ID) {
@@ -44,9 +50,14 @@ router.get("/shipping-options", async (_req, res) => {
 // GET /api/admin/shipping-options  (admin)
 // Returns ALL shipping options (active + inactive).
 // ---------------------------------------------------------------------------
-router.get("/admin/shipping-options", requirePrimaryAdmin, async (req, res) => {
+router.get("/admin/shipping-options", requireAdminAuth, async (req, res) => {
   try {
-    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+    const scope = getAdminScope(req);
+    if (!canManageShippingOptions(scope)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar fretes." });
+      return;
+    }
+    const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
     const options = await db
       .select()
       .from(shippingOptionsTable)
@@ -64,9 +75,14 @@ router.get("/admin/shipping-options", requirePrimaryAdmin, async (req, res) => {
 // POST /api/admin/shipping-options  (admin)
 // Create a new shipping option.
 // ---------------------------------------------------------------------------
-router.post("/admin/shipping-options", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/shipping-options", requireAdminAuth, async (req, res) => {
   try {
-    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+    const scope = getAdminScope(req);
+    if (!canManageShippingOptions(scope)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar fretes." });
+      return;
+    }
+    const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
     const { name, description, price, sortOrder } = req.body as {
       name?: string;
       description?: string;
@@ -113,9 +129,14 @@ router.post("/admin/shipping-options", requirePrimaryAdmin, async (req, res) => 
 // PATCH /api/admin/shipping-options/:id  (admin)
 // Update an existing shipping option.
 // ---------------------------------------------------------------------------
-router.patch("/admin/shipping-options/:id", requirePrimaryAdmin, async (req, res) => {
+router.patch("/admin/shipping-options/:id", requireAdminAuth, async (req, res) => {
   try {
-    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+    const scope = getAdminScope(req);
+    if (!canManageShippingOptions(scope)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar fretes." });
+      return;
+    }
+    const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
     const { name, description, price, sortOrder, isActive } = req.body as {
@@ -162,9 +183,14 @@ router.patch("/admin/shipping-options/:id", requirePrimaryAdmin, async (req, res
 // ---------------------------------------------------------------------------
 // DELETE /api/admin/shipping-options/:id  (admin)
 // ---------------------------------------------------------------------------
-router.delete("/admin/shipping-options/:id", requirePrimaryAdmin, async (req, res) => {
+router.delete("/admin/shipping-options/:id", requireAdminAuth, async (req, res) => {
   try {
-    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+    const scope = getAdminScope(req);
+    if (!canManageShippingOptions(scope)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar fretes." });
+      return;
+    }
+    const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
     await db.delete(shippingOptionsTable).where(and(buildShippingTenantWhere(tenantId), eq(shippingOptionsTable.id, id)));
