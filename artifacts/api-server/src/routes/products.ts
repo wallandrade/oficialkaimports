@@ -436,6 +436,7 @@ router.post("/admin/products/restore", requireAdminAuth, async (req, res) => {
     const products = rawProducts.map((item, index) => normalizeBackupProduct(item, index));
     const hasSavedBrands = Object.prototype.hasOwnProperty.call(payload, "savedBrands");
     const savedBrands = hasSavedBrands ? parseSavedBrands(payload.savedBrands) : [];
+    let remappedIds = 0;
 
     await db.transaction(async (tx) => {
       if (normalizedMode === "replace") {
@@ -443,33 +444,40 @@ router.post("/admin/products/restore", requireAdminAuth, async (req, res) => {
       }
 
       for (const product of products) {
-        await tx
-          .insert(productsTable)
-          .values({
-            id: product.id,
-            tenantId,
-            name: product.name,
-            description: product.description || null,
-            category: product.category,
-            brand: product.brand,
-            unit: product.unit,
-            price: String(product.price),
-            costPrice: String(product.costPrice),
-            promoPrice: product.promoPrice == null ? null : String(product.promoPrice),
-            promoEndsAt: product.promoEndsAt ? new Date(product.promoEndsAt) : null,
-            bulkDiscountEnabled: product.bulkDiscountEnabled === true,
-            bulkDiscountTiers: product.bulkDiscountTiers.length > 0 ? JSON.stringify(product.bulkDiscountTiers) : null,
-            variantGroups: product.variantGroups.length > 0 ? JSON.stringify(product.variantGroups) : null,
-            image: product.image,
-            isActive: product.isActive !== false,
-            isSoldOut: product.isSoldOut === true,
-            isLaunch: product.isLaunch === true,
-            sortOrder: product.sortOrder,
-            createdAt: new Date(product.createdAt),
-            updatedAt: new Date(product.updatedAt),
-          })
-          .onDuplicateKeyUpdate({
-            set: {
+        const insertPayload: typeof productsTable.$inferInsert = {
+          id: product.id,
+          tenantId,
+          name: product.name,
+          description: product.description || null,
+          category: product.category,
+          brand: product.brand,
+          unit: product.unit,
+          price: String(product.price),
+          costPrice: String(product.costPrice),
+          promoPrice: product.promoPrice == null ? null : String(product.promoPrice),
+          promoEndsAt: product.promoEndsAt ? new Date(product.promoEndsAt) : null,
+          bulkDiscountEnabled: product.bulkDiscountEnabled === true,
+          bulkDiscountTiers: product.bulkDiscountTiers.length > 0 ? JSON.stringify(product.bulkDiscountTiers) : null,
+          variantGroups: product.variantGroups.length > 0 ? JSON.stringify(product.variantGroups) : null,
+          image: product.image,
+          isActive: product.isActive !== false,
+          isSoldOut: product.isSoldOut === true,
+          isLaunch: product.isLaunch === true,
+          sortOrder: product.sortOrder,
+          createdAt: new Date(product.createdAt),
+          updatedAt: new Date(product.updatedAt),
+        };
+
+        const scopedRow = await tx
+          .select({ id: productsTable.id })
+          .from(productsTable)
+          .where(and(eq(productsTable.id, product.id), buildProductTenantWhere(tenantId)))
+          .limit(1);
+
+        if (scopedRow.length > 0) {
+          await tx
+            .update(productsTable)
+            .set({
               name: product.name,
               description: product.description || null,
               category: product.category,
@@ -487,9 +495,31 @@ router.post("/admin/products/restore", requireAdminAuth, async (req, res) => {
               isSoldOut: product.isSoldOut === true,
               isLaunch: product.isLaunch === true,
               sortOrder: product.sortOrder,
+              createdAt: new Date(product.createdAt),
               updatedAt: new Date(product.updatedAt),
-            },
-          });
+            })
+            .where(and(eq(productsTable.id, product.id), buildProductTenantWhere(tenantId)));
+          continue;
+        }
+
+        let targetId = product.id;
+        // Prevent cross-tenant overwrite: keep backup ID when free; remap when ID belongs to another tenant.
+        // The products table uses a global primary key on id.
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const existingGlobal = await tx
+            .select({ id: productsTable.id })
+            .from(productsTable)
+            .where(eq(productsTable.id, targetId))
+            .limit(1);
+
+          if (existingGlobal.length === 0) break;
+
+          targetId = crypto.randomBytes(8).toString("hex");
+          remappedIds += 1;
+        }
+
+        await tx.insert(productsTable).values({ ...insertPayload, id: targetId });
       }
 
       if (hasSavedBrands) {
@@ -517,6 +547,7 @@ router.post("/admin/products/restore", requireAdminAuth, async (req, res) => {
       ok: true,
       mode: normalizedMode,
       imported: products.length,
+      remappedIds,
       savedBrands: savedBrands.length,
     });
   } catch (err) {
