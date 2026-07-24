@@ -6613,12 +6613,16 @@ export default function Admin() {
                           <div className="flex items-center gap-2 rounded-xl border-2 border-border bg-white px-3 h-10">
                             <span className="text-xs text-muted-foreground whitespace-nowrap">Margem repasse Loja 1 (%)</span>
                             <input
-                              type="number"
-                              min="0"
-                              step="0.01"
+                              type="text"
+                              inputMode="decimal"
                               value={tenantSupplyMarginDrafts[tenant.id] ?? String(tenant.supplyMarginPercent ?? 0)}
-                              onChange={(e) => setTenantSupplyMarginDrafts((prev) => ({ ...prev, [tenant.id]: e.target.value }))}
-                              className="w-full bg-transparent outline-none text-sm text-right"
+                              onChange={(e) => {
+                                const raw = e.target.value;
+                                const sanitized = raw.replace(/[^0-9.,]/g, "");
+                                setTenantSupplyMarginDrafts((prev) => ({ ...prev, [tenant.id]: sanitized }));
+                              }}
+                              placeholder="Ex: 15"
+                              className="w-full bg-white rounded-md border border-border px-2 py-1 outline-none focus:border-primary text-sm text-right"
                             />
                           </div>
                           <Button
