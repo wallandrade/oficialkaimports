@@ -857,6 +857,7 @@ function OrderBumpsPanel({ bumps, products, form, setForm, creating, toggling, d
 }
 
 type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "socialProof" | "raffles" | "lojas";
+type LojasSubTab = "criar" | "pedidos" | "cadastradas";
 
 const PRIMARY_ONLY_TABS = new Set<TabType>([
   "users",
@@ -1451,6 +1452,7 @@ export default function Admin() {
   const [tenantSupplyMarginSavingId, setTenantSupplyMarginSavingId] = useState<string | null>(null);
   const [tenantProfitSummary, setTenantProfitSummary] = useState<TenantProfitSummary[]>([]);
   const [tenantProfitLoading, setTenantProfitLoading] = useState(false);
+  const [lojasSubTab, setLojasSubTab] = useState<LojasSubTab>("criar");
   const [filialPurchaseRequests, setFilialPurchaseRequests] = useState<FilialPurchaseRequest[]>([]);
   const [filialPurchaseLoading, setFilialPurchaseLoading] = useState(false);
   const [filialPurchaseConfirmingId, setFilialPurchaseConfirmingId] = useState<string | null>(null);
@@ -6453,442 +6455,496 @@ export default function Admin() {
           </div>
         ) : tab === "lojas" ? (
           <div className="space-y-6">
-            <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
-              <div className="flex items-center gap-2 text-foreground">
-                <Store className="w-4 h-4" />
-                <h3 className="text-base font-bold">Criar nova loja</h3>
+            <div className="rounded-2xl border border-border bg-card p-2">
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant={lojasSubTab === "criar" ? "default" : "outline"}
+                  className="h-9"
+                  onClick={() => setLojasSubTab("criar")}
+                >
+                  Criar nova loja
+                </Button>
+                <Button
+                  type="button"
+                  variant={lojasSubTab === "pedidos" ? "default" : "outline"}
+                  className="h-9"
+                  onClick={() => setLojasSubTab("pedidos")}
+                >
+                  Pedidos de compra de filiais
+                </Button>
+                <Button
+                  type="button"
+                  variant={lojasSubTab === "cadastradas" ? "default" : "outline"}
+                  className="h-9"
+                  onClick={() => setLojasSubTab("cadastradas")}
+                >
+                  Lojas cadastradas
+                </Button>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <input
-                  type="text"
-                  value={tenantForm.name}
-                  onChange={(e) => setTenantForm((p) => ({ ...p, name: e.target.value }))}
-                  placeholder="Nome da loja"
-                  className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
-                />
-                <input
-                  type="text"
-                  value={tenantForm.slug}
-                  onChange={(e) => setTenantForm((p) => ({ ...p, slug: e.target.value }))}
-                  placeholder="Slug (ex: loja-2)"
-                  className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
-                />
-                <input
-                  type="text"
-                  value={tenantForm.domain}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setTenantForm((p) => ({ ...p, domain: value }));
-                    setDnsDomainInput(value);
-                  }}
-                  placeholder="Domínio público (ex: loja2.seudominio.com)"
-                  className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
-                />
-                <input
-                  type="text"
-                  value={tenantForm.dnsTargetHost}
-                  onChange={(e) => setTenantForm((p) => ({ ...p, dnsTargetHost: e.target.value }))}
-                  placeholder="Host alvo DNS/Railway (opcional)"
-                  className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
-                />
-                {!tenantForm.createAdminUser ? (
-                  <input
-                    type="text"
-                    value={tenantForm.adminUsername}
-                    onChange={(e) => setTenantForm((p) => ({ ...p, adminUsername: e.target.value }))}
-                    placeholder="Usuário admin para vincular (opcional)"
-                    className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
-                  />
+            </div>
+
+            {lojasSubTab === "criar" ? (
+              <>
+                <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
+                  <div className="flex items-center gap-2 text-foreground">
+                    <Store className="w-4 h-4" />
+                    <h3 className="text-base font-bold">Criar nova loja</h3>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <input
+                      type="text"
+                      value={tenantForm.name}
+                      onChange={(e) => setTenantForm((p) => ({ ...p, name: e.target.value }))}
+                      placeholder="Nome da loja"
+                      className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+                    />
+                    <input
+                      type="text"
+                      value={tenantForm.slug}
+                      onChange={(e) => setTenantForm((p) => ({ ...p, slug: e.target.value }))}
+                      placeholder="Slug (ex: loja-2)"
+                      className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+                    />
+                    <input
+                      type="text"
+                      value={tenantForm.domain}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setTenantForm((p) => ({ ...p, domain: value }));
+                        setDnsDomainInput(value);
+                      }}
+                      placeholder="Domínio público (ex: loja2.seudominio.com)"
+                      className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+                    />
+                    <input
+                      type="text"
+                      value={tenantForm.dnsTargetHost}
+                      onChange={(e) => setTenantForm((p) => ({ ...p, dnsTargetHost: e.target.value }))}
+                      placeholder="Host alvo DNS/Railway (opcional)"
+                      className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+                    />
+                    {!tenantForm.createAdminUser ? (
+                      <input
+                        type="text"
+                        value={tenantForm.adminUsername}
+                        onChange={(e) => setTenantForm((p) => ({ ...p, adminUsername: e.target.value }))}
+                        placeholder="Usuário admin para vincular (opcional)"
+                        className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+                      />
+                    ) : (
+                      <input
+                        type="text"
+                        value={tenantForm.newAdminUsername}
+                        onChange={(e) => setTenantForm((p) => ({ ...p, newAdminUsername: e.target.value }))}
+                        placeholder="Novo usuário admin da loja"
+                        className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+                      />
+                    )}
+                  </div>
+                  {tenantForm.createAdminUser ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <input
+                        type="password"
+                        value={tenantForm.newAdminPassword}
+                        onChange={(e) => setTenantForm((p) => ({ ...p, newAdminPassword: e.target.value }))}
+                        placeholder="Senha do novo admin (mínimo 6 caracteres)"
+                        className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+                      />
+                      <div className="h-11 px-3 rounded-xl border border-dashed border-border text-xs text-muted-foreground flex items-center">
+                        O novo usuário será criado como admin da loja (sem acesso primário).
+                      </div>
+                    </div>
+                  ) : null}
+                  <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={tenantForm.createAdminUser}
+                      onChange={(e) => setTenantForm((p) => ({
+                        ...p,
+                        createAdminUser: e.target.checked,
+                        adminUsername: e.target.checked ? "" : p.adminUsername,
+                        newAdminUsername: e.target.checked ? p.newAdminUsername : "",
+                        newAdminPassword: e.target.checked ? p.newAdminPassword : "",
+                      }))}
+                    />
+                    Criar usuário admin novo para esta loja
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={tenantForm.cloneSettingsFromDefault}
+                      onChange={(e) => setTenantForm((p) => ({ ...p, cloneSettingsFromDefault: e.target.checked }))}
+                    />
+                    Clonar configurações atuais da Loja 1 para a nova loja
+                  </label>
+                  <div>
+                    <Button
+                      type="button"
+                      onClick={createTenant}
+                      disabled={tenantCreating}
+                      className="h-10 rounded-xl"
+                    >
+                      {tenantCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                      <span className="ml-2">Criar loja</span>
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-base font-bold">Assistente DNS</h3>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9"
+                      onClick={() => fetchDnsGuide(dnsDomainInput)}
+                      disabled={dnsGuideLoading}
+                    >
+                      {dnsGuideLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                      <span className="ml-2">Atualizar alvo</span>
+                    </Button>
+                  </div>
+
+                  <div className="rounded-xl border border-border bg-muted/20 p-3 text-sm">
+                    <p className="text-muted-foreground">Host alvo da aplicação</p>
+                    <p className="font-semibold text-foreground break-all">{dnsGuide?.targetHost || "carregando..."}</p>
+                    <p className="text-xs text-muted-foreground mt-1">Configure TENANT_DNS_TARGET_HOST no backend se quiser forçar um host alvo específico.</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-2">
+                    <input
+                      type="text"
+                      value={dnsDomainInput}
+                      onChange={(e) => setDnsDomainInput(e.target.value)}
+                      placeholder="Domínio para verificar (ex: loja2.seudominio.com)"
+                      className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+                    />
+                    <Button type="button" variant="outline" className="h-11" onClick={() => fetchDnsGuide(dnsDomainInput)} disabled={dnsGuideLoading}>
+                      Instrução
+                    </Button>
+                    <Button type="button" className="h-11" onClick={() => checkDns(dnsDomainInput)} disabled={dnsCheckLoading}>
+                      {dnsCheckLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Verificar DNS"}
+                    </Button>
+                  </div>
+
+                  {dnsGuide?.instructions && (
+                    <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm space-y-1">
+                      <p className="font-semibold text-blue-900">Registro recomendado</p>
+                      <p className="text-blue-900">Tipo: <strong>{dnsGuide.instructions.type}</strong></p>
+                      <p className="text-blue-900">Nome/Host: <strong>{dnsGuide.instructions.name}</strong></p>
+                      <p className="text-blue-900 break-all">Valor/Destino: <strong>{dnsGuide.instructions.value}</strong></p>
+                      <p className="text-xs text-blue-800">{dnsGuide.instructions.note}</p>
+                    </div>
+                  )}
+
+                  {dnsCheckResult && (
+                    <div className="rounded-xl border border-border bg-white p-3 text-sm space-y-2">
+                      <div className="flex items-center gap-2">
+                        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${dnsCheckResult.status === "configured" ? "bg-emerald-100 text-emerald-700" : dnsCheckResult.status === "misconfigured" ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-700"}`}>
+                          {dnsCheckResult.status === "configured" ? (dnsCheckResult.rootAliasFlattenedMatch ? "Configurado via ALIAS" : "Configurado") : dnsCheckResult.status === "misconfigured" ? "Incorreto" : "Sem registro"}
+                        </span>
+                        <span className="text-muted-foreground">{dnsCheckResult.message}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground break-all">CNAME: {dnsCheckResult.dns.cname.length ? dnsCheckResult.dns.cname.join(", ") : "-"}</p>
+                      <p className="text-xs text-muted-foreground break-all">A: {dnsCheckResult.dns.a.length ? dnsCheckResult.dns.a.join(", ") : "-"}</p>
+                      <p className="text-xs text-muted-foreground break-all">Target A: {dnsCheckResult.dns.targetA.length ? dnsCheckResult.dns.targetA.join(", ") : "-"}</p>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : null}
+
+            {lojasSubTab === "pedidos" ? (
+              <div className="rounded-2xl border border-border bg-card p-5">
+                <div className="flex items-center justify-between mb-4 gap-2">
+                  <h3 className="text-base font-bold">Pedidos de compra das filiais</h3>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-9"
+                    onClick={() => fetchFilialPurchaseRequests()}
+                    disabled={filialPurchaseLoading}
+                  >
+                    {filialPurchaseLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                    <span className="ml-2">Atualizar</span>
+                  </Button>
+                </div>
+
+                <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+                  <p className="text-xs font-semibold text-amber-900 uppercase tracking-wide">Fila da Loja 1</p>
+                  <p className="text-xs text-amber-800 mt-1">
+                    Pedidos pagos em lojas filiais entram aqui automaticamente. Ao confirmar a compra, o custo real é salvo e o estoque entra direto na filial.
+                  </p>
+                </div>
+
+                {filialPurchaseLoading ? (
+                  <div className="text-sm text-muted-foreground mb-4">Carregando fila de compras das filiais...</div>
+                ) : filialPurchaseRequests.length === 0 ? (
+                  <div className="text-sm text-muted-foreground mb-4">Nenhum pedido pendente na fila de compras das filiais.</div>
                 ) : (
-                  <input
-                    type="text"
-                    value={tenantForm.newAdminUsername}
-                    onChange={(e) => setTenantForm((p) => ({ ...p, newAdminUsername: e.target.value }))}
-                    placeholder="Novo usuário admin da loja"
-                    className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
-                  />
+                  <div className="space-y-3 mb-4">
+                    {filialPurchaseRequests.map((request) => (
+                      <div key={request.id} className="rounded-xl border border-amber-200 bg-white p-3">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-semibold text-foreground">{request.filialTenantName} · Pedido {request.orderId}</p>
+                            <p className="text-xs text-muted-foreground">Cliente: {request.clientName}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Status: {filialPurchaseStatusLabel(request.status)} · Criado em {formatDateBR(request.createdAt) || "-"}
+                            </p>
+                          </div>
+                          <div className="text-right text-xs">
+                            <p className="text-muted-foreground">Total pago na filial</p>
+                            <p className="font-semibold text-foreground">{formatCurrency(request.orderTotal)}</p>
+                            <p className="text-muted-foreground mt-1">Repasse estimado Loja 1</p>
+                            <p className="font-semibold text-blue-700">{formatCurrency(request.repasseTotal)}</p>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 flex justify-end">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-9"
+                            onClick={() => setFilialPurchaseOpenId((prev) => (prev === request.id ? null : request.id))}
+                          >
+                            <span>{filialPurchaseOpenId === request.id ? "Fechar compra" : "Abrir compra"}</span>
+                          </Button>
+                        </div>
+
+                        {filialPurchaseOpenId === request.id ? (
+                          <>
+                            <div className="mt-3 space-y-2">
+                              {request.items.map((item) => (
+                                <div key={`${request.id}-${item.productId}`} className="grid grid-cols-1 md:grid-cols-[1.6fr_auto_auto_auto] gap-2 items-center rounded-lg border border-border p-2">
+                                  <div>
+                                    <p className="text-sm font-medium text-foreground">{item.productName}</p>
+                                    <p className="text-xs text-muted-foreground">ID: {item.productId}</p>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground">Qtd: <span className="font-semibold text-foreground">{item.quantity}</span></p>
+                                  <p className="text-xs text-muted-foreground">Repasse un.: <span className="font-semibold text-foreground">{formatCurrency(item.repasseUnitCost)}</span></p>
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={filialPurchaseCostDrafts[request.id]?.[item.productId] ?? String(item.repasseUnitCost || 0)}
+                                    onChange={(e) => {
+                                      const sanitized = e.target.value.replace(/[^0-9.,]/g, "");
+                                      setFilialPurchaseCostDrafts((prev) => ({
+                                        ...prev,
+                                        [request.id]: {
+                                          ...(prev[request.id] || {}),
+                                          [item.productId]: sanitized,
+                                        },
+                                      }));
+                                    }}
+                                    placeholder="Custo real unit."
+                                    className="h-9 px-2 rounded-lg border border-border bg-white focus:border-primary outline-none text-sm text-right"
+                                  />
+                                </div>
+                              ))}
+                            </div>
+
+                            <div className="mt-3 flex justify-end">
+                              <Button
+                                type="button"
+                                className="h-9"
+                                onClick={() => confirmFilialPurchase(request)}
+                                disabled={filialPurchaseConfirmingId === request.id}
+                              >
+                                {filialPurchaseConfirmingId === request.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                                <span className="ml-2">Confirmar compra e lançar estoque</span>
+                              </Button>
+                            </div>
+                          </>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
-              {tenantForm.createAdminUser ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <input
-                    type="password"
-                    value={tenantForm.newAdminPassword}
-                    onChange={(e) => setTenantForm((p) => ({ ...p, newAdminPassword: e.target.value }))}
-                    placeholder="Senha do novo admin (mínimo 6 caracteres)"
-                    className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
-                  />
-                  <div className="h-11 px-3 rounded-xl border border-dashed border-border text-xs text-muted-foreground flex items-center">
-                    O novo usuário será criado como admin da loja (sem acesso primário).
+            ) : null}
+
+            {lojasSubTab === "cadastradas" ? (
+              <div className="rounded-2xl border border-border bg-card p-5">
+                <div className="flex items-center justify-between mb-4 gap-2">
+                  <h3 className="text-base font-bold">Lojas cadastradas</h3>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-9"
+                    onClick={() => { fetchTenants(); fetchTenantProfitSummary(); }}
+                    disabled={tenantsLoading || tenantProfitLoading}
+                  >
+                    {tenantsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                    <span className="ml-2">Atualizar</span>
+                  </Button>
+                </div>
+
+                <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50/70 p-3">
+                  <p className="text-xs font-semibold text-blue-900 uppercase tracking-wide">Resumo de lucro por loja</p>
+                  <p className="text-xs text-blue-800 mt-1">
+                    Período: {formatDateOnlyLocal(statsDateFrom)} até {formatDateOnlyLocal(statsDateTo)} ·
+                    lucro da Loja 1 estimado com base na margem de repasse configurada por loja.
+                  </p>
+                </div>
+
+                {tenantProfitLoading ? (
+                  <div className="text-sm text-muted-foreground mb-4">Calculando lucro por loja...</div>
+                ) : tenantProfitSummary.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mb-4">
+                    {tenantProfitSummary.map((summary) => (
+                      <div key={`profit-${summary.tenantId}`} className="rounded-xl border border-border bg-muted/20 p-3">
+                        <p className="text-sm font-semibold text-foreground">{summary.tenantName}</p>
+                        <p className="text-xs text-muted-foreground">{summary.ordersCount} pedido(s) pago(s)</p>
+                        <div className="mt-2 space-y-1 text-xs">
+                          <p className="text-muted-foreground">Faturamento: <span className="font-semibold text-foreground">{formatCurrency(summary.totalPaid)}</span></p>
+                          <p className="text-muted-foreground">Custo repasse (loja filha): <span className="font-semibold text-foreground">{formatCurrency(summary.childRepasseCost)}</span></p>
+                          <p className="text-muted-foreground">Lucro loja filha (bruto): <span className="font-semibold text-emerald-700">{formatCurrency(summary.childGrossProfit)}</span></p>
+                          <p className="text-muted-foreground">Lucro Loja 1 (estimado): <span className="font-semibold text-blue-700">{formatCurrency(summary.loja1EstimatedProfit)}</span></p>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
-              ) : null}
-              <label className="flex items-center gap-2 text-sm text-muted-foreground">
-                <input
-                  type="checkbox"
-                  checked={tenantForm.createAdminUser}
-                  onChange={(e) => setTenantForm((p) => ({
-                    ...p,
-                    createAdminUser: e.target.checked,
-                    adminUsername: e.target.checked ? "" : p.adminUsername,
-                    newAdminUsername: e.target.checked ? p.newAdminUsername : "",
-                    newAdminPassword: e.target.checked ? p.newAdminPassword : "",
-                  }))}
-                />
-                Criar usuário admin novo para esta loja
-              </label>
-              <label className="flex items-center gap-2 text-sm text-muted-foreground">
-                <input
-                  type="checkbox"
-                  checked={tenantForm.cloneSettingsFromDefault}
-                  onChange={(e) => setTenantForm((p) => ({ ...p, cloneSettingsFromDefault: e.target.checked }))}
-                />
-                Clonar configurações atuais da Loja 1 para a nova loja
-              </label>
-              <div>
-                <Button
-                  type="button"
-                  onClick={createTenant}
-                  disabled={tenantCreating}
-                  className="h-10 rounded-xl"
-                >
-                  {tenantCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                  <span className="ml-2">Criar loja</span>
-                </Button>
-              </div>
-            </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground mb-4">Sem pedidos pagos no período para calcular lucro por loja.</div>
+                )}
 
-            <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
-              <div className="flex items-center justify-between gap-2">
-                <h3 className="text-base font-bold">Assistente DNS</h3>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-9"
-                  onClick={() => fetchDnsGuide(dnsDomainInput)}
-                  disabled={dnsGuideLoading}
-                >
-                  {dnsGuideLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                  <span className="ml-2">Atualizar alvo</span>
-                </Button>
-              </div>
-
-              <div className="rounded-xl border border-border bg-muted/20 p-3 text-sm">
-                <p className="text-muted-foreground">Host alvo da aplicação</p>
-                <p className="font-semibold text-foreground break-all">{dnsGuide?.targetHost || "carregando..."}</p>
-                <p className="text-xs text-muted-foreground mt-1">Configure TENANT_DNS_TARGET_HOST no backend se quiser forçar um host alvo específico.</p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-2">
-                <input
-                  type="text"
-                  value={dnsDomainInput}
-                  onChange={(e) => setDnsDomainInput(e.target.value)}
-                  placeholder="Domínio para verificar (ex: loja2.seudominio.com)"
-                  className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
-                />
-                <Button type="button" variant="outline" className="h-11" onClick={() => fetchDnsGuide(dnsDomainInput)} disabled={dnsGuideLoading}>
-                  Instrução
-                </Button>
-                <Button type="button" className="h-11" onClick={() => checkDns(dnsDomainInput)} disabled={dnsCheckLoading}>
-                  {dnsCheckLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Verificar DNS"}
-                </Button>
-              </div>
-
-              {dnsGuide?.instructions && (
-                <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm space-y-1">
-                  <p className="font-semibold text-blue-900">Registro recomendado</p>
-                  <p className="text-blue-900">Tipo: <strong>{dnsGuide.instructions.type}</strong></p>
-                  <p className="text-blue-900">Nome/Host: <strong>{dnsGuide.instructions.name}</strong></p>
-                  <p className="text-blue-900 break-all">Valor/Destino: <strong>{dnsGuide.instructions.value}</strong></p>
-                  <p className="text-xs text-blue-800">{dnsGuide.instructions.note}</p>
-                </div>
-              )}
-
-              {dnsCheckResult && (
-                <div className="rounded-xl border border-border bg-white p-3 text-sm space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className={`px-2 py-1 rounded-full text-xs font-semibold ${dnsCheckResult.status === "configured" ? "bg-emerald-100 text-emerald-700" : dnsCheckResult.status === "misconfigured" ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-700"}`}>
-                      {dnsCheckResult.status === "configured" ? (dnsCheckResult.rootAliasFlattenedMatch ? "Configurado via ALIAS" : "Configurado") : dnsCheckResult.status === "misconfigured" ? "Incorreto" : "Sem registro"}
-                    </span>
-                    <span className="text-muted-foreground">{dnsCheckResult.message}</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground break-all">CNAME: {dnsCheckResult.dns.cname.length ? dnsCheckResult.dns.cname.join(", ") : "-"}</p>
-                  <p className="text-xs text-muted-foreground break-all">A: {dnsCheckResult.dns.a.length ? dnsCheckResult.dns.a.join(", ") : "-"}</p>
-                  <p className="text-xs text-muted-foreground break-all">Target A: {dnsCheckResult.dns.targetA.length ? dnsCheckResult.dns.targetA.join(", ") : "-"}</p>
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-2xl border border-border bg-card p-5">
-              <div className="flex items-center justify-between mb-4 gap-2">
-                <h3 className="text-base font-bold">Lojas cadastradas</h3>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-9"
-                  onClick={() => { fetchTenants(); fetchTenantProfitSummary(); fetchFilialPurchaseRequests(); }}
-                  disabled={tenantsLoading || tenantProfitLoading || filialPurchaseLoading}
-                >
-                  {tenantsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                  <span className="ml-2">Atualizar</span>
-                </Button>
-              </div>
-
-              <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50/70 p-3">
-                <p className="text-xs font-semibold text-blue-900 uppercase tracking-wide">Resumo de lucro por loja</p>
-                <p className="text-xs text-blue-800 mt-1">
-                  Período: {formatDateOnlyLocal(statsDateFrom)} até {formatDateOnlyLocal(statsDateTo)} ·
-                  lucro da Loja 1 estimado com base na margem de repasse configurada por loja.
-                </p>
-              </div>
-
-              {tenantProfitLoading ? (
-                <div className="text-sm text-muted-foreground mb-4">Calculando lucro por loja...</div>
-              ) : tenantProfitSummary.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 mb-4">
-                  {tenantProfitSummary.map((summary) => (
-                    <div key={`profit-${summary.tenantId}`} className="rounded-xl border border-border bg-muted/20 p-3">
-                      <p className="text-sm font-semibold text-foreground">{summary.tenantName}</p>
-                      <p className="text-xs text-muted-foreground">{summary.ordersCount} pedido(s) pago(s)</p>
-                      <div className="mt-2 space-y-1 text-xs">
-                        <p className="text-muted-foreground">Faturamento: <span className="font-semibold text-foreground">{formatCurrency(summary.totalPaid)}</span></p>
-                        <p className="text-muted-foreground">Custo repasse (loja filha): <span className="font-semibold text-foreground">{formatCurrency(summary.childRepasseCost)}</span></p>
-                        <p className="text-muted-foreground">Lucro loja filha (bruto): <span className="font-semibold text-emerald-700">{formatCurrency(summary.childGrossProfit)}</span></p>
-                        <p className="text-muted-foreground">Lucro Loja 1 (estimado): <span className="font-semibold text-blue-700">{formatCurrency(summary.loja1EstimatedProfit)}</span></p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-sm text-muted-foreground mb-4">Sem pedidos pagos no período para calcular lucro por loja.</div>
-              )}
-
-              <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50/70 p-3">
-                <p className="text-xs font-semibold text-amber-900 uppercase tracking-wide">Pedidos de compra das filiais</p>
-                <p className="text-xs text-amber-800 mt-1">
-                  Pedidos pagos em lojas filiais entram aqui automaticamente. Ao confirmar a compra, o custo real é salvo e o estoque entra direto na filial.
-                </p>
-              </div>
-
-              {filialPurchaseLoading ? (
-                <div className="text-sm text-muted-foreground mb-4">Carregando fila de compras das filiais...</div>
-              ) : filialPurchaseRequests.length === 0 ? (
-                <div className="text-sm text-muted-foreground mb-4">Nenhum pedido pendente na fila de compras das filiais.</div>
-              ) : (
-                <div className="space-y-3 mb-4">
-                  {filialPurchaseRequests.map((request) => (
-                    <div key={request.id} className="rounded-xl border border-amber-200 bg-white p-3">
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-semibold text-foreground">{request.filialTenantName} · Pedido {request.orderId}</p>
-                          <p className="text-xs text-muted-foreground">Cliente: {request.clientName}</p>
-                          <p className="text-xs text-muted-foreground">
-                            Status: {filialPurchaseStatusLabel(request.status)} · Criado em {formatDateBR(request.createdAt) || "-"}
-                          </p>
-                        </div>
-                        <div className="text-right text-xs">
-                          <p className="text-muted-foreground">Total pago na filial</p>
-                          <p className="font-semibold text-foreground">{formatCurrency(request.orderTotal)}</p>
-                          <p className="text-muted-foreground mt-1">Repasse estimado Loja 1</p>
-                          <p className="font-semibold text-blue-700">{formatCurrency(request.repasseTotal)}</p>
-                        </div>
-                      </div>
-
-                      <div className="mt-3 flex justify-end">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-9"
-                          onClick={() => setFilialPurchaseOpenId((prev) => (prev === request.id ? null : request.id))}
-                        >
-                          <span>{filialPurchaseOpenId === request.id ? "Fechar compra" : "Abrir compra"}</span>
-                        </Button>
-                      </div>
-
-                      {filialPurchaseOpenId === request.id ? (
-                        <>
-                          <div className="mt-3 space-y-2">
-                            {request.items.map((item) => (
-                              <div key={`${request.id}-${item.productId}`} className="grid grid-cols-1 md:grid-cols-[1.6fr_auto_auto_auto] gap-2 items-center rounded-lg border border-border p-2">
-                                <div>
-                                  <p className="text-sm font-medium text-foreground">{item.productName}</p>
-                                  <p className="text-xs text-muted-foreground">ID: {item.productId}</p>
-                                </div>
-                                <p className="text-xs text-muted-foreground">Qtd: <span className="font-semibold text-foreground">{item.quantity}</span></p>
-                                <p className="text-xs text-muted-foreground">Repasse un.: <span className="font-semibold text-foreground">{formatCurrency(item.repasseUnitCost)}</span></p>
-                                <input
-                                  type="text"
-                                  inputMode="decimal"
-                                  value={filialPurchaseCostDrafts[request.id]?.[item.productId] ?? String(item.repasseUnitCost || 0)}
-                                  onChange={(e) => {
-                                    const sanitized = e.target.value.replace(/[^0-9.,]/g, "");
-                                    setFilialPurchaseCostDrafts((prev) => ({
-                                      ...prev,
-                                      [request.id]: {
-                                        ...(prev[request.id] || {}),
-                                        [item.productId]: sanitized,
-                                      },
-                                    }));
-                                  }}
-                                  placeholder="Custo real unit."
-                                  className="h-9 px-2 rounded-lg border border-border bg-white focus:border-primary outline-none text-sm text-right"
-                                />
-                              </div>
-                            ))}
+                {tenantsLoading ? (
+                  <div className="text-sm text-muted-foreground">Carregando lojas...</div>
+                ) : tenants.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">Nenhuma loja cadastrada.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {tenants.map((tenant) => (
+                      <div key={tenant.id} className="rounded-xl border border-border bg-muted/20 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-semibold text-foreground">{tenant.name}</p>
+                            <p className="text-xs text-muted-foreground">ID: {tenant.id} · Slug: {tenant.slug}</p>
+                            <p className="text-xs text-muted-foreground">Domínio: {tenant.domain || "não definido"}</p>
+                            <p className="text-xs text-muted-foreground break-all">Host alvo: {tenant.dnsTargetHost || "usando alvo global"}</p>
+                            <p className="text-xs text-muted-foreground">Admin da loja: {tenant.adminUsername || "não vinculado"}</p>
                           </div>
-
-                          <div className="mt-3 flex justify-end">
-                            <Button
-                              type="button"
-                              className="h-9"
-                              onClick={() => confirmFilialPurchase(request)}
-                              disabled={filialPurchaseConfirmingId === request.id}
-                            >
-                              {filialPurchaseConfirmingId === request.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                              <span className="ml-2">Confirmar compra e lançar estoque</span>
-                            </Button>
+                          <div className="text-xs flex items-center gap-2">
+                            {tenant.domain ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-7 px-2 text-xs"
+                                onClick={() => {
+                                  setDnsDomainInput(tenant.domain || "");
+                                  fetchDnsGuide(tenant.domain || "", tenant.id);
+                                  checkDns(tenant.domain || "", tenant.id);
+                                  setLojasSubTab("criar");
+                                }}
+                              >
+                                Verificar DNS
+                              </Button>
+                            ) : null}
+                            {tenant.id !== "tenant_loja1" ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-7 px-2 text-xs border-red-200 text-red-700 hover:bg-red-50"
+                                onClick={() => deleteTenant(tenant)}
+                                disabled={tenantDeletingId === tenant.id}
+                              >
+                                {tenantDeletingId === tenant.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                )}
+                                <span className="ml-1">Excluir</span>
+                              </Button>
+                            ) : null}
+                            <span className={`px-2 py-1 rounded-full ${tenant.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-700"}`}>
+                              {tenant.status}
+                            </span>
                           </div>
-                        </>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {tenantsLoading ? (
-                <div className="text-sm text-muted-foreground">Carregando lojas...</div>
-              ) : tenants.length === 0 ? (
-                <div className="text-sm text-muted-foreground">Nenhuma loja cadastrada.</div>
-              ) : (
-                <div className="space-y-2">
-                  {tenants.map((tenant) => (
-                    <div key={tenant.id} className="rounded-xl border border-border bg-muted/20 p-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-semibold text-foreground">{tenant.name}</p>
-                          <p className="text-xs text-muted-foreground">ID: {tenant.id} · Slug: {tenant.slug}</p>
-                          <p className="text-xs text-muted-foreground">Domínio: {tenant.domain || "não definido"}</p>
-                          <p className="text-xs text-muted-foreground break-all">Host alvo: {tenant.dnsTargetHost || "usando alvo global"}</p>
-                          <p className="text-xs text-muted-foreground">Admin da loja: {tenant.adminUsername || "não vinculado"}</p>
                         </div>
-                        <div className="text-xs flex items-center gap-2">
-                          {tenant.domain ? (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="h-7 px-2 text-xs"
-                              onClick={() => {
-                                setDnsDomainInput(tenant.domain || "");
-                                fetchDnsGuide(tenant.domain || "", tenant.id);
-                                checkDns(tenant.domain || "", tenant.id);
-                              }}
-                            >
-                              Verificar DNS
-                            </Button>
-                          ) : null}
-                          {tenant.id !== "tenant_loja1" ? (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="h-7 px-2 text-xs border-red-200 text-red-700 hover:bg-red-50"
-                              onClick={() => deleteTenant(tenant)}
-                              disabled={tenantDeletingId === tenant.id}
-                            >
-                              {tenantDeletingId === tenant.id ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              ) : (
-                                <Trash2 className="w-3.5 h-3.5" />
-                              )}
-                              <span className="ml-1">Excluir</span>
-                            </Button>
-                          ) : null}
-                          <span className={`px-2 py-1 rounded-full ${tenant.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-gray-100 text-gray-700"}`}>
-                            {tenant.status}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="mt-3 flex flex-col md:flex-row gap-2">
-                        <input
-                          type="text"
-                          value={tenantDnsTargetDrafts[tenant.id] ?? tenant.dnsTargetHost ?? ""}
-                          onChange={(e) => setTenantDnsTargetDrafts((prev) => ({ ...prev, [tenant.id]: e.target.value }))}
-                          placeholder="Host alvo DNS/Railway desta loja"
-                          className="h-10 flex-1 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-10"
-                          onClick={() => saveTenantDnsTarget(tenant)}
-                          disabled={tenantDnsTargetSavingId === tenant.id}
-                        >
-                          {tenantDnsTargetSavingId === tenant.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                          <span className="ml-2">Salvar alvo</span>
-                        </Button>
-                      </div>
-                      {tenant.id !== "tenant_loja1" ? (
-                        <div className="mt-2 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2">
-                          <div className="flex items-center gap-2 rounded-xl border-2 border-border bg-white px-3 h-10">
-                            <span className="text-xs text-muted-foreground whitespace-nowrap">Margem repasse Loja 1 (%)</span>
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              value={tenantSupplyMarginDrafts[tenant.id] ?? String(tenant.supplyMarginPercent ?? 0)}
-                              onChange={(e) => {
-                                const raw = e.target.value;
-                                const sanitized = raw.replace(/[^0-9.,]/g, "");
-                                setTenantSupplyMarginDrafts((prev) => ({ ...prev, [tenant.id]: sanitized }));
-                              }}
-                              placeholder="Ex: 15"
-                              className="w-full bg-white rounded-md border border-border px-2 py-1 outline-none focus:border-primary text-sm text-right"
-                            />
-                          </div>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="h-10"
-                            onClick={() => saveTenantSupplyMargin(tenant)}
-                            disabled={tenantSupplyMarginSavingId === tenant.id}
-                          >
-                            {tenantSupplyMarginSavingId === tenant.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                            <span className="ml-2">Salvar margem</span>
-                          </Button>
-                        </div>
-                      ) : null}
-                      {tenant.id !== "tenant_loja1" ? (
-                        <div className="mt-2 grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2">
+                        <div className="mt-3 flex flex-col md:flex-row gap-2">
                           <input
                             type="text"
-                            value={tenantAdminUsernameDrafts[tenant.id] ?? tenant.adminUsername ?? ""}
-                            onChange={(e) => setTenantAdminUsernameDrafts((prev) => ({ ...prev, [tenant.id]: e.target.value }))}
-                            placeholder="Novo usuário admin da loja"
-                            className="h-10 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
-                          />
-                          <input
-                            type="password"
-                            value={tenantAdminPasswordDrafts[tenant.id] ?? ""}
-                            onChange={(e) => setTenantAdminPasswordDrafts((prev) => ({ ...prev, [tenant.id]: e.target.value }))}
-                            placeholder="Nova senha admin (mínimo 6)"
-                            className="h-10 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+                            value={tenantDnsTargetDrafts[tenant.id] ?? tenant.dnsTargetHost ?? ""}
+                            onChange={(e) => setTenantDnsTargetDrafts((prev) => ({ ...prev, [tenant.id]: e.target.value }))}
+                            placeholder="Host alvo DNS/Railway desta loja"
+                            className="h-10 flex-1 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
                           />
                           <Button
                             type="button"
                             variant="outline"
                             className="h-10"
-                            onClick={() => saveTenantAdminCredentials(tenant)}
-                            disabled={tenantAdminSavingId === tenant.id}
+                            onClick={() => saveTenantDnsTarget(tenant)}
+                            disabled={tenantDnsTargetSavingId === tenant.id}
                           >
-                            {tenantAdminSavingId === tenant.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                            <span className="ml-2">Salvar admin</span>
+                            {tenantDnsTargetSavingId === tenant.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                            <span className="ml-2">Salvar alvo</span>
                           </Button>
                         </div>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                        {tenant.id !== "tenant_loja1" ? (
+                          <div className="mt-2 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2">
+                            <div className="flex items-center gap-2 rounded-xl border-2 border-border bg-white px-3 h-10">
+                              <span className="text-xs text-muted-foreground whitespace-nowrap">Margem repasse Loja 1 (%)</span>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={tenantSupplyMarginDrafts[tenant.id] ?? String(tenant.supplyMarginPercent ?? 0)}
+                                onChange={(e) => {
+                                  const raw = e.target.value;
+                                  const sanitized = raw.replace(/[^0-9.,]/g, "");
+                                  setTenantSupplyMarginDrafts((prev) => ({ ...prev, [tenant.id]: sanitized }));
+                                }}
+                                placeholder="Ex: 15"
+                                className="w-full bg-white rounded-md border border-border px-2 py-1 outline-none focus:border-primary text-sm text-right"
+                              />
+                            </div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-10"
+                              onClick={() => saveTenantSupplyMargin(tenant)}
+                              disabled={tenantSupplyMarginSavingId === tenant.id}
+                            >
+                              {tenantSupplyMarginSavingId === tenant.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                              <span className="ml-2">Salvar margem</span>
+                            </Button>
+                          </div>
+                        ) : null}
+                        {tenant.id !== "tenant_loja1" ? (
+                          <div className="mt-2 grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2">
+                            <input
+                              type="text"
+                              value={tenantAdminUsernameDrafts[tenant.id] ?? tenant.adminUsername ?? ""}
+                              onChange={(e) => setTenantAdminUsernameDrafts((prev) => ({ ...prev, [tenant.id]: e.target.value }))}
+                              placeholder="Novo usuário admin da loja"
+                              className="h-10 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+                            />
+                            <input
+                              type="password"
+                              value={tenantAdminPasswordDrafts[tenant.id] ?? ""}
+                              onChange={(e) => setTenantAdminPasswordDrafts((prev) => ({ ...prev, [tenant.id]: e.target.value }))}
+                              placeholder="Nova senha admin (mínimo 6)"
+                              className="h-10 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-10"
+                              onClick={() => saveTenantAdminCredentials(tenant)}
+                              disabled={tenantAdminSavingId === tenant.id}
+                            >
+                              {tenantAdminSavingId === tenant.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                              <span className="ml-2">Salvar admin</span>
+                            </Button>
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : null}
           </div>
         ) : tab === "webhook" ? (
           <WebhookPanel
