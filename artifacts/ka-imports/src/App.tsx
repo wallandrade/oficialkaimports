@@ -151,6 +151,22 @@ function getReadableForeground(hexColor: string): string {
   return luminance > 0.62 ? "#0F172A" : "#FFFFFF";
 }
 
+function normalizeStoreThemePreset(value: string): "default" | "classic_clean" {
+  return String(value || "").trim().toLowerCase() === "classic_clean" ? "classic_clean" : "default";
+}
+
+function applyThemePresetFromSettings(settings: Record<string, string>): void {
+  const root = document.documentElement;
+  const preset = normalizeStoreThemePreset(String(settings.store_theme_preset || ""));
+
+  if (preset === "default") {
+    root.removeAttribute("data-store-theme");
+    return;
+  }
+
+  root.setAttribute("data-store-theme", preset);
+}
+
 function applyPrimaryColorFromSettings(settings: Record<string, string>): void {
   const root = document.documentElement;
   const primary = normalizeHexColor(String(settings.store_primary_color || ""));
@@ -170,6 +186,11 @@ function applyPrimaryColorFromSettings(settings: Record<string, string>): void {
   root.style.setProperty("--color-ring", primary);
   root.style.setProperty("--color-accent", primary);
   root.style.setProperty("--color-accent-foreground", foreground);
+}
+
+function applyStoreThemeFromSettings(settings: Record<string, string>): void {
+  applyThemePresetFromSettings(settings);
+  applyPrimaryColorFromSettings(settings);
 }
 
 function PageLoader() {
@@ -264,7 +285,7 @@ function AppInner() {
       try {
         try {
           const cached = JSON.parse(localStorage.getItem("siteSettings") || "{}") as Record<string, string>;
-          applyPrimaryColorFromSettings(cached);
+          applyStoreThemeFromSettings(cached);
         } catch {
           // ignore invalid cache
         }
@@ -273,7 +294,7 @@ function AppInner() {
         if (!active) return;
         if (!settings) return;
         localStorage.setItem("siteSettings", JSON.stringify(settings));
-        applyPrimaryColorFromSettings(settings);
+        applyStoreThemeFromSettings(settings);
       } catch {
         // Keep default theme when settings are unavailable.
       }
@@ -282,14 +303,14 @@ function AppInner() {
     const handleSettingsUpdated = (event: Event) => {
       const custom = event as CustomEvent<Record<string, string>>;
       const detail = custom.detail || {};
-      applyPrimaryColorFromSettings(detail);
+      applyStoreThemeFromSettings(detail);
     };
 
     const handleStorageSync = (event: StorageEvent) => {
       if (event.key !== "siteSettings") return;
       try {
         const parsed = JSON.parse(String(event.newValue || "{}")) as Record<string, string>;
-        applyPrimaryColorFromSettings(parsed);
+        applyStoreThemeFromSettings(parsed);
       } catch {
         // ignore parse errors
       }

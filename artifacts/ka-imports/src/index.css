@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700;900&family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 @theme {
@@ -34,6 +34,36 @@
   
   --radius-xl: 1rem;
   --radius-2xl: 1.5rem;
+}
+
+:root[data-store-theme="classic_clean"] {
+  --font-display: 'Merriweather', serif;
+  --font-sans: 'Source Sans 3', sans-serif;
+
+  --color-background: hsl(42 33% 97%);
+  --color-foreground: hsl(152 12% 20%);
+
+  --color-card: hsl(48 29% 99%);
+  --color-card-foreground: hsl(152 12% 20%);
+
+  --color-primary: hsl(168 35% 28%);
+  --color-primary-foreground: hsl(46 40% 96%);
+
+  --color-secondary: hsl(43 28% 90%);
+  --color-secondary-foreground: hsl(152 12% 24%);
+
+  --color-muted: hsl(40 18% 93%);
+  --color-muted-foreground: hsl(150 8% 36%);
+
+  --color-accent: hsl(166 26% 35%);
+  --color-accent-foreground: hsl(46 40% 97%);
+
+  --color-border: hsl(43 19% 82%);
+  --color-input: hsl(43 19% 82%);
+  --color-ring: hsl(168 35% 28%);
+
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
 }
 
 @layer base {

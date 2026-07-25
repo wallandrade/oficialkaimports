@@ -15,6 +15,7 @@ const PUBLIC_KEYS  = [
   "support_whatsapp",
   "promo_countdown_enabled", "promo_countdown_datetime", "promo_countdown_text",
   "store_primary_color",
+  "store_theme_preset",
 ];
 const ALLOWED_KEYS = [
   ...PUBLIC_KEYS,

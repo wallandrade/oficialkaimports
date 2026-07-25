@@ -13999,6 +13999,9 @@ function ConfiguracoesPanel({ settings, loading, products, clientErrors, clientE
   const [siteDisplayName, setSiteDisplayName] = useState(settings["site_name"] ?? "");
   const [supportWhatsapp, setSupportWhatsapp] = useState(String(settings["support_whatsapp"] ?? "").replace(/\D/g, ""));
   const [storePrimaryColor, setStorePrimaryColor] = useState(normalizeHexColor(settings["store_primary_color"] ?? "") || "#1A2B4A");
+  const [storeThemePreset, setStoreThemePreset] = useState<"default" | "classic_clean">(
+    String(settings["store_theme_preset"] || "").trim().toLowerCase() === "classic_clean" ? "classic_clean" : "default",
+  );
   const [promoCountdownEnabled, setPromoCountdownEnabled] = useState(!["0", "false", "off", "no", "disabled"].includes(String(settings["promo_countdown_enabled"] ?? "0").toLowerCase()));
   const [promoCountdownDateTime, setPromoCountdownDateTime] = useState(settings["promo_countdown_datetime"] ?? "");
   const [promoCountdownText, setPromoCountdownText] = useState(settings["promo_countdown_text"] ?? "");
@@ -14018,6 +14021,7 @@ function ConfiguracoesPanel({ settings, loading, products, clientErrors, clientE
     setSiteDisplayName(settings["site_name"] ?? "");
     setSupportWhatsapp(String(settings["support_whatsapp"] ?? "").replace(/\D/g, ""));
     setStorePrimaryColor(normalizeHexColor(settings["store_primary_color"] ?? "") || "#1A2B4A");
+    setStoreThemePreset(String(settings["store_theme_preset"] || "").trim().toLowerCase() === "classic_clean" ? "classic_clean" : "default");
     setPromoCountdownEnabled(!["0", "false", "off", "no", "disabled"].includes(String(settings["promo_countdown_enabled"] ?? "0").toLowerCase()));
     setPromoCountdownDateTime(settings["promo_countdown_datetime"] ?? "");
     setPromoCountdownText(settings["promo_countdown_text"] ?? "");
@@ -14159,6 +14163,54 @@ function ConfiguracoesPanel({ settings, loading, products, clientErrors, clientE
               }}
             >
               Restaurar padrão
+            </Button>
+          </div>
+        </div>
+
+        <div className="mb-5 rounded-2xl border border-border/60 bg-card p-4 shadow-sm space-y-3">
+          <div>
+            <h3 className="text-sm font-bold">Tema da loja</h3>
+            <p className="text-xs text-muted-foreground">Escolha um visual diferente por loja. O padrão mantém o tema original sem alterações.</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setStoreThemePreset("default")}
+              className={`rounded-xl border p-3 text-left transition-colors ${storeThemePreset === "default" ? "border-primary bg-primary/5" : "border-border bg-white hover:bg-muted/40"}`}
+            >
+              <p className="text-sm font-semibold">Original (padrão)</p>
+              <p className="text-xs text-muted-foreground mt-1">Mantém o layout e o estilo atual exatamente como já está.</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setStoreThemePreset("classic_clean")}
+              className={`rounded-xl border p-3 text-left transition-colors ${storeThemePreset === "classic_clean" ? "border-primary bg-primary/5" : "border-border bg-white hover:bg-muted/40"}`}
+            >
+              <p className="text-sm font-semibold">Clássico Clean</p>
+              <p className="text-xs text-muted-foreground mt-1">Visual claro, tipografia clássica e aparência mais sofisticada.</p>
+            </button>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              disabled={!!loading["store_theme_preset"]}
+              onClick={() => onSave("store_theme_preset", storeThemePreset)}
+            >
+              {loading["store_theme_preset"] ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Salvar tema
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!!loading["store_theme_preset"]}
+              onClick={() => {
+                setStoreThemePreset("default");
+                onDelete("store_theme_preset");
+              }}
+            >
+              Restaurar tema padrão
             </Button>
           </div>
         </div>
