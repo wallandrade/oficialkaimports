@@ -63,8 +63,9 @@ export function Footer() {
   useEffect(() => {
     fetchPublicSiteSettings()
       .then((data) => {
-        localStorage.setItem("siteSettings", JSON.stringify(data || {}));
-        setSiteSettings(data || {});
+        if (!data) return;
+        localStorage.setItem("siteSettings", JSON.stringify(data));
+        setSiteSettings(data);
       })
       .catch(() => {});
   }, []);

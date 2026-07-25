@@ -27,8 +27,9 @@ function usePublicSiteSettings() {
   useEffect(() => {
     fetchPublicSiteSettings()
       .then((data) => {
-        localStorage.setItem("siteSettings", JSON.stringify(data || {}));
-        setSettings(data || {});
+        if (!data) return;
+        localStorage.setItem("siteSettings", JSON.stringify(data));
+        setSettings(data);
       })
       .catch(() => {});
   }, []);

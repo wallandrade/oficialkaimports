@@ -271,8 +271,9 @@ function AppInner() {
 
         const settings = await fetchPublicSiteSettings();
         if (!active) return;
-        localStorage.setItem("siteSettings", JSON.stringify(settings || {}));
-        applyPrimaryColorFromSettings(settings || {});
+        if (!settings) return;
+        localStorage.setItem("siteSettings", JSON.stringify(settings));
+        applyPrimaryColorFromSettings(settings);
       } catch {
         // Keep default theme when settings are unavailable.
       }

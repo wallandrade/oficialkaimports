@@ -26,7 +26,7 @@ async function fetchJson(url: string): Promise<Record<string, string> | null> {
   }
 }
 
-export async function fetchPublicSiteSettings(): Promise<Record<string, string>> {
+export async function fetchPublicSiteSettings(): Promise<Record<string, string> | null> {
   const relativeData = await fetchJson(buildRelativeSettingsUrl());
   if (relativeData) return relativeData;
 
@@ -35,5 +35,5 @@ export async function fetchPublicSiteSettings(): Promise<Record<string, string>>
     if (absoluteData) return absoluteData;
   }
 
-  return {};
+  return null;
 }
