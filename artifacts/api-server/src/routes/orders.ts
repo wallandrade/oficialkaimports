@@ -2296,6 +2296,14 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
     }
 
     const wasEnviado = !!order.enviado;
+    console.info("[ORDER_ENVIADO] Toggle requested", {
+      orderId: id,
+      tenantId: adminScope.tenantId,
+      admin: (req as any).adminSession?.username || "unknown",
+      previousEnviado: wasEnviado,
+      requestedEnviado: enviado,
+    });
+
     if (wasEnviado && !enviado) {
       const providedPassword = String(adminPassword || "").trim();
       if (!providedPassword) {
@@ -2401,6 +2409,22 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
     await db.update(ordersTable)
       .set({ enviado, updatedAt: new Date() })
       .where(buildAdminOrderWhere(id, adminScope));
+
+    const persisted = await db
+      .select({ enviado: ordersTable.enviado })
+      .from(ordersTable)
+      .where(buildAdminOrderWhere(id, adminScope))
+      .limit(1);
+    const persistedEnviado = !!persisted[0]?.enviado;
+
+    console.info("[ORDER_ENVIADO] Toggle persisted", {
+      orderId: id,
+      tenantId: adminScope.tenantId,
+      previousEnviado: wasEnviado,
+      requestedEnviado: enviado,
+      persistedEnviado,
+    });
+
     broadcastNotification({ type: "order_enviado_updated", data: { id, enviado, tenantId: adminScope.tenantId } });
     res.json({ ok: true, id, enviado });
   } catch (err) {
