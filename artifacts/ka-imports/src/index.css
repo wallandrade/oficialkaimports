@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700;900&family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Merriweather:wght@400;700;900&family=Outfit:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Source+Sans+3:wght@400;500;600;700&family=Work+Sans:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 @theme {
@@ -64,6 +64,123 @@
 
   --radius-xl: 0.75rem;
   --radius-2xl: 1rem;
+}
+
+:root[data-store-theme="editorial_noir"] {
+  --font-display: 'Playfair Display', serif;
+  --font-sans: 'Work Sans', sans-serif;
+
+  --color-background: hsl(230 24% 9%);
+  --color-foreground: hsl(36 33% 92%);
+
+  --color-card: hsl(228 24% 13%);
+  --color-card-foreground: hsl(36 28% 90%);
+
+  --color-primary: hsl(35 68% 58%);
+  --color-primary-foreground: hsl(226 30% 11%);
+
+  --color-secondary: hsl(221 19% 24%);
+  --color-secondary-foreground: hsl(36 32% 88%);
+
+  --color-muted: hsl(225 19% 17%);
+  --color-muted-foreground: hsl(36 18% 71%);
+
+  --color-accent: hsl(30 60% 52%);
+  --color-accent-foreground: hsl(225 30% 11%);
+
+  --color-border: hsl(33 25% 33%);
+  --color-input: hsl(225 19% 22%);
+  --color-ring: hsl(35 68% 58%);
+
+  --radius-xl: 0.6rem;
+  --radius-2xl: 0.9rem;
+}
+
+:root[data-store-theme="editorial_noir"] body {
+  background-image:
+    radial-gradient(circle at 10% 10%, hsl(35 68% 58% / 0.09), transparent 34%),
+    radial-gradient(circle at 90% 80%, hsl(211 56% 42% / 0.1), transparent 40%),
+    linear-gradient(180deg, hsl(228 24% 11%), hsl(230 24% 8%));
+  background-attachment: fixed;
+}
+
+:root[data-store-theme="editorial_noir"] .ka-product-card {
+  border-color: hsl(35 28% 38% / 0.75);
+  border-width: 1px;
+  border-radius: 0.95rem;
+  box-shadow: 0 14px 38px hsl(226 48% 4% / 0.42);
+  background: linear-gradient(180deg, hsl(228 24% 15%), hsl(229 24% 12%));
+}
+
+:root[data-store-theme="editorial_noir"] .ka-product-card:hover {
+  transform: translateY(-2px);
+  border-color: hsl(35 68% 58% / 0.92);
+  box-shadow: 0 20px 52px hsl(226 48% 4% / 0.52);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-product-card-media {
+  background: linear-gradient(180deg, hsl(228 24% 20%), hsl(228 24% 14%));
+}
+
+:root[data-store-theme="editorial_noir"] .ka-product-card-image {
+  filter: saturate(1.05) contrast(1.05);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-product-card-category {
+  color: hsl(35 62% 67%);
+  letter-spacing: 0.1em;
+}
+
+:root[data-store-theme="editorial_noir"] .ka-product-card-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.06rem;
+}
+
+:root[data-store-theme="editorial_noir"] .ka-product-card-description {
+  color: hsl(36 18% 73%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-product-card-price {
+  color: hsl(35 74% 65%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-product-card-price-old {
+  color: hsl(35 18% 68%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-product-card-badge {
+  border-radius: 0.45rem;
+  border: 1px solid hsl(35 44% 66% / 0.5);
+  box-shadow: 0 6px 18px hsl(226 48% 4% / 0.45);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-product-card-badge-promo {
+  background: linear-gradient(90deg, hsl(30 60% 52%), hsl(39 78% 64%));
+  color: hsl(225 30% 11%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-product-card-action-primary {
+  border-radius: 0.55rem;
+  background: linear-gradient(90deg, hsl(29 66% 57%), hsl(39 74% 66%));
+  color: hsl(225 30% 11%);
+  border: 1px solid hsl(35 62% 60% / 0.65);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-product-card-action-primary:hover {
+  filter: brightness(1.03);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-product-card-action-secondary {
+  border-radius: 0.55rem;
+  border-color: hsl(35 38% 53% / 0.6);
+  background: hsl(229 21% 16%);
+  color: hsl(36 28% 90%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-product-card-action-secondary:hover {
+  background: hsl(228 22% 20%);
+  border-color: hsl(35 58% 61% / 0.8);
 }
 
 @layer base {

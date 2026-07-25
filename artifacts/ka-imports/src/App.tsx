@@ -151,8 +151,11 @@ function getReadableForeground(hexColor: string): string {
   return luminance > 0.62 ? "#0F172A" : "#FFFFFF";
 }
 
-function normalizeStoreThemePreset(value: string): "default" | "classic_clean" {
-  return String(value || "").trim().toLowerCase() === "classic_clean" ? "classic_clean" : "default";
+function normalizeStoreThemePreset(value: string): "default" | "classic_clean" | "editorial_noir" {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "classic_clean") return "classic_clean";
+  if (normalized === "editorial_noir") return "editorial_noir";
+  return "default";
 }
 
 function applyThemePresetFromSettings(settings: Record<string, string>): void {

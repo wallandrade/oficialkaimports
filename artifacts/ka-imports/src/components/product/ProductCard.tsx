@@ -84,70 +84,70 @@ export function ProductCard({ product, sellerSlug, priority = false }: ProductCa
   }
 
   return (
-    <div className="group flex flex-col w-full h-full bg-card rounded-2xl border border-border/50 shadow-sm hover:shadow-xl hover:border-primary/20 transition-all duration-300 overflow-hidden">
-      <div className="relative aspect-square overflow-hidden bg-muted/30 flex-shrink-0">
+    <div className="ka-product-card group flex flex-col w-full h-full bg-card rounded-2xl border border-border/50 shadow-sm hover:shadow-xl hover:border-primary/20 transition-all duration-300 overflow-hidden">
+      <div className="ka-product-card-media relative aspect-square overflow-hidden bg-muted/30 flex-shrink-0">
         <img
           src={product.image || "https://placehold.co/400x400/1a2b4a/ffffff?text=KA+Imports"}
           alt={product.name}
           loading={priority ? "eager" : "lazy"}
           decoding="async"
           fetchPriority={priority ? "high" : "auto"}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+          className="ka-product-card-image w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
         />
         {hasPromo && (
-          <div className="absolute top-3 left-3 bg-destructive text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg">
+          <div className="ka-product-card-badge ka-product-card-badge-promo absolute top-3 left-3 bg-destructive text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg">
             OFERTA
           </div>
         )}
         {isSoldOut ? (
-          <div className="absolute top-3 right-3 bg-red-600 text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg">
+          <div className="ka-product-card-badge ka-product-card-badge-status absolute top-3 right-3 bg-red-600 text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg">
             ESGOTADO
           </div>
         ) : isLaunch ? (
-          <div className="absolute top-3 right-3 bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg">
+          <div className="ka-product-card-badge ka-product-card-badge-status absolute top-3 right-3 bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg">
             LANCAMENTO
           </div>
         ) : null}
       </div>
 
-      <div className="p-4 flex flex-col flex-1">
-        <div className="mb-1 text-xs font-semibold text-secondary tracking-wider uppercase">
+      <div className="ka-product-card-content p-4 flex flex-col flex-1">
+        <div className="ka-product-card-category mb-1 text-xs font-semibold text-secondary tracking-wider uppercase">
           {product.category}
         </div>
         {hasBulkDiscount && (
-          <div className="mb-2 inline-flex items-center rounded-full bg-emerald-100 text-emerald-700 text-[11px] font-semibold px-2.5 py-1">
+          <div className="ka-product-card-bulk mb-2 inline-flex items-center rounded-full bg-emerald-100 text-emerald-700 text-[11px] font-semibold px-2.5 py-1">
             Desconto progressivo
           </div>
         )}
-        <h3 className="font-bold text-foreground text-base mb-1 line-clamp-2 leading-tight">
+        <h3 className="ka-product-card-title font-bold text-foreground text-base mb-1 line-clamp-2 leading-tight">
           {product.name}
         </h3>
-        <p className="text-xs text-muted-foreground mb-3 line-clamp-2">
+        <p className="ka-product-card-description text-xs text-muted-foreground mb-3 line-clamp-2">
           {product.description}
         </p>
 
-        <div className="mt-auto">
-          <div className="flex flex-col mb-3">
+        <div className="ka-product-card-footer mt-auto">
+          <div className="ka-product-card-price-wrap flex flex-col mb-3">
             {!hasBulkDiscount && hasPromo ? (
               <>
-                <span className="text-xs text-muted-foreground line-through decoration-destructive/50">
+                <span className="ka-product-card-price-old text-xs text-muted-foreground line-through decoration-destructive/50">
                   {formatCurrency(product.price)}
                 </span>
-                <span className="font-bold text-xl text-primary">
+                <span className="ka-product-card-price font-bold text-xl text-primary">
                   {formatCurrency(displayUnitPrice)}
                 </span>
               </>
             ) : (
-              <span className="font-bold text-xl text-primary">
+              <span className="ka-product-card-price font-bold text-xl text-primary">
                 {formatCurrency(displayUnitPrice)}
               </span>
             )}
           </div>
 
-          <div className="flex flex-col gap-2">
+          <div className="ka-product-card-actions flex flex-col gap-2">
             <Button
               asChild
-              className="w-full rounded-xl text-sm"
+              className="ka-product-card-action-primary w-full rounded-xl text-sm"
             >
               <Link href={href}>
                 Ver produto
@@ -156,7 +156,7 @@ export function ProductCard({ product, sellerSlug, priority = false }: ProductCa
             </Button>
             <Button
               variant="outline"
-              className="w-full rounded-xl text-sm"
+              className="ka-product-card-action-secondary w-full rounded-xl text-sm"
               onClick={handleAddToCart}
               disabled={isSoldOut}
             >
