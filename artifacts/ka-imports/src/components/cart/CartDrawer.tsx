@@ -27,26 +27,26 @@ export function CartDrawer() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => setIsOpen(false)}
-            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50"
+            className="ka-cart-backdrop fixed inset-0 bg-black/40 backdrop-blur-sm z-50"
           />
           <motion.div
             initial={{ x: "100%" }}
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 25, stiffness: 200 }}
-            className="fixed inset-y-0 right-0 w-full max-w-md bg-white shadow-2xl z-50 flex flex-col border-l border-border"
+            className="ka-cart-drawer fixed inset-y-0 right-0 w-full max-w-md bg-white shadow-2xl z-50 flex flex-col border-l border-border"
           >
-            <div className="flex items-center justify-between p-6 border-b border-border">
-              <h2 className="text-2xl font-display font-bold flex items-center gap-2">
+            <div className="ka-cart-header flex items-center justify-between p-6 border-b border-border">
+              <h2 className="ka-cart-title text-2xl font-display font-bold flex items-center gap-2">
                 <ShoppingBag className="w-6 h-6 text-primary" />
                 Seu Carrinho
               </h2>
-              <Button variant="ghost" size="icon" onClick={() => setIsOpen(false)} className="rounded-full">
+              <Button variant="ghost" size="icon" onClick={() => setIsOpen(false)} className="ka-cart-close rounded-full">
                 <X className="w-5 h-5" />
               </Button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6">
+            <div className="ka-cart-content flex-1 overflow-y-auto p-6">
               {items.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-center space-y-6">
                   <div className="w-48 h-48 relative">
@@ -95,7 +95,7 @@ export function CartDrawer() {
                   </Button>
                 </div>
               ) : (
-                <div className="space-y-6">
+                <div className="ka-cart-item-list space-y-6">
                   {items.filter((item) => !(item as { isBump?: boolean }).isBump).map((item) => {
                     const bumpItem = items.find(
                       (i) => !!(i as { isBump?: boolean }).isBump &&
@@ -109,9 +109,9 @@ export function CartDrawer() {
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.9 }}
                       key={item.id} 
-                      className="flex gap-4 p-3 rounded-2xl border bg-gray-50 border-border/50"
+                      className="ka-cart-item flex gap-4 p-3 rounded-2xl border bg-gray-50 border-border/50"
                     >
-                      <div className="w-20 h-20 bg-white rounded-xl overflow-hidden shrink-0 shadow-sm">
+                      <div className="ka-cart-item-image-wrap w-20 h-20 bg-white rounded-xl overflow-hidden shrink-0 shadow-sm">
                         <img 
                           src={item.image || "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=200&q=80"} 
                           alt={item.name} 
@@ -126,31 +126,31 @@ export function CartDrawer() {
                               <p className="text-[11px] text-muted-foreground mt-0.5">{(item as { variantLabel?: string }).variantLabel}</p>
                             )}
                             {bumpItem && (
-                              <span className="inline-flex items-center gap-1 text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-semibold mt-0.5">
+                              <span className="ka-cart-bump-badge inline-flex items-center gap-1 text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-semibold mt-0.5">
                                 🏷️ Desconto aplicado no checkout
                               </span>
                             )}
                           </div>
                           <button 
                             onClick={() => removeItem(item.id)}
-                            className="text-muted-foreground hover:text-destructive p-1 transition-colors"
+                            className="ka-cart-remove text-muted-foreground hover:text-destructive p-1 transition-colors"
                           >
                             <X className="w-4 h-4" />
                           </button>
                         </div>
                         <div className="mt-auto flex items-end justify-between">
                           <span className="font-bold text-primary">{formatCurrency(item.price)}</span>
-                          <div className="flex items-center gap-3 bg-white border border-border rounded-lg p-1 shadow-sm">
+                          <div className="ka-cart-qty flex items-center gap-3 bg-white border border-border rounded-lg p-1 shadow-sm">
                             <button 
                               onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                              className="w-6 h-6 flex items-center justify-center rounded-md hover:bg-muted text-foreground transition-colors"
+                              className="ka-cart-qty-btn w-6 h-6 flex items-center justify-center rounded-md hover:bg-muted text-foreground transition-colors"
                             >
                               <Minus className="w-3 h-3" />
                             </button>
-                            <span className="text-sm font-medium w-4 text-center">{totalQty}</span>
+                            <span className="ka-cart-qty-value text-sm font-medium w-4 text-center">{totalQty}</span>
                             <button 
                               onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                              className="w-6 h-6 flex items-center justify-center rounded-md hover:bg-muted text-foreground transition-colors"
+                              className="ka-cart-qty-btn w-6 h-6 flex items-center justify-center rounded-md hover:bg-muted text-foreground transition-colors"
                             >
                               <Plus className="w-3 h-3" />
                             </button>
@@ -165,7 +165,7 @@ export function CartDrawer() {
             </div>
 
             {items.length > 0 && (
-              <div className="p-4 bg-gray-50 border-t border-border shrink-0">
+              <div className="ka-cart-footer p-4 bg-gray-50 border-t border-border shrink-0">
                 <div className="flex items-center justify-between mb-3 text-base">
                   <span className="font-medium text-muted-foreground">Subtotal</span>
                   <span className="font-display font-bold text-xl text-foreground">
@@ -173,11 +173,11 @@ export function CartDrawer() {
                   </span>
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Button className="w-full shadow-xl shadow-primary/20" onClick={handleCheckout}>
+                  <Button className="ka-cart-checkout w-full shadow-xl shadow-primary/20" onClick={handleCheckout}>
                     Finalizar Pedido
                     <ArrowRight className="w-4 h-4 ml-2" />
                   </Button>
-                  <Button variant="outline" className="w-full" onClick={() => setIsOpen(false)}>
+                  <Button variant="outline" className="ka-cart-continue w-full" onClick={() => setIsOpen(false)}>
                     Continuar comprando
                   </Button>
                 </div>

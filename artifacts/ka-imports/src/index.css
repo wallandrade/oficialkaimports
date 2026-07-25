@@ -345,6 +345,104 @@
   color: hsl(220 26% 96%);
 }
 
+:root[data-store-theme="editorial_noir"] .ka-cart-backdrop {
+  background: hsl(226 36% 5% / 0.62);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-cart-drawer {
+  background: linear-gradient(180deg, hsl(228 23% 15%), hsl(229 23% 11%));
+  border-color: hsl(35 24% 35% / 0.8);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-cart-header {
+  border-color: hsl(35 22% 33% / 0.75);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-cart-title {
+  color: hsl(220 24% 95%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-cart-close {
+  color: hsl(220 16% 84%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-cart-close:hover {
+  background: hsl(229 21% 20%);
+  color: hsl(220 24% 95%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-cart-item {
+  background: hsl(229 21% 16%);
+  border-color: hsl(35 22% 35% / 0.65);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-cart-item-image-wrap {
+  background: hsl(229 20% 20%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-cart-item h4 {
+  color: hsl(220 24% 94%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-cart-item p,
+:root[data-store-theme="editorial_noir"] .ka-cart-item .text-muted-foreground {
+  color: hsl(220 12% 74%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-cart-bump-badge {
+  background: hsl(157 34% 21%);
+  color: hsl(154 46% 83%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-cart-remove {
+  color: hsl(220 12% 73%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-cart-remove:hover {
+  color: hsl(359 74% 71%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-cart-qty {
+  background: hsl(229 21% 18%);
+  border-color: hsl(35 20% 36% / 0.78);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-cart-qty-btn {
+  color: hsl(220 24% 93%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-cart-qty-btn:hover {
+  background: hsl(229 21% 22%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-cart-qty-value {
+  color: hsl(220 24% 94%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-cart-footer {
+  background: hsl(229 22% 14%);
+  border-color: hsl(35 22% 33% / 0.75);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-cart-footer .text-muted-foreground {
+  color: hsl(220 14% 77%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-cart-footer .text-foreground {
+  color: hsl(220 24% 95%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-cart-continue {
+  border-color: hsl(35 24% 42% / 0.7);
+  color: hsl(220 24% 92%);
+  background: hsl(229 21% 17%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-cart-continue:hover {
+  background: hsl(229 21% 21%);
+  border-color: hsl(35 56% 61% / 0.82);
+}
+
 @layer base {
   body {
     @apply bg-background text-foreground antialiased font-sans;
