@@ -135,7 +135,7 @@ const queryClient = new QueryClient({
   },
 });
 
-const BASE = import.meta.env.VITE_API_BASE ?? "";
+const BASE = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
 
 function normalizeHexColor(value: string): string | null {
   const raw = String(value || "").trim();
