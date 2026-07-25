@@ -196,6 +196,16 @@ function applyStoreThemeFromSettings(settings: Record<string, string>): void {
   applyPrimaryColorFromSettings(settings);
 }
 
+function clearStoreThemeOverrides(): void {
+  const root = document.documentElement;
+  root.removeAttribute("data-store-theme");
+  root.style.removeProperty("--color-primary");
+  root.style.removeProperty("--color-primary-foreground");
+  root.style.removeProperty("--color-ring");
+  root.style.removeProperty("--color-accent");
+  root.style.removeProperty("--color-accent-foreground");
+}
+
 function PageLoader() {
   return (
     <div className="flex items-center justify-center min-h-screen">
@@ -284,6 +294,11 @@ function AppInner() {
   useEffect(() => {
     let active = true;
 
+    if (isAdmin) {
+      clearStoreThemeOverrides();
+      return;
+    }
+
     const applyTenantColor = async () => {
       try {
         try {
@@ -327,7 +342,7 @@ function AppInner() {
       window.removeEventListener("ka-site-settings-updated", handleSettingsUpdated as EventListener);
       window.removeEventListener("storage", handleStorageSync);
     };
-  }, []);
+  }, [isAdmin]);
 
   return (
     <AppErrorBoundary locationKey={location}>
