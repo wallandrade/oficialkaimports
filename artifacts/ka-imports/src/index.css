@@ -233,6 +233,52 @@
   color: hsl(36 22% 82%);
 }
 
+:root[data-store-theme="editorial_noir"] .ka-mobile-filter-panel {
+  padding: 0.8rem;
+  border-radius: 1rem;
+  border: 1px solid hsl(35 28% 38% / 0.72);
+  background: linear-gradient(180deg, hsl(228 24% 16% / 0.96), hsl(229 24% 13% / 0.96));
+  box-shadow: 0 12px 26px hsl(226 48% 4% / 0.4);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-mobile-filter-panel h2 {
+  color: hsl(36 35% 92%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-mobile-filter-panel svg,
+:root[data-store-theme="editorial_noir"] .ka-mobile-filter-panel .text-muted-foreground {
+  color: hsl(36 20% 74%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-mobile-filter-input,
+:root[data-store-theme="editorial_noir"] .ka-mobile-filter-select {
+  background: hsl(229 21% 18%);
+  border-color: hsl(35 22% 42% / 0.76);
+  color: hsl(36 28% 91%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-mobile-filter-input::placeholder {
+  color: hsl(36 16% 66%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-mobile-filter-input:focus,
+:root[data-store-theme="editorial_noir"] .ka-mobile-filter-select:focus {
+  border-color: hsl(35 64% 60%);
+  box-shadow: 0 0 0 2px hsl(35 64% 60% / 0.24);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-mobile-filter-chip {
+  background: hsl(229 22% 17%);
+  border-color: hsl(35 24% 40% / 0.8);
+  color: hsl(36 24% 84%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-mobile-filter-chip.ka-mobile-filter-chip-active {
+  background: linear-gradient(90deg, hsl(29 66% 57%), hsl(39 74% 66%));
+  color: hsl(225 30% 11%);
+  border-color: hsl(35 62% 60% / 0.84);
+}
+
 @layer base {
   body {
     @apply bg-background text-foreground antialiased font-sans;

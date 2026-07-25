@@ -347,7 +347,7 @@ export default function Home() {
           <h2 className="text-2xl font-bold text-foreground lg:hidden">Catálogo</h2>
 
           {/* Busca e chips — somente mobile */}
-          <div className="lg:hidden flex flex-col gap-2">
+          <div className="ka-mobile-filter-panel lg:hidden flex flex-col gap-2">
             {/* Campo de busca */}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
@@ -356,13 +356,13 @@ export default function Home() {
                 placeholder="Buscar produto..."
                 value={nameFilter}
                 onChange={(e) => setNameFilter(e.target.value)}
-                className="w-full h-11 pl-9 pr-10 rounded-2xl border border-input bg-white text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:border-primary"
+                className="ka-mobile-filter-input w-full h-11 pl-9 pr-10 rounded-2xl border border-input bg-white text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:border-primary"
               />
               {nameFilter && (
                 <button
                   type="button"
                   onClick={() => setNameFilter("")}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                  className="ka-mobile-filter-clear absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                   aria-label="Limpar busca"
                 >
                   <X className="w-4 h-4" />
@@ -374,7 +374,7 @@ export default function Home() {
               <select
                 value={activeBrand}
                 onChange={(e) => setActiveBrand(e.target.value)}
-                className="w-full h-11 px-4 rounded-2xl border border-input bg-white text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:border-primary cursor-pointer"
+                className="ka-mobile-filter-select w-full h-11 px-4 rounded-2xl border border-input bg-white text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:border-primary cursor-pointer"
               >
                 <option value="">Todas as marcas</option>
                 {brandOptions.map((brand: string) => (
@@ -384,12 +384,12 @@ export default function Home() {
             )}
 
             {/* Chips de categoria */}
-            <div className="flex gap-2 overflow-x-auto py-1" style={{ scrollbarWidth: "none" }}>
+            <div className="ka-mobile-filter-chips flex gap-2 overflow-x-auto py-1" style={{ scrollbarWidth: "none" }}>
               <button
                 onClick={() => { setActiveCategories([]); setActiveBrand(""); }}
-                className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-semibold border transition-colors ${
+                className={`ka-mobile-filter-chip flex-shrink-0 px-4 py-2 rounded-full text-sm font-semibold border transition-colors ${
                   activeCategories.length === 0 && !activeBrand
-                    ? "bg-primary text-white border-primary shadow-sm"
+                    ? "ka-mobile-filter-chip-active bg-primary text-white border-primary shadow-sm"
                     : "bg-white text-muted-foreground border-border hover:border-primary/50"
                 }`}
               >
@@ -399,9 +399,9 @@ export default function Home() {
                 <button
                   key={cat}
                   onClick={() => toggleCategory(cat)}
-                  className={`flex-shrink-0 px-4 py-2 rounded-full text-sm font-semibold border transition-colors ${
+                  className={`ka-mobile-filter-chip flex-shrink-0 px-4 py-2 rounded-full text-sm font-semibold border transition-colors ${
                     activeCategories.includes(cat)
-                      ? "bg-primary text-white border-primary shadow-sm"
+                      ? "ka-mobile-filter-chip-active bg-primary text-white border-primary shadow-sm"
                       : "bg-white text-muted-foreground border-border hover:border-primary/50"
                   }`}
                 >
