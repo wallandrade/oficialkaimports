@@ -9,6 +9,7 @@ import { SitePasswordGate } from "@/components/SitePasswordGate";
 import SocialProofWidget from "@/components/SocialProofWidget";
 import { captureReferralFromCurrentUrl } from "@/lib/affiliate";
 import { reportClientError } from "@/lib/client-error-reporting";
+import { fetchPublicSiteSettings } from "@/lib/public-settings";
 import Home from "@/pages/Home";
 import CategoryPage from "@/pages/CategoryPage";
 import OffersPage from "@/pages/OffersPage";
@@ -134,8 +135,6 @@ const queryClient = new QueryClient({
     },
   },
 });
-
-const BASE = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
 
 function normalizeHexColor(value: string): string | null {
   const raw = String(value || "").trim();
@@ -270,10 +269,8 @@ function AppInner() {
           // ignore invalid cache
         }
 
-        const res = await fetch(`${BASE}/api/settings`, { cache: "no-store" });
-        if (!res.ok || !active) return;
-
-        const settings = await res.json() as Record<string, string>;
+        const settings = await fetchPublicSiteSettings();
+        if (!active) return;
         localStorage.setItem("siteSettings", JSON.stringify(settings || {}));
         applyPrimaryColorFromSettings(settings || {});
       } catch {

@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { db, pool, siteSettingsTable, tenantSettingsTable } from "@workspace/db";
-import { and, eq, isNull, or } from "drizzle-orm";
+import { db, pool, siteSettingsTable, tenantSettingsTable, tenantsTable } from "@workspace/db";
+import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { getR2MissingConfig, isR2Configured, uploadSiteSettingImageToR2 } from "../lib/r2";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
@@ -42,6 +42,45 @@ const IMAGE_SETTING_KEYS = new Set([
   "catalog_banner_desktop",
   "catalog_banner_mobile",
 ]);
+
+function normalizeDomain(value: string): string {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "";
+
+  try {
+    const parsed = new URL(raw.includes("://") ? raw : `https://${raw}`);
+    return parsed.hostname.trim().toLowerCase();
+  } catch {
+    return raw.replace(/^https?:\/\//, "").split("/")[0]?.split(":")[0]?.trim().toLowerCase() || "";
+  }
+}
+
+function withDomainVariants(domainRaw: string): string[] {
+  const domain = normalizeDomain(domainRaw);
+  if (!domain) return [];
+  if (domain.startsWith("www.")) {
+    return Array.from(new Set([domain, domain.slice(4)]));
+  }
+  return Array.from(new Set([domain, `www.${domain}`]));
+}
+
+async function resolveTenantIdByDomain(domainRaw: string): Promise<string | null> {
+  const candidates = withDomainVariants(domainRaw);
+  if (candidates.length === 0) return null;
+
+  const rows = await db
+    .select({ id: tenantsTable.id, domain: tenantsTable.domain })
+    .from(tenantsTable)
+    .where(inArray(tenantsTable.domain, candidates));
+
+  const byDomain = new Map(rows.map((row) => [normalizeDomain(row.domain || ""), row.id]));
+  for (const candidate of candidates) {
+    const tenantId = byDomain.get(candidate);
+    if (tenantId) return tenantId;
+  }
+
+  return null;
+}
 
 function canManageSettings(scope: ReturnType<typeof getAdminScope>): boolean {
   if (!scope) return false;
@@ -156,7 +195,9 @@ async function upsertTenantSetting(tenantId: string, key: string, value: string)
 /** GET /api/settings — public, returns only safe display keys */
 router.get("/settings", async (_req, res) => {
   try {
-    const tenantId = await resolvePublicTenantId(_req as any);
+    const domainOverride = String(_req.query?.domain || "").trim();
+    const tenantFromDomain = domainOverride ? await resolveTenantIdByDomain(domainOverride) : null;
+    const tenantId = tenantFromDomain || await resolvePublicTenantId(_req as any);
     const allSettings = await getTenantSettingsMap(tenantId);
     const out: Record<string, string> = {};
     for (const key of PUBLIC_KEYS) {

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getActiveWhatsApp } from "@/lib/utils";
+import { fetchPublicSiteSettings } from "@/lib/public-settings";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -60,9 +61,8 @@ export function Footer() {
   });
 
   useEffect(() => {
-    fetch(`${BASE}/api/settings`)
-      .then((res) => res.json())
-      .then((data: Record<string, string>) => {
+    fetchPublicSiteSettings()
+      .then((data) => {
         localStorage.setItem("siteSettings", JSON.stringify(data || {}));
         setSiteSettings(data || {});
       })

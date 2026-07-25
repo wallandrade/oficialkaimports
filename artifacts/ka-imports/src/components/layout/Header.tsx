@@ -5,6 +5,7 @@ import { getCustomerToken } from "@/lib/customer-auth";
 import { useCart } from "@/store/use-cart";
 import { Button } from "@/components/ui/button";
 import { formatCurrency, getActiveWhatsApp } from "@/lib/utils";
+import { fetchPublicSiteSettings } from "@/lib/public-settings";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -24,10 +25,9 @@ function usePublicSiteSettings() {
   });
 
   useEffect(() => {
-    fetch(`${BASE}/api/settings`)
-      .then((r) => r.json())
-      .then((data: Record<string, string>) => {
-        localStorage.setItem("siteSettings", JSON.stringify(data));
+    fetchPublicSiteSettings()
+      .then((data) => {
+        localStorage.setItem("siteSettings", JSON.stringify(data || {}));
         setSettings(data || {});
       })
       .catch(() => {});
