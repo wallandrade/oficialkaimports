@@ -2616,6 +2616,16 @@ export default function Admin() {
       });
       if (!res.ok) { toast.error("Erro ao salvar configuração."); return; }
       setSettings((p) => ({ ...p, [key]: value }));
+
+      try {
+        const cached = JSON.parse(localStorage.getItem("siteSettings") || "{}") as Record<string, string>;
+        const next = { ...cached, [key]: value };
+        localStorage.setItem("siteSettings", JSON.stringify(next));
+        window.dispatchEvent(new CustomEvent("ka-site-settings-updated", { detail: next }));
+      } catch {
+        // ignore storage issues
+      }
+
       toast.success("Configuração salva!");
     } catch { toast.error("Erro ao salvar configuração."); }
     finally { setSettingsLoading((p) => ({ ...p, [key]: false })); }
@@ -2626,6 +2636,17 @@ export default function Admin() {
     try {
       await fetch(`${BASE}/api/admin/settings/${key}`, { method: "DELETE", headers: authHeaders() });
       setSettings((p) => { const n = { ...p }; delete n[key]; return n; });
+
+      try {
+        const cached = JSON.parse(localStorage.getItem("siteSettings") || "{}") as Record<string, string>;
+        const next = { ...cached };
+        delete next[key];
+        localStorage.setItem("siteSettings", JSON.stringify(next));
+        window.dispatchEvent(new CustomEvent("ka-site-settings-updated", { detail: next }));
+      } catch {
+        // ignore storage issues
+      }
+
       toast.success("Imagem removida.");
     } catch { toast.error("Erro ao remover."); }
     finally { setSettingsLoading((p) => ({ ...p, [key]: false })); }

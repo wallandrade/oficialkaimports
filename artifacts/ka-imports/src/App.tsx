@@ -152,6 +152,27 @@ function getReadableForeground(hexColor: string): string {
   return luminance > 0.62 ? "#0F172A" : "#FFFFFF";
 }
 
+function applyPrimaryColorFromSettings(settings: Record<string, string>): void {
+  const root = document.documentElement;
+  const primary = normalizeHexColor(String(settings.store_primary_color || ""));
+
+  if (!primary) {
+    root.style.removeProperty("--color-primary");
+    root.style.removeProperty("--color-primary-foreground");
+    root.style.removeProperty("--color-ring");
+    root.style.removeProperty("--color-accent");
+    root.style.removeProperty("--color-accent-foreground");
+    return;
+  }
+
+  const foreground = getReadableForeground(primary);
+  root.style.setProperty("--color-primary", primary);
+  root.style.setProperty("--color-primary-foreground", foreground);
+  root.style.setProperty("--color-ring", primary);
+  root.style.setProperty("--color-accent", primary);
+  root.style.setProperty("--color-accent-foreground", foreground);
+}
+
 function PageLoader() {
   return (
     <div className="flex items-center justify-center min-h-screen">
@@ -242,36 +263,47 @@ function AppInner() {
 
     const applyTenantColor = async () => {
       try {
-        const res = await fetch(`${BASE}/api/settings`);
+        try {
+          const cached = JSON.parse(localStorage.getItem("siteSettings") || "{}") as Record<string, string>;
+          applyPrimaryColorFromSettings(cached);
+        } catch {
+          // ignore invalid cache
+        }
+
+        const res = await fetch(`${BASE}/api/settings`, { cache: "no-store" });
         if (!res.ok || !active) return;
 
         const settings = await res.json() as Record<string, string>;
-        const root = document.documentElement;
-        const primary = normalizeHexColor(String(settings.store_primary_color || ""));
-
-        if (!primary) {
-          root.style.removeProperty("--color-primary");
-          root.style.removeProperty("--color-primary-foreground");
-          root.style.removeProperty("--color-ring");
-          root.style.removeProperty("--color-accent");
-          root.style.removeProperty("--color-accent-foreground");
-          return;
-        }
-
-        const foreground = getReadableForeground(primary);
-        root.style.setProperty("--color-primary", primary);
-        root.style.setProperty("--color-primary-foreground", foreground);
-        root.style.setProperty("--color-ring", primary);
-        root.style.setProperty("--color-accent", primary);
-        root.style.setProperty("--color-accent-foreground", foreground);
+        localStorage.setItem("siteSettings", JSON.stringify(settings || {}));
+        applyPrimaryColorFromSettings(settings || {});
       } catch {
         // Keep default theme when settings are unavailable.
       }
     };
 
+    const handleSettingsUpdated = (event: Event) => {
+      const custom = event as CustomEvent<Record<string, string>>;
+      const detail = custom.detail || {};
+      applyPrimaryColorFromSettings(detail);
+    };
+
+    const handleStorageSync = (event: StorageEvent) => {
+      if (event.key !== "siteSettings") return;
+      try {
+        const parsed = JSON.parse(String(event.newValue || "{}")) as Record<string, string>;
+        applyPrimaryColorFromSettings(parsed);
+      } catch {
+        // ignore parse errors
+      }
+    };
+
     void applyTenantColor();
+    window.addEventListener("ka-site-settings-updated", handleSettingsUpdated as EventListener);
+    window.addEventListener("storage", handleStorageSync);
     return () => {
       active = false;
+      window.removeEventListener("ka-site-settings-updated", handleSettingsUpdated as EventListener);
+      window.removeEventListener("storage", handleStorageSync);
     };
   }, []);
 
