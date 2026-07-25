@@ -73,27 +73,27 @@ export function Footer() {
   const siteName = String(siteSettings.site_name || "").trim() || "KA IMPORTS";
 
   return (
-    <footer className="bg-white border-t border-border mt-auto">
+    <footer className="ka-main-footer bg-white border-t border-border mt-auto">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <div>
             <div className="flex items-center gap-2 mb-4">
-              <span className="font-bold text-xl text-primary">{siteName}</span>
+              <span className="ka-footer-brand font-bold text-xl text-primary">{siteName}</span>
             </div>
-            <p className="text-muted-foreground text-sm">
+            <p className="ka-footer-text text-muted-foreground text-sm">
               A sua loja de importados com os melhores preços e garantia de qualidade.
             </p>
           </div>
 
           <div>
-            <h3 className="font-bold text-foreground mb-4">Links Úteis</h3>
-            <ul className="space-y-2 text-sm text-muted-foreground">
-              <li><a href="/" className="hover:text-primary transition-colors">Produtos</a></li>
+            <h3 className="ka-footer-heading font-bold text-foreground mb-4">Links Úteis</h3>
+            <ul className="ka-footer-links space-y-2 text-sm text-muted-foreground">
+              <li><a href="/" className="ka-footer-link hover:text-primary transition-colors">Produtos</a></li>
               <li>
                 <button
                   type="button"
                   onClick={() => openWhatsApp("Olá, gostaria de suporte.")}
-                  className="hover:text-primary transition-colors"
+                  className="ka-footer-link hover:text-primary transition-colors"
                 >
                   Suporte
                 </button>
@@ -102,14 +102,14 @@ export function Footer() {
           </div>
 
           <div>
-            <h3 className="font-bold text-foreground mb-4">Atendimento</h3>
-            <p className="text-muted-foreground text-sm mb-4">
+            <h3 className="ka-footer-heading font-bold text-foreground mb-4">Atendimento</h3>
+            <p className="ka-footer-text text-muted-foreground text-sm mb-4">
               Precisa de ajuda? Fale com nosso suporte diretamente pelo WhatsApp.
             </p>
             <Button
               type="button"
               variant="outline"
-              className="w-full border-green-500 text-green-600 hover:bg-green-50 hover:border-green-600"
+              className="ka-footer-whatsapp w-full border-green-500 text-green-600 hover:bg-green-50 hover:border-green-600"
               onClick={() => openWhatsApp("Olá, gostaria de tirar uma dúvida.")}
             >
               <MessageCircle className="w-5 h-5 mr-2" />
@@ -118,7 +118,7 @@ export function Footer() {
           </div>
         </div>
 
-        <div className="mt-12 pt-8 border-t border-border text-center text-sm text-muted-foreground">
+        <div className="ka-footer-copyright mt-12 pt-8 border-t border-border text-center text-sm text-muted-foreground">
           <p>© {new Date().getFullYear()} {siteName} - Todos os direitos reservados</p>
         </div>
       </div>
