@@ -9,6 +9,8 @@ import { DEFAULT_TENANT_ID } from "../lib/tenant-context";
 const router: IRouter = Router();
 const TENANT_DNS_TARGET_HOST_KEY = "tenant_dns_target_host";
 const TENANT_SUPPLY_MARGIN_PERCENT_KEY = "tenant_supply_margin_percent";
+const TENANT_SITE_NAME_KEY = "site_name";
+const TENANT_SUPPORT_WHATSAPP_KEY = "support_whatsapp";
 
 type OrderProductSnapshot = {
   quantity?: unknown;
@@ -50,6 +52,10 @@ function normalizeDomain(value: string): string {
   } catch {
     return raw.replace(/^https?:\/\//, "").split("/")[0]?.split(":")[0]?.trim().toLowerCase() || "";
   }
+}
+
+function normalizeWhatsapp(value: string): string {
+  return String(value || "").replace(/\D/g, "").trim();
 }
 
 async function resolveAdminUserByUsername(username: string) {
@@ -819,6 +825,8 @@ router.post("/admin/tenants", requirePrimaryAdmin, async (req, res) => {
       newAdminPassword,
       cloneSettingsFromDefault,
       dnsTargetHost,
+      siteName,
+      supportWhatsapp,
     } = req.body as {
       name?: string;
       slug?: string;
@@ -829,12 +837,16 @@ router.post("/admin/tenants", requirePrimaryAdmin, async (req, res) => {
       newAdminPassword?: string;
       cloneSettingsFromDefault?: boolean;
       dnsTargetHost?: string;
+      siteName?: string;
+      supportWhatsapp?: string;
     };
 
     const cleanName = String(name || "").trim();
     const cleanSlug = normalizeSlug(String(slug || ""));
     const cleanDomain = normalizeDomain(String(domain || ""));
     const cleanDnsTargetHost = normalizeDomain(String(dnsTargetHost || ""));
+    const cleanSiteName = String(siteName || "").trim();
+    const cleanSupportWhatsapp = normalizeWhatsapp(String(supportWhatsapp || ""));
     const cleanAdminUsername = String(adminUsername || "").trim().toLowerCase();
     const shouldCreateAdminUser = createAdminUser === true;
     const cleanNewAdminUsername = String(newAdminUsername || "").trim().toLowerCase();
@@ -984,6 +996,40 @@ router.post("/admin/tenants", requirePrimaryAdmin, async (req, res) => {
         } catch (err) {
           console.warn("[Tenants] clone settings skipped:", err);
         }
+      }
+
+      if (cleanSiteName) {
+        await tx
+          .insert(tenantSettingsTable)
+          .values({
+            tenantId,
+            key: TENANT_SITE_NAME_KEY,
+            value: cleanSiteName,
+            updatedAt: new Date(),
+          })
+          .onDuplicateKeyUpdate({
+            set: {
+              value: cleanSiteName,
+              updatedAt: new Date(),
+            },
+          });
+      }
+
+      if (cleanSupportWhatsapp) {
+        await tx
+          .insert(tenantSettingsTable)
+          .values({
+            tenantId,
+            key: TENANT_SUPPORT_WHATSAPP_KEY,
+            value: cleanSupportWhatsapp,
+            updatedAt: new Date(),
+          })
+          .onDuplicateKeyUpdate({
+            set: {
+              value: cleanSupportWhatsapp,
+              updatedAt: new Date(),
+            },
+          });
       }
     });
 

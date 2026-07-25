@@ -1473,6 +1473,8 @@ export default function Admin() {
     slug: "",
     domain: "",
     dnsTargetHost: "",
+    siteName: "",
+    supportWhatsapp: "",
     adminUsername: "",
     createAdminUser: false,
     newAdminUsername: "",
@@ -2162,6 +2164,8 @@ export default function Admin() {
       slug: tenantForm.slug.trim(),
       domain: tenantForm.domain.trim(),
       dnsTargetHost: tenantForm.dnsTargetHost.trim(),
+      siteName: tenantForm.siteName.trim(),
+      supportWhatsapp: tenantForm.supportWhatsapp.trim(),
       adminUsername: tenantForm.adminUsername.trim(),
       createAdminUser: tenantForm.createAdminUser,
       newAdminUsername: tenantForm.newAdminUsername.trim(),
@@ -2210,6 +2214,8 @@ export default function Admin() {
         slug: "",
         domain: "",
         dnsTargetHost: "",
+        siteName: "",
+        supportWhatsapp: "",
         adminUsername: "",
         createAdminUser: false,
         newAdminUsername: "",
@@ -6529,6 +6535,20 @@ export default function Admin() {
                       value={tenantForm.dnsTargetHost}
                       onChange={(e) => setTenantForm((p) => ({ ...p, dnsTargetHost: e.target.value }))}
                       placeholder="Host alvo DNS/Railway (opcional)"
+                      className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+                    />
+                    <input
+                      type="text"
+                      value={tenantForm.siteName}
+                      onChange={(e) => setTenantForm((p) => ({ ...p, siteName: e.target.value }))}
+                      placeholder="Nome público da loja (rodapé/cabeçalho)"
+                      className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+                    />
+                    <input
+                      type="text"
+                      value={tenantForm.supportWhatsapp}
+                      onChange={(e) => setTenantForm((p) => ({ ...p, supportWhatsapp: e.target.value }))}
+                      placeholder="WhatsApp suporte da loja (ex: 5511999999999)"
                       className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
                     />
                     {!tenantForm.createAdminUser ? (
@@ -13955,6 +13975,8 @@ function ConfiguracoesPanel({ settings, loading, products, clientErrors, clientE
   const [showPaymentPw, setShowPaymentPw] = useState(false);
   const [showOutboundSecret, setShowOutboundSecret] = useState(false);
   const [freeShippingMinSubtotal, setFreeShippingMinSubtotal] = useState(settings["checkout_free_shipping_min_subtotal"] ?? "");
+  const [siteDisplayName, setSiteDisplayName] = useState(settings["site_name"] ?? "");
+  const [supportWhatsapp, setSupportWhatsapp] = useState(String(settings["support_whatsapp"] ?? "").replace(/\D/g, ""));
   const [storePrimaryColor, setStorePrimaryColor] = useState(normalizeHexColor(settings["store_primary_color"] ?? "") || "#1A2B4A");
   const [promoCountdownEnabled, setPromoCountdownEnabled] = useState(!["0", "false", "off", "no", "disabled"].includes(String(settings["promo_countdown_enabled"] ?? "0").toLowerCase()));
   const [promoCountdownDateTime, setPromoCountdownDateTime] = useState(settings["promo_countdown_datetime"] ?? "");
@@ -13972,6 +13994,8 @@ function ConfiguracoesPanel({ settings, loading, products, clientErrors, clientE
     setOutboundUrl(settings["outbound_webhook_url"] ?? "");
     setOutboundSecret(settings["outbound_webhook_secret"] ?? "");
     setFreeShippingMinSubtotal(settings["checkout_free_shipping_min_subtotal"] ?? "");
+    setSiteDisplayName(settings["site_name"] ?? "");
+    setSupportWhatsapp(String(settings["support_whatsapp"] ?? "").replace(/\D/g, ""));
     setStorePrimaryColor(normalizeHexColor(settings["store_primary_color"] ?? "") || "#1A2B4A");
     setPromoCountdownEnabled(!["0", "false", "off", "no", "disabled"].includes(String(settings["promo_countdown_enabled"] ?? "0").toLowerCase()));
     setPromoCountdownDateTime(settings["promo_countdown_datetime"] ?? "");
@@ -14007,6 +14031,55 @@ function ConfiguracoesPanel({ settings, loading, products, clientErrors, clientE
         <p className="text-muted-foreground text-sm mb-5">
           Personalize o logo e os banners exibidos na loja. As imagens são aplicadas imediatamente após o upload.
         </p>
+
+        <div className="mb-5 rounded-2xl border border-border/60 bg-card p-4 shadow-sm space-y-3">
+          <h3 className="text-sm font-bold">Nome e WhatsApp da loja</h3>
+          <p className="text-xs text-muted-foreground">Esses dados aparecem no rodapé e no botão de suporte da vitrine desta loja.</p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <input
+              type="text"
+              value={siteDisplayName}
+              onChange={(e) => setSiteDisplayName(e.target.value)}
+              placeholder="Nome público da loja"
+              className="h-10 w-full rounded-lg border border-border px-3 text-sm bg-white"
+            />
+            <input
+              type="text"
+              value={supportWhatsapp}
+              onChange={(e) => setSupportWhatsapp(e.target.value.replace(/\D/g, ""))}
+              placeholder="WhatsApp suporte (somente números, com DDI)"
+              className="h-10 w-full rounded-lg border border-border px-3 text-sm bg-white"
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              disabled={!!loading["site_name"] || !!loading["support_whatsapp"]}
+              onClick={() => {
+                onSave("site_name", siteDisplayName.trim());
+                onSave("support_whatsapp", supportWhatsapp.trim());
+              }}
+            >
+              {(loading["site_name"] || loading["support_whatsapp"]) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Salvar nome e WhatsApp
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!!loading["site_name"] || !!loading["support_whatsapp"]}
+              onClick={() => {
+                setSiteDisplayName("");
+                setSupportWhatsapp("");
+                onDelete("site_name");
+                onDelete("support_whatsapp");
+              }}
+            >
+              Limpar
+            </Button>
+          </div>
+        </div>
 
         <div className="mb-5 rounded-2xl border border-border/60 bg-card p-4 shadow-sm space-y-3">
           <div className="flex items-center justify-between gap-3 flex-wrap">

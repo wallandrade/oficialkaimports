@@ -34,6 +34,17 @@ function normalizeWhatsApp(value: string): string {
   return String(value || "").replace(/\D/g, "");
 }
 
+function getStoreDefaultWhatsApp(): string {
+  try {
+    const raw = localStorage.getItem("siteSettings") || "{}";
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const configured = normalizeWhatsApp(String(parsed?.support_whatsapp || ""));
+    return configured || DEFAULT_WHATSAPP;
+  } catch {
+    return DEFAULT_WHATSAPP;
+  }
+}
+
 export function setSellerContext(slug: string): void {
   const normalized = normalizeSellerSlug(slug);
   if (!normalized) return;
@@ -106,6 +117,7 @@ export function getActiveWhatsApp(): string {
     const sellerCode = getActiveSellerCode();
     const apiWhatsApp = normalizeWhatsApp(sessionStorage.getItem(SELLER_WHATSAPP_KEY) || "");
     const apiSellerSlug = normalizeSellerSlug(sessionStorage.getItem(SELLER_WHATSAPP_SLUG_KEY) || "");
+    const storeDefault = getStoreDefaultWhatsApp();
 
     // Strict binding: only use cached WhatsApp if it belongs to active seller context.
     if (sellerCode && apiWhatsApp && apiSellerSlug === sellerCode) {
@@ -113,11 +125,13 @@ export function getActiveWhatsApp(): string {
     }
 
     // No strict seller-bound number available.
-    if (sellerCode) return DEFAULT_WHATSAPP;
+    if (sellerCode) return storeDefault;
+
+    return storeDefault;
   } catch {
     // ignore
   }
-  return DEFAULT_WHATSAPP;
+  return getStoreDefaultWhatsApp();
 }
 
 /** @deprecated use makeWhatsAppLink instead */

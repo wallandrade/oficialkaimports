@@ -5,9 +5,9 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { ShieldCheck, Camera, IdCard, FileText, Upload, CheckCircle2, Loader2, AlertCircle, X, MessageCircle, Trash2 } from "lucide-react";
 import { getCheckoutSecurityHeaders } from "@/lib/checkout-security";
+import { getActiveWhatsApp } from "@/lib/utils";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-const DEFAULT_WHATSAPP = "5511917082244";
 
 interface OrderInfo {
   id: string;
@@ -522,7 +522,7 @@ export default function KYCSubmit() {
               </>
             )}
             <a
-              href={`https://wa.me/${order.sellerWhatsapp?.replace(/\D/g, "") || DEFAULT_WHATSAPP}?text=${encodeURIComponent(kyc?.status === "approved" ? `Olá! Meu KYC já foi aprovado (pedido #${order.id}). Como prosseguir?` : `Olá! Acabei de enviar meus documentos KYC para o pedido #${order.id}. Aguardo seu contato para concluir a compra!`)}`}
+              href={`https://wa.me/${order.sellerWhatsapp?.replace(/\D/g, "") || getActiveWhatsApp()}?text=${encodeURIComponent(kyc?.status === "approved" ? `Olá! Meu KYC já foi aprovado (pedido #${order.id}). Como prosseguir?` : `Olá! Acabei de enviar meus documentos KYC para o pedido #${order.id}. Aguardo seu contato para concluir a compra!`)}`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-6 py-3.5 bg-green-500 hover:bg-green-600 text-white rounded-xl font-semibold text-sm transition-colors shadow-sm"
@@ -770,7 +770,7 @@ export default function KYCSubmit() {
             {/* WhatsApp support link at the bottom of the form */}
             <div className="text-center pt-2">
               <a
-                href={`https://wa.me/${order.sellerWhatsapp?.replace(/\D/g, "") || DEFAULT_WHATSAPP}?text=${encodeURIComponent(`Olá! Preciso de ajuda com o KYC do pedido #${order.id}.`)}`}
+                href={`https://wa.me/${order.sellerWhatsapp?.replace(/\D/g, "") || getActiveWhatsApp()}?text=${encodeURIComponent(`Olá! Preciso de ajuda com o KYC do pedido #${order.id}.`)}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-green-600 transition-colors"

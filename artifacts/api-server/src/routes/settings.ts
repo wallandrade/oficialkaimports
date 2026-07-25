@@ -12,6 +12,7 @@ const PUBLIC_KEYS  = [
   "checkout_enable_pix", "checkout_enable_card", "checkout_enable_whatsapp", "checkout_pix_gateway", "checkout_free_shipping_min_subtotal",
   "logo_scale",
   "catalog_banner_product_id",
+  "support_whatsapp",
   "promo_countdown_enabled", "promo_countdown_datetime", "promo_countdown_text",
   "store_primary_color",
 ];
