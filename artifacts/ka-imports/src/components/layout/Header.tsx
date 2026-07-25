@@ -312,7 +312,7 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
         </div>
       )}
 
-      <header className="sticky top-0 z-40 w-full glass border-b border-border/50">
+      <header className="ka-main-header sticky top-0 z-40 w-full glass border-b border-border/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 md:h-20">
 
@@ -329,7 +329,7 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
               )}
               <Link href={sellerHomeHref} className="flex items-center gap-2 group cursor-pointer">
                 <div
-                  className="overflow-hidden rounded-2xl h-14 md:h-16 border border-primary/10 group-hover:border-primary/30 transition-colors bg-white/80 flex items-center justify-center shrink-0 px-3 py-1.5"
+                  className="ka-header-logo-frame overflow-hidden rounded-2xl h-14 md:h-16 border border-primary/10 group-hover:border-primary/30 transition-colors bg-white/80 flex items-center justify-center shrink-0 px-3 py-1.5"
                   style={{ width: `${logoScale}px`, maxWidth: "48vw" }}
                 >
                   {logo ? (
@@ -367,7 +367,7 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
               {!minimal && (
                 <Link
                   href={isLoggedIn ? "/minha-conta/pedidos" : "/login"}
-                  className="hidden md:inline-flex items-center gap-2 h-10 md:h-11 px-3 md:px-4 rounded-full border border-primary/20 hover:border-primary text-primary font-semibold text-sm transition-colors"
+                  className="ka-header-account-link hidden md:inline-flex items-center gap-2 h-10 md:h-11 px-3 md:px-4 rounded-full border border-primary/20 hover:border-primary text-primary font-semibold text-sm transition-colors"
                 >
                   <UserCircle2 className="w-5 h-5" />
                   {isLoggedIn ? "Minha Conta" : "Entrar"}
@@ -385,13 +385,13 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
               {!minimal && (
                 <Button
                   variant="outline"
-                  className="relative rounded-full h-10 md:h-11 px-3 md:px-4 border-primary/20 hover:border-primary"
+                  className="ka-header-cart-button relative rounded-full h-10 md:h-11 px-3 md:px-4 border-primary/20 hover:border-primary"
                   onClick={() => setIsOpen(true)}
                 >
                   <ShoppingBag className="w-5 h-5 md:mr-2 text-primary" />
                   <span className="font-semibold text-primary hidden md:inline">Carrinho</span>
                   {itemCount > 0 && (
-                    <span className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-secondary text-[10px] font-bold text-white shadow-sm ring-2 ring-white">
+                    <span className="ka-header-cart-badge absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-secondary text-[10px] font-bold text-white shadow-sm ring-2 ring-white">
                       {itemCount}
                     </span>
                   )}
