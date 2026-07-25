@@ -62,6 +62,13 @@ function authHeaders() {
     : { "Content-Type": "application/json" };
 }
 
+function normalizeHexColor(value: string): string {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const normalized = raw.startsWith("#") ? raw : `#${raw}`;
+  return /^#[0-9a-fA-F]{6}$/.test(normalized) ? normalized.toUpperCase() : "";
+}
+
 // BASE URL para requisições (igual outros arquivos)
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -13948,6 +13955,7 @@ function ConfiguracoesPanel({ settings, loading, products, clientErrors, clientE
   const [showPaymentPw, setShowPaymentPw] = useState(false);
   const [showOutboundSecret, setShowOutboundSecret] = useState(false);
   const [freeShippingMinSubtotal, setFreeShippingMinSubtotal] = useState(settings["checkout_free_shipping_min_subtotal"] ?? "");
+  const [storePrimaryColor, setStorePrimaryColor] = useState(normalizeHexColor(settings["store_primary_color"] ?? "") || "#1A2B4A");
   const [promoCountdownEnabled, setPromoCountdownEnabled] = useState(!["0", "false", "off", "no", "disabled"].includes(String(settings["promo_countdown_enabled"] ?? "0").toLowerCase()));
   const [promoCountdownDateTime, setPromoCountdownDateTime] = useState(settings["promo_countdown_datetime"] ?? "");
   const [promoCountdownText, setPromoCountdownText] = useState(settings["promo_countdown_text"] ?? "");
@@ -13964,6 +13972,7 @@ function ConfiguracoesPanel({ settings, loading, products, clientErrors, clientE
     setOutboundUrl(settings["outbound_webhook_url"] ?? "");
     setOutboundSecret(settings["outbound_webhook_secret"] ?? "");
     setFreeShippingMinSubtotal(settings["checkout_free_shipping_min_subtotal"] ?? "");
+    setStorePrimaryColor(normalizeHexColor(settings["store_primary_color"] ?? "") || "#1A2B4A");
     setPromoCountdownEnabled(!["0", "false", "off", "no", "disabled"].includes(String(settings["promo_countdown_enabled"] ?? "0").toLowerCase()));
     setPromoCountdownDateTime(settings["promo_countdown_datetime"] ?? "");
     setPromoCountdownText(settings["promo_countdown_text"] ?? "");
@@ -13998,6 +14007,68 @@ function ConfiguracoesPanel({ settings, loading, products, clientErrors, clientE
         <p className="text-muted-foreground text-sm mb-5">
           Personalize o logo e os banners exibidos na loja. As imagens são aplicadas imediatamente após o upload.
         </p>
+
+        <div className="mb-5 rounded-2xl border border-border/60 bg-card p-4 shadow-sm space-y-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <h3 className="text-sm font-bold">Cor principal da loja</h3>
+              <p className="text-xs text-muted-foreground">Cada loja pode usar uma cor própria para botões e destaques.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Preview:</span>
+              <span className="h-7 px-3 rounded-lg text-xs font-semibold text-white flex items-center" style={{ backgroundColor: storePrimaryColor }}>
+                Botão
+              </span>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="color"
+              value={storePrimaryColor}
+              onChange={(e) => setStorePrimaryColor(normalizeHexColor(e.target.value) || "#1A2B4A")}
+              className="h-10 w-16 rounded-lg border border-border bg-white p-1 cursor-pointer"
+              aria-label="Selecionar cor principal"
+            />
+            <input
+              type="text"
+              value={storePrimaryColor}
+              onChange={(e) => {
+                const raw = String(e.target.value || "").trim();
+                if (!raw) {
+                  setStorePrimaryColor("#1A2B4A");
+                  return;
+                }
+                const normalized = normalizeHexColor(raw);
+                if (normalized) setStorePrimaryColor(normalized);
+              }}
+              placeholder="#1A2B4A"
+              className="h-10 w-full sm:w-44 rounded-lg border border-border px-3 text-sm bg-white"
+            />
+            <Button
+              size="sm"
+              className="h-10"
+              disabled={!!loading["store_primary_color"]}
+              onClick={() => onSave("store_primary_color", storePrimaryColor)}
+            >
+              {loading["store_primary_color"] ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Salvar cor
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-10"
+              disabled={!!loading["store_primary_color"]}
+              onClick={() => {
+                setStorePrimaryColor("#1A2B4A");
+                onDelete("store_primary_color");
+              }}
+            >
+              Restaurar padrão
+            </Button>
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           <ImageUploadCard
             title="Logo do Site"

@@ -135,6 +135,23 @@ const queryClient = new QueryClient({
   },
 });
 
+const BASE = import.meta.env.VITE_API_BASE ?? "";
+
+function normalizeHexColor(value: string): string | null {
+  const raw = String(value || "").trim();
+  if (!/^#?[0-9a-fA-F]{6}$/.test(raw)) return null;
+  return raw.startsWith("#") ? raw.toUpperCase() : `#${raw.toUpperCase()}`;
+}
+
+function getReadableForeground(hexColor: string): string {
+  const hex = hexColor.replace("#", "");
+  const r = Number.parseInt(hex.slice(0, 2), 16);
+  const g = Number.parseInt(hex.slice(2, 4), 16);
+  const b = Number.parseInt(hex.slice(4, 6), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.62 ? "#0F172A" : "#FFFFFF";
+}
+
 function PageLoader() {
   return (
     <div className="flex items-center justify-center min-h-screen">
@@ -219,6 +236,44 @@ function AppInner() {
   useEffect(() => {
     captureReferralFromCurrentUrl();
   }, [location]);
+
+  useEffect(() => {
+    let active = true;
+
+    const applyTenantColor = async () => {
+      try {
+        const res = await fetch(`${BASE}/api/settings`);
+        if (!res.ok || !active) return;
+
+        const settings = await res.json() as Record<string, string>;
+        const root = document.documentElement;
+        const primary = normalizeHexColor(String(settings.store_primary_color || ""));
+
+        if (!primary) {
+          root.style.removeProperty("--color-primary");
+          root.style.removeProperty("--color-primary-foreground");
+          root.style.removeProperty("--color-ring");
+          root.style.removeProperty("--color-accent");
+          root.style.removeProperty("--color-accent-foreground");
+          return;
+        }
+
+        const foreground = getReadableForeground(primary);
+        root.style.setProperty("--color-primary", primary);
+        root.style.setProperty("--color-primary-foreground", foreground);
+        root.style.setProperty("--color-ring", primary);
+        root.style.setProperty("--color-accent", primary);
+        root.style.setProperty("--color-accent-foreground", foreground);
+      } catch {
+        // Keep default theme when settings are unavailable.
+      }
+    };
+
+    void applyTenantColor();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   return (
     <AppErrorBoundary locationKey={location}>
