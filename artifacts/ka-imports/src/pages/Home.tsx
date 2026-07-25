@@ -34,7 +34,7 @@ function FilterContent({
   setActiveBrand,
 }: FilterContentProps) {
   return (
-    <div className="space-y-6">
+    <div className="ka-filter-content space-y-6">
       {/* Campo de busca por nome */}
       <div>
         <h3 className="font-bold text-sm text-foreground mb-3 uppercase tracking-wider">Buscar produto</h3>
@@ -444,7 +444,7 @@ export default function Home() {
         <div className="grid lg:grid-cols-[260px_1fr] xl:grid-cols-[280px_1fr] gap-8 xl:gap-12 items-start">
           
           {/* Desktop Sidebar */}
-          <aside className="hidden lg:block sticky top-[100px] space-y-6 bg-white/70 backdrop-blur-md p-6 rounded-[2rem] border border-border/60 shadow-sm">
+          <aside className="ka-filter-sidebar hidden lg:block sticky top-[100px] space-y-6 bg-white/70 backdrop-blur-md p-6 rounded-[2rem] border border-border/60 shadow-sm">
             <div className="flex items-center gap-2 pb-5 border-b border-border/50">
               <SlidersHorizontal className="w-5 h-5 text-primary" />
               <h2 className="font-bold text-lg">Filtros</h2>

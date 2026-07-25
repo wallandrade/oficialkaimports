@@ -183,6 +183,56 @@
   border-color: hsl(35 58% 61% / 0.8);
 }
 
+:root[data-store-theme="editorial_noir"] .ka-filter-sidebar {
+  background: linear-gradient(180deg, hsl(228 24% 17% / 0.96), hsl(229 24% 13% / 0.96));
+  border-color: hsl(35 28% 38% / 0.78);
+  box-shadow: 0 18px 42px hsl(226 48% 4% / 0.45);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-filter-sidebar h2,
+:root[data-store-theme="editorial_noir"] .ka-filter-content h3 {
+  color: hsl(36 35% 92%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-filter-content p,
+:root[data-store-theme="editorial_noir"] .ka-filter-content span {
+  color: hsl(36 21% 78%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-filter-content .border-t {
+  border-color: hsl(35 24% 35% / 0.75);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-filter-content input[type="text"],
+:root[data-store-theme="editorial_noir"] .ka-filter-content select {
+  background: hsl(229 21% 18%);
+  border-color: hsl(35 22% 42% / 0.75);
+  color: hsl(36 28% 91%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-filter-content input[type="text"]::placeholder {
+  color: hsl(36 16% 68%);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-filter-content input[type="text"]:focus,
+:root[data-store-theme="editorial_noir"] .ka-filter-content select:focus {
+  border-color: hsl(35 64% 60%);
+  box-shadow: 0 0 0 2px hsl(35 64% 60% / 0.25);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-filter-content label > div {
+  background: hsl(229 21% 18%);
+  border-color: hsl(35 22% 42% / 0.7);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-filter-content label:hover > div {
+  border-color: hsl(35 64% 60% / 0.72);
+}
+
+:root[data-store-theme="editorial_noir"] .ka-filter-content button {
+  color: hsl(36 22% 82%);
+}
+
 @layer base {
   body {
     @apply bg-background text-foreground antialiased font-sans;
