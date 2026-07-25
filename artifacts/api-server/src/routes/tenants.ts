@@ -212,6 +212,12 @@ function isRootDomain(domain: string): boolean {
   return normalizeDomain(domain).split(".").length <= 2;
 }
 
+function getWwwVariant(domain: string): string {
+  const normalized = normalizeDomain(domain);
+  if (!normalized) return "";
+  return normalized.startsWith("www.") ? normalized : `www.${normalized}`;
+}
+
 function toUTC(dateStr: string, hour: string, minute: string, second: string): Date {
   const local = new Date(`${dateStr}T${hour}:${minute}:${second}-03:00`);
   return new Date(local.toISOString());
@@ -304,16 +310,22 @@ router.get("/admin/tenants/dns-check", requirePrimaryAdmin, async (req, res) => 
     }
 
     const targetHost = await resolveDnsTargetHostForTenant(req, tenantId, domain);
-    const [domainCname, domainA, targetA, nameservers] = await Promise.all([
+    const wwwDomain = isRootDomain(domain) ? getWwwVariant(domain) : "";
+    const [domainCname, domainA, targetA, nameservers, wwwCname, wwwA] = await Promise.all([
       safeResolveCname(domain),
       safeResolveA(domain),
       targetHost ? safeResolveA(targetHost) : Promise.resolve([]),
       safeResolveNs(domain),
+      wwwDomain ? safeResolveCname(wwwDomain) : Promise.resolve([]),
+      wwwDomain ? safeResolveA(wwwDomain) : Promise.resolve([]),
     ]);
 
     const cnameMatch = targetHost ? domainCname.some((entry) => normalizeDomain(entry) === targetHost) : false;
     const targetASet = new Set(targetA);
     const aMatch = domainA.some((ip) => targetASet.has(ip));
+    const wwwCnameMatch = Boolean(wwwDomain && targetHost && wwwCname.some((entry) => normalizeDomain(entry) === targetHost));
+    const wwwAMatch = Boolean(wwwDomain && wwwA.some((ip) => targetASet.has(ip)));
+    const wwwMatch = wwwCnameMatch || wwwAMatch;
     const rootAliasFlattenedMatch =
       !cnameMatch &&
       !aMatch &&
@@ -326,7 +338,7 @@ router.get("/admin/tenants/dns-check", requirePrimaryAdmin, async (req, res) => 
         return subnet && targetA.some((targetIp) => getIpv4Subnet24(targetIp) === subnet);
       });
 
-    const status = cnameMatch || aMatch || rootAliasFlattenedMatch
+    const status = cnameMatch || aMatch || rootAliasFlattenedMatch || wwwMatch
       ? "configured"
       : domainCname.length > 0 || domainA.length > 0
         ? "misconfigured"
@@ -338,17 +350,25 @@ router.get("/admin/tenants/dns-check", requirePrimaryAdmin, async (req, res) => 
       status,
       cnameMatch,
       aMatch,
+      wwwMatch,
+      wwwCnameMatch,
+      wwwAMatch,
       rootAliasFlattenedMatch,
       dns: {
         cname: domainCname,
         a: domainA,
         targetA,
+        wwwDomain: wwwDomain || null,
+        wwwCname,
+        wwwA,
         nameservers,
       },
       message:
         status === "configured"
           ? rootAliasFlattenedMatch
             ? "Domínio raiz publicado via ALIAS/ANAME; o IP flattenado pode diferir do host alvo e ainda assim estar correto."
+            : wwwMatch && !cnameMatch && !aMatch
+              ? "Domínio www apontado corretamente. O raiz pode estar em propagação/caching, mas a configuração já foi encontrada."
             : "Domínio apontado corretamente."
           : status === "misconfigured"
             ? "Domínio encontrado, mas ainda não aponta para este servidor."
