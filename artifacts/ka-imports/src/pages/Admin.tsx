@@ -8638,6 +8638,7 @@ function OrdersPanel({
   const [orderPriorities, setOrderPriorities] = useState<Record<string, boolean>>({});
   const [orderPriorityUpdating, setOrderPriorityUpdating] = useState<Record<string, boolean>>({});
   const [enviados, setEnviados] = useState<Record<string, boolean>>({});
+  const [enviadoLockUntil, setEnviadoLockUntil] = useState<Record<string, number>>({});
   const [imagePreview, setImagePreview] = useState<{ src: string; name: string } | null>(null);
   const [trackingUploading, setTrackingUploading] = useState<Record<string, boolean>>({});
   const trackingInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -8697,12 +8698,20 @@ function OrdersPanel({
 
   // Inicializa enviados com base nos pedidos carregados
   useEffect(() => {
-    const map: Record<string, boolean> = {};
-    for (const order of ordersLookup) {
-      map[order.id] = !!order.enviado;
-    }
-    setEnviados(map);
-  }, [ordersLookup]);
+    const now = Date.now();
+    setEnviados((prev) => {
+      const map: Record<string, boolean> = {};
+      for (const order of ordersLookup) {
+        const lockUntil = Number(enviadoLockUntil[order.id] || 0);
+        if (lockUntil > now && Object.prototype.hasOwnProperty.call(prev, order.id)) {
+          map[order.id] = !!prev[order.id];
+        } else {
+          map[order.id] = !!order.enviado;
+        }
+      }
+      return map;
+    });
+  }, [ordersLookup, enviadoLockUntil]);
 
   useEffect(() => {
     const map: Record<string, boolean> = {};
@@ -9101,9 +9110,15 @@ function OrdersPanel({
         const data = await res.json() as { message?: string };
         throw new Error(data?.message || "Erro ao atualizar status de envio");
       }
-      onSetOrderEnviado(orderId, novoValor);
-      setEnviados(prev => ({ ...prev, [orderId]: novoValor }));
-      toast.success(novoValor ? "Pedido marcado como enviado!" : "Pedido marcado como pendente!");
+      const data = await res.json().catch(() => ({})) as { enviado?: boolean };
+      const confirmado = typeof data?.enviado === "boolean" ? data.enviado : novoValor;
+      onSetOrderEnviado(orderId, confirmado);
+      setEnviados(prev => ({ ...prev, [orderId]: confirmado }));
+
+      // Keep local state briefly to avoid UI flip from stale background refreshes.
+      setEnviadoLockUntil((prev) => ({ ...prev, [orderId]: Date.now() + 15000 }));
+
+      toast.success(confirmado ? "Pedido marcado como enviado!" : "Pedido marcado como pendente!");
     } catch (err) {
       const message = err instanceof Error && err.message ? err.message : "Erro ao atualizar status de envio!";
       toast.error(message);
