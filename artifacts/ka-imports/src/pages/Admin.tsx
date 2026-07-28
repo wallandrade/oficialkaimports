@@ -1320,6 +1320,7 @@ export default function Admin() {
   const [editProductSearch, setEditProductSearch] = useState("");
   const [editSaving, setEditSaving] = useState(false);
   const [editAsReshipment, setEditAsReshipment] = useState(false);
+  const [editItemsBeforeReshipmentMode, setEditItemsBeforeReshipmentMode] = useState<Array<{ id: string; name: string; quantity: number; price: number }> | null>(null);
   const [editCatalog, setEditCatalog] = useState<AdminProduct[]>([]);
   const [editCatalogLoading, setEditCatalogLoading] = useState(false);
   // Diff PIX
@@ -3472,6 +3473,7 @@ export default function Admin() {
     });
     setEditProductSearch("");
     setEditAsReshipment(false);
+    setEditItemsBeforeReshipmentMode(null);
     setDiffOrder(null);
     setDiffPixResult(null);
     if (editCatalog.length === 0) {
@@ -3752,6 +3754,20 @@ export default function Admin() {
       setEditOrderModal(null);
     } catch { toast.error("Erro ao salvar edição."); }
     finally { setEditSaving(false); }
+  };
+
+  const toggleEditAsReshipment = (enabled: boolean) => {
+    setEditAsReshipment(enabled);
+    if (enabled) {
+      setEditItemsBeforeReshipmentMode(editItems);
+      setEditItems([]);
+      setEditProductSearch("");
+      return;
+    }
+    if (editItemsBeforeReshipmentMode) {
+      setEditItems(editItemsBeforeReshipmentMode);
+    }
+    setEditItemsBeforeReshipmentMode(null);
   };
 
   const createDiffPix = async () => {
@@ -7323,12 +7339,12 @@ export default function Admin() {
                         type="checkbox"
                         className="mt-0.5"
                         checked={editAsReshipment}
-                        onChange={(e) => setEditAsReshipment(e.target.checked)}
+                        onChange={(e) => toggleEditAsReshipment(e.target.checked)}
                       />
                       <span className="text-sm text-amber-900 font-medium">Modo reenvio parcial (nao altera pedido original nem comissao)</span>
                     </label>
                     <p className="text-xs text-amber-800 mt-1">
-                      Use quando parte do pedido ja foi enviada e voce quer reenviar so o que faltou, sem reduzir total/comissao do vendedor.
+                      Use quando parte do pedido ja foi enviada e voce quer reenviar so o que faltou, sem reduzir total/comissao do vendedor. Ao ativar este modo, a lista de produtos inicia vazia para voce adicionar apenas o que faltou.
                     </p>
                   </div>
 
