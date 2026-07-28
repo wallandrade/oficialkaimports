@@ -20,7 +20,7 @@ import {
   registerAffiliateLead,
   resolveAffiliateByCode,
 } from "../lib/affiliates";
-import { getReshipmentByOrderIds, registerInventoryEntry } from "../lib/reshipments";
+import { createOrRefreshReshipment, getReshipmentByOrderIds, registerInventoryEntry } from "../lib/reshipments";
 import { lookupIpGeo } from "../lib/ip-geo";
 import { getR2MissingConfig, isR2Configured, uploadOrderTrackingLabelToR2 } from "../lib/r2";
 import { sendOutboundWebhook } from "../lib/outbound-webhook";
@@ -1939,6 +1939,80 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
   } catch (err) {
     console.error("Edit order error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao editar pedido." });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/admin/orders/:id/reshipment  (protected)
+// Creates/refreshes a reshipment for missing items without changing the order
+// totals, preserving seller commission based on the original order.
+// ---------------------------------------------------------------------------
+router.post("/admin/orders/:id/reshipment", requireAdminAuth, async (req, res) => {
+  try {
+    const adminScope = ensureSellerScopeOnOrderQuery(req, res);
+    if (!adminScope) return;
+
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
+
+    const rawProducts = Array.isArray(req.body?.products)
+      ? req.body.products
+      : [];
+
+    if (rawProducts.length === 0) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Informe ao menos um produto para o reenvio." });
+      return;
+    }
+
+    const products = rawProducts
+      .map((item: any) => ({
+        id: String(item?.id || "").trim(),
+        name: String(item?.name || "Produto").trim() || "Produto",
+        quantity: Number(item?.quantity) || 0,
+      }))
+      .filter((item: { id: string; quantity: number }) => item.id && item.quantity > 0);
+
+    if (products.length === 0) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Produtos de reenvio inválidos." });
+      return;
+    }
+
+    const rows = await db
+      .select({ id: ordersTable.id, clientName: ordersTable.clientName })
+      .from(ordersTable)
+      .where(buildAdminOrderWhere(id, adminScope))
+      .limit(1);
+
+    const order = rows[0];
+    if (!order) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
+
+    const supportTicketId = `admin_reenvio_${Date.now().toString(36)}_${crypto.randomBytes(3).toString("hex")}`;
+
+    const created = await createOrRefreshReshipment({
+      tenantId: adminScope.tenantId,
+      orderId: id,
+      supportTicketId,
+      productsRaw: products,
+      resolvedReason: "reenvio_admin_edicao",
+    });
+
+    broadcastNotification({
+      type: "support_ticket_reshipment_authorized",
+      data: { id: created.id, orderId: id, clientName: order.clientName || "", tenantId: adminScope.tenantId },
+    });
+
+    res.status(201).json({
+      ok: true,
+      message: "Reenvio lançado sem alterar o pedido original e sem impacto na comissão.",
+      reshipment: created,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Erro ao lançar reenvio.";
+    console.error("Create order reshipment error:", err);
+    res.status(400).json({ error: "INVALID_INPUT", message });
   }
 });
 

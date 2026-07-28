@@ -1319,6 +1319,7 @@ export default function Admin() {
   const [editDiscount, setEditDiscount] = useState(0);
   const [editProductSearch, setEditProductSearch] = useState("");
   const [editSaving, setEditSaving] = useState(false);
+  const [editAsReshipment, setEditAsReshipment] = useState(false);
   const [editCatalog, setEditCatalog] = useState<AdminProduct[]>([]);
   const [editCatalogLoading, setEditCatalogLoading] = useState(false);
   // Diff PIX
@@ -3470,6 +3471,7 @@ export default function Admin() {
       state: String(order.addressState || ""),
     });
     setEditProductSearch("");
+    setEditAsReshipment(false);
     setDiffOrder(null);
     setDiffPixResult(null);
     if (editCatalog.length === 0) {
@@ -3657,10 +3659,30 @@ export default function Admin() {
   const saveEditOrder = async () => {
     if (!editOrderModal || editItems.length === 0) { toast.error("Adicione ao menos um produto."); return; }
     const normalizedClientName = String(editClientName || "").trim();
-    if (!normalizedClientName) { toast.error("Informe o nome do cliente."); return; }
+    if (!editAsReshipment && !normalizedClientName) { toast.error("Informe o nome do cliente."); return; }
     setEditSaving(true);
     const originalTotal = editOrderModal.total;
     try {
+      if (editAsReshipment) {
+        const res = await fetch(`${BASE}/api/admin/orders/${editOrderModal.id}/reshipment`, {
+          method: "POST", headers: authHeaders(),
+          body: JSON.stringify({ products: editItems }),
+        });
+        const data = await res.json().catch(() => ({})) as { message?: string; reshipment?: { status?: string; missingProducts?: string[] } };
+        if (!res.ok) {
+          toast.error(data?.message || "Erro ao lançar reenvio.");
+          return;
+        }
+        const missingCount = data?.reshipment?.missingProducts?.length || 0;
+        if (missingCount > 0) {
+          toast.success(`${data?.message || "Reenvio lançado."} Faltando estoque em ${missingCount} produto(s).`);
+        } else {
+          toast.success(data?.message || "Reenvio lançado com sucesso!");
+        }
+        setEditOrderModal(null);
+        return;
+      }
+
       const subtotal = editItems.reduce((s, p) => s + p.price * p.quantity, 0);
       const shippingCost = editOrderModal.shippingCost;
       const insuranceAmount = editOrderModal.includeInsurance ? Math.max(0, subtotal) * 0.1 : 0;
@@ -7295,6 +7317,21 @@ export default function Admin() {
                   <Button size="icon" variant="ghost" onClick={() => setEditOrderModal(null)}><X className="w-5 h-5" /></Button>
                 </div>
                 <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                    <label className="flex items-start gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={editAsReshipment}
+                        onChange={(e) => setEditAsReshipment(e.target.checked)}
+                      />
+                      <span className="text-sm text-amber-900 font-medium">Modo reenvio parcial (nao altera pedido original nem comissao)</span>
+                    </label>
+                    <p className="text-xs text-amber-800 mt-1">
+                      Use quando parte do pedido ja foi enviada e voce quer reenviar so o que faltou, sem reduzir total/comissao do vendedor.
+                    </p>
+                  </div>
+
                   {/* Product search */}
                   <div>
                     <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block mb-1">Adicionar produto do catálogo</label>
@@ -7372,6 +7409,7 @@ export default function Admin() {
                     )}
                   </div>
 
+                  {!editAsReshipment && (
                   <div>
                     <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block mb-2">Dados do cliente</label>
                     <input
@@ -7381,7 +7419,9 @@ export default function Admin() {
                       className="w-full h-9 px-3 rounded-lg border border-border bg-muted/30 text-sm outline-none focus:border-primary"
                     />
                   </div>
+                  )}
 
+                  {!editAsReshipment && (
                   <div>
                     <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block mb-2">Endereço do cliente</label>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -7430,8 +7470,10 @@ export default function Admin() {
                       />
                     </div>
                   </div>
+                  )}
 
                   {/* Coupon/Discount */}
+                  {!editAsReshipment && (
                   <div>
                     <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block mb-1">Cupom / Desconto</label>
                     <input
@@ -7442,9 +7484,10 @@ export default function Admin() {
                       className="w-full h-9 px-3 rounded-lg border border-border bg-muted/30 text-sm outline-none focus:border-primary"
                     />
                   </div>
+                  )}
 
                   {/* Totals preview */}
-                  {editItems.length > 0 && (() => {
+                  {!editAsReshipment && editItems.length > 0 && (() => {
                     const subtotal = editItems.reduce((s, p) => s + p.price * p.quantity, 0);
                     const insuranceAmount = editOrderModal.includeInsurance ? Math.max(0, subtotal) * 0.1 : 0;
                     const total = Math.max(0, subtotal + editOrderModal.shippingCost + insuranceAmount - (editDiscount || 0));
@@ -7477,7 +7520,7 @@ export default function Admin() {
                   <Button variant="outline" className="flex-1" onClick={() => setEditOrderModal(null)}>Cancelar</Button>
                   <Button className="flex-1 gap-2" disabled={editSaving || editItems.length === 0} onClick={saveEditOrder}>
                     {editSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                    Salvar Edição
+                    {editAsReshipment ? "Lancar Reenvio" : "Salvar Edicao"}
                   </Button>
                 </div>
               </motion.div>
