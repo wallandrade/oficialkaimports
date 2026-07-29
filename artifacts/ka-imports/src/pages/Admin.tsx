@@ -306,6 +306,49 @@ export function orderToFullText(order: any): string {
     .join("\n");
 }
 
+function orderToPostPaymentText(order: any): string {
+  const products = getOrderProducts(order?.products);
+  const productsText = products.length
+    ? products
+        .map((p) => {
+          const qty = Number(p?.quantity) || 0;
+          return `💊 ${qty}x ${p?.name || "Produto"}`;
+        })
+        .join("\n")
+    : "💊 Sem itens";
+
+  const rua = [order?.addressStreet, order?.addressNumber].filter(Boolean).join(", ") || "-";
+  const bairro = String(order?.addressNeighborhood || "-");
+  const complemento = String(order?.addressComplement || "-");
+  const cidadeUf = `${order?.addressCity || "-"}${order?.addressState ? `/${order.addressState}` : ""}`;
+  const cep = String(order?.addressCep || "-");
+  const cliente = String(order?.clientName || "Cliente").trim() || "Cliente";
+
+  return [
+    `🎉 **Parabéns, ${cliente}! Sua compra foi confirmada com sucesso!** ✅📦`,
+    "",
+    "Seu pagamento já foi aprovado e o seu pedido foi registrado em nosso sistema. Agora ele segue para a etapa de preparação e envio. 🚀",
+    "",
+    "📋 **Resumo do pedido:**",
+    productsText,
+    "",
+    "📍 **Entrega:**",
+    rua,
+    `Bairro: ${bairro}`,
+    `Complemento: ${complemento}`,
+    cidadeUf,
+    `CEP: ${cep}`,
+    "",
+    "⏳ Pedimos que aguarde até **48 horas úteis** para a liberação do código de rastreio. Esse prazo é necessário para organização do envio e para conseguirmos manter um atendimento mais rápido e eficiente para todos os clientes. 🙏",
+    "",
+    "Assim que o rastreio estiver disponível, você poderá acompanhar a movimentação do seu pedido. 📲",
+    "",
+    "⚠️ **Importante:** sábados, domingos e feriados não são considerados dias úteis para processamento de envio.",
+    "",
+    "Obrigado pela confiança! 💙📦",
+  ].join("\n");
+}
+
 export function chargeToText(charge: any): string {
   const address = [
     charge?.addressStreet,
@@ -8897,6 +8940,21 @@ function OrdersPanel({
     }
   };
 
+  const copyOrderPostPayment = async (order: AdminOrder) => {
+    try {
+      const mode = await copyText(orderToPostPaymentText({ ...order, isPrioridade: resolveOrderPriority(order) }));
+      setCopiedOrderId(order.id + "-post-paid");
+      if (mode === "auto") {
+        toast.success("Pós-pagamento copiado!");
+      } else {
+        toast.info("Abra o prompt e copie manualmente.");
+      }
+      setTimeout(() => setCopiedOrderId(null), 2500);
+    } catch {
+      toast.error("Não foi possível copiar a mensagem de pós-pagamento.");
+    }
+  };
+
   const toggleOrderPriority = async (order: AdminOrder) => {
     const id = String(order.id || "").trim();
     if (!id) return;
@@ -9775,6 +9833,8 @@ function OrdersPanel({
         .filter(order => typeof order.id === "string" && order.id.length > 0)
         .map((order) => {
           const isPrioridade = resolveOrderPriority(order);
+          const currentOrderStatus = normalizeOrderStatus(order.status);
+          const isPaidOrder = currentOrderStatus === "paid" || currentOrderStatus === "completed";
           const isCard     = order.paymentMethod === "card_simulation";
           const isExpanded = expandedOrder === order.id;
           const orderStockCheck = enviados[order.id] || !globalInventorySnapshotReady
@@ -10008,16 +10068,15 @@ function OrdersPanel({
                 </div>
                 <div className="flex gap-2 flex-wrap">
                   <Button type="button" size="sm" variant="outline" className="gap-1.5 text-green-700 border-green-200 hover:bg-green-50"
-                    disabled={statusUpdating === order.id || normalizeOrderStatus(order.status) === "paid" || normalizeOrderStatus(order.status) === "completed"}
+                    disabled={statusUpdating === order.id || isPaidOrder}
                     onClick={() => isCard ? onOpenCardPaidModal(order.id) : updateOrderStatus(order.id, "paid")}>
                     <CheckCircle className="w-3.5 h-3.5" />{isCard ? "Marcar Pago" : "Marcar Pago"}
                   </Button>
                   <Button size="sm" variant="outline" className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50"
                     type="button"
-                    disabled={statusUpdating === order.id || normalizeOrderStatus(order.status) === "cancelled"}
+                    disabled={statusUpdating === order.id || currentOrderStatus === "cancelled"}
                     onClick={() => {
-                      const currentStatus = normalizeOrderStatus(order.status);
-                      if (currentStatus === "paid" || currentStatus === "completed") {
+                      if (isPaidOrder) {
                         openAdminPasswordModal(
                           "Confirmar desfazer status pago",
                           "Para alterar um pedido já pago/concluído, confirme sua senha de admin.",
@@ -10133,6 +10192,13 @@ function OrdersPanel({
                   {copiedOrderId === order.id + "-full" ? <CheckCircle className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
                   {copiedOrderId === order.id + "-full" ? "Completo copiado!" : "Copiar Completo"}
                 </Button>
+                {isPaidOrder && (
+                  <Button size="sm" variant="outline" className="gap-1.5 text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                    onClick={() => copyOrderPostPayment(order)}>
+                    {copiedOrderId === order.id + "-post-paid" ? <CheckCircle className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
+                    {copiedOrderId === order.id + "-post-paid" ? "Pós-pagamento copiado!" : "Copiar pós-pagamento"}
+                  </Button>
+                )}
                 {isPrimary && (
                   <Button size="sm" variant="outline" className="gap-1.5 text-violet-600 border-violet-200 hover:bg-violet-50"
                     onClick={() => onEditOrder(order)}>
