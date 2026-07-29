@@ -26,6 +26,7 @@ import { getR2MissingConfig, isR2Configured, uploadOrderTrackingLabelToR2 } from
 import { sendOutboundWebhook } from "../lib/outbound-webhook";
 import { parseFreeShippingMinSubtotalSetting, resolveShippingCostWithFreeThreshold } from "../lib/free-shipping";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
+import { reserveNextOrderNumber } from "../lib/order-number";
 
 const router: IRouter = Router();
 
@@ -1237,39 +1238,45 @@ router.post("/orders", async (req, res) => {
       return;
     }
 
-    await db.insert(ordersTable).values({
-      id,
-      tenantId,
-      userId: customerSession?.userId ?? null,
-      guestAccessToken,
-      affiliateUserId,
-      affiliateCode: affiliateUserId ? normalizedAffiliateCode : null,
-      clientName:          client.name,
-      clientEmail:         client.email,
-      clientPhone:         client.phone,
-      clientDocument:      client.document,
-      purchaseIp,
-      addressCep:          address?.cep          || null,
-      addressStreet:       address?.street       || null,
-      addressNumber:       address?.number       || null,
-      addressComplement:   address?.complement   || null,
-      addressNeighborhood: address?.neighborhood || null,
-      addressCity:         address?.city         || null,
-      addressState:        address?.state        || null,
-      products: orderProducts,
-      shippingType,
-      includeInsurance:  Boolean(includeInsurance),
-      subtotal:          String(computedSubtotal),
-      shippingCost:      String(computedShippingCost),
-      insuranceAmount:   String(computedInsuranceAmount),
-      total:             String(computedTotal),
-      status:            method === "card_simulation" ? "awaiting_payment" : "pending",
-      paymentMethod:     method,
-      cardInstallments:  cardInstallments ? Number(cardInstallments) : null,
-      sellerCode:        sellerCode ? String(sellerCode) : null,
-      sellerCommissionRateSnapshot: String(sellerCommissionRateSnapshot),
-      couponCode:        normalizedCouponCode,
-      discountAmount:    computedDiscountAmount > 0 ? String(computedDiscountAmount) : null,
+    let assignedOrderNumber = 0;
+    await db.transaction(async (tx) => {
+      assignedOrderNumber = await reserveNextOrderNumber(tx, tenantId);
+
+      await tx.insert(ordersTable).values({
+        id,
+        orderNumber: assignedOrderNumber,
+        tenantId,
+        userId: customerSession?.userId ?? null,
+        guestAccessToken,
+        affiliateUserId,
+        affiliateCode: affiliateUserId ? normalizedAffiliateCode : null,
+        clientName:          client.name,
+        clientEmail:         client.email,
+        clientPhone:         client.phone,
+        clientDocument:      client.document,
+        purchaseIp,
+        addressCep:          address?.cep          || null,
+        addressStreet:       address?.street       || null,
+        addressNumber:       address?.number       || null,
+        addressComplement:   address?.complement   || null,
+        addressNeighborhood: address?.neighborhood || null,
+        addressCity:         address?.city         || null,
+        addressState:        address?.state        || null,
+        products: orderProducts,
+        shippingType,
+        includeInsurance:  Boolean(includeInsurance),
+        subtotal:          String(computedSubtotal),
+        shippingCost:      String(computedShippingCost),
+        insuranceAmount:   String(computedInsuranceAmount),
+        total:             String(computedTotal),
+        status:            method === "card_simulation" ? "awaiting_payment" : "pending",
+        paymentMethod:     method,
+        cardInstallments:  cardInstallments ? Number(cardInstallments) : null,
+        sellerCode:        sellerCode ? String(sellerCode) : null,
+        sellerCommissionRateSnapshot: String(sellerCommissionRateSnapshot),
+        couponCode:        normalizedCouponCode,
+        discountAmount:    computedDiscountAmount > 0 ? String(computedDiscountAmount) : null,
+      });
     });
 
     // Geo lookup — fire and forget, não bloqueia a resposta
@@ -2219,6 +2226,7 @@ function mapOrder(o: typeof ordersTable.$inferSelect) {
 
   return {
     id:                  o.id,
+    orderNumber:         o.orderNumber ?? null,
     clientName:          o.clientName,
     clientEmail:         o.clientEmail,
     clientPhone:         o.clientPhone,

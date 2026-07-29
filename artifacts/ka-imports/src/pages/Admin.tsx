@@ -118,6 +118,15 @@ function getOrderProducts(raw: unknown): OrderProductLite[] {
   }
   return [];
 }
+
+function getOrderDisplayId(order: any): string {
+  const numeric = Number(order?.orderNumber);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return String(Math.trunc(numeric));
+  }
+  return String(order?.id || "-");
+}
+
 export function orderToText(order: any): string {
   const products = getOrderProducts(order?.products);
   const prioridadeLine = order?.isPrioridade ? "PRIORIDADE URGENTE" : "";
@@ -149,7 +158,7 @@ export function orderToText(order: any): string {
       trackingCodeInformado ? `Numero rastreio informado: ${trackingCodeInformado}` : "",
       order?.reshipment?.ticketDescription ? `Motivo do reenvio: ${order.reshipment.ticketDescription}` : "",
       "",
-      `Pedido numero: ${order?.id || "-"}`,
+      `Pedido numero: ${getOrderDisplayId(order)}`,
       "",
       `Nome: ${order?.clientName || "-"}`,
       `Rua: ${rua}`,
@@ -170,7 +179,7 @@ export function orderToText(order: any): string {
 
   return [
     prioridadeLine,
-    `Pedido numero: ${order?.id || "-"}`,
+    `Pedido numero: ${getOrderDisplayId(order)}`,
     "",
     `Nome: ${order?.clientName || "-"}`,
     `Rua: ${rua}`,
@@ -281,7 +290,7 @@ export function orderToFullText(order: any): string {
 
   return [
     prioridadeLine,
-    `Pedido #${order?.id || "-"}`,
+    `Pedido #${getOrderDisplayId(order)}`,
     `Data: ${formatDateBR(order?.createdAt) || "-"}`,
     `Cliente: ${order?.clientName || "-"}`,
     `Contato: ${contato}`,
@@ -9884,7 +9893,7 @@ function OrdersPanel({
                             PRIORIDADE URGENTE
                           </span>
                         )}
-                        <span className="font-mono text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">#{order.id}</span>
+                        <span className="font-mono text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">#{getOrderDisplayId(order)}</span>
                         {/* Badge de status de envio */}
                         {enviados[order.id] ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-100 text-green-800 text-xs font-semibold border border-green-200">Enviado</span>

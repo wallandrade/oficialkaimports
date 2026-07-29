@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 
 export const ordersTable = mysqlTable("orders", {
   id: varchar("id", { length: 255 }).primaryKey(),
+  orderNumber: int("order_number"),
   tenantId: varchar("tenant_id", { length: 255 }),
   userId: varchar("user_id", { length: 255 }),
   guestAccessToken: varchar("guest_access_token", { length: 255 }).unique(),

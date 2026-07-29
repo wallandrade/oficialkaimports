@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "hello": "tsx ./src/hello.ts",
+    "backfill:order-numbers": "tsx ./src/backfill-order-numbers.ts",
     "migrate:product-images:r2": "tsx ./src/migrate-product-images-to-r2.ts",
     "patch:costprice": "tsx ./src/patch-orders-costprice.ts",
     "audit:paid-amount:diff": "tsx ./src/audit-paid-amount-diff-charges.ts",

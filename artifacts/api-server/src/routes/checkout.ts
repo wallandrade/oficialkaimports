@@ -18,6 +18,7 @@ import { lookupIpGeo } from "../lib/ip-geo";
 import { parseFreeShippingMinSubtotalSetting, resolveShippingCostWithFreeThreshold } from "../lib/free-shipping";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 import { enqueueFilialOrderPurchaseRequest } from "../lib/filial-purchase-queue";
+import { reserveNextOrderNumber } from "../lib/order-number";
 
 const router: IRouter = Router();
 
@@ -429,38 +430,44 @@ router.post("/checkout/pix", async (req, res) => {
       return;
     }
 
-    await db.insert(ordersTable).values({
-      id:                  orderId,
-      tenantId,
-      userId:              customerSession?.userId ?? null,
-      guestAccessToken,
-      affiliateUserId,
-      affiliateCode:       affiliateUserId ? normalizedAffiliateCode : null,
-      clientName:          client.name,
-      clientEmail:         client.email,
-      clientPhone:         client.phone,
-      clientDocument:      client.document,
-      purchaseIp,
-      addressCep:          address?.cep          || null,
-      addressStreet:       address?.street       || null,
-      addressNumber:       address?.number       || null,
-      addressComplement:   address?.complement   || null,
-      addressNeighborhood: address?.neighborhood || null,
-      addressCity:         address?.city         || null,
-      addressState:        address?.state        || null,
-      products:            orderProducts,
-      shippingType:        shippingType || "Frete",
-      includeInsurance:    Boolean(includeInsurance),
-      subtotal:            String(computedSubtotal),
-      shippingCost:        String(computedShippingCost),
-      insuranceAmount:     String(computedInsuranceAmount),
-      total:               String(amount),
-      status:              "pending",
-      paymentMethod:       "pix",
-      sellerCode:          sellerCode ? String(sellerCode) : null,
-      sellerCommissionRateSnapshot: String(sellerCommissionRateSnapshot),
-      couponCode:          normalizedCouponCode,
-      discountAmount:      computedDiscountAmount > 0 ? String(computedDiscountAmount) : null,
+    let assignedOrderNumber = 0;
+    await db.transaction(async (tx) => {
+      assignedOrderNumber = await reserveNextOrderNumber(tx, tenantId);
+
+      await tx.insert(ordersTable).values({
+        id:                  orderId,
+        orderNumber:         assignedOrderNumber,
+        tenantId,
+        userId:              customerSession?.userId ?? null,
+        guestAccessToken,
+        affiliateUserId,
+        affiliateCode:       affiliateUserId ? normalizedAffiliateCode : null,
+        clientName:          client.name,
+        clientEmail:         client.email,
+        clientPhone:         client.phone,
+        clientDocument:      client.document,
+        purchaseIp,
+        addressCep:          address?.cep          || null,
+        addressStreet:       address?.street       || null,
+        addressNumber:       address?.number       || null,
+        addressComplement:   address?.complement   || null,
+        addressNeighborhood: address?.neighborhood || null,
+        addressCity:         address?.city         || null,
+        addressState:        address?.state        || null,
+        products:            orderProducts,
+        shippingType:        shippingType || "Frete",
+        includeInsurance:    Boolean(includeInsurance),
+        subtotal:            String(computedSubtotal),
+        shippingCost:        String(computedShippingCost),
+        insuranceAmount:     String(computedInsuranceAmount),
+        total:               String(amount),
+        status:              "pending",
+        paymentMethod:       "pix",
+        sellerCode:          sellerCode ? String(sellerCode) : null,
+        sellerCommissionRateSnapshot: String(sellerCommissionRateSnapshot),
+        couponCode:          normalizedCouponCode,
+        discountAmount:      computedDiscountAmount > 0 ? String(computedDiscountAmount) : null,
+      });
     });
 
     let affiliateCreditUsed = 0;
