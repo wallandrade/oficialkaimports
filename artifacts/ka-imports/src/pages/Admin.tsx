@@ -10248,6 +10248,13 @@ function OrdersPanel({
                   <div className="space-y-1">
                     {orderProducts.map((p, i) => {
                       const imageSrc = resolveProductImage(p);
+                      const qty = Number(p.quantity) || 0;
+                      const lineTotal = Number(p.price) * qty;
+                      const unitCost = p.costPrice != null
+                        ? Number(p.costPrice)
+                        : Number(productCostById[String(p.id || "").trim()] || 0);
+                      const lineProfit = lineTotal - (unitCost * qty);
+                      const hasNegativeProfit = lineProfit < 0;
                       return (
                       <div key={i} className="flex items-center justify-between text-sm gap-3">
                         <div className="flex items-center gap-2 min-w-0">
@@ -10278,9 +10285,14 @@ function OrdersPanel({
                               </div>
                             )}
                           </div>
-                          <span className="truncate">{p.quantity}x {p.name}</span>
+                          <div className="min-w-0">
+                            <span className="truncate block">{p.quantity}x {p.name}</span>
+                            <span className={`block text-xs font-medium ${hasNegativeProfit ? "text-red-600" : "text-emerald-700"}`}>
+                              {hasNegativeProfit ? "Prejuízo" : "Lucro"}: {formatCurrency(lineProfit)}
+                            </span>
+                          </div>
                         </div>
-                        <span className="font-medium">{formatCurrency(p.price * p.quantity)}</span>
+                        <span className="font-medium">{formatCurrency(lineTotal)}</span>
                       </div>
                     )})}
                   </div>
