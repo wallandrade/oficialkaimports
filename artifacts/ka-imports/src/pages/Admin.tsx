@@ -13242,6 +13242,56 @@ function ProductsPanel({
 
   const UNITS = ["unidade", "caixa", "caneta", "frasco", "par", "kit"];
   const currentTiers = normalizeBulkDiscountTiers((productForm as any).bulkDiscountTiers);
+  const parsedCostPrice = Number(productForm.costPrice);
+  const costPriceForProfit = Number.isFinite(parsedCostPrice) ? parsedCostPrice : 0;
+
+  const renderUnitProfitHint = (
+    saleValue: number | null | undefined,
+    emptyText = "Defina um valor de venda para ver o lucro.",
+    quantity = 1,
+    quantityLabel?: string,
+  ) => {
+    const sale = Number(saleValue);
+    if (!Number.isFinite(sale) || sale <= 0) {
+      return <p className="mt-1 text-xs text-muted-foreground">{emptyText}</p>;
+    }
+
+    const profit = sale - costPriceForProfit;
+    const totalProfit = profit * Math.max(1, quantity);
+    const margin = sale > 0 ? (profit / sale) * 100 : 0;
+    const isNegative = profit < 0;
+    const label = quantityLabel || `${quantity}x`;
+
+    return (
+      <div className={`mt-1 text-xs font-medium ${isNegative ? "text-red-600" : "text-emerald-700"}`}>
+        <p>{isNegative ? "Prejuízo" : "Lucro"} unitário: {formatCurrency(profit)} ({margin.toFixed(1)}%)</p>
+        {quantity > 1 && <p>{isNegative ? "Prejuízo" : "Lucro"} total {label}: {formatCurrency(totalProfit)}</p>}
+      </div>
+    );
+  };
+
+  const tierProfitSummary = [1, 2, 3, 4]
+    .map((qty) => {
+      const sale = Number(getFixedTierPrice(currentTiers, qty));
+      if (!Number.isFinite(sale) || sale <= 0) return null;
+
+      const unitProfit = sale - costPriceForProfit;
+      const totalProfit = unitProfit * qty;
+      const margin = sale > 0 ? (unitProfit / sale) * 100 : 0;
+
+      return {
+        qty,
+        label: qty >= 4 ? "4cx+" : `${qty}cx`,
+        unitProfit,
+        totalProfit,
+        margin,
+      };
+    })
+    .filter((item): item is { qty: number; label: string; unitProfit: number; totalProfit: number; margin: number } => item !== null);
+
+  const bestTierByTotalProfit = tierProfitSummary.length > 0
+    ? tierProfitSummary.reduce((best, current) => (current.totalProfit > best.totalProfit ? current : best))
+    : null;
 
   return (
     <div className="space-y-6">
@@ -13454,6 +13504,7 @@ function ProductsPanel({
                         className={`${inp2} pl-9`}
                       />
                     </div>
+                    {renderUnitProfitHint(productForm.price)}
                   </div>
 
                   {/* Cost price */}
@@ -13494,6 +13545,7 @@ function ProductsPanel({
                         className={`${inp2} pl-9`}
                       />
                     </div>
+                    {renderUnitProfitHint(productForm.promoPrice, "Sem preço promocional definido.")}
                   </div>
 
                   {/* Promo ends */}
@@ -13513,6 +13565,19 @@ function ProductsPanel({
                     <div>
                       <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Desconto Progressivo por Quantidade</label>
                       <p className="text-xs text-muted-foreground mt-1">Configure os preços unitários para 1cx, 2cx, 3cx e 4cx+.</p>
+                    </div>
+
+                    <div className="rounded-xl border border-border bg-white px-3 py-2">
+                      {bestTierByTotalProfit ? (
+                        <p className={`text-xs font-medium ${bestTierByTotalProfit.totalProfit < 0 ? "text-red-600" : "text-emerald-700"}`}>
+                          Melhor faixa de lucro total: {bestTierByTotalProfit.label}
+                          {bestTierByTotalProfit.qty >= 4 ? " (mín. 4)" : ""}
+                          {" "}- {bestTierByTotalProfit.totalProfit < 0 ? "Prejuízo" : "Lucro"} total {formatCurrency(bestTierByTotalProfit.totalProfit)}
+                          {" "}({bestTierByTotalProfit.margin.toFixed(1)}% unit.)
+                        </p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">Preencha os preços das faixas para ver a melhor oportunidade de lucro.</p>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-3">
@@ -13548,6 +13613,12 @@ function ProductsPanel({
                                 className={`${inp2} pl-9`}
                               />
                             </div>
+                            {renderUnitProfitHint(
+                              value,
+                              "Defina um valor de venda para ver o lucro.",
+                              qty,
+                              qty >= 4 ? "4cx+ (mín. 4)" : `${qty}cx`,
+                            )}
                           </div>
                         );
                       })}
