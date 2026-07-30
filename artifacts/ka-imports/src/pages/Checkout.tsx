@@ -1786,10 +1786,21 @@ export default function Checkout() {
                   </div>
                 )}
                 {freeShippingMinSubtotal != null && (
-                  <div className={`mt-3 rounded-xl border px-3 py-2 text-sm ${isFreeShippingEligible ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
-                    {isFreeShippingEligible
-                      ? `Frete gratis aplicado para pedidos acima de ${formatCurrency(freeShippingMinSubtotal)}.`
-                      : `Faltam ${formatCurrency(missingForFreeShipping)} para liberar frete gratis (a partir de ${formatCurrency(freeShippingMinSubtotal)}).`}
+                  <div className={`mt-3 rounded-xl border px-3 py-3 ${isFreeShippingEligible ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <Truck className={`w-3.5 h-3.5 shrink-0 ${isFreeShippingEligible ? "text-emerald-700" : "text-amber-700"}`} />
+                      <p className={`text-xs font-semibold ${isFreeShippingEligible ? "text-emerald-800" : "text-amber-800"}`}>
+                        {isFreeShippingEligible
+                          ? "Frete grátis desbloqueado!"
+                          : `Faltam ${formatCurrency(missingForFreeShipping)} para frete grátis`}
+                      </p>
+                    </div>
+                    <div className="w-full h-2 rounded-full bg-black/10 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${isFreeShippingEligible ? "bg-emerald-500" : "bg-amber-500"}`}
+                        style={{ width: `${Math.min(100, (subtotal / freeShippingMinSubtotal) * 100)}%` }}
+                      />
+                    </div>
                   </div>
                 )}
               </div>
@@ -1955,6 +1966,30 @@ export default function Checkout() {
                       </Button>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {freeShippingMinSubtotal != null && (
+                <div className={`mb-4 rounded-xl border px-3 py-3 ${isFreeShippingEligible ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <Truck className={`w-3.5 h-3.5 shrink-0 ${isFreeShippingEligible ? "text-emerald-700" : "text-amber-700"}`} />
+                    <p className={`text-xs font-semibold ${isFreeShippingEligible ? "text-emerald-800" : "text-amber-800"}`}>
+                      {isFreeShippingEligible
+                        ? "Frete grátis desbloqueado!"
+                        : `Faltam ${formatCurrency(missingForFreeShipping)} para frete grátis`}
+                    </p>
+                  </div>
+                  <div className="w-full h-2 rounded-full bg-black/10 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${isFreeShippingEligible ? "bg-emerald-500" : "bg-amber-500"}`}
+                      style={{ width: `${Math.min(100, (subtotal / freeShippingMinSubtotal) * 100)}%` }}
+                    />
+                  </div>
+                  {!isFreeShippingEligible && (
+                    <p className="text-[11px] text-amber-700 mt-1.5">
+                      Pedidos a partir de {formatCurrency(freeShippingMinSubtotal)} têm frete grátis automático.
+                    </p>
+                  )}
                 </div>
               )}
 
