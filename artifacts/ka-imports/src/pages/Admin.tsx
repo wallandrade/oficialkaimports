@@ -10287,12 +10287,14 @@ function OrdersPanel({
                           </div>
                           <div className="min-w-0">
                             <span className="truncate block">{p.quantity}x {p.name}</span>
-                            <span className={`block text-xs font-medium ${hasNegativeProfit ? "text-red-600" : "text-emerald-700"}`}>
-                              {hasNegativeProfit ? "Prejuízo" : "Lucro"}: {formatCurrency(lineProfit)}
-                            </span>
                           </div>
                         </div>
-                        <span className="font-medium">{formatCurrency(lineTotal)}</span>
+                        <div className="text-right shrink-0">
+                          <span className="font-medium block">{formatCurrency(lineTotal)}</span>
+                          <span className={`block text-xs font-medium ${hasNegativeProfit ? "text-red-600" : "text-emerald-700"}`}>
+                            {hasNegativeProfit ? "Prejuízo" : "Lucro"}: {formatCurrency(lineProfit)}
+                          </span>
+                        </div>
                       </div>
                     )})}
                   </div>
