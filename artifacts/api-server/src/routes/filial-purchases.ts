@@ -413,8 +413,14 @@ router.delete("/admin/filial-purchases/:requestId", requirePrimaryAdmin, async (
       return;
     }
 
+    const scope = getAdminScope(req);
+    const actorUsername = String(scope?.username || "").trim() || null;
+
     const rows = await db
-      .select({ id: filialPurchaseRequestsTable.id })
+      .select({
+        id: filialPurchaseRequestsTable.id,
+        status: filialPurchaseRequestsTable.status,
+      })
       .from(filialPurchaseRequestsTable)
       .where(eq(filialPurchaseRequestsTable.id, requestId))
       .limit(1);
@@ -425,15 +431,41 @@ router.delete("/admin/filial-purchases/:requestId", requirePrimaryAdmin, async (
       return;
     }
 
-    await db.transaction(async (tx) => {
-      await tx.delete(filialPurchaseRequestAuditsTable).where(eq(filialPurchaseRequestAuditsTable.requestId, requestId));
-      await tx.delete(filialPurchaseRequestsTable).where(eq(filialPurchaseRequestsTable.id, requestId));
+    if (requestRow.status === "cancelado") {
+      res.json({ ok: true, requestId, idempotent: true, status: "cancelado" });
+      return;
+    }
+
+    if (requestRow.status === "finalizado") {
+      res.status(400).json({
+        error: "INVALID_STATE",
+        message: "Não é possível cancelar uma compra já finalizada.",
+      });
+      return;
+    }
+
+    await db
+      .update(filialPurchaseRequestsTable)
+      .set({
+        status: "cancelado",
+        updatedByAdmin: actorUsername,
+        updatedAt: new Date(),
+      })
+      .where(eq(filialPurchaseRequestsTable.id, requestId));
+
+    await addAudit({
+      requestId,
+      action: "cancelado",
+      actorUsername,
+      payload: {
+        reason: "cancelado_manual_admin",
+      },
     });
 
-    res.json({ ok: true, requestId, deleted: true });
+    res.json({ ok: true, requestId, cancelled: true, status: "cancelado" });
   } catch (err) {
     console.error("[FilialPurchases] delete error:", err);
-    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao excluir compra da filial." });
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao cancelar compra da filial." });
   }
 });
 

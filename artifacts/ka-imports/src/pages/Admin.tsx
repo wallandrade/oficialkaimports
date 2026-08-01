@@ -1182,6 +1182,7 @@ function filialPurchaseStatusLabel(status: string): string {
   if (normalized === "compra_registrada") return "Compra registrada";
   if (normalized === "estoque_lancado_filial") return "Estoque lançado na filial";
   if (normalized === "finalizado") return "Finalizado";
+  if (normalized === "cancelado") return "Cancelado";
   return status || "-";
 }
 
@@ -2587,7 +2588,7 @@ export default function Admin() {
 
   const deleteFilialPurchase = useCallback(async (request: FilialPurchaseRequest) => {
     if (!canManageTenants) return;
-    if (!window.confirm(`Excluir da fila a compra do pedido ${request.orderId} (${request.filialTenantName})?`)) return;
+    if (!window.confirm(`Cancelar a compra do pedido ${request.orderId} (${request.filialTenantName})? O histórico será mantido.`)) return;
 
     setFilialPurchaseDeletingId(request.id);
     try {
@@ -2600,15 +2601,15 @@ export default function Admin() {
 
       const data = await res.json().catch(() => null) as { message?: string } | null;
       if (!res.ok) {
-        toast.error(data?.message || "Erro ao excluir compra da filial.");
+        toast.error(data?.message || "Erro ao cancelar compra da filial.");
         return;
       }
 
-      toast.success("Compra da filial excluída da fila.");
+      toast.success("Compra da filial cancelada com sucesso.");
       setFilialPurchaseOpenId((prev) => (prev === request.id ? null : prev));
       await fetchFilialPurchaseRequests();
     } catch {
-      toast.error("Erro ao excluir compra da filial.");
+      toast.error("Erro ao cancelar compra da filial.");
     } finally {
       setFilialPurchaseDeletingId(null);
     }
@@ -6945,7 +6946,7 @@ export default function Admin() {
                               disabled={filialPurchaseDeletingId === request.id || filialPurchaseConfirmingId === request.id}
                             >
                               {filialPurchaseDeletingId === request.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                              <span className="ml-2">Excluir pedido</span>
+                              <span className="ml-2">Cancelar pedido</span>
                             </Button>
                             <Button
                               type="button"
