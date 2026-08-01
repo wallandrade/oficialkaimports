@@ -1183,6 +1183,7 @@ interface FilialStoreProduct {
   unit: string;
   price: number;
   costPrice: number;
+  image: string | null;
   isActive: boolean;
   isSoldOut: boolean;
 }
@@ -2583,6 +2584,7 @@ export default function Admin() {
         unit: String(item.unit || "UN"),
         price: Number(item.price || 0),
         costPrice: Number(item.costPrice || 0),
+        image: String(item.image || "").trim() || null,
         isActive: item.isActive !== false,
         isSoldOut: item.isSoldOut === true,
       })));
@@ -7176,9 +7178,18 @@ export default function Admin() {
                         {filialStoreProducts.map((product) => (
                           <div key={`filial-product-${product.id}`} className="rounded-xl border border-border bg-white p-3">
                             <div className="flex flex-wrap items-start justify-between gap-2">
-                              <div>
+                              <div className="flex items-start gap-2 min-w-0">
+                                {product.image ? (
+                                  <img src={product.image} alt={product.name} className="h-9 w-9 rounded-md object-cover shrink-0 border border-border" loading="lazy" />
+                                ) : (
+                                  <div className="h-9 w-9 rounded-md bg-muted shrink-0 border border-border flex items-center justify-center">
+                                    <IconLucide name="Package" className="w-4 h-4 text-muted-foreground" />
+                                  </div>
+                                )}
+                                <div className="min-w-0">
                                 <p className="text-sm font-semibold text-foreground">{product.name}</p>
                                 <p className="text-xs text-muted-foreground">ID: {product.id} · Categoria: {product.category} · Unidade: {product.unit}</p>
+                                </div>
                               </div>
                               <div className="text-right text-xs">
                                 <p className="text-muted-foreground">Preço venda</p>
