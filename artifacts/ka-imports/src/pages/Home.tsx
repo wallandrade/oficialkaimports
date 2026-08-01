@@ -231,11 +231,16 @@ export default function Home() {
   }, [data?.categories, filteredProducts]);
 
   const showcaseCategories = useMemo(() => {
-    const categories = groupedFilteredProducts
-      .filter((group) => group.products.length > 0)
-      .map((group) => group.category);
-    return categories.slice(0, 10);
-  }, [groupedFilteredProducts]);
+    const fromApi = (data?.categories ?? [])
+      .map((category) => String(category || "").trim())
+      .filter(Boolean);
+    if (fromApi.length > 0) return fromApi.slice(0, 12);
+
+    const fromProducts = Array.from(new Set((data?.products ?? [])
+      .map((product) => String(product.category || "Sem categoria").trim())
+      .filter(Boolean)));
+    return fromProducts.slice(0, 12);
+  }, [data?.categories, data?.products]);
 
   useEffect(() => {
     if (!isMarketplaceShowcase) return;
@@ -243,14 +248,14 @@ export default function Home() {
       setFeaturedCategory("");
       return;
     }
-    if (!featuredCategory || !showcaseCategories.includes(featuredCategory)) {
-      setFeaturedCategory(showcaseCategories[0]);
+    if (!featuredCategory || (!showcaseCategories.includes(featuredCategory) && featuredCategory !== "__all__")) {
+      setFeaturedCategory("__all__");
     }
   }, [isMarketplaceShowcase, showcaseCategories, featuredCategory]);
 
   const featuredProducts = useMemo(() => {
     if (!isMarketplaceShowcase) return [] as typeof filteredProducts;
-    if (!featuredCategory) return filteredProducts.slice(0, 12);
+    if (!featuredCategory || featuredCategory === "__all__") return filteredProducts.slice(0, 12);
     return filteredProducts
       .filter((product) => String(product.category || "Sem categoria") === featuredCategory)
       .slice(0, 12);
@@ -385,6 +390,11 @@ export default function Home() {
                     key={`showcase-cat-${category}`}
                     type="button"
                     onClick={() => {
+                      if (selected) {
+                        setActiveCategories([]);
+                        setFeaturedCategory("__all__");
+                        return;
+                      }
                       setActiveCategories([category]);
                       setFeaturedCategory(category);
                     }}
@@ -404,11 +414,26 @@ export default function Home() {
               <h3 className="text-xl sm:text-2xl font-black tracking-tight text-foreground">Em destaque</h3>
             </div>
             <div className="flex gap-2 overflow-x-auto pb-2 mb-5" style={{ scrollbarWidth: "none" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setFeaturedCategory("__all__");
+                  setActiveCategories([]);
+                }}
+                className={`whitespace-nowrap rounded-full border px-4 py-2 text-sm font-semibold transition-colors ${featuredCategory === "__all__" ? "bg-primary text-primary-foreground border-primary" : "bg-white text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"}`}
+              >
+                Todos
+              </button>
               {showcaseCategories.map((category) => (
                 <button
                   key={`featured-tab-${category}`}
                   type="button"
                   onClick={() => {
+                    if (featuredCategory === category) {
+                      setFeaturedCategory("__all__");
+                      setActiveCategories([]);
+                      return;
+                    }
                     setFeaturedCategory(category);
                     setActiveCategories([category]);
                   }}
