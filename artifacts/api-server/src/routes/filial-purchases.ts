@@ -4,9 +4,11 @@ import {
   filialPurchaseRequestAuditsTable,
   filialPurchaseRequestsTable,
   inventoryMovementsTable,
+  productCostHistoryTable,
+  productsTable,
   tenantsTable,
 } from "@workspace/db";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { getAdminScope, requirePrimaryAdmin } from "./admin-auth";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-context";
 import { registerInventoryEntry } from "../lib/reshipments";
@@ -25,6 +27,14 @@ type CostInput = {
   productId?: unknown;
   unitCost?: unknown;
 };
+
+function buildProductsTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(eq(productsTable.tenantId, tenantId), isNull(productsTable.tenantId), eq(productsTable.tenantId, ""));
+  }
+
+  return eq(productsTable.tenantId, tenantId);
+}
 
 function parseSnapshotItems(raw: unknown): SnapshotItem[] {
   const list = Array.isArray(raw)
@@ -186,6 +196,7 @@ router.post("/admin/filial-purchases/:requestId/confirm", requirePrimaryAdmin, a
     }
 
     const costInput = Array.isArray(req.body?.items) ? (req.body.items as CostInput[]) : [];
+    const shouldUpdateProductCost = req.body?.updateProductCost === true;
     const costByProduct = new Map<string, number>();
     for (const item of costInput) {
       const productId = String(item?.productId || "").trim();
@@ -220,6 +231,43 @@ router.post("/admin/filial-purchases/:requestId/confirm", requirePrimaryAdmin, a
     const repasseTotal = round2(Number(requestRow.repasseTotal || 0));
     const loja1RealProfit = round2(repasseTotal - loja1RealCostTotal);
 
+    if (shouldUpdateProductCost) {
+      const productIds = Array.from(new Set(costsSnapshot.map((item) => item.productId).filter(Boolean)));
+      if (productIds.length > 0) {
+        const productRows = await db
+          .select({
+            id: productsTable.id,
+            costPrice: productsTable.costPrice,
+          })
+          .from(productsTable)
+          .where(and(buildProductsTenantWhere(requestRow.filialTenantId), inArray(productsTable.id, productIds)));
+
+        const currentCostByProductId = new Map(productRows.map((row) => [row.id, Number(row.costPrice || 0)]));
+
+        for (const item of costsSnapshot) {
+          const currentCost = currentCostByProductId.get(item.productId);
+          if (currentCost == null) continue;
+
+          const nextCost = round2(Number(item.unitCost || 0));
+          if (!Number.isFinite(nextCost)) continue;
+          if (round2(currentCost) === nextCost) continue;
+
+          await db
+            .update(productsTable)
+            .set({
+              costPrice: String(nextCost),
+              updatedAt: new Date(),
+            })
+            .where(and(buildProductsTenantWhere(requestRow.filialTenantId), eq(productsTable.id, item.productId)));
+
+          await db.insert(productCostHistoryTable).values({
+            productId: item.productId,
+            costPrice: String(nextCost),
+          });
+        }
+      }
+    }
+
     await db
       .update(filialPurchaseRequestsTable)
       .set({
@@ -241,6 +289,7 @@ router.post("/admin/filial-purchases/:requestId/confirm", requirePrimaryAdmin, a
         loja1RealCostTotal,
         loja1RealProfit,
         repasseTotal,
+        updateProductCost: shouldUpdateProductCost,
       },
     });
 

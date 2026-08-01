@@ -1519,6 +1519,7 @@ export default function Admin() {
   const [filialPurchaseLoading, setFilialPurchaseLoading] = useState(false);
   const [filialPurchaseConfirmingId, setFilialPurchaseConfirmingId] = useState<string | null>(null);
   const [filialPurchaseCostDrafts, setFilialPurchaseCostDrafts] = useState<Record<string, Record<string, string>>>({});
+  const [filialPurchaseUpdateCostFlags, setFilialPurchaseUpdateCostFlags] = useState<Record<string, boolean>>({});
   const [filialPurchaseOpenId, setFilialPurchaseOpenId] = useState<string | null>(null);
   const [tenantAdminSavingId, setTenantAdminSavingId] = useState<string | null>(null);
   const [tenantAdminUsernameDrafts, setTenantAdminUsernameDrafts] = useState<Record<string, string>>({});
@@ -2554,6 +2555,7 @@ export default function Admin() {
         headers: authHeaders(),
         body: JSON.stringify({
           items: items.map((item) => ({ productId: item.productId, unitCost: item.unitCost })),
+          updateProductCost: !!filialPurchaseUpdateCostFlags[request.id],
         }),
       });
 
@@ -2568,7 +2570,9 @@ export default function Admin() {
       if (data?.idempotent) {
         toast.success("Compra já estava finalizada. Nenhum estoque duplicado foi lançado.");
       } else {
-        toast.success("Compra confirmada e estoque lançado na filial.");
+        toast.success(filialPurchaseUpdateCostFlags[request.id]
+          ? "Compra confirmada, estoque lançado e custo dos produtos atualizado na filial."
+          : "Compra confirmada e estoque lançado na filial.");
       }
 
       await fetchFilialPurchaseRequests();
@@ -2577,7 +2581,7 @@ export default function Admin() {
     } finally {
       setFilialPurchaseConfirmingId(null);
     }
-  }, [canManageTenants, fetchFilialPurchaseRequests, filialPurchaseCostDrafts, handleUnauthorized]);
+  }, [canManageTenants, fetchFilialPurchaseRequests, filialPurchaseCostDrafts, filialPurchaseUpdateCostFlags, handleUnauthorized]);
 
   const checkDns = useCallback(async (domain: string, tenantId?: string) => {
     if (!canManageTenants) return;
@@ -6934,6 +6938,18 @@ export default function Admin() {
                             </div>
 
                             <div className="mt-3 flex justify-end">
+                              <label className="mr-3 inline-flex items-center gap-2 rounded-lg border border-border bg-white px-3 py-2 text-xs text-muted-foreground">
+                                <input
+                                  type="checkbox"
+                                  checked={!!filialPurchaseUpdateCostFlags[request.id]}
+                                  onChange={(e) => {
+                                    const checked = e.target.checked;
+                                    setFilialPurchaseUpdateCostFlags((prev) => ({ ...prev, [request.id]: checked }));
+                                  }}
+                                  className="h-4 w-4 rounded border-border"
+                                />
+                                Atualizar custo do produto na filial
+                              </label>
                               <Button
                                 type="button"
                                 className="h-9"
