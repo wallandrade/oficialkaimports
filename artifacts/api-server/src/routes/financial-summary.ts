@@ -79,7 +79,10 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
     }
 
     const tenantId = adminScope.tenantId || DEFAULT_TENANT_ID;
-    const { dateFrom, dateTo, sellerCode } = req.query as Record<string, string>;
+    const { dateFrom, dateTo, sellerCode, repasseDateBasis } = req.query as Record<string, string>;
+    const normalizedRepasseDateBasis = String(repasseDateBasis || "purchaseRecordedAt").trim() === "createdAt"
+      ? "createdAt"
+      : "purchaseRecordedAt";
     const conditions = [];
     conditions.push(eq(ordersTable.tenantId, tenantId));
     if (dateFrom) conditions.push(gte(ordersTable.createdAt, toUTC(dateFrom, "00", "00", "00")));
@@ -311,11 +314,15 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
 
     // Only Loja 1 global admins should see matrix profit over affiliate repasses.
     if (tenantId === DEFAULT_TENANT_ID && adminScope.hasGlobalAccess) {
+      const repasseDateColumn = normalizedRepasseDateBasis === "createdAt"
+        ? filialPurchaseRequestsTable.createdAt
+        : filialPurchaseRequestsTable.purchaseRecordedAt;
+
       const repasseConditions = [
         inArray(filialPurchaseRequestsTable.status, ["compra_registrada", "estoque_lancado_filial", "finalizado"]),
       ];
-      if (dateFrom) repasseConditions.push(gte(filialPurchaseRequestsTable.purchaseRecordedAt, toUTC(dateFrom, "00", "00", "00")));
-      if (dateTo) repasseConditions.push(lte(filialPurchaseRequestsTable.purchaseRecordedAt, toUTC(dateTo, "23", "59", "59")));
+      if (dateFrom) repasseConditions.push(gte(repasseDateColumn, toUTC(dateFrom, "00", "00", "00")));
+      if (dateTo) repasseConditions.push(lte(repasseDateColumn, toUTC(dateTo, "23", "59", "59")));
 
       const repasseRows = await db
         .select({
@@ -357,6 +364,7 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
       affiliateRepasseTotal,
       affiliateRepasseRealCostTotal,
       affiliateRepasseCount,
+      repasseDateBasis: normalizedRepasseDateBasis,
       customerRecurrence: {
         totalUniqueCustomers,
         recurringCustomers,

@@ -1514,6 +1514,7 @@ export default function Admin() {
   const [statsDateFrom, setStatsDateFrom] = useState(todayStr());
   const [statsDateTo, setStatsDateTo]   = useState(todayStr());
   const [statsSeller, setStatsSeller]   = useState("all");
+  const [affiliateRepasseDateBasis, setAffiliateRepasseDateBasis] = useState<"purchaseRecordedAt" | "createdAt">("purchaseRecordedAt");
   // Stats data fetched independently from the API
   const [statsOrdersData, setStatsOrdersData] = useState<AdminOrder[]>([]);
   const [statsChargesData, setStatsChargesData] = useState<CustomCharge[]>([]);
@@ -1617,13 +1618,14 @@ export default function Admin() {
     try {
       const params = new URLSearchParams({ dateFrom: statsDateFrom, dateTo: statsDateTo });
       if (statsSeller !== "all") params.set("sellerCode", statsSeller);
+      params.set("repasseDateBasis", affiliateRepasseDateBasis);
       const res = await fetch(`${BASE}/api/admin/financial-summary?${params}`, { headers: authHeaders() });
       if (res.ok) {
         setFinancialSummary(await res.json());
       }
     } catch {}
     setFinancialSummaryLoading(false);
-  }, [statsDateFrom, statsDateTo, statsSeller]);
+  }, [affiliateRepasseDateBasis, statsDateFrom, statsDateTo, statsSeller]);
   const handleAddMarketingExpense = React.useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -4745,7 +4747,17 @@ export default function Admin() {
           {canManageTenants && (
             <div className="grid grid-cols-1 gap-3 mb-3">
               <div className="rounded-xl border bg-gradient-to-br from-indigo-50 to-sky-100/60 border-indigo-200 p-5 flex flex-col gap-1">
-                <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wide">Lucro líquido de repasse para afiliadas</p>
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wide">Lucro líquido de repasse para afiliadas</p>
+                  <select
+                    value={affiliateRepasseDateBasis}
+                    onChange={(e) => setAffiliateRepasseDateBasis(e.target.value as "purchaseRecordedAt" | "createdAt")}
+                    className="h-8 px-2 rounded-lg border border-indigo-200 bg-white/80 text-xs cursor-pointer outline-none focus:border-indigo-400"
+                  >
+                    <option value="purchaseRecordedAt">Base: confirmação do repasse</option>
+                    <option value="createdAt">Base: criação da solicitação</option>
+                  </select>
+                </div>
                 <p className="text-3xl font-bold text-indigo-800">
                   {formatCurrency(Number(financialSummary?.affiliateRepasseNetProfit) || 0)}
                 </p>
