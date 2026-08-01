@@ -352,7 +352,9 @@ router.get("/admin/products", requireAdminAuth, async (req, res) => {
       res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar produtos." });
       return;
     }
-    const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
+    const scopeTenantId = scope?.tenantId || DEFAULT_TENANT_ID;
+    const queryTenantId = String(req.query.tenantId || "").trim();
+    const tenantId = scope?.isPrimary && queryTenantId ? queryTenantId : scopeTenantId;
     const rows = await db
       .select()
       .from(productsTable)

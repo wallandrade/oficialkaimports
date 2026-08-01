@@ -105,7 +105,18 @@ router.get("/admin/filial-purchases", requirePrimaryAdmin, async (req, res) => {
     if (!ensureDefaultTenantScope(req, res)) return;
 
     const statusParam = String(req.query.status || "pending").trim().toLowerCase();
+    const filialTenantIdParam = String(req.query.filialTenantId || req.query.tenantId || "").trim();
     const pendingStatuses = ["pago_na_filial", "aguardando_compra_loja1", "compra_registrada", "estoque_lancado_filial"];
+
+    const statusWhere = statusParam === "all"
+      ? sql`1 = 1`
+      : statusParam === "finalized"
+        ? eq(filialPurchaseRequestsTable.status, "finalizado")
+        : inArray(filialPurchaseRequestsTable.status, pendingStatuses);
+
+    const listWhere = filialTenantIdParam
+      ? and(statusWhere, eq(filialPurchaseRequestsTable.filialTenantId, filialTenantIdParam))
+      : statusWhere;
 
     const rows = await db
       .select({
@@ -129,13 +140,7 @@ router.get("/admin/filial-purchases", requirePrimaryAdmin, async (req, res) => {
       })
       .from(filialPurchaseRequestsTable)
       .leftJoin(tenantsTable, eq(tenantsTable.id, filialPurchaseRequestsTable.filialTenantId))
-      .where(
-        statusParam === "all"
-          ? sql`1 = 1`
-          : statusParam === "finalized"
-            ? eq(filialPurchaseRequestsTable.status, "finalizado")
-            : inArray(filialPurchaseRequestsTable.status, pendingStatuses),
-      )
+      .where(listWhere)
       .orderBy(asc(filialPurchaseRequestsTable.createdAt));
 
     const requestIds = rows.map((row) => row.id).filter(Boolean);

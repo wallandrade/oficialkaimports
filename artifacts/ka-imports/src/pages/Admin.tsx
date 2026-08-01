@@ -917,6 +917,7 @@ function OrderBumpsPanel({ bumps, products, form, setForm, creating, toggling, d
 
 type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "socialProof" | "raffles" | "lojas";
 type LojasSubTab = "criar" | "pedidos" | "cadastradas";
+type FilialScopeSubTab = "pedidos" | "produtos";
 
 const PRIMARY_ONLY_TABS = new Set<TabType>([
   "users",
@@ -1173,6 +1174,17 @@ interface FilialPurchaseRequest {
   createdAt: string | null;
   updatedAt: string | null;
   finalizedAt: string | null;
+}
+
+interface FilialStoreProduct {
+  id: string;
+  name: string;
+  category: string;
+  unit: string;
+  price: number;
+  costPrice: number;
+  isActive: boolean;
+  isSoldOut: boolean;
 }
 
 function filialPurchaseStatusLabel(status: string): string {
@@ -1517,6 +1529,8 @@ export default function Admin() {
   const [tenantProfitSummary, setTenantProfitSummary] = useState<TenantProfitSummary[]>([]);
   const [tenantProfitLoading, setTenantProfitLoading] = useState(false);
   const [lojasSubTab, setLojasSubTab] = useState<LojasSubTab>("criar");
+  const [filialScopeSubTab, setFilialScopeSubTab] = useState<FilialScopeSubTab>("pedidos");
+  const [selectedFilialTenantId, setSelectedFilialTenantId] = useState("");
   const [filialPurchaseRequests, setFilialPurchaseRequests] = useState<FilialPurchaseRequest[]>([]);
   const [filialPurchaseLoading, setFilialPurchaseLoading] = useState(false);
   const [filialPurchaseConfirmingId, setFilialPurchaseConfirmingId] = useState<string | null>(null);
@@ -1524,6 +1538,8 @@ export default function Admin() {
   const [filialPurchaseCostDrafts, setFilialPurchaseCostDrafts] = useState<Record<string, Record<string, string>>>({});
   const [filialPurchaseUpdateCostFlags, setFilialPurchaseUpdateCostFlags] = useState<Record<string, boolean>>({});
   const [filialPurchaseOpenId, setFilialPurchaseOpenId] = useState<string | null>(null);
+  const [filialStoreProducts, setFilialStoreProducts] = useState<FilialStoreProduct[]>([]);
+  const [filialStoreProductsLoading, setFilialStoreProductsLoading] = useState(false);
   const [tenantAdminSavingId, setTenantAdminSavingId] = useState<string | null>(null);
   const [tenantAdminUsernameDrafts, setTenantAdminUsernameDrafts] = useState<Record<string, string>>({});
   const [tenantAdminPasswordDrafts, setTenantAdminPasswordDrafts] = useState<Record<string, string>>({});
@@ -1561,6 +1577,11 @@ export default function Admin() {
   const canManageProductsTab = isPrimary || adminTenantId !== "tenant_loja1";
   const canManageShippingTab = isPrimary || adminTenantId !== "tenant_loja1";
   const canManageSellerLinks = isPrimary || adminTenantId !== "tenant_loja1";
+  const filialTenantOptions = tenants.filter((tenant) => tenant.id !== "tenant_loja1");
+  const selectedFilialTenant = filialTenantOptions.find((tenant) => tenant.id === selectedFilialTenantId) || null;
+  const filteredFilialPurchaseRequests = selectedFilialTenantId
+    ? filialPurchaseRequests.filter((request) => request.filialTenantId === selectedFilialTenantId)
+    : filialPurchaseRequests;
 
   // -------------------- FIM DOS useState --------------------
 
@@ -2496,11 +2517,14 @@ export default function Admin() {
     }
   }, [canManageTenants, fetchTenants, fetchTenantProfitSummary, handleUnauthorized, tenantSupplyMarginDrafts]);
 
-  const fetchFilialPurchaseRequests = useCallback(async () => {
+  const fetchFilialPurchaseRequests = useCallback(async (tenantId?: string) => {
     if (!canManageTenants) return;
+    const targetTenantId = String(tenantId || selectedFilialTenantId || "").trim();
     setFilialPurchaseLoading(true);
     try {
-      const res = await fetch(`${BASE}/api/admin/filial-purchases?status=pending`, { headers: authHeaders() });
+      const params = new URLSearchParams({ status: "pending" });
+      if (targetTenantId) params.set("filialTenantId", targetTenantId);
+      const res = await fetch(`${BASE}/api/admin/filial-purchases?${params.toString()}`, { headers: authHeaders() });
       if (res.status === 401) { handleUnauthorized(); return; }
       if (!res.ok) {
         const data = await res.json().catch(() => null) as { message?: string } | null;
@@ -2529,7 +2553,45 @@ export default function Admin() {
     } finally {
       setFilialPurchaseLoading(false);
     }
-  }, [canManageTenants, handleUnauthorized]);
+  }, [canManageTenants, handleUnauthorized, selectedFilialTenantId]);
+
+  const fetchFilialStoreProducts = useCallback(async (tenantId?: string) => {
+    if (!canManageTenants) return;
+    const targetTenantId = String(tenantId || selectedFilialTenantId || "").trim();
+    if (!targetTenantId) {
+      setFilialStoreProducts([]);
+      return;
+    }
+
+    setFilialStoreProductsLoading(true);
+    try {
+      const params = new URLSearchParams({ tenantId: targetTenantId });
+      const res = await fetch(`${BASE}/api/admin/products?${params.toString()}`, { headers: authHeaders() });
+      if (res.status === 401) { handleUnauthorized(); return; }
+      if (!res.ok) {
+        const data = await res.json().catch(() => null) as { message?: string } | null;
+        toast.error(data?.message || "Erro ao carregar produtos da filial.");
+        return;
+      }
+
+      const data = await res.json() as { products?: Array<Record<string, unknown>> };
+      const rows = Array.isArray(data.products) ? data.products : [];
+      setFilialStoreProducts(rows.map((item) => ({
+        id: String(item.id || ""),
+        name: String(item.name || "Produto"),
+        category: String(item.category || "Sem categoria"),
+        unit: String(item.unit || "UN"),
+        price: Number(item.price || 0),
+        costPrice: Number(item.costPrice || 0),
+        isActive: item.isActive !== false,
+        isSoldOut: item.isSoldOut === true,
+      })));
+    } catch {
+      toast.error("Erro ao carregar produtos da filial.");
+    } finally {
+      setFilialStoreProductsLoading(false);
+    }
+  }, [canManageTenants, handleUnauthorized, selectedFilialTenantId]);
 
   const confirmFilialPurchase = useCallback(async (request: FilialPurchaseRequest) => {
     if (!canManageTenants) return;
@@ -2578,13 +2640,13 @@ export default function Admin() {
           : "Compra confirmada e estoque lançado na filial.");
       }
 
-      await fetchFilialPurchaseRequests();
+      await fetchFilialPurchaseRequests(selectedFilialTenantId || undefined);
     } catch {
       toast.error("Erro ao confirmar compra da filial.");
     } finally {
       setFilialPurchaseConfirmingId(null);
     }
-  }, [canManageTenants, fetchFilialPurchaseRequests, filialPurchaseCostDrafts, filialPurchaseUpdateCostFlags, handleUnauthorized]);
+  }, [canManageTenants, fetchFilialPurchaseRequests, filialPurchaseCostDrafts, filialPurchaseUpdateCostFlags, handleUnauthorized, selectedFilialTenantId]);
 
   const deleteFilialPurchase = useCallback(async (request: FilialPurchaseRequest) => {
     if (!canManageTenants) return;
@@ -2607,13 +2669,13 @@ export default function Admin() {
 
       toast.success("Compra da filial cancelada com sucesso.");
       setFilialPurchaseOpenId((prev) => (prev === request.id ? null : prev));
-      await fetchFilialPurchaseRequests();
+      await fetchFilialPurchaseRequests(selectedFilialTenantId || undefined);
     } catch {
       toast.error("Erro ao cancelar compra da filial.");
     } finally {
       setFilialPurchaseDeletingId(null);
     }
-  }, [canManageTenants, fetchFilialPurchaseRequests, handleUnauthorized]);
+  }, [canManageTenants, fetchFilialPurchaseRequests, handleUnauthorized, selectedFilialTenantId]);
 
   const checkDns = useCallback(async (domain: string, tenantId?: string) => {
     if (!canManageTenants) return;
@@ -3052,9 +3114,9 @@ export default function Admin() {
     else if (tab === "commissions") { fetchCommissionPayments(); }
     else if (tab === "socialProof") { fetchSocialProof(); fetchProducts(); }
     else if (tab === "raffles")    fetchRaffles();
-    else if (tab === "lojas")      { fetchTenants(); fetchDnsGuide(dnsDomainInput); fetchTenantProfitSummary(); fetchFilialPurchaseRequests(); }
+    else if (tab === "lojas")      { fetchTenants(); fetchDnsGuide(dnsDomainInput); fetchTenantProfitSummary(); fetchFilialPurchaseRequests(selectedFilialTenantId || undefined); }
     else setLoading(false);
-  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchSellers, fetchSellerData, fetchShippingOptions, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchCommissionPayments, fetchSocialProof, fetchRaffles, fetchTenants, fetchDnsGuide, fetchTenantProfitSummary, fetchFilialPurchaseRequests, dnsDomainInput]);
+  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchSellers, fetchSellerData, fetchShippingOptions, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchCommissionPayments, fetchSocialProof, fetchRaffles, fetchTenants, fetchDnsGuide, fetchTenantProfitSummary, fetchFilialPurchaseRequests, dnsDomainInput, selectedFilialTenantId]);
 
   // -------------------------------------------------------------------------
   // SSE
@@ -3251,6 +3313,31 @@ export default function Admin() {
   useEffect(() => {
     if (authChecked) fetchAll();
   }, [dateFrom, dateTo, statusFilter, methodFilter, sellerFilter, tab, fetchAll, authChecked]);
+
+  useEffect(() => {
+    if (!canManageTenants) return;
+    if (filialTenantOptions.length === 0) {
+      if (selectedFilialTenantId) setSelectedFilialTenantId("");
+      return;
+    }
+
+    const stillExists = filialTenantOptions.some((tenant) => tenant.id === selectedFilialTenantId);
+    if (!stillExists) {
+      setSelectedFilialTenantId(filialTenantOptions[0]?.id || "");
+    }
+  }, [canManageTenants, filialTenantOptions, selectedFilialTenantId]);
+
+  useEffect(() => {
+    if (!authChecked || tab !== "lojas" || lojasSubTab !== "pedidos") return;
+    if (!selectedFilialTenantId) return;
+
+    if (filialScopeSubTab === "pedidos") {
+      void fetchFilialPurchaseRequests(selectedFilialTenantId);
+      return;
+    }
+
+    void fetchFilialStoreProducts(selectedFilialTenantId);
+  }, [authChecked, tab, lojasSubTab, filialScopeSubTab, selectedFilialTenantId, fetchFilialPurchaseRequests, fetchFilialStoreProducts]);
 
   useEffect(() => {
     if (authChecked && tab === "commissions") {
@@ -6882,143 +6969,237 @@ export default function Admin() {
             {lojasSubTab === "pedidos" ? (
               <div className="rounded-2xl border border-border bg-card p-5">
                 <div className="flex items-center justify-between mb-4 gap-2">
-                  <h3 className="text-base font-bold">Pedidos de compra das filiais</h3>
+                  <h3 className="text-base font-bold">Painel da loja filial</h3>
                   <Button
                     type="button"
                     variant="outline"
                     className="h-9"
-                    onClick={() => fetchFilialPurchaseRequests()}
-                    disabled={filialPurchaseLoading}
+                    onClick={() => {
+                      if (!selectedFilialTenantId) return;
+                      if (filialScopeSubTab === "pedidos") {
+                        void fetchFilialPurchaseRequests(selectedFilialTenantId);
+                      } else {
+                        void fetchFilialStoreProducts(selectedFilialTenantId);
+                      }
+                    }}
+                    disabled={!selectedFilialTenantId || filialPurchaseLoading || filialStoreProductsLoading}
                   >
-                    {filialPurchaseLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                    {(filialPurchaseLoading || filialStoreProductsLoading) ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                     <span className="ml-2">Atualizar</span>
                   </Button>
                 </div>
 
-                <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50/70 p-3">
-                  <p className="text-xs font-semibold text-amber-900 uppercase tracking-wide">Fila da Loja 1</p>
-                  <p className="text-xs text-amber-800 mt-1">
-                    Pedidos pagos em lojas filiais entram aqui automaticamente. Ao confirmar a compra, o custo real é salvo e o estoque entra direto na filial.
-                  </p>
+                <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 mb-4">
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">Selecionar loja filial</p>
+                    <select
+                      value={selectedFilialTenantId}
+                      onChange={(e) => {
+                        const nextTenantId = e.target.value;
+                        setSelectedFilialTenantId(nextTenantId);
+                        setFilialPurchaseOpenId(null);
+                      }}
+                      className="h-10 w-full rounded-xl border border-border bg-white px-3 text-sm outline-none focus:border-primary"
+                    >
+                      <option value="">Selecione uma loja filial</option>
+                      {filialTenantOptions.map((tenant) => (
+                        <option key={tenant.id} value={tenant.id}>{tenant.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="rounded-xl border border-border bg-muted/20 p-1 flex items-center gap-1 self-end">
+                    <Button
+                      type="button"
+                      variant={filialScopeSubTab === "pedidos" ? "default" : "ghost"}
+                      className="h-8"
+                      onClick={() => setFilialScopeSubTab("pedidos")}
+                    >
+                      Pedidos da loja
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={filialScopeSubTab === "produtos" ? "default" : "ghost"}
+                      className="h-8"
+                      onClick={() => setFilialScopeSubTab("produtos")}
+                    >
+                      Produtos da loja
+                    </Button>
+                  </div>
                 </div>
 
-                {filialPurchaseLoading ? (
-                  <div className="text-sm text-muted-foreground mb-4">Carregando fila de compras das filiais...</div>
-                ) : filialPurchaseRequests.length === 0 ? (
-                  <div className="text-sm text-muted-foreground mb-4">Nenhum pedido pendente na fila de compras das filiais.</div>
-                ) : (
-                  <div className="space-y-3 mb-4">
-                    {filialPurchaseRequests.map((request) => (
-                      <div key={request.id} className="rounded-xl border border-amber-200 bg-white p-3">
-                        <div className="flex flex-wrap items-start justify-between gap-2">
-                          <div>
-                            <p className="text-sm font-semibold text-foreground">{request.filialTenantName} · Pedido {request.orderId}</p>
-                            <p className="text-xs text-muted-foreground">Cliente: {request.clientName}</p>
-                            <p className="text-xs text-muted-foreground">
-                              Status: {filialPurchaseStatusLabel(request.status)} · Criado em {formatDateBR(request.createdAt) || "-"}
-                            </p>
-                            <p className="text-xs mt-1">
-                              <span className="text-muted-foreground">Custo produto atualizado:</span>{" "}
-                              {request.updateProductCost == null ? (
-                                <span className="font-semibold text-amber-700">Pendente</span>
-                              ) : request.updateProductCost ? (
-                                <span className="font-semibold text-emerald-700">Sim</span>
-                              ) : (
-                                <span className="font-semibold text-slate-600">Não</span>
-                              )}
-                            </p>
-                          </div>
-                          <div className="text-right text-xs">
-                            <p className="text-muted-foreground">Total pago na filial</p>
-                            <p className="font-semibold text-foreground">{formatCurrency(request.orderTotal)}</p>
-                            <p className="text-muted-foreground mt-1">Repasse estimado Loja 1</p>
-                            <p className="font-semibold text-blue-700">{formatCurrency(request.repasseTotal)}</p>
-                          </div>
-                        </div>
+                {!selectedFilialTenantId ? (
+                  <div className="text-sm text-muted-foreground mb-4">Selecione uma filial para carregar pedidos e produtos dessa loja.</div>
+                ) : filialScopeSubTab === "pedidos" ? (
+                  <>
+                    <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+                      <p className="text-xs font-semibold text-amber-900 uppercase tracking-wide">Fila da Loja 1 para {selectedFilialTenant?.name || "filial"}</p>
+                      <p className="text-xs text-amber-800 mt-1">
+                        Aqui aparecem apenas os pedidos da filial selecionada. Ao confirmar a compra, o custo real é salvo e o estoque entra direto nessa filial.
+                      </p>
+                    </div>
 
-                        <div className="mt-3 flex justify-end">
-                          <div className="flex gap-2">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="h-9 border-red-200 text-red-700 hover:bg-red-50"
-                              onClick={() => { void deleteFilialPurchase(request); }}
-                              disabled={filialPurchaseDeletingId === request.id || filialPurchaseConfirmingId === request.id}
-                            >
-                              {filialPurchaseDeletingId === request.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                              <span className="ml-2">Cancelar pedido</span>
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="h-9"
-                              onClick={() => setFilialPurchaseOpenId((prev) => (prev === request.id ? null : request.id))}
-                            >
-                              <span>{filialPurchaseOpenId === request.id ? "Fechar compra" : "Abrir compra"}</span>
-                            </Button>
-                          </div>
-                        </div>
-
-                        {filialPurchaseOpenId === request.id ? (
-                          <>
-                            <div className="mt-3 space-y-2">
-                              {request.items.map((item) => (
-                                <div key={`${request.id}-${item.productId}`} className="grid grid-cols-1 md:grid-cols-[1.6fr_auto_auto_auto] gap-2 items-center rounded-lg border border-border p-2">
-                                  <div>
-                                    <p className="text-sm font-medium text-foreground">{item.productName}</p>
-                                    <p className="text-xs text-muted-foreground">ID: {item.productId}</p>
-                                  </div>
-                                  <p className="text-xs text-muted-foreground">Qtd: <span className="font-semibold text-foreground">{item.quantity}</span></p>
-                                  <p className="text-xs text-muted-foreground">Repasse un.: <span className="font-semibold text-foreground">{formatCurrency(item.repasseUnitCost)}</span></p>
-                                  <input
-                                    type="text"
-                                    inputMode="decimal"
-                                    value={filialPurchaseCostDrafts[request.id]?.[item.productId] ?? String(item.repasseUnitCost || 0)}
-                                    onChange={(e) => {
-                                      const sanitized = e.target.value.replace(/[^0-9.,]/g, "");
-                                      setFilialPurchaseCostDrafts((prev) => ({
-                                        ...prev,
-                                        [request.id]: {
-                                          ...(prev[request.id] || {}),
-                                          [item.productId]: sanitized,
-                                        },
-                                      }));
-                                    }}
-                                    placeholder="Custo real unit."
-                                    className="h-9 px-2 rounded-lg border border-border bg-white focus:border-primary outline-none text-sm text-right"
-                                  />
-                                </div>
-                              ))}
+                    {filialPurchaseLoading ? (
+                      <div className="text-sm text-muted-foreground mb-4">Carregando pedidos da filial selecionada...</div>
+                    ) : filteredFilialPurchaseRequests.length === 0 ? (
+                      <div className="text-sm text-muted-foreground mb-4">Nenhum pedido pendente para essa filial.</div>
+                    ) : (
+                      <div className="space-y-3 mb-4">
+                        {filteredFilialPurchaseRequests.map((request) => (
+                          <div key={request.id} className="rounded-xl border border-amber-200 bg-white p-3">
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <div>
+                                <p className="text-sm font-semibold text-foreground">{request.filialTenantName} · Pedido {request.orderId}</p>
+                                <p className="text-xs text-muted-foreground">Cliente: {request.clientName}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  Status: {filialPurchaseStatusLabel(request.status)} · Criado em {formatDateBR(request.createdAt) || "-"}
+                                </p>
+                                <p className="text-xs mt-1">
+                                  <span className="text-muted-foreground">Custo produto atualizado:</span>{" "}
+                                  {request.updateProductCost == null ? (
+                                    <span className="font-semibold text-amber-700">Pendente</span>
+                                  ) : request.updateProductCost ? (
+                                    <span className="font-semibold text-emerald-700">Sim</span>
+                                  ) : (
+                                    <span className="font-semibold text-slate-600">Não</span>
+                                  )}
+                                </p>
+                              </div>
+                              <div className="text-right text-xs">
+                                <p className="text-muted-foreground">Total pago na filial</p>
+                                <p className="font-semibold text-foreground">{formatCurrency(request.orderTotal)}</p>
+                                <p className="text-muted-foreground mt-1">Repasse estimado Loja 1</p>
+                                <p className="font-semibold text-blue-700">{formatCurrency(request.repasseTotal)}</p>
+                              </div>
                             </div>
 
                             <div className="mt-3 flex justify-end">
-                              <label className="mr-3 inline-flex items-center gap-2 rounded-lg border border-border bg-white px-3 py-2 text-xs text-muted-foreground">
-                                <input
-                                  type="checkbox"
-                                  checked={!!filialPurchaseUpdateCostFlags[request.id]}
-                                  onChange={(e) => {
-                                    const checked = e.target.checked;
-                                    setFilialPurchaseUpdateCostFlags((prev) => ({ ...prev, [request.id]: checked }));
-                                  }}
-                                  className="h-4 w-4 rounded border-border"
-                                />
-                                Atualizar custo do produto na filial
-                              </label>
-                              <Button
-                                type="button"
-                                className="h-9"
-                                onClick={() => confirmFilialPurchase(request)}
-                                disabled={filialPurchaseConfirmingId === request.id}
-                              >
-                                {filialPurchaseConfirmingId === request.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                                <span className="ml-2">Confirmar compra e lançar estoque</span>
-                              </Button>
+                              <div className="flex gap-2">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="h-9 border-red-200 text-red-700 hover:bg-red-50"
+                                  onClick={() => { void deleteFilialPurchase(request); }}
+                                  disabled={filialPurchaseDeletingId === request.id || filialPurchaseConfirmingId === request.id}
+                                >
+                                  {filialPurchaseDeletingId === request.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                                  <span className="ml-2">Cancelar pedido</span>
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="h-9"
+                                  onClick={() => setFilialPurchaseOpenId((prev) => (prev === request.id ? null : request.id))}
+                                >
+                                  <span>{filialPurchaseOpenId === request.id ? "Fechar compra" : "Abrir compra"}</span>
+                                </Button>
+                              </div>
                             </div>
-                          </>
-                        ) : null}
+
+                            {filialPurchaseOpenId === request.id ? (
+                              <>
+                                <div className="mt-3 space-y-2">
+                                  {request.items.map((item) => (
+                                    <div key={`${request.id}-${item.productId}`} className="grid grid-cols-1 md:grid-cols-[1.6fr_auto_auto_auto] gap-2 items-center rounded-lg border border-border p-2">
+                                      <div>
+                                        <p className="text-sm font-medium text-foreground">{item.productName}</p>
+                                        <p className="text-xs text-muted-foreground">ID: {item.productId}</p>
+                                      </div>
+                                      <p className="text-xs text-muted-foreground">Qtd: <span className="font-semibold text-foreground">{item.quantity}</span></p>
+                                      <p className="text-xs text-muted-foreground">Repasse un.: <span className="font-semibold text-foreground">{formatCurrency(item.repasseUnitCost)}</span></p>
+                                      <input
+                                        type="text"
+                                        inputMode="decimal"
+                                        value={filialPurchaseCostDrafts[request.id]?.[item.productId] ?? String(item.repasseUnitCost || 0)}
+                                        onChange={(e) => {
+                                          const sanitized = e.target.value.replace(/[^0-9.,]/g, "");
+                                          setFilialPurchaseCostDrafts((prev) => ({
+                                            ...prev,
+                                            [request.id]: {
+                                              ...(prev[request.id] || {}),
+                                              [item.productId]: sanitized,
+                                            },
+                                          }));
+                                        }}
+                                        placeholder="Custo real unit."
+                                        className="h-9 px-2 rounded-lg border border-border bg-white focus:border-primary outline-none text-sm text-right"
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
+
+                                <div className="mt-3 flex justify-end">
+                                  <label className="mr-3 inline-flex items-center gap-2 rounded-lg border border-border bg-white px-3 py-2 text-xs text-muted-foreground">
+                                    <input
+                                      type="checkbox"
+                                      checked={!!filialPurchaseUpdateCostFlags[request.id]}
+                                      onChange={(e) => {
+                                        const checked = e.target.checked;
+                                        setFilialPurchaseUpdateCostFlags((prev) => ({ ...prev, [request.id]: checked }));
+                                      }}
+                                      className="h-4 w-4 rounded border-border"
+                                    />
+                                    Atualizar custo do produto na filial
+                                  </label>
+                                  <Button
+                                    type="button"
+                                    className="h-9"
+                                    onClick={() => confirmFilialPurchase(request)}
+                                    disabled={filialPurchaseConfirmingId === request.id}
+                                  >
+                                    {filialPurchaseConfirmingId === request.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                                    <span className="ml-2">Confirmar compra e lançar estoque</span>
+                                  </Button>
+                                </div>
+                              </>
+                            ) : null}
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50/70 p-3">
+                      <p className="text-xs font-semibold text-blue-900 uppercase tracking-wide">Produtos da filial {selectedFilialTenant?.name || ""}</p>
+                      <p className="text-xs text-blue-800 mt-1">
+                        Catálogo da loja selecionada para conferência rápida de preço, custo e status.
+                      </p>
+                    </div>
+
+                    {filialStoreProductsLoading ? (
+                      <div className="text-sm text-muted-foreground mb-4">Carregando produtos da filial...</div>
+                    ) : filialStoreProducts.length === 0 ? (
+                      <div className="text-sm text-muted-foreground mb-4">Nenhum produto cadastrado para essa filial.</div>
+                    ) : (
+                      <div className="space-y-2 mb-4">
+                        {filialStoreProducts.map((product) => (
+                          <div key={`filial-product-${product.id}`} className="rounded-xl border border-border bg-white p-3">
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <div>
+                                <p className="text-sm font-semibold text-foreground">{product.name}</p>
+                                <p className="text-xs text-muted-foreground">ID: {product.id} · Categoria: {product.category} · Unidade: {product.unit}</p>
+                              </div>
+                              <div className="text-right text-xs">
+                                <p className="text-muted-foreground">Preço venda</p>
+                                <p className="font-semibold text-foreground">{formatCurrency(product.price)}</p>
+                                <p className="text-muted-foreground mt-1">Custo</p>
+                                <p className="font-semibold text-blue-700">{formatCurrency(product.costPrice)}</p>
+                              </div>
+                            </div>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${product.isActive ? "border-emerald-200 bg-emerald-100 text-emerald-700" : "border-slate-200 bg-slate-100 text-slate-600"}`}>
+                                {product.isActive ? "Ativo" : "Inativo"}
+                              </span>
+                              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${product.isSoldOut ? "border-red-200 bg-red-100 text-red-700" : "border-emerald-200 bg-emerald-100 text-emerald-700"}`}>
+                                {product.isSoldOut ? "Sem estoque" : "Com estoque"}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             ) : null}
