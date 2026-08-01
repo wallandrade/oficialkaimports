@@ -1241,6 +1241,10 @@ export default function Admin() {
     totalMarketingExpenses: number;
     netRevenue: number;
     realNetRevenue: number;
+    affiliateRepasseNetProfit?: number;
+    affiliateRepasseTotal?: number;
+    affiliateRepasseRealCostTotal?: number;
+    affiliateRepasseCount?: number;
     marketingExpenses?: Array<{
       id: string;
       sellerCode?: string | null;
@@ -4737,6 +4741,25 @@ export default function Admin() {
           </div>
 
           {/* Row 1.5 — Gateway Fees/Líquido Real removido, agora integrado ao card de Faturamento Líquido */}
+
+          {canManageTenants && (
+            <div className="grid grid-cols-1 gap-3 mb-3">
+              <div className="rounded-xl border bg-gradient-to-br from-indigo-50 to-sky-100/60 border-indigo-200 p-5 flex flex-col gap-1">
+                <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wide">Lucro líquido de repasse para afiliadas</p>
+                <p className="text-3xl font-bold text-indigo-800">
+                  {formatCurrency(Number(financialSummary?.affiliateRepasseNetProfit) || 0)}
+                </p>
+                <p className="text-xs text-indigo-700">
+                  Mostra apenas o lucro da Loja 1 nos repasses para filiais. Nao inclui lucro operacional das afiliadas.
+                </p>
+                <div className="flex gap-4 mt-1 text-xs text-muted-foreground flex-wrap">
+                  <span>Repasse total: <strong className="text-indigo-800">{formatCurrency(Number(financialSummary?.affiliateRepasseTotal) || 0)}</strong></span>
+                  <span>Custo real Loja 1: <strong className="text-red-700">-{formatCurrency(Number(financialSummary?.affiliateRepasseRealCostTotal) || 0)}</strong></span>
+                  <span>Operações: <strong className="text-indigo-800">{Number(financialSummary?.affiliateRepasseCount) || 0}</strong></span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Row 1.6 — Clientes novos vs recorrentes */}
           <div className="mt-3 rounded-xl border bg-gradient-to-br from-cyan-50 to-sky-100/60 border-cyan-200 p-5">

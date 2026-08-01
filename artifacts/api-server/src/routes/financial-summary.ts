@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, marketingExpensesTable, ordersTable, productsTable, sellersTable, siteSettingsTable, tenantSettingsTable } from "@workspace/db";
+import { db, filialPurchaseRequestsTable, marketingExpensesTable, ordersTable, productsTable, sellersTable, siteSettingsTable, tenantSettingsTable } from "@workspace/db";
 import { and, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 
@@ -304,6 +304,44 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
     const totalPaid = orders.reduce((sum, o) => sum + parseFloat(o.total || "0"), 0);
     const realNetRevenue = totalPaid - totalCost - totalCommission - totalGatewayFees - totalWithdrawFees - totalMarketingExpenses;
 
+    let affiliateRepasseNetProfit = 0;
+    let affiliateRepasseTotal = 0;
+    let affiliateRepasseRealCostTotal = 0;
+    let affiliateRepasseCount = 0;
+
+    // Only Loja 1 global admins should see matrix profit over affiliate repasses.
+    if (tenantId === DEFAULT_TENANT_ID && adminScope.hasGlobalAccess) {
+      const repasseConditions = [
+        inArray(filialPurchaseRequestsTable.status, ["compra_registrada", "estoque_lancado_filial", "finalizado"]),
+      ];
+      if (dateFrom) repasseConditions.push(gte(filialPurchaseRequestsTable.purchaseRecordedAt, toUTC(dateFrom, "00", "00", "00")));
+      if (dateTo) repasseConditions.push(lte(filialPurchaseRequestsTable.purchaseRecordedAt, toUTC(dateTo, "23", "59", "59")));
+
+      const repasseRows = await db
+        .select({
+          id: filialPurchaseRequestsTable.id,
+          repasseTotal: filialPurchaseRequestsTable.repasseTotal,
+          loja1RealCostTotal: filialPurchaseRequestsTable.loja1RealCostTotal,
+          loja1RealProfit: filialPurchaseRequestsTable.loja1RealProfit,
+        })
+        .from(filialPurchaseRequestsTable)
+        .where(and(...repasseConditions));
+
+      affiliateRepasseCount = repasseRows.length;
+      for (const row of repasseRows) {
+        const repasse = Number(row.repasseTotal || 0);
+        const realCost = Number(row.loja1RealCostTotal || 0);
+        const realProfit = Number(row.loja1RealProfit || (repasse - realCost));
+        affiliateRepasseTotal += repasse;
+        affiliateRepasseRealCostTotal += realCost;
+        affiliateRepasseNetProfit += realProfit;
+      }
+
+      affiliateRepasseTotal = Number(affiliateRepasseTotal.toFixed(2));
+      affiliateRepasseRealCostTotal = Number(affiliateRepasseRealCostTotal.toFixed(2));
+      affiliateRepasseNetProfit = Number(affiliateRepasseNetProfit.toFixed(2));
+    }
+
     res.json({
       totalPaid,
       totalGatewayFees,
@@ -315,6 +353,10 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
       marketingExpenses,
       marketingExpensesByChannel,
       realNetRevenue,
+      affiliateRepasseNetProfit,
+      affiliateRepasseTotal,
+      affiliateRepasseRealCostTotal,
+      affiliateRepasseCount,
       customerRecurrence: {
         totalUniqueCustomers,
         recurringCustomers,
