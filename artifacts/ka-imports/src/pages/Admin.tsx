@@ -9053,25 +9053,6 @@ function OrdersPanel({
   const normalizeIp = (ip?: string | null) => String(ip || "").trim().replace(/^::ffff:/, "") || "-";
   const ordersLookup = allOrders.length > 0 ? allOrders : orders;
 
-  const riskCfg = (risk?: string) => {
-    if (risk === "low") {
-      return {
-        label: "Risco baixo",
-        cls: "bg-green-100 text-green-800 border-green-200",
-      };
-    }
-    if (risk === "high") {
-      return {
-        label: "Risco alto",
-        cls: "bg-red-100 text-red-800 border-red-200",
-      };
-    }
-    return {
-      label: "Risco médio",
-      cls: "bg-yellow-100 text-yellow-800 border-yellow-200",
-    };
-  };
-
   // Todos os hooks no topo
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
   const [orderPriorities, setOrderPriorities] = useState<Record<string, boolean>>({});
@@ -10291,22 +10272,6 @@ function OrdersPanel({
                             {(order as any).ipCity ? ` · ${(order as any).ipCity}/${(order as any).ipRegion || ""}` : ""}
                           </span>
                         )}
-                        {(() => {
-                          const cfg = riskCfg((order as any).purchaseRisk);
-                          const tooltip = [
-                            (order as any).purchaseRiskReason,
-                            (order as any).ipIsp ? `ISP: ${(order as any).ipIsp}` : "",
-                            (order as any).ipIsProxy ? "⚠ VPN/proxy detectado" : "",
-                          ].filter(Boolean).join("\n");
-                          return (
-                            <span
-                              title={tooltip || "Validação por histórico de IP do CPF"}
-                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${cfg.cls}`}
-                            >
-                              <AlertTriangle className="w-3 h-3" />{cfg.label}
-                            </span>
-                          );
-                        })()}
                         <span className="text-xs text-muted-foreground">
                           {formatDateBR(order.createdAt)}{" "}
                           {order.createdAt ? new Date(order.createdAt).toLocaleTimeString("pt-BR", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit" }) : ""}
