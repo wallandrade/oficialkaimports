@@ -917,7 +917,7 @@ function OrderBumpsPanel({ bumps, products, form, setForm, creating, toggling, d
 
 type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "socialProof" | "raffles" | "lojas";
 type LojasSubTab = "criar" | "pedidos" | "cadastradas";
-type FilialScopeSubTab = "pedidos" | "produtos";
+type FilialScopeSubTab = "pedidos" | "produtos" | "estoque";
 
 const PRIMARY_ONLY_TABS = new Set<TabType>([
   "users",
@@ -1542,6 +1542,9 @@ export default function Admin() {
   const [filialStoreProducts, setFilialStoreProducts] = useState<FilialStoreProduct[]>([]);
   const [filialStoreProductsLoading, setFilialStoreProductsLoading] = useState(false);
   const [filialStoreProductsSearch, setFilialStoreProductsSearch] = useState("");
+  const [filialInventoryBalances, setFilialInventoryBalances] = useState<InventoryBalanceRecord[]>([]);
+  const [filialInventoryLoading, setFilialInventoryLoading] = useState(false);
+  const [filialInventorySearch, setFilialInventorySearch] = useState("");
   const [tenantAdminSavingId, setTenantAdminSavingId] = useState<string | null>(null);
   const [tenantAdminUsernameDrafts, setTenantAdminUsernameDrafts] = useState<Record<string, string>>({});
   const [tenantAdminPasswordDrafts, setTenantAdminPasswordDrafts] = useState<Record<string, string>>({});
@@ -1588,6 +1591,12 @@ export default function Admin() {
     const query = filialStoreProductsSearch.trim().toLowerCase();
     if (!query) return true;
     const haystack = `${product.name} ${product.category} ${product.id}`.toLowerCase();
+    return haystack.includes(query);
+  });
+  const filteredFilialInventoryBalances = filialInventoryBalances.filter((row) => {
+    const query = filialInventorySearch.trim().toLowerCase();
+    if (!query) return true;
+    const haystack = `${row.productName} ${row.productId}`.toLowerCase();
     return haystack.includes(query);
   });
 
@@ -2602,6 +2611,34 @@ export default function Admin() {
     }
   }, [canManageTenants, handleUnauthorized, selectedFilialTenantId]);
 
+  const fetchFilialInventoryOverview = useCallback(async (tenantId?: string) => {
+    if (!canManageTenants) return;
+    const targetTenantId = String(tenantId || selectedFilialTenantId || "").trim();
+    if (!targetTenantId) {
+      setFilialInventoryBalances([]);
+      return;
+    }
+
+    setFilialInventoryLoading(true);
+    try {
+      const params = new URLSearchParams({ tenantId: targetTenantId });
+      const res = await fetch(`${BASE}/api/admin/inventory/overview?${params.toString()}`, { headers: authHeaders() });
+      if (res.status === 401) { handleUnauthorized(); return; }
+      if (!res.ok) {
+        const data = await res.json().catch(() => null) as { message?: string } | null;
+        toast.error(data?.message || "Erro ao carregar estoque da filial.");
+        return;
+      }
+
+      const data = await res.json() as { balances?: InventoryBalanceRecord[] };
+      setFilialInventoryBalances(Array.isArray(data.balances) ? data.balances : []);
+    } catch {
+      toast.error("Erro ao carregar estoque da filial.");
+    } finally {
+      setFilialInventoryLoading(false);
+    }
+  }, [canManageTenants, handleUnauthorized, selectedFilialTenantId]);
+
   const confirmFilialPurchase = useCallback(async (request: FilialPurchaseRequest) => {
     if (!canManageTenants) return;
 
@@ -3345,8 +3382,14 @@ export default function Admin() {
       return;
     }
 
+    if (filialScopeSubTab === "estoque") {
+      void fetchFilialInventoryOverview(selectedFilialTenantId);
+      void fetchFilialStoreProducts(selectedFilialTenantId);
+      return;
+    }
+
     void fetchFilialStoreProducts(selectedFilialTenantId);
-  }, [authChecked, tab, lojasSubTab, filialScopeSubTab, selectedFilialTenantId, fetchFilialPurchaseRequests, fetchFilialStoreProducts]);
+  }, [authChecked, tab, lojasSubTab, filialScopeSubTab, selectedFilialTenantId, fetchFilialPurchaseRequests, fetchFilialStoreProducts, fetchFilialInventoryOverview]);
 
   useEffect(() => {
     if (authChecked && tab === "commissions") {
@@ -6987,13 +7030,16 @@ export default function Admin() {
                       if (!selectedFilialTenantId) return;
                       if (filialScopeSubTab === "pedidos") {
                         void fetchFilialPurchaseRequests(selectedFilialTenantId);
+                      } else if (filialScopeSubTab === "estoque") {
+                        void fetchFilialInventoryOverview(selectedFilialTenantId);
+                        void fetchFilialStoreProducts(selectedFilialTenantId);
                       } else {
                         void fetchFilialStoreProducts(selectedFilialTenantId);
                       }
                     }}
-                    disabled={!selectedFilialTenantId || filialPurchaseLoading || filialStoreProductsLoading}
+                    disabled={!selectedFilialTenantId || filialPurchaseLoading || filialStoreProductsLoading || filialInventoryLoading}
                   >
-                    {(filialPurchaseLoading || filialStoreProductsLoading) ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                    {(filialPurchaseLoading || filialStoreProductsLoading || filialInventoryLoading) ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                     <span className="ml-2">Atualizar</span>
                   </Button>
                 </div>
@@ -7008,6 +7054,7 @@ export default function Admin() {
                         setSelectedFilialTenantId(nextTenantId);
                         setFilialPurchaseOpenId(null);
                         setFilialStoreProductsSearch("");
+                        setFilialInventorySearch("");
                       }}
                       className="h-10 w-full rounded-xl border border-border bg-white px-3 text-sm outline-none focus:border-primary"
                     >
@@ -7034,6 +7081,14 @@ export default function Admin() {
                       onClick={() => setFilialScopeSubTab("produtos")}
                     >
                       Produtos da loja
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={filialScopeSubTab === "estoque" ? "default" : "ghost"}
+                      className="h-8"
+                      onClick={() => setFilialScopeSubTab("estoque")}
+                    >
+                      Estoque da loja
                     </Button>
                   </div>
                 </div>
@@ -7168,7 +7223,7 @@ export default function Admin() {
                       </div>
                     )}
                   </>
-                ) : (
+                ) : filialScopeSubTab === "produtos" ? (
                   <>
                     <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50/70 p-3">
                       <p className="text-xs font-semibold text-blue-900 uppercase tracking-wide">Produtos da filial {selectedFilialTenant?.name || ""}</p>
@@ -7232,6 +7287,65 @@ export default function Admin() {
                             </div>
                           </div>
                         ))}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3">
+                      <p className="text-xs font-semibold text-emerald-900 uppercase tracking-wide">Estoque da filial {selectedFilialTenant?.name || ""}</p>
+                      <p className="text-xs text-emerald-800 mt-1">
+                        Saldo individual por produto da loja selecionada.
+                      </p>
+                    </div>
+
+                    <div className="mb-3">
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <p className="text-xs text-muted-foreground">Produtos no estoque</p>
+                        <span className="text-xs text-muted-foreground">{filteredFilialInventoryBalances.length}/{filialInventoryBalances.length}</span>
+                      </div>
+                      <input
+                        type="text"
+                        value={filialInventorySearch}
+                        onChange={(e) => setFilialInventorySearch(e.target.value)}
+                        placeholder="Pesquisar produto por nome"
+                        className="h-10 w-full rounded-lg border border-border px-3 text-sm bg-white"
+                      />
+                    </div>
+
+                    {filialInventoryLoading ? (
+                      <div className="text-sm text-muted-foreground mb-4">Carregando estoque da filial...</div>
+                    ) : filialInventoryBalances.length === 0 ? (
+                      <div className="text-sm text-muted-foreground mb-4">Nenhum saldo registrado para essa filial.</div>
+                    ) : filteredFilialInventoryBalances.length === 0 ? (
+                      <div className="text-sm text-muted-foreground mb-4">Nenhum produto encontrado para essa busca.</div>
+                    ) : (
+                      <div className="space-y-2 mb-4">
+                        {filteredFilialInventoryBalances.map((row) => {
+                          const product = filialStoreProducts.find((item) => item.id === row.productId);
+                          return (
+                            <div key={`filial-stock-${row.productId}`} className="rounded-xl border border-border bg-white px-3 py-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  {product?.image ? (
+                                    <img src={product.image} alt={row.productName} className="h-8 w-8 rounded-md object-cover shrink-0 border border-border" loading="lazy" />
+                                  ) : (
+                                    <div className="h-8 w-8 rounded-md bg-muted shrink-0 border border-border flex items-center justify-center">
+                                      <IconLucide name="Package" className="w-4 h-4 text-muted-foreground" />
+                                    </div>
+                                  )}
+                                  <div className="min-w-0">
+                                    <p className="text-sm font-medium text-foreground truncate">{row.productName}</p>
+                                    <p className="text-xs text-muted-foreground truncate">ID: {row.productId}</p>
+                                  </div>
+                                </div>
+                                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border shrink-0 ${row.quantity > 0 ? "bg-green-100 text-green-800 border-green-200" : "bg-red-100 text-red-700 border-red-200"}`}>
+                                  {row.quantity} un
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </>

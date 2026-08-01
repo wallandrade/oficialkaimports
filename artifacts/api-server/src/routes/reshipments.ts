@@ -112,7 +112,9 @@ async function isOrderInScope(orderId: string, scope: { hasGlobalAccess: boolean
 
 router.get("/admin/inventory/overview", requirePrimaryAdmin, async (req, res) => {
   try {
-    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+    const scopeTenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+    const queryTenantId = String(req.query.tenantId || "").trim();
+    const tenantId = queryTenantId || scopeTenantId;
     const [inventory, manualReturnItems] = await Promise.all([
       getInventoryOverview(tenantId),
       db
