@@ -1169,6 +1169,7 @@ interface FilialPurchaseRequest {
   items: FilialPurchaseRequestItem[];
   loja1RealCostTotal: number;
   loja1RealProfit: number;
+  updateProductCost?: boolean | null;
   createdAt: string | null;
   updatedAt: string | null;
   finalizedAt: string | null;
@@ -6884,6 +6885,16 @@ export default function Admin() {
                             <p className="text-xs text-muted-foreground">Cliente: {request.clientName}</p>
                             <p className="text-xs text-muted-foreground">
                               Status: {filialPurchaseStatusLabel(request.status)} · Criado em {formatDateBR(request.createdAt) || "-"}
+                            </p>
+                            <p className="text-xs mt-1">
+                              <span className="text-muted-foreground">Custo produto atualizado:</span>{" "}
+                              {request.updateProductCost == null ? (
+                                <span className="font-semibold text-amber-700">Pendente</span>
+                              ) : request.updateProductCost ? (
+                                <span className="font-semibold text-emerald-700">Sim</span>
+                              ) : (
+                                <span className="font-semibold text-slate-600">Não</span>
+                              )}
                             </p>
                           </div>
                           <div className="text-right text-xs">

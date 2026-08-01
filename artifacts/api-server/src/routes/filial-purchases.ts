@@ -65,6 +65,12 @@ function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+function readUpdateProductCostFlag(payload: unknown): boolean | null {
+  if (!payload || typeof payload !== "object") return null;
+  const value = (payload as { updateProductCost?: unknown }).updateProductCost;
+  return typeof value === "boolean" ? value : null;
+}
+
 function ensureDefaultTenantScope(req: Parameters<typeof router.get>[1] extends (req: infer R, _res: infer _S) => unknown ? R : never, res: Parameters<typeof router.get>[1] extends (_req: infer _R, res: infer S) => unknown ? S : never): boolean {
   const scope = getAdminScope(req as never);
   const tenantId = String(scope?.tenantId || "").trim() || DEFAULT_TENANT_ID;
@@ -132,6 +138,31 @@ router.get("/admin/filial-purchases", requirePrimaryAdmin, async (req, res) => {
       )
       .orderBy(asc(filialPurchaseRequestsTable.createdAt));
 
+    const requestIds = rows.map((row) => row.id).filter(Boolean);
+    const purchaseAudits = requestIds.length > 0
+      ? await db
+        .select({
+          requestId: filialPurchaseRequestAuditsTable.requestId,
+          payload: filialPurchaseRequestAuditsTable.payload,
+          createdAt: filialPurchaseRequestAuditsTable.createdAt,
+        })
+        .from(filialPurchaseRequestAuditsTable)
+        .where(and(
+          inArray(filialPurchaseRequestAuditsTable.requestId, requestIds),
+          eq(filialPurchaseRequestAuditsTable.action, "compra_registrada"),
+        ))
+        .orderBy(asc(filialPurchaseRequestAuditsTable.createdAt))
+      : [];
+
+    const updateCostByRequestId = new Map<string, boolean>();
+    for (const audit of purchaseAudits) {
+      const requestId = String(audit.requestId || "").trim();
+      if (!requestId) continue;
+      const flag = readUpdateProductCostFlag(audit.payload);
+      if (flag == null) continue;
+      updateCostByRequestId.set(requestId, flag);
+    }
+
     res.json({
       requests: rows.map((row) => ({
         id: row.id,
@@ -146,6 +177,7 @@ router.get("/admin/filial-purchases", requirePrimaryAdmin, async (req, res) => {
         costs: parseSnapshotItems(row.costsSnapshot),
         loja1RealCostTotal: Number(row.loja1RealCostTotal || 0),
         loja1RealProfit: Number(row.loja1RealProfit || 0),
+        updateProductCost: updateCostByRequestId.has(row.id) ? updateCostByRequestId.get(row.id)! : null,
         purchaseRecordedAt: row.purchaseRecordedAt?.toISOString() || null,
         stockLaunchedAt: row.stockLaunchedAt?.toISOString() || null,
         finalizedAt: row.finalizedAt?.toISOString() || null,
