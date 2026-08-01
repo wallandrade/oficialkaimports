@@ -1541,6 +1541,8 @@ export default function Admin() {
   const [filialStoreProducts, setFilialStoreProducts] = useState<FilialStoreProduct[]>([]);
   const [filialStoreProductsLoading, setFilialStoreProductsLoading] = useState(false);
   const [filialStoreProductsSearch, setFilialStoreProductsSearch] = useState("");
+  const [filialStoreCostDrafts, setFilialStoreCostDrafts] = useState<Record<string, string>>({});
+  const [filialStoreCostSavingId, setFilialStoreCostSavingId] = useState<string | null>(null);
   const [filialInventoryBalances, setFilialInventoryBalances] = useState<InventoryBalanceRecord[]>([]);
   const [filialInventoryLoading, setFilialInventoryLoading] = useState(false);
   const [filialInventorySearch, setFilialInventorySearch] = useState("");
@@ -2596,7 +2598,7 @@ export default function Admin() {
 
       const data = await res.json() as { products?: Array<Record<string, unknown>> };
       const rows = Array.isArray(data.products) ? data.products : [];
-      setFilialStoreProducts(rows.map((item) => ({
+      const mappedRows = rows.map((item) => ({
         id: String(item.id || ""),
         name: String(item.name || "Produto"),
         category: String(item.category || "Sem categoria"),
@@ -2606,13 +2608,62 @@ export default function Admin() {
         image: String(item.image || "").trim() || null,
         isActive: item.isActive !== false,
         isSoldOut: item.isSoldOut === true,
-      })));
+      }));
+      setFilialStoreProducts(mappedRows);
+      setFilialStoreCostDrafts((prev) => {
+        const next = { ...prev };
+        for (const row of mappedRows) {
+          if (next[row.id] === undefined) {
+            next[row.id] = String(row.costPrice || 0);
+          }
+        }
+        return next;
+      });
     } catch {
       toast.error("Erro ao carregar produtos da filial.");
     } finally {
       setFilialStoreProductsLoading(false);
     }
   }, [canManageTenants, handleUnauthorized, selectedFilialTenantId]);
+
+  const saveFilialProductCost = useCallback(async (product: FilialStoreProduct) => {
+    if (!canManageTenants || !selectedFilialTenantId) return;
+
+    const raw = String(filialStoreCostDrafts[product.id] ?? "").replace(",", ".").trim();
+    const nextCost = Number(raw);
+    if (!Number.isFinite(nextCost) || nextCost < 0) {
+      toast.error("Informe um custo válido (>= 0).");
+      return;
+    }
+
+    setFilialStoreCostSavingId(product.id);
+    try {
+      const params = new URLSearchParams({ tenantId: selectedFilialTenantId });
+      const res = await fetch(`${BASE}/api/admin/products/${encodeURIComponent(product.id)}?${params.toString()}`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({ costPrice: nextCost }),
+      });
+
+      if (res.status === 401) { handleUnauthorized(); return; }
+
+      const data = await res.json().catch(() => null) as { message?: string } | null;
+      if (!res.ok) {
+        toast.error(data?.message || "Erro ao salvar custo do produto.");
+        return;
+      }
+
+      setFilialStoreProducts((prev) => prev.map((item) => (
+        item.id === product.id ? { ...item, costPrice: nextCost } : item
+      )));
+      setFilialStoreCostDrafts((prev) => ({ ...prev, [product.id]: String(nextCost) }));
+      toast.success("Custo do produto atualizado.");
+    } catch {
+      toast.error("Erro ao salvar custo do produto.");
+    } finally {
+      setFilialStoreCostSavingId(null);
+    }
+  }, [canManageTenants, filialStoreCostDrafts, handleUnauthorized, selectedFilialTenantId]);
 
   const fetchFilialInventoryOverview = useCallback(async (tenantId?: string) => {
     if (!canManageTenants) return;
@@ -7292,6 +7343,29 @@ export default function Admin() {
                                 <p className="font-semibold text-foreground">{formatCurrency(product.price)}</p>
                                 <p className="text-muted-foreground mt-1">Custo</p>
                                 <p className="font-semibold text-blue-700">{formatCurrency(product.costPrice)}</p>
+                                <div className="mt-2 flex items-center gap-1.5 justify-end">
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={filialStoreCostDrafts[product.id] ?? String(product.costPrice || 0)}
+                                    onChange={(e) => {
+                                      const sanitized = e.target.value.replace(/[^0-9.,]/g, "");
+                                      setFilialStoreCostDrafts((prev) => ({ ...prev, [product.id]: sanitized }));
+                                    }}
+                                    placeholder="Novo custo"
+                                    className="h-7 w-24 rounded-md border border-border bg-white px-2 text-[11px] text-right"
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="h-7 px-2 text-[11px]"
+                                    onClick={() => saveFilialProductCost(product)}
+                                    disabled={filialStoreCostSavingId === product.id}
+                                  >
+                                    {filialStoreCostSavingId === product.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                                    <span className="ml-1">Salvar</span>
+                                  </Button>
+                                </div>
                               </div>
                             </div>
                             <div className="mt-2 flex flex-wrap gap-2">

@@ -682,7 +682,9 @@ router.patch("/admin/products/:id", requireAdminAuth, async (req, res) => {
       res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar produtos." });
       return;
     }
-    const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
+    const scopeTenantId = scope?.tenantId || DEFAULT_TENANT_ID;
+    const queryTenantId = String(req.query.tenantId || "").trim();
+    const tenantId = scope?.isPrimary && queryTenantId ? queryTenantId : scopeTenantId;
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
       const {
