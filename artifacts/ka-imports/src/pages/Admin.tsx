@@ -1541,6 +1541,7 @@ export default function Admin() {
   const [filialPurchaseOpenId, setFilialPurchaseOpenId] = useState<string | null>(null);
   const [filialStoreProducts, setFilialStoreProducts] = useState<FilialStoreProduct[]>([]);
   const [filialStoreProductsLoading, setFilialStoreProductsLoading] = useState(false);
+  const [filialStoreProductsSearch, setFilialStoreProductsSearch] = useState("");
   const [tenantAdminSavingId, setTenantAdminSavingId] = useState<string | null>(null);
   const [tenantAdminUsernameDrafts, setTenantAdminUsernameDrafts] = useState<Record<string, string>>({});
   const [tenantAdminPasswordDrafts, setTenantAdminPasswordDrafts] = useState<Record<string, string>>({});
@@ -1583,6 +1584,12 @@ export default function Admin() {
   const filteredFilialPurchaseRequests = selectedFilialTenantId
     ? filialPurchaseRequests.filter((request) => request.filialTenantId === selectedFilialTenantId)
     : filialPurchaseRequests;
+  const filteredFilialStoreProducts = filialStoreProducts.filter((product) => {
+    const query = filialStoreProductsSearch.trim().toLowerCase();
+    if (!query) return true;
+    const haystack = `${product.name} ${product.category} ${product.id}`.toLowerCase();
+    return haystack.includes(query);
+  });
 
   // -------------------- FIM DOS useState --------------------
 
@@ -7000,6 +7007,7 @@ export default function Admin() {
                         const nextTenantId = e.target.value;
                         setSelectedFilialTenantId(nextTenantId);
                         setFilialPurchaseOpenId(null);
+                        setFilialStoreProductsSearch("");
                       }}
                       className="h-10 w-full rounded-xl border border-border bg-white px-3 text-sm outline-none focus:border-primary"
                     >
@@ -7169,13 +7177,29 @@ export default function Admin() {
                       </p>
                     </div>
 
+                    <div className="mb-3">
+                      <div className="flex items-center justify-between gap-2 mb-2">
+                        <p className="text-xs text-muted-foreground">Produtos exibidos</p>
+                        <span className="text-xs text-muted-foreground">{filteredFilialStoreProducts.length}/{filialStoreProducts.length}</span>
+                      </div>
+                      <input
+                        type="text"
+                        value={filialStoreProductsSearch}
+                        onChange={(e) => setFilialStoreProductsSearch(e.target.value)}
+                        placeholder="Pesquisar produto por nome"
+                        className="h-10 w-full rounded-lg border border-border px-3 text-sm bg-white"
+                      />
+                    </div>
+
                     {filialStoreProductsLoading ? (
                       <div className="text-sm text-muted-foreground mb-4">Carregando produtos da filial...</div>
                     ) : filialStoreProducts.length === 0 ? (
                       <div className="text-sm text-muted-foreground mb-4">Nenhum produto cadastrado para essa filial.</div>
+                    ) : filteredFilialStoreProducts.length === 0 ? (
+                      <div className="text-sm text-muted-foreground mb-4">Nenhum produto encontrado para essa busca.</div>
                     ) : (
                       <div className="space-y-2 mb-4">
-                        {filialStoreProducts.map((product) => (
+                        {filteredFilialStoreProducts.map((product) => (
                           <div key={`filial-product-${product.id}`} className="rounded-xl border border-border bg-white p-3">
                             <div className="flex flex-wrap items-start justify-between gap-2">
                               <div className="flex items-start gap-2 min-w-0">
