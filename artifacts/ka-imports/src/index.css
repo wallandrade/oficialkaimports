@@ -96,6 +96,36 @@
   --radius-2xl: 0.9rem;
 }
 
+:root[data-store-theme="market_showcase"] {
+  --font-display: 'Outfit', sans-serif;
+  --font-sans: 'Plus Jakarta Sans', sans-serif;
+
+  --color-background: hsl(120 22% 97%);
+  --color-foreground: hsl(138 40% 16%);
+
+  --color-card: hsl(0 0% 100%);
+  --color-card-foreground: hsl(138 40% 16%);
+
+  --color-primary: hsl(133 74% 33%);
+  --color-primary-foreground: hsl(0 0% 100%);
+
+  --color-secondary: hsl(133 45% 92%);
+  --color-secondary-foreground: hsl(138 40% 16%);
+
+  --color-muted: hsl(120 20% 94%);
+  --color-muted-foreground: hsl(141 20% 36%);
+
+  --color-accent: hsl(133 74% 33%);
+  --color-accent-foreground: hsl(0 0% 100%);
+
+  --color-border: hsl(122 24% 85%);
+  --color-input: hsl(122 24% 85%);
+  --color-ring: hsl(133 74% 33%);
+
+  --radius-xl: 0.9rem;
+  --radius-2xl: 1.2rem;
+}
+
 :root[data-store-theme="editorial_noir"] body {
   background-image:
     radial-gradient(circle at 10% 10%, hsl(35 68% 58% / 0.09), transparent 34%),

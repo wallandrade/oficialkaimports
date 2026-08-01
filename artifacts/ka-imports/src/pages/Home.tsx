@@ -3,7 +3,7 @@ import { useSearch, useRoute, useLocation, Link } from "wouter";
 import { useGetProducts } from "@workspace/api-client-react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ProductCard } from "@/components/product/ProductCard";
-import { Loader2, X, SlidersHorizontal, Search, ArrowRight } from "lucide-react";
+import { Loader2, X, SlidersHorizontal, Search, ArrowRight, Package2, Sparkles } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { useLiveTracking } from "@/hooks/useLiveTracking";
@@ -153,6 +153,9 @@ export default function Home() {
       ? `/${encodeURIComponent(sellerSlug)}/produto/${encodeURIComponent(catalogBannerProductId)}`
       : `${BASE}/produto/${encodeURIComponent(catalogBannerProductId)}`)
     : "";
+  const themePreset = String(banners["store_theme_preset"] || "").trim().toLowerCase();
+  const isMarketplaceShowcase = themePreset === "market_showcase";
+  const [featuredCategory, setFeaturedCategory] = useState("");
 
   useLiveTracking("catalog");
 
@@ -226,6 +229,32 @@ export default function Home() {
       products: groups.get(category) ?? [],
     }));
   }, [data?.categories, filteredProducts]);
+
+  const showcaseCategories = useMemo(() => {
+    const categories = groupedFilteredProducts
+      .filter((group) => group.products.length > 0)
+      .map((group) => group.category);
+    return categories.slice(0, 10);
+  }, [groupedFilteredProducts]);
+
+  useEffect(() => {
+    if (!isMarketplaceShowcase) return;
+    if (showcaseCategories.length === 0) {
+      setFeaturedCategory("");
+      return;
+    }
+    if (!featuredCategory || !showcaseCategories.includes(featuredCategory)) {
+      setFeaturedCategory(showcaseCategories[0]);
+    }
+  }, [isMarketplaceShowcase, showcaseCategories, featuredCategory]);
+
+  const featuredProducts = useMemo(() => {
+    if (!isMarketplaceShowcase) return [] as typeof filteredProducts;
+    if (!featuredCategory) return filteredProducts.slice(0, 12);
+    return filteredProducts
+      .filter((product) => String(product.category || "Sem categoria") === featuredCategory)
+      .slice(0, 12);
+  }, [isMarketplaceShowcase, featuredCategory, filteredProducts]);
 
   const brandOptions = useMemo(() => {
     const rawBrands = ((data as any)?.brands ?? []) as string[];
@@ -340,6 +369,89 @@ export default function Home() {
         </section>
       )}
 
+      {isMarketplaceShowcase ? (
+        <section className="py-6 sm:py-10 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full flex-1 space-y-6 sm:space-y-8">
+          <div className="rounded-3xl border border-border/60 bg-gradient-to-b from-white to-muted/20 p-4 sm:p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Package2 className="w-5 h-5 text-primary" />
+              <h2 className="text-xl sm:text-2xl font-black tracking-tight text-foreground">Categorias</h2>
+            </div>
+            <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+              {showcaseCategories.map((category) => {
+                const selected = activeCategories.includes(category);
+                const icon = String(category || "?").trim().charAt(0).toUpperCase() || "?";
+                return (
+                  <button
+                    key={`showcase-cat-${category}`}
+                    type="button"
+                    onClick={() => {
+                      setActiveCategories([category]);
+                      setFeaturedCategory(category);
+                    }}
+                    className={`group rounded-2xl border p-3 text-left transition-all ${selected ? "border-primary bg-primary/10 shadow-sm" : "border-border bg-white hover:border-primary/40 hover:shadow-sm"}`}
+                  >
+                    <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary font-extrabold flex items-center justify-center mb-2">{icon}</div>
+                    <p className="text-sm font-bold leading-tight line-clamp-2">{category}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-border/60 bg-white p-4 sm:p-6">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-4">
+              <Sparkles className="w-5 h-5 text-primary" />
+              <h3 className="text-xl sm:text-2xl font-black tracking-tight text-foreground">Em destaque</h3>
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-2 mb-5" style={{ scrollbarWidth: "none" }}>
+              {showcaseCategories.map((category) => (
+                <button
+                  key={`featured-tab-${category}`}
+                  type="button"
+                  onClick={() => {
+                    setFeaturedCategory(category);
+                    setActiveCategories([category]);
+                  }}
+                  className={`whitespace-nowrap rounded-full border px-4 py-2 text-sm font-semibold transition-colors ${featuredCategory === category ? "bg-primary text-primary-foreground border-primary" : "bg-white text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"}`}
+                >
+                  {category}
+                </button>
+              ))}
+            </div>
+
+            {isLoading ? (
+              <div className="flex flex-col items-center justify-center py-20">
+                <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
+                <p className="text-muted-foreground font-medium">Carregando catálogo...</p>
+              </div>
+            ) : isError ? (
+              <div className="bg-destructive/5 text-destructive p-8 rounded-3xl text-center border-2 border-destructive/10">
+                <p className="font-bold text-lg mb-2">Ops! Algo deu errado.</p>
+                <p className="opacity-80">Não foi possível carregar os produtos. Tente recarregar a página.</p>
+              </div>
+            ) : featuredProducts.length === 0 ? (
+              <div className="text-center py-12 bg-muted/30 rounded-3xl border border-border/50">
+                <h3 className="text-lg font-bold text-foreground mb-2">Sem produtos nesta seção</h3>
+                <p className="text-muted-foreground">Troque a categoria para ver outros itens em destaque.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 items-stretch">
+                {featuredProducts.map((product, index) => (
+                  <motion.div
+                    key={`featured-${product.id}`}
+                    className="flex"
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: Math.min(index * 0.02, 0.2) }}
+                  >
+                    <ProductCard product={product} sellerSlug={sellerSlug} priority={index < 4} />
+                  </motion.div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+      ) : (
       <section className="py-6 sm:py-10 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full flex-1">
         
         {/* Mobile: título + busca + chips de categoria */}
@@ -516,6 +628,7 @@ export default function Home() {
           </div>
         </div>
       </section>
+      )}
 
     </AppLayout>
   );

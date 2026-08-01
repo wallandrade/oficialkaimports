@@ -151,10 +151,11 @@ function getReadableForeground(hexColor: string): string {
   return luminance > 0.62 ? "#0F172A" : "#FFFFFF";
 }
 
-function normalizeStoreThemePreset(value: string): "default" | "classic_clean" | "editorial_noir" {
+function normalizeStoreThemePreset(value: string): "default" | "classic_clean" | "editorial_noir" | "market_showcase" {
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "classic_clean") return "classic_clean";
   if (normalized === "editorial_noir") return "editorial_noir";
+  if (normalized === "market_showcase") return "market_showcase";
   return "default";
 }
 
