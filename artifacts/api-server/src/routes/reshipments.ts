@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import crypto from "crypto";
 import { and, desc, eq, isNull, or } from "drizzle-orm";
 import { db, inventoryBalancesTable, manualReshipmentsTable, manualReturnItemsTable, ordersTable, reshipmentsTable } from "@workspace/db";
-import { getAdminScope, requireAdminAuth, requirePrimaryAdmin } from "./admin-auth";
+import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import {
   createManualReshipment,
   ensureReshipmentReservation,
@@ -100,6 +100,28 @@ function getReshipmentScope(req: Parameters<typeof router.get>[1] extends (req: 
   return { hasGlobalAccess: scope.hasGlobalAccess, sellerCode: normalizeSellerCode(scope.sellerCode), tenantId: scope.tenantId || DEFAULT_TENANT_ID };
 }
 
+function getInventoryTenantScope(
+  req: Parameters<typeof router.get>[1] extends (req: infer R, _res: infer _S) => unknown ? R : never,
+  res: Parameters<typeof router.get>[1] extends (_req: infer _R, res: infer S) => unknown ? S : never,
+) {
+  const scope = getAdminScope(req as never);
+  if (!scope) {
+    (res as any).status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
+    return null;
+  }
+
+  const scopeTenantId = String(scope.tenantId || "").trim() || DEFAULT_TENANT_ID;
+  const canManageInventory = scope.isPrimary || scopeTenantId !== DEFAULT_TENANT_ID;
+  if (!canManageInventory) {
+    (res as any).status(403).json({ error: "FORBIDDEN", message: "Sem permissão para acessar estoque." });
+    return null;
+  }
+
+  const queryTenantId = String((req as any).query?.tenantId || "").trim();
+  const tenantId = scope.isPrimary && queryTenantId ? queryTenantId : scopeTenantId;
+  return { tenantId, scopeTenantId, isPrimary: !!scope.isPrimary };
+}
+
 async function isOrderInScope(orderId: string, scope: { hasGlobalAccess: boolean; sellerCode: string | null }): Promise<boolean> {
   if (scope.hasGlobalAccess) return true;
   const rows = await db
@@ -110,18 +132,22 @@ async function isOrderInScope(orderId: string, scope: { hasGlobalAccess: boolean
   return !!rows[0];
 }
 
-router.get("/admin/inventory/overview", requirePrimaryAdmin, async (req, res) => {
+router.get("/admin/inventory/overview", requireAdminAuth, async (req, res) => {
   try {
-    const scopeTenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
-    const queryTenantId = String(req.query.tenantId || "").trim();
-    const tenantId = queryTenantId || scopeTenantId;
+    const tenantScope = getInventoryTenantScope(req, res);
+    if (!tenantScope) return;
+
+    const tenantId = tenantScope.tenantId;
+    const canLoadManualQueue = tenantId === DEFAULT_TENANT_ID;
     const [inventory, manualReturnItems] = await Promise.all([
       getInventoryOverview(tenantId),
-      db
-        .select()
-        .from(manualReturnItemsTable)
-        .where(eq(manualReturnItemsTable.status, "pending"))
-        .orderBy(desc(manualReturnItemsTable.createdAt)),
+      canLoadManualQueue
+        ? db
+            .select()
+            .from(manualReturnItemsTable)
+            .where(eq(manualReturnItemsTable.status, "pending"))
+            .orderBy(desc(manualReturnItemsTable.createdAt))
+        : Promise.resolve([]),
     ]);
 
     const pendingReshipments = manualReturnItems.map((item) => ({
@@ -152,8 +178,11 @@ router.get("/admin/inventory/overview", requirePrimaryAdmin, async (req, res) =>
   }
 });
 
-router.post("/admin/manual-return-items", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/manual-return-items", requireAdminAuth, async (req, res) => {
   try {
+    const tenantScope = getInventoryTenantScope(req, res);
+    if (!tenantScope) return;
+
     const clientName = String(req.body?.clientName ?? "").trim();
     const returningOrder = String(req.body?.returningOrder ?? "").trim();
     const productId = String(req.body?.productId ?? "").trim();
@@ -185,8 +214,11 @@ router.post("/admin/manual-return-items", requirePrimaryAdmin, async (req, res) 
   }
 });
 
-router.patch("/admin/manual-return-items/:id/status", requirePrimaryAdmin, async (req, res) => {
+router.patch("/admin/manual-return-items/:id/status", requireAdminAuth, async (req, res) => {
   try {
+    const tenantScope = getInventoryTenantScope(req, res);
+    if (!tenantScope) return;
+
     const id = String(req.params.id ?? "").trim();
     const status = String(req.body?.status ?? "").trim().toLowerCase();
 
@@ -218,9 +250,12 @@ router.patch("/admin/manual-return-items/:id/status", requirePrimaryAdmin, async
   }
 });
 
-router.post("/admin/inventory/entries", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/inventory/entries", requireAdminAuth, async (req, res) => {
   try {
-    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+    const tenantScope = getInventoryTenantScope(req, res);
+    if (!tenantScope) return;
+
+    const tenantId = tenantScope.tenantId;
     const productId = String(req.body?.productId ?? "").trim();
     const quantity = Number(req.body?.quantity || 0);
     const movementType = String(req.body?.movementType ?? "entry").trim().toLowerCase();
@@ -335,9 +370,12 @@ router.post("/admin/inventory/entries", requirePrimaryAdmin, async (req, res) =>
   }
 });
 
-router.post("/admin/reshipments/manual", requirePrimaryAdmin, async (req, res) => {
+router.post("/admin/reshipments/manual", requireAdminAuth, async (req, res) => {
   try {
-    const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+    const tenantScope = getInventoryTenantScope(req, res);
+    if (!tenantScope) return;
+
+    const tenantId = tenantScope.tenantId;
     const clientName = String(req.body?.clientName ?? "").trim();
     const clientPhone = String(req.body?.clientPhone ?? "").trim();
     const clientDocument = String(req.body?.clientDocument ?? "").trim() || null;

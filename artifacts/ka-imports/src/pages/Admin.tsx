@@ -923,7 +923,6 @@ const PRIMARY_ONLY_TABS = new Set<TabType>([
   "users",
   "coupons",
   "orderBumps",
-  "inventory",
   "socialProof",
   "raffles",
   "lojas",
@@ -1580,6 +1579,7 @@ export default function Admin() {
   const [liveStats, setLiveStats] = useState({ catalog: 0, checkout: 0 });
   const canManageTenants = isPrimary && adminTenantId === "tenant_loja1";
   const canManageProductsTab = isPrimary || adminTenantId !== "tenant_loja1";
+  const canManageInventoryTab = isPrimary || adminTenantId !== "tenant_loja1";
   const canManageShippingTab = isPrimary || adminTenantId !== "tenant_loja1";
   const canManageSellerLinks = isPrimary || adminTenantId !== "tenant_loja1";
   const filialTenantOptions = tenants.filter((tenant) => tenant.id !== "tenant_loja1");
@@ -4863,10 +4863,12 @@ export default function Admin() {
             ...(canManageShippingTab ? [
               { key: "fretes" as TabType, label: "Fretes", icon: "Truck", count: shippingOptions.length },
             ] : []),
+            ...(canManageInventoryTab ? [
+              { key: "inventory" as TabType, label: "Estoque", icon: "Package", count: pendingReshipments.length || undefined },
+            ] : []),
             ...(isPrimary ? [
               { key: "coupons",       label: "Cupons",           icon: "Ticket",      count: coupons.length },
               { key: "orderBumps",    label: "Order Bumps",      icon: "Zap",         count: orderBumps.length },
-              { key: "inventory",     label: "Estoque",          icon: "Package",     count: pendingReshipments.length || undefined },
               { key: "users",         label: "Usuários",         icon: "User" },
               { key: "socialProof",   label: "Prova Social",     icon: "ShoppingBag" },
               { key: "raffles",       label: "Rifas",            icon: "Ticket",      count: rafflesList.length || undefined },
