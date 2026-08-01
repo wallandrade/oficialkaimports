@@ -4079,26 +4079,71 @@ export default function Admin() {
   const paidOrders      = orders.filter((o) => o.status === "paid" || o.status === "completed");
   const revenue         = paidOrders.reduce((s, o) => s + Number(o.total), 0);
   const chargeRevenue   = charges.filter((c) => c.status === "paid").reduce((s, c) => s + Number(c.amount), 0);
+  const isActiveReshipmentOrder = (order: AdminOrder): boolean => Boolean((order as { reshipment?: { id?: string; status?: string } }).reshipment?.id)
+    && !["reenvio_enviado", "reenvio_resolvido_sem_entrada"].includes(String((order as { reshipment?: { status?: string } }).reshipment?.status || ""));
+
+  const extractOriginalOrderIdFromObservation = (order: AdminOrder): string | null => {
+    const raw = String(order.observation || "");
+    const match = raw.match(/REENVIO DO PEDIDO\s+([a-z0-9]+)/i);
+    return match?.[1]?.trim().toLowerCase() || null;
+  };
+
+  const isSupportReshipmentChild = (order: AdminOrder): boolean => !!extractOriginalOrderIdFromObservation(order);
+
+  const ordersParaEnviarDedupForCopy = (input: AdminOrder[]): AdminOrder[] => {
+    const byKey = new Map<string, AdminOrder>();
+
+    for (const order of input) {
+      const key = isActiveReshipmentOrder(order)
+        ? `reship:${extractOriginalOrderIdFromObservation(order) || String(order.id || "").toLowerCase()}`
+        : `order:${String(order.id || "").toLowerCase()}`;
+
+      const existing = byKey.get(key);
+      if (!existing) {
+        byKey.set(key, order);
+        continue;
+      }
+
+      const existingChild = isSupportReshipmentChild(existing);
+      const currentChild = isSupportReshipmentChild(order);
+      if (currentChild && !existingChild) {
+        byKey.set(key, order);
+        continue;
+      }
+
+      const existingTs = new Date(existing.createdAt || 0).getTime();
+      const currentTs = new Date(order.createdAt || 0).getTime();
+      if (currentTs > existingTs) {
+        byKey.set(key, order);
+      }
+    }
+
+    return Array.from(byKey.values()).sort((a, b) => {
+      const aTs = new Date(a.createdAt || 0).getTime();
+      const bTs = new Date(b.createdAt || 0).getTime();
+      return bTs - aTs;
+    });
+  };
+
   const ordersParaEnviar = orders.filter((o) => {
-    const isActiveReshipment = Boolean((o as { reshipment?: { id?: string; status?: string } }).reshipment?.id)
-      && !["reenvio_enviado", "reenvio_resolvido_sem_entrada"].includes(String((o as { reshipment?: { status?: string } }).reshipment?.status || ""));
+    const isActiveReshipment = isActiveReshipmentOrder(o);
     const isPendingNormalShipment = (o.status === "paid" || o.status === "completed") && !o.enviado;
     return isPendingNormalShipment || isActiveReshipment;
   });
+  const ordersParaEnviarCopyBase = ordersParaEnviarDedupForCopy(ordersParaEnviar);
 
   const copyShoppingList = async (event?: React.MouseEvent<HTMLButtonElement>) => {
     event?.preventDefault();
     event?.stopPropagation();
 
-    if (ordersParaEnviar.length === 0) {
+    if (ordersParaEnviarCopyBase.length === 0) {
       toast.info("Nao ha pedidos pendentes.");
       return;
     }
 
     const totals = new Map<string, { label: string; productId: string | null; qtyNormal: number; qtyReshipment: number }>();
-    for (const order of ordersParaEnviar) {
-      const isReshipment = Boolean((order as { reshipment?: { id?: string; status?: string } }).reshipment?.id)
-        && !["reenvio_enviado", "reenvio_resolvido_sem_entrada"].includes(String((order as { reshipment?: { status?: string } }).reshipment?.status || ""));
+    for (const order of ordersParaEnviarCopyBase) {
+      const isReshipment = isActiveReshipmentOrder(order);
       for (const p of getOrderProducts(order.products)) {
         const name = (p.name || "Produto").trim();
         const productId = String((p as { id?: string })?.id || "").trim() || null;
@@ -4180,7 +4225,7 @@ export default function Admin() {
       : "Itens ja cobertos por estoque (nao comprar):\n- Estoque nao carregado";
 
     const text = [
-      `Lista de Compra - ${ordersParaEnviar.length} pedido${ordersParaEnviar.length !== 1 ? "s" : ""}`,
+      `Lista de Compra - ${ordersParaEnviarCopyBase.length} pedido${ordersParaEnviarCopyBase.length !== 1 ? "s" : ""}`,
       "",
       "Comprar agora:",
       buyLines.length ? buyLines.join("\n") : "- Nada para comprar",
@@ -4206,12 +4251,12 @@ export default function Admin() {
     event?.preventDefault();
     event?.stopPropagation();
 
-    if (ordersParaEnviar.length === 0) {
+    if (ordersParaEnviarCopyBase.length === 0) {
       toast.info("Nao ha pedidos pendentes para copiar.");
       return;
     }
 
-    const text = ordersParaEnviar.map((order, index) => supplierOrderBlock(order, index + 1)).join("\n\n");
+    const text = ordersParaEnviarCopyBase.map((order, index) => supplierOrderBlock(order, index + 1)).join("\n\n");
     try {
       const mode = await copyText(text);
       toast.success(mode === "manual" ? "Texto aberto para copia manual." : "Pedidos copiados com sucesso.");
@@ -4570,7 +4615,7 @@ export default function Admin() {
                   <Copy className="w-3.5 h-3.5" /> Copiar Pedido
                 </button>
                 <span className="text-[10px] bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-bold">
-                  {ordersParaEnviar.length}
+                  {ordersParaEnviarCopyBase.length}
                 </span>
               </div>
             </div>
