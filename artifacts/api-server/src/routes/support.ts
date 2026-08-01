@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import crypto from "crypto";
-import { db, ordersTable, supportTicketsTable } from "@workspace/db";
+import { db, ordersTable, productsTable, supportTicketsTable } from "@workspace/db";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { broadcastNotification } from "./notifications";
 import { createOrRefreshReshipment } from "../lib/reshipments";
@@ -28,6 +28,14 @@ function buildSupportTicketsTenantWhere(tenantId: string) {
   }
 
   return eq(supportTicketsTable.tenantId, tenantId);
+}
+
+function buildProductsTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(eq(productsTable.tenantId, tenantId), isNull(productsTable.tenantId), eq(productsTable.tenantId, ""));
+  }
+
+  return eq(productsTable.tenantId, tenantId);
 }
 
 function normalizeSellerCode(value: unknown): string | null {
@@ -555,17 +563,38 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
       })
       .filter((item) => item.id && item.quantity > 0);
 
+    const productIds = Array.from(new Set((overrideProducts.length > 0 ? overrideProducts : originalProducts).map((item) => item.id).filter(Boolean)));
+    const catalogProducts = productIds.length > 0
+      ? await db
+        .select({
+          id: productsTable.id,
+          name: productsTable.name,
+          price: productsTable.price,
+          costPrice: productsTable.costPrice,
+          image: productsTable.image,
+        })
+        .from(productsTable)
+        .where(and(buildProductsTenantWhere(scope.tenantId), inArray(productsTable.id, productIds)))
+      : [];
+
+    const byCatalogId = new Map(catalogProducts.map((item) => [item.id, item]));
     const byOriginalId = new Map(originalProducts.map((item) => [item.id, item]));
     const selectedProducts = (overrideProducts.length > 0 ? overrideProducts : originalProducts)
       .map((item) => {
         const base = byOriginalId.get(item.id);
+        const catalog = byCatalogId.get(item.id);
+        const resolvedPrice = Number(base?.price ?? catalog?.price ?? 0) || 0;
+        const resolvedCostPrice = base?.costPrice != null
+          ? base.costPrice
+          : (catalog?.costPrice != null ? Number(catalog.costPrice) : undefined);
+        const resolvedImage = base?.image ?? (catalog?.image == null ? null : String(catalog.image || "").trim() || null);
         return {
           id: item.id,
-          name: item.name || base?.name || "Produto",
+          name: item.name || base?.name || catalog?.name || "Produto",
           quantity: Number(item.quantity) || 0,
-          price: 0,
-          costPrice: base?.costPrice,
-          image: base?.image || null,
+          price: resolvedPrice,
+          costPrice: resolvedCostPrice,
+          image: resolvedImage,
         };
       })
       .filter((item) => item.id && item.quantity > 0);
@@ -574,6 +603,25 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
       res.status(400).json({ error: "INVALID_INPUT", message: "Informe ao menos um produto para o reenvio." });
       return;
     }
+
+    const originalById = new Map(originalProducts.map((item) => [item.id, item]));
+    let commissionableSubtotal = 0;
+    for (const item of selectedProducts) {
+      const original = originalById.get(item.id);
+      const extraQty = Math.max(0, Number(item.quantity || 0) - Number(original?.quantity || 0));
+      if (extraQty <= 0) continue;
+      const unitPrice = Number(item.price || original?.price || 0);
+      if (unitPrice <= 0) continue;
+      commissionableSubtotal += extraQty * unitPrice;
+    }
+    commissionableSubtotal = Math.round(commissionableSubtotal * 100) / 100;
+    const commissionableSubtotalStr = commissionableSubtotal.toFixed(2);
+
+    const originalRateRaw = order.sellerCommissionRateSnapshot;
+    const originalRate = Number(originalRateRaw ?? 0);
+    const nextSellerCommissionRateSnapshot = commissionableSubtotal > 0
+      ? (originalRateRaw == null ? null : String(Number.isFinite(originalRate) ? originalRate : 0))
+      : "0";
 
     const childOrderId = crypto.randomBytes(8).toString("hex");
     let childOrderNumber = 0;
@@ -604,14 +652,14 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
         products: selectedProducts,
         shippingType: "Reenvio",
         includeInsurance: false,
-        subtotal: "0.00",
+        subtotal: commissionableSubtotalStr,
         shippingCost: "0.00",
         insuranceAmount: "0.00",
-        total: "0.00",
+        total: commissionableSubtotalStr,
         status: "paid",
         paymentMethod: "whatsapp_pix",
         sellerCode: order.sellerCode,
-        sellerCommissionRateSnapshot: "0",
+        sellerCommissionRateSnapshot: nextSellerCommissionRateSnapshot,
         couponCode: null,
         discountAmount: null,
         affiliateCreditUsed: null,
@@ -620,7 +668,7 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
         cardInstallmentsActual: null,
         cardInstallmentValue: null,
         cardTotalActual: null,
-        paidAmount: "0.00",
+        paidAmount: commissionableSubtotalStr,
         transactionId: null,
         pixCode: null,
         pixBase64: null,

@@ -4950,6 +4950,7 @@ export default function Admin() {
         ) : tab === "support" ? (
           <SupportTicketsPanel
             tickets={supportTickets}
+            productsCatalog={products.map((item) => ({ id: item.id, name: item.name }))}
             loading={supportLoading}
             onRefresh={fetchSupportTickets}
             onSetStatus={async (id, status) => {
@@ -7946,6 +7947,7 @@ export default function Admin() {
 
 function SupportTicketsPanel({
   tickets,
+  productsCatalog,
   loading,
   onRefresh,
   onSetStatus,
@@ -7953,6 +7955,7 @@ function SupportTicketsPanel({
   onReenviar,
 }: {
   tickets: SupportTicketRecord[];
+  productsCatalog: Array<{ id: string; name: string }>;
   loading: boolean;
   onRefresh: () => void;
   onSetStatus: (id: string, status: "open" | "resolved") => void;
@@ -7962,6 +7965,8 @@ function SupportTicketsPanel({
   const [reenviarModalTicket, setReenviarModalTicket] = useState<SupportTicketRecord | null>(null);
   const [reenviarItems, setReenviarItems] = useState<Array<{ id: string; name: string; quantity: number }>>([]);
   const [reenviarSubmitting, setReenviarSubmitting] = useState(false);
+  const [reenviarAddProductId, setReenviarAddProductId] = useState("");
+  const [reenviarAddQty, setReenviarAddQty] = useState("1");
 
   const openReenviarModal = (ticket: SupportTicketRecord) => {
     const baseItems = (ticket.orderProducts || [])
@@ -7974,6 +7979,33 @@ function SupportTicketsPanel({
 
     setReenviarModalTicket(ticket);
     setReenviarItems(baseItems);
+    setReenviarAddProductId("");
+    setReenviarAddQty("1");
+  };
+
+  const addProductToReshipment = () => {
+    const productId = String(reenviarAddProductId || "").trim();
+    const quantity = Math.max(1, Number(reenviarAddQty) || 1);
+    if (!productId) {
+      toast.error("Selecione um produto para adicionar.");
+      return;
+    }
+    const product = productsCatalog.find((item) => item.id === productId);
+    if (!product) {
+      toast.error("Produto selecionado não foi encontrado.");
+      return;
+    }
+
+    setReenviarItems((prev) => {
+      const index = prev.findIndex((item) => item.id === productId);
+      if (index >= 0) {
+        const next = [...prev];
+        next[index] = { ...next[index], quantity: Math.max(1, next[index].quantity + quantity) };
+        return next;
+      }
+      return [...prev, { id: product.id, name: product.name, quantity }];
+    });
+    setReenviarAddQty("1");
   };
 
   const submitReenviarModal = async () => {
@@ -8124,6 +8156,38 @@ function SupportTicketsPanel({
               </div>
 
               <div className="space-y-2 max-h-[45vh] overflow-auto pr-1">
+                <div className="rounded-xl border border-border bg-muted/10 p-3">
+                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Adicionar produto no reenvio</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end">
+                    <div className="sm:col-span-7">
+                      <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1 block">Produto</label>
+                      <select
+                        value={reenviarAddProductId}
+                        onChange={(event) => setReenviarAddProductId(event.target.value)}
+                        className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm outline-none focus:border-primary"
+                      >
+                        <option value="">Selecione...</option>
+                        {productsCatalog.map((item) => (
+                          <option key={item.id} value={item.id}>{item.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="sm:col-span-3">
+                      <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1 block">Quantidade</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={reenviarAddQty}
+                        onChange={(event) => setReenviarAddQty(event.target.value)}
+                        className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm outline-none focus:border-primary"
+                      />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <Button type="button" variant="outline" className="w-full" onClick={addProductToReshipment}>Adicionar</Button>
+                    </div>
+                  </div>
+                </div>
+
                 {reenviarItems.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-border p-3 text-sm text-muted-foreground">
                     Nenhum item carregado do pedido. Feche e revise o pedido original.
