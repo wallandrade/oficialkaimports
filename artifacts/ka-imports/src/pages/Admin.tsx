@@ -1519,6 +1519,7 @@ export default function Admin() {
   const [filialPurchaseRequests, setFilialPurchaseRequests] = useState<FilialPurchaseRequest[]>([]);
   const [filialPurchaseLoading, setFilialPurchaseLoading] = useState(false);
   const [filialPurchaseConfirmingId, setFilialPurchaseConfirmingId] = useState<string | null>(null);
+  const [filialPurchaseDeletingId, setFilialPurchaseDeletingId] = useState<string | null>(null);
   const [filialPurchaseCostDrafts, setFilialPurchaseCostDrafts] = useState<Record<string, Record<string, string>>>({});
   const [filialPurchaseUpdateCostFlags, setFilialPurchaseUpdateCostFlags] = useState<Record<string, boolean>>({});
   const [filialPurchaseOpenId, setFilialPurchaseOpenId] = useState<string | null>(null);
@@ -2583,6 +2584,35 @@ export default function Admin() {
       setFilialPurchaseConfirmingId(null);
     }
   }, [canManageTenants, fetchFilialPurchaseRequests, filialPurchaseCostDrafts, filialPurchaseUpdateCostFlags, handleUnauthorized]);
+
+  const deleteFilialPurchase = useCallback(async (request: FilialPurchaseRequest) => {
+    if (!canManageTenants) return;
+    if (!window.confirm(`Excluir da fila a compra do pedido ${request.orderId} (${request.filialTenantName})?`)) return;
+
+    setFilialPurchaseDeletingId(request.id);
+    try {
+      const res = await fetch(`${BASE}/api/admin/filial-purchases/${encodeURIComponent(request.id)}`, {
+        method: "DELETE",
+        headers: authHeaders(),
+      });
+
+      if (res.status === 401) { handleUnauthorized(); return; }
+
+      const data = await res.json().catch(() => null) as { message?: string } | null;
+      if (!res.ok) {
+        toast.error(data?.message || "Erro ao excluir compra da filial.");
+        return;
+      }
+
+      toast.success("Compra da filial excluída da fila.");
+      setFilialPurchaseOpenId((prev) => (prev === request.id ? null : prev));
+      await fetchFilialPurchaseRequests();
+    } catch {
+      toast.error("Erro ao excluir compra da filial.");
+    } finally {
+      setFilialPurchaseDeletingId(null);
+    }
+  }, [canManageTenants, fetchFilialPurchaseRequests, handleUnauthorized]);
 
   const checkDns = useCallback(async (domain: string, tenantId?: string) => {
     if (!canManageTenants) return;
@@ -6906,14 +6936,26 @@ export default function Admin() {
                         </div>
 
                         <div className="mt-3 flex justify-end">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            className="h-9"
-                            onClick={() => setFilialPurchaseOpenId((prev) => (prev === request.id ? null : request.id))}
-                          >
-                            <span>{filialPurchaseOpenId === request.id ? "Fechar compra" : "Abrir compra"}</span>
-                          </Button>
+                          <div className="flex gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-9 border-red-200 text-red-700 hover:bg-red-50"
+                              onClick={() => { void deleteFilialPurchase(request); }}
+                              disabled={filialPurchaseDeletingId === request.id || filialPurchaseConfirmingId === request.id}
+                            >
+                              {filialPurchaseDeletingId === request.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                              <span className="ml-2">Excluir pedido</span>
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-9"
+                              onClick={() => setFilialPurchaseOpenId((prev) => (prev === request.id ? null : request.id))}
+                            >
+                              <span>{filialPurchaseOpenId === request.id ? "Fechar compra" : "Abrir compra"}</span>
+                            </Button>
+                          </div>
                         </div>
 
                         {filialPurchaseOpenId === request.id ? (

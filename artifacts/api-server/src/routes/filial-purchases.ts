@@ -403,4 +403,38 @@ router.post("/admin/filial-purchases/:requestId/confirm", requirePrimaryAdmin, a
   }
 });
 
+router.delete("/admin/filial-purchases/:requestId", requirePrimaryAdmin, async (req, res) => {
+  try {
+    if (!ensureDefaultTenantScope(req, res)) return;
+
+    const requestId = String(req.params.requestId || "").trim();
+    if (!requestId) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Compra inválida." });
+      return;
+    }
+
+    const rows = await db
+      .select({ id: filialPurchaseRequestsTable.id })
+      .from(filialPurchaseRequestsTable)
+      .where(eq(filialPurchaseRequestsTable.id, requestId))
+      .limit(1);
+
+    const requestRow = rows[0];
+    if (!requestRow) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Compra da filial não encontrada." });
+      return;
+    }
+
+    await db.transaction(async (tx) => {
+      await tx.delete(filialPurchaseRequestAuditsTable).where(eq(filialPurchaseRequestAuditsTable.requestId, requestId));
+      await tx.delete(filialPurchaseRequestsTable).where(eq(filialPurchaseRequestsTable.id, requestId));
+    });
+
+    res.json({ ok: true, requestId, deleted: true });
+  } catch (err) {
+    console.error("[FilialPurchases] delete error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao excluir compra da filial." });
+  }
+});
+
 export default router;
