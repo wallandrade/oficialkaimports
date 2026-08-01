@@ -10084,6 +10084,9 @@ function OrdersPanel({
           const hiddenProductsCount = Math.max(0, orderProducts.length - previewProducts.length);
           // Definir isReshipment no escopo correto
           const isReshipment = Boolean(order?.reshipment?.id) && !["reenvio_enviado", "reenvio_resolvido_sem_entrada"].includes(String(order?.reshipment?.status || ""));
+          const isSupportTicketReshipmentChild = String(order?.observation || "").toUpperCase().includes("REENVIO DO PEDIDO");
+          const commissionBasisAmount = Number(order?.subtotal ?? order?.total) || 0;
+          const hasIncrementalCommission = isSupportTicketReshipmentChild && commissionBasisAmount > 0;
           const resolveProductImage = (product: OrderProductLite): string => {
             const fromSnapshot = String(product?.image || "").trim();
             if (fromSnapshot) return fromSnapshot;
@@ -10132,6 +10135,19 @@ function OrdersPanel({
                         {isReshipment && (
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${rs === "reenvio_aguardando_estoque" ? "bg-red-100 text-red-800 border-red-200" : rs === "reenvio_pronto_para_envio" ? "bg-red-50 text-red-700 border-red-200" : "bg-rose-100 text-rose-800 border-rose-200"}`}>
                             <AlertTriangle className="w-3 h-3" />{reshipmentStatusLabel(rs)}
+                          </span>
+                        )}
+                        {isSupportTicketReshipmentChild && (
+                          <span
+                            title={hasIncrementalCommission
+                              ? "Pedido de reenvio: comissão aplicada apenas no acréscimo de produtos/quantidade."
+                              : "Pedido de reenvio: sem nova comissão (somente reposição do pedido original)."}
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${hasIncrementalCommission
+                              ? "bg-amber-100 text-amber-800 border-amber-200"
+                              : "bg-emerald-100 text-emerald-800 border-emerald-200"}`}
+                          >
+                            <Percent className="w-3 h-3" />
+                            {hasIncrementalCommission ? "Comissão só no acréscimo" : "Sem nova comissão"}
                           </span>
                         )}
                         {statusBadge(order.status)}
