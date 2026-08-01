@@ -1010,6 +1010,7 @@ interface SupportTicketRecord {
   status: "open" | "resolved" | string;
   resolutionReason?: string | null;
   orderTotal: number | null;
+  orderProducts?: Array<{ id: string; name: string; quantity: number; price?: number }>;
   orderCreatedAt: string | null;
   resolvedAt: string | null;
   createdAt: string;
@@ -5013,11 +5014,14 @@ export default function Admin() {
                 toast.error("Erro ao excluir chamado.");
               }
             }}
-            onReenviar={async (id) => {
+            onReenviar={async (id, products) => {
               try {
                 const res = await fetch(`${BASE}/api/admin/support-tickets/${id}/reenviar`, {
                   method: "POST",
                   headers: authHeaders(),
+                  body: JSON.stringify({
+                    products: products || [],
+                  }),
                 });
                 const data = await res.json() as { message?: string; reshipment?: { status?: string } };
                 if (!res.ok) {
@@ -7953,8 +7957,50 @@ function SupportTicketsPanel({
   onRefresh: () => void;
   onSetStatus: (id: string, status: "open" | "resolved") => void;
   onDelete: (id: string) => void;
-  onReenviar: (id: string) => void;
+  onReenviar: (id: string, products?: Array<{ id: string; name: string; quantity: number }>) => Promise<void>;
 }) {
+  const [reenviarModalTicket, setReenviarModalTicket] = useState<SupportTicketRecord | null>(null);
+  const [reenviarItems, setReenviarItems] = useState<Array<{ id: string; name: string; quantity: number }>>([]);
+  const [reenviarSubmitting, setReenviarSubmitting] = useState(false);
+
+  const openReenviarModal = (ticket: SupportTicketRecord) => {
+    const baseItems = (ticket.orderProducts || [])
+      .map((item) => ({
+        id: String(item.id || "").trim(),
+        name: String(item.name || "Produto").trim() || "Produto",
+        quantity: Math.max(1, Number(item.quantity) || 1),
+      }))
+      .filter((item) => item.id);
+
+    setReenviarModalTicket(ticket);
+    setReenviarItems(baseItems);
+  };
+
+  const submitReenviarModal = async () => {
+    if (!reenviarModalTicket) return;
+    const payload = reenviarItems
+      .map((item) => ({
+        id: String(item.id || "").trim(),
+        name: String(item.name || "Produto").trim() || "Produto",
+        quantity: Math.max(0, Number(item.quantity) || 0),
+      }))
+      .filter((item) => item.id && item.quantity > 0);
+
+    if (payload.length === 0) {
+      toast.error("Informe ao menos um produto com quantidade para o reenvio.");
+      return;
+    }
+
+    setReenviarSubmitting(true);
+    try {
+      await onReenviar(reenviarModalTicket.id, payload);
+      setReenviarModalTicket(null);
+      setReenviarItems([]);
+    } finally {
+      setReenviarSubmitting(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between rounded-2xl border border-border bg-card p-4">
@@ -8002,7 +8048,7 @@ function SupportTicketsPanel({
                   {ticket.status !== "resolved" ? (
                     <>
                       <Button size="sm" onClick={() => onSetStatus(ticket.id, "resolved")}>Marcar resolvido</Button>
-                      <Button size="sm" variant="outline" className="border-red-200 text-red-700 hover:bg-red-50" onClick={() => onReenviar(ticket.id)}>
+                      <Button size="sm" variant="outline" className="border-red-200 text-red-700 hover:bg-red-50" onClick={() => openReenviarModal(ticket)}>
                         Reenviar
                       </Button>
                       <Button size="sm" variant="outline" className="border-red-200 text-red-700 hover:bg-red-50" onClick={() => onDelete(ticket.id)}>
@@ -8050,6 +8096,109 @@ function SupportTicketsPanel({
           ))}
         </div>
       )}
+
+      <AnimatePresence>
+        {reenviarModalTicket && (
+          <motion.div
+            className="fixed inset-0 z-[140] bg-black/50 p-4 flex items-center justify-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => {
+              if (reenviarSubmitting) return;
+              setReenviarModalTicket(null);
+            }}
+          >
+            <motion.div
+              initial={{ scale: 0.96, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.96, opacity: 0 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+              onClick={(event) => event.stopPropagation()}
+              className="w-full max-w-2xl rounded-2xl border border-border bg-white p-4 sm:p-5 shadow-2xl space-y-4"
+            >
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Reenvio do chamado</p>
+                <h3 className="text-lg font-bold">Pedido original: #{reenviarModalTicket.orderId}</h3>
+                <p className="text-sm text-muted-foreground mt-1">Edite os itens que vão para o novo pedido de reenvio. O pedido original não será alterado.</p>
+              </div>
+
+              <div className="space-y-2 max-h-[45vh] overflow-auto pr-1">
+                {reenviarItems.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-border p-3 text-sm text-muted-foreground">
+                    Nenhum item carregado do pedido. Feche e revise o pedido original.
+                  </div>
+                ) : (
+                  reenviarItems.map((item, index) => (
+                    <div key={`${item.id}-${index}`} className="rounded-xl border border-border bg-muted/20 p-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end">
+                        <div className="sm:col-span-6">
+                          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1 block">Produto</label>
+                          <input
+                            value={item.name}
+                            onChange={(event) => {
+                              const next = [...reenviarItems];
+                              next[index] = { ...next[index], name: event.target.value };
+                              setReenviarItems(next);
+                            }}
+                            className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm outline-none focus:border-primary"
+                          />
+                        </div>
+                        <div className="sm:col-span-3">
+                          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1 block">Quantidade</label>
+                          <input
+                            type="number"
+                            min="1"
+                            value={item.quantity}
+                            onChange={(event) => {
+                              const next = [...reenviarItems];
+                              next[index] = { ...next[index], quantity: Math.max(1, Number(event.target.value) || 1) };
+                              setReenviarItems(next);
+                            }}
+                            className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm outline-none focus:border-primary"
+                          />
+                        </div>
+                        <div className="sm:col-span-3">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="w-full border-red-200 text-red-700 hover:bg-red-50"
+                            onClick={() => setReenviarItems((prev) => prev.filter((_, i) => i !== index))}
+                          >
+                            Remover
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    if (reenviarSubmitting) return;
+                    setReenviarModalTicket(null);
+                  }}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => { void submitReenviarModal(); }}
+                  disabled={reenviarSubmitting}
+                  className="gap-1.5"
+                >
+                  {reenviarSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  Criar pedido de reenvio
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

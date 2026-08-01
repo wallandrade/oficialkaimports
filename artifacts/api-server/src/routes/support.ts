@@ -6,6 +6,7 @@ import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { broadcastNotification } from "./notifications";
 import { createOrRefreshReshipment } from "../lib/reshipments";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
+import { reserveNextOrderNumber } from "../lib/order-number";
 
 const router: IRouter = Router();
 
@@ -101,6 +102,50 @@ function getOrderProducts(raw: unknown): Array<{ name?: string; quantity?: numbe
     }
   }
   return [];
+}
+
+type AdminOrderProduct = {
+  id: string;
+  name: string;
+  quantity: number;
+  price: number;
+  costPrice?: number;
+  image?: string | null;
+};
+
+function parseAdminOrderProducts(raw: unknown): AdminOrderProduct[] {
+  const list = Array.isArray(raw)
+    ? raw
+    : typeof raw === "string"
+      ? (() => {
+          try {
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : [];
+          } catch {
+            return [];
+          }
+        })()
+      : [];
+
+  return list
+    .map((item) => {
+      const row = item as Record<string, unknown>;
+      const id = String(row.id || row.productId || "").trim();
+      const name = String(row.name || "Produto").trim() || "Produto";
+      const quantity = Number(row.quantity || 0);
+      const price = Number(row.price || 0);
+      const costPrice = row.costPrice == null ? undefined : Number(row.costPrice);
+      const image = row.image == null ? null : String(row.image || "").trim() || null;
+      return {
+        id,
+        name,
+        quantity: Number.isFinite(quantity) ? quantity : 0,
+        price: Number.isFinite(price) ? price : 0,
+        costPrice: costPrice != null && Number.isFinite(costPrice) ? costPrice : undefined,
+        image,
+      };
+    })
+    .filter((item) => item.id && item.quantity > 0);
 }
 
 function normalizeAddressChange(raw: unknown): AddressChangePayload | null {
@@ -350,6 +395,15 @@ router.get("/admin/support-tickets", requireAdminAuth, async (req, res) => {
         .where(whereClause ? and(buildSupportTicketsTenantWhere(scope.tenantId), whereClause, inArray(supportTicketsTable.orderId, scopedOrderIds)) : and(buildSupportTicketsTenantWhere(scope.tenantId), inArray(supportTicketsTable.orderId, scopedOrderIds)))
         .orderBy(desc(supportTicketsTable.createdAt));
 
+      const ticketOrderIds = Array.from(new Set(rows.map((row) => row.orderId).filter(Boolean)));
+      const orderRows = ticketOrderIds.length > 0
+        ? await db
+            .select({ id: ordersTable.id, products: ordersTable.products })
+            .from(ordersTable)
+            .where(and(buildOrdersTenantWhere(scope.tenantId), inArray(ordersTable.id, ticketOrderIds)))
+        : [];
+      const productsByOrderId = new Map(orderRows.map((row) => [row.id, parseAdminOrderProducts(row.products)]));
+
       const tickets = rows.map((row) => {
         let addressChange: AddressChangePayload | null = null;
         if (row.addressChangeJson) {
@@ -373,6 +427,7 @@ router.get("/admin/support-tickets", requireAdminAuth, async (req, res) => {
           status: row.status,
           resolutionReason: row.resolutionReason,
           orderTotal: row.orderTotal == null ? null : Number(row.orderTotal),
+          orderProducts: productsByOrderId.get(row.orderId) || [],
           orderCreatedAt: row.orderCreatedAt?.toISOString() ?? null,
           resolvedAt: row.resolvedAt?.toISOString() ?? null,
           createdAt: row.createdAt?.toISOString() ?? new Date().toISOString(),
@@ -389,6 +444,15 @@ router.get("/admin/support-tickets", requireAdminAuth, async (req, res) => {
       .from(supportTicketsTable)
       .where(whereClause ? and(buildSupportTicketsTenantWhere(scope.tenantId), whereClause) : buildSupportTicketsTenantWhere(scope.tenantId))
       .orderBy(desc(supportTicketsTable.createdAt));
+
+    const ticketOrderIds = Array.from(new Set(rows.map((row) => row.orderId).filter(Boolean)));
+    const orderRows = ticketOrderIds.length > 0
+      ? await db
+          .select({ id: ordersTable.id, products: ordersTable.products })
+          .from(ordersTable)
+          .where(and(buildOrdersTenantWhere(scope.tenantId), inArray(ordersTable.id, ticketOrderIds)))
+      : [];
+    const productsByOrderId = new Map(orderRows.map((row) => [row.id, parseAdminOrderProducts(row.products)]));
 
     const tickets = rows.map((row) => {
       let addressChange: AddressChangePayload | null = null;
@@ -413,6 +477,7 @@ router.get("/admin/support-tickets", requireAdminAuth, async (req, res) => {
         status: row.status,
         resolutionReason: row.resolutionReason,
         orderTotal: row.orderTotal == null ? null : Number(row.orderTotal),
+        orderProducts: productsByOrderId.get(row.orderId) || [],
         orderCreatedAt: row.orderCreatedAt?.toISOString() ?? null,
         resolvedAt: row.resolvedAt?.toISOString() ?? null,
         createdAt: row.createdAt?.toISOString() ?? new Date().toISOString(),
@@ -460,16 +525,8 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
     const parsedAddress = parseAddressChangeJson(ticket.addressChangeJson);
     const canApplyAddress = parsedAddress ? await isLatestTicketForOrder(ticket.orderId, ticket.id) : false;
 
-    if (parsedAddress && canApplyAddress) {
-      await applyAddressChangeToOrder({
-        orderId: ticket.orderId,
-        addressChange: parsedAddress,
-        scope,
-      });
-    }
-
     const orderRows = await db
-      .select({ id: ordersTable.id, products: ordersTable.products })
+      .select()
       .from(ordersTable)
       .where(scope.hasGlobalAccess
         ? and(buildOrdersTenantWhere(scope.tenantId), eq(ordersTable.id, ticket.orderId))
@@ -482,11 +539,111 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
       return;
     }
 
+    const originalProducts = parseAdminOrderProducts(order.products);
+    const overrideProductsRaw = Array.isArray((req.body as { products?: unknown[] } | undefined)?.products)
+      ? ((req.body as { products?: unknown[] }).products || [])
+      : [];
+
+    const overrideProducts = overrideProductsRaw
+      .map((item) => {
+        const row = item as Record<string, unknown>;
+        return {
+          id: String(row.id || "").trim(),
+          name: String(row.name || "").trim(),
+          quantity: Number(row.quantity || 0),
+        };
+      })
+      .filter((item) => item.id && item.quantity > 0);
+
+    const byOriginalId = new Map(originalProducts.map((item) => [item.id, item]));
+    const selectedProducts = (overrideProducts.length > 0 ? overrideProducts : originalProducts)
+      .map((item) => {
+        const base = byOriginalId.get(item.id);
+        return {
+          id: item.id,
+          name: item.name || base?.name || "Produto",
+          quantity: Number(item.quantity) || 0,
+          price: 0,
+          costPrice: base?.costPrice,
+          image: base?.image || null,
+        };
+      })
+      .filter((item) => item.id && item.quantity > 0);
+
+    if (selectedProducts.length === 0) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Informe ao menos um produto para o reenvio." });
+      return;
+    }
+
+    const childOrderId = crypto.randomBytes(8).toString("hex");
+    let childOrderNumber = 0;
+
+    await db.transaction(async (tx) => {
+      childOrderNumber = await reserveNextOrderNumber(tx, scope.tenantId);
+
+      await tx.insert(ordersTable).values({
+        id: childOrderId,
+        orderNumber: childOrderNumber,
+        tenantId: scope.tenantId,
+        userId: order.userId,
+        guestAccessToken: null,
+        affiliateUserId: null,
+        affiliateCode: null,
+        clientName: order.clientName,
+        clientEmail: order.clientEmail,
+        clientPhone: order.clientPhone,
+        clientDocument: order.clientDocument,
+        purchaseIp: order.purchaseIp,
+        addressCep: (parsedAddress && canApplyAddress) ? parsedAddress.cep : order.addressCep,
+        addressStreet: (parsedAddress && canApplyAddress) ? parsedAddress.street : order.addressStreet,
+        addressNumber: (parsedAddress && canApplyAddress) ? parsedAddress.number : order.addressNumber,
+        addressComplement: (parsedAddress && canApplyAddress) ? (parsedAddress.complement || null) : order.addressComplement,
+        addressNeighborhood: (parsedAddress && canApplyAddress) ? parsedAddress.neighborhood : order.addressNeighborhood,
+        addressCity: (parsedAddress && canApplyAddress) ? parsedAddress.city : order.addressCity,
+        addressState: (parsedAddress && canApplyAddress) ? parsedAddress.state : order.addressState,
+        products: selectedProducts,
+        shippingType: "Reenvio",
+        includeInsurance: false,
+        subtotal: "0.00",
+        shippingCost: "0.00",
+        insuranceAmount: "0.00",
+        total: "0.00",
+        status: "paid",
+        paymentMethod: "whatsapp_pix",
+        sellerCode: order.sellerCode,
+        sellerCommissionRateSnapshot: "0",
+        couponCode: null,
+        discountAmount: null,
+        affiliateCreditUsed: null,
+        observation: `REENVIO DO PEDIDO ${order.id} · TICKET ${ticket.id}`,
+        cardInstallments: null,
+        cardInstallmentsActual: null,
+        cardInstallmentValue: null,
+        cardTotalActual: null,
+        paidAmount: "0.00",
+        transactionId: null,
+        pixCode: null,
+        pixBase64: null,
+        enviado: false,
+        trackingCode: null,
+        trackingLabelUrl: null,
+        trackingLabelText: null,
+        trackingDetectedName: null,
+        trackingDetectedAddress: null,
+      });
+
+      try {
+        await tx.execute(sql`UPDATE orders SET is_prioridade = 1, updated_at = NOW() WHERE id = ${childOrderId}`);
+      } catch {
+        // Some environments may not have is_prioridade yet; reenvio order still gets created.
+      }
+    });
+
     const reshipment = await createOrRefreshReshipment({
       tenantId: scope.tenantId,
-      orderId: order.id,
+      orderId: childOrderId,
       supportTicketId: ticket.id,
-      productsRaw: order.products,
+      productsRaw: selectedProducts,
       resolvedReason: "reenvio_autorizado",
     });
 
@@ -504,7 +661,8 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
       type: "support_ticket_reshipment_authorized",
       data: {
         ticketId: id,
-        orderId: order.id,
+        orderId: childOrderId,
+        originalOrderId: order.id,
         reshipmentId: reshipment.id,
         reshipmentStatus: reshipment.status,
         tenantId: scope.tenantId,
@@ -514,7 +672,9 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
     res.json({
       ok: true,
       ticketId: id,
-      orderId: order.id,
+      orderId: childOrderId,
+      originalOrderId: order.id,
+      orderNumber: childOrderNumber,
       addressApplied: Boolean(parsedAddress && canApplyAddress),
       reshipment,
     });
