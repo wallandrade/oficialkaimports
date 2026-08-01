@@ -1593,6 +1593,9 @@ export default function Admin() {
     const haystack = `${product.name} ${product.category} ${product.id}`.toLowerCase();
     return haystack.includes(query);
   });
+  const filialInventoryQtyByProductId = new Map(
+    filialInventoryBalances.map((row) => [String(row.productId || ""), Number(row.quantity || 0)]),
+  );
   const filteredFilialInventoryBalances = filialInventoryBalances.filter((row) => {
     const query = filialInventorySearch.trim().toLowerCase();
     if (!query) return true;
@@ -3385,6 +3388,12 @@ export default function Admin() {
     if (filialScopeSubTab === "estoque") {
       void fetchFilialInventoryOverview(selectedFilialTenantId);
       void fetchFilialStoreProducts(selectedFilialTenantId);
+      return;
+    }
+
+    if (filialScopeSubTab === "produtos") {
+      void fetchFilialStoreProducts(selectedFilialTenantId);
+      void fetchFilialInventoryOverview(selectedFilialTenantId);
       return;
     }
 
@@ -7037,6 +7046,7 @@ export default function Admin() {
                         void fetchFilialStoreProducts(selectedFilialTenantId);
                       } else {
                         void fetchFilialStoreProducts(selectedFilialTenantId);
+                        void fetchFilialInventoryOverview(selectedFilialTenantId);
                       }
                     }}
                     disabled={!selectedFilialTenantId || filialPurchaseLoading || filialStoreProductsLoading || filialInventoryLoading}
@@ -7258,6 +7268,11 @@ export default function Admin() {
                       <div className="space-y-2 mb-4">
                         {filteredFilialStoreProducts.map((product) => (
                           <div key={`filial-product-${product.id}`} className="rounded-xl border border-border bg-white p-3">
+                            {(() => {
+                              const stockQty = Number(filialInventoryQtyByProductId.get(product.id) || 0);
+                              const hasStock = stockQty > 0;
+                              return (
+                                <>
                             <div className="flex flex-wrap items-start justify-between gap-2">
                               <div className="flex items-start gap-2 min-w-0">
                                 {product.image ? (
@@ -7283,10 +7298,13 @@ export default function Admin() {
                               <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${product.isActive ? "border-emerald-200 bg-emerald-100 text-emerald-700" : "border-slate-200 bg-slate-100 text-slate-600"}`}>
                                 {product.isActive ? "Ativo" : "Inativo"}
                               </span>
-                              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${product.isSoldOut ? "border-red-200 bg-red-100 text-red-700" : "border-emerald-200 bg-emerald-100 text-emerald-700"}`}>
-                                {product.isSoldOut ? "Sem estoque" : "Com estoque"}
+                              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${hasStock ? "border-emerald-200 bg-emerald-100 text-emerald-700" : "border-red-200 bg-red-100 text-red-700"}`}>
+                                {hasStock ? `Com estoque (${stockQty})` : "Sem estoque"}
                               </span>
                             </div>
+                                </>
+                              );
+                            })()}
                           </div>
                         ))}
                       </div>
