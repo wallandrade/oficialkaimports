@@ -13,7 +13,7 @@
           "value": ".*(WhatsApp|whatsapp|facebookexternalhit|Twitterbot|twitterbot|LinkedInBot|linkedinbot|TelegramBot|telegrambot|Slackbot|slackbot|Discordbot|discordbot|SkypeUriPreview|skypeuripreview|Googlebot|googlebot).*"
         }
       ],
-      "destination": "/api/link-preview?path=$1"
+      "destination": "/link-preview?path=$1"
     },
     {
       "source": "/((?!api/|assets/|favicon.ico|robots.txt|sitemap.xml|sw.js|manifest.webmanifest).*)",
