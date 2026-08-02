@@ -2,7 +2,11 @@ const RELATIVE_BASE = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
 const API_BASE = String(import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");
 
 function buildRelativeSettingsUrl(): string {
-  return `${RELATIVE_BASE}/api/settings`;
+  const host = typeof window !== "undefined" ? window.location.hostname : "";
+  const params = new URLSearchParams();
+  if (host) params.set("domain", host);
+  const query = params.toString();
+  return `${RELATIVE_BASE}/api/settings${query ? `?${query}` : ""}`;
 }
 
 function buildAbsoluteSettingsUrl(): string {
