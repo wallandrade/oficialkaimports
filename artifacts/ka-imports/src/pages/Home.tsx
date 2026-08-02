@@ -255,10 +255,9 @@ export default function Home() {
 
   const featuredProducts = useMemo(() => {
     if (!isMarketplaceShowcase) return [] as typeof filteredProducts;
-    if (!featuredCategory || featuredCategory === "__all__") return filteredProducts.slice(0, 12);
+    if (!featuredCategory || featuredCategory === "__all__") return filteredProducts;
     return filteredProducts
-      .filter((product) => String(product.category || "Sem categoria") === featuredCategory)
-      .slice(0, 12);
+      .filter((product) => String(product.category || "Sem categoria") === featuredCategory);
   }, [isMarketplaceShowcase, featuredCategory, filteredProducts]);
 
   const brandOptions = useMemo(() => {
