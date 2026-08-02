@@ -5,6 +5,17 @@
       "destination": "https://oficialkaimports-production.up.railway.app/api/:path*"
     },
     {
+      "source": "/",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*(WhatsApp|whatsapp|facebookexternalhit|Twitterbot|twitterbot|LinkedInBot|linkedinbot|TelegramBot|telegrambot|Slackbot|slackbot|Discordbot|discordbot|SkypeUriPreview|skypeuripreview|Googlebot|googlebot).*"
+        }
+      ],
+      "destination": "/api/link-preview"
+    },
+    {
       "source": "/((?!api/|assets/|favicon.ico|robots.txt|sitemap.xml|sw.js|manifest.webmanifest).*)",
       "has": [
         {
