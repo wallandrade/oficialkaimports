@@ -10,7 +10,7 @@
         {
           "type": "header",
           "key": "user-agent",
-          "value": "(?i).*(whatsapp|facebookexternalhit|twitterbot|linkedinbot|telegrambot|slackbot|discordbot|skypeuripreview|googlebot).*"
+          "value": ".*(WhatsApp|whatsapp|facebookexternalhit|Twitterbot|twitterbot|LinkedInBot|linkedinbot|TelegramBot|telegrambot|Slackbot|slackbot|Discordbot|discordbot|SkypeUriPreview|skypeuripreview|Googlebot|googlebot).*"
         }
       ],
       "destination": "/api/link-preview?path=$1"
