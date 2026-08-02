@@ -6,6 +6,17 @@
     },
     {
       "source": "/((?!api/|assets/|favicon.ico|robots.txt|sitemap.xml|sw.js|manifest.webmanifest).*)",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": "(?i).*(whatsapp|facebookexternalhit|twitterbot|linkedinbot|telegrambot|slackbot|discordbot|skypeuripreview|googlebot).*"
+        }
+      ],
+      "destination": "/api/link-preview?path=$1"
+    },
+    {
+      "source": "/((?!api/|assets/|favicon.ico|robots.txt|sitemap.xml|sw.js|manifest.webmanifest).*)",
       "destination": "/index.html"
     }
   ],

@@ -207,6 +207,37 @@ function clearStoreThemeOverrides(): void {
   root.style.removeProperty("--color-accent-foreground");
 }
 
+function upsertMetaTag(
+  attr: "name" | "property",
+  key: string,
+  content: string,
+): void {
+  const selector = `meta[${attr}="${key}"]`;
+  let meta = document.head.querySelector(selector) as HTMLMetaElement | null;
+  if (!meta) {
+    meta = document.createElement("meta");
+    meta.setAttribute(attr, key);
+    document.head.appendChild(meta);
+  }
+  meta.setAttribute("content", content);
+}
+
+function applyStoreBrandingFromSettings(settings: Record<string, string>): void {
+  const siteName = String(settings.site_name || "").trim() || "KA Imports";
+  document.title = siteName;
+
+  const currentUrl = window.location.href;
+  upsertMetaTag("property", "og:title", siteName);
+  upsertMetaTag("property", "og:site_name", siteName);
+  upsertMetaTag("property", "og:url", currentUrl);
+  upsertMetaTag("name", "twitter:title", siteName);
+
+  const description = `Confira os produtos da loja ${siteName}.`;
+  upsertMetaTag("name", "description", description);
+  upsertMetaTag("property", "og:description", description);
+  upsertMetaTag("name", "twitter:description", description);
+}
+
 function PageLoader() {
   return (
     <div className="flex items-center justify-center min-h-screen">
@@ -305,6 +336,7 @@ function AppInner() {
         try {
           const cached = JSON.parse(localStorage.getItem("siteSettings") || "{}") as Record<string, string>;
           applyStoreThemeFromSettings(cached);
+          applyStoreBrandingFromSettings(cached);
         } catch {
           // ignore invalid cache
         }
@@ -314,6 +346,7 @@ function AppInner() {
         if (!settings) return;
         localStorage.setItem("siteSettings", JSON.stringify(settings));
         applyStoreThemeFromSettings(settings);
+        applyStoreBrandingFromSettings(settings);
       } catch {
         // Keep default theme when settings are unavailable.
       }
@@ -323,6 +356,7 @@ function AppInner() {
       const custom = event as CustomEvent<Record<string, string>>;
       const detail = custom.detail || {};
       applyStoreThemeFromSettings(detail);
+      applyStoreBrandingFromSettings(detail);
     };
 
     const handleStorageSync = (event: StorageEvent) => {
@@ -330,6 +364,7 @@ function AppInner() {
       try {
         const parsed = JSON.parse(String(event.newValue || "{}")) as Record<string, string>;
         applyStoreThemeFromSettings(parsed);
+        applyStoreBrandingFromSettings(parsed);
       } catch {
         // ignore parse errors
       }
