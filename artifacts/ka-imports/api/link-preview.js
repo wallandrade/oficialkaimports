@@ -1,17 +1,10 @@
-type HeadersMap = Record<string, string | string[] | undefined>;
-
-type SiteSettings = {
-  site_name?: string;
-  logo?: string;
-};
-
-function getHeader(headers: HeadersMap, key: string): string {
-  const value = headers[key.toLowerCase()] ?? headers[key];
+function getHeader(headers, key) {
+  const value = headers?.[key.toLowerCase()] ?? headers?.[key];
   if (Array.isArray(value)) return String(value[0] || "").trim();
   return String(value || "").trim();
 }
 
-function normalizeHost(raw: string): string {
+function normalizeHost(raw) {
   return String(raw || "")
     .split(",")[0]
     .trim()
@@ -21,7 +14,7 @@ function normalizeHost(raw: string): string {
     .toLowerCase();
 }
 
-function escapeHtml(value: string): string {
+function escapeHtml(value) {
   return String(value || "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -30,7 +23,7 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
-async function fetchSiteSettings(apiUrl: string): Promise<SiteSettings | null> {
+async function fetchSiteSettings(apiUrl) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 2500);
   try {
@@ -42,7 +35,7 @@ async function fetchSiteSettings(apiUrl: string): Promise<SiteSettings | null> {
       signal: controller.signal,
     });
     if (!response.ok) return null;
-    const data = (await response.json()) as SiteSettings;
+    const data = await response.json();
     if (!data || typeof data !== "object") return null;
     return data;
   } catch {
@@ -52,7 +45,7 @@ async function fetchSiteSettings(apiUrl: string): Promise<SiteSettings | null> {
   }
 }
 
-export default async function handler(req: any, res: any) {
+export default async function handler(req, res) {
   const hostHeader = getHeader(req.headers || {}, "x-forwarded-host") || getHeader(req.headers || {}, "host");
   const protoHeader = getHeader(req.headers || {}, "x-forwarded-proto") || "https";
   const host = normalizeHost(hostHeader);
