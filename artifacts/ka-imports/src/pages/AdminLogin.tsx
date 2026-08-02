@@ -1,8 +1,9 @@
-import { useState, FormEvent } from "react";
+import { useState, FormEvent, useEffect } from "react";
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
 import { Lock, User, Eye, EyeOff, Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { fetchPublicSiteSettings } from "@/lib/public-settings";
 import { toast } from "sonner";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -13,6 +14,23 @@ export default function AdminLogin() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [siteSettings, setSiteSettings] = useState<Record<string, string>>(() => {
+    try { return JSON.parse(localStorage.getItem("siteSettings") || "{}"); } catch { return {}; }
+  });
+
+  useEffect(() => {
+    fetchPublicSiteSettings()
+      .then((data) => {
+        if (!data) return;
+        localStorage.setItem("siteSettings", JSON.stringify(data));
+        setSiteSettings(data);
+      })
+      .catch(() => {});
+  }, []);
+
+  const siteName = String(siteSettings.site_name || "").trim() || "KA Imports";
+  const logo = String(siteSettings.logo || "").trim();
+  const logoScale = Math.min(240, Math.max(100, Number(siteSettings.logo_scale ?? 180) || 180));
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -63,10 +81,18 @@ export default function AdminLogin() {
       >
         {/* Logo / Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-white rounded-2xl shadow-2xl shadow-primary/20 mb-4 border border-border/10">
-            <ShieldCheck className="w-10 h-10 text-primary" />
+          <div className="inline-flex items-center justify-center min-h-20 bg-white rounded-2xl shadow-2xl shadow-primary/20 mb-4 border border-border/10 px-4 py-3">
+            {logo ? (
+              <div style={{ width: `${logoScale}px`, maxWidth: "50vw" }} className="flex items-center justify-center">
+                <img src={logo} alt={siteName} className="max-h-16 w-full object-contain" />
+              </div>
+            ) : (
+              <div className="w-20 h-20 flex items-center justify-center">
+                <ShieldCheck className="w-10 h-10 text-primary" />
+              </div>
+            )}
           </div>
-          <h1 className="text-3xl font-bold text-white">KA Imports</h1>
+          <h1 className="text-3xl font-bold text-white">{siteName}</h1>
           <p className="text-slate-400 mt-1">Painel Administrativo</p>
         </div>
 
