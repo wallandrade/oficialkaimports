@@ -1184,6 +1184,7 @@ interface ManualFilialPurchaseItemDraft {
   productId: string;
   productName: string;
   quantity: number;
+  baseUnitCost: number;
   repasseUnitCost: number;
   saleUnitPrice: number;
 }
@@ -1688,6 +1689,14 @@ export default function Admin() {
   const manualFilialBaseUnitCost = Number(String(manualFilialRepasseUnitCost || "").replace(",", "."));
   const manualFilialComputedRepasseUnitCost = Number.isFinite(manualFilialBaseUnitCost) && manualFilialBaseUnitCost >= 0
     ? Number((manualFilialBaseUnitCost * (1 + (selectedFilialMarginPercent / 100)) + selectedFilialMarginFixedBrl).toFixed(2))
+    : null;
+  const manualFilialSelectedQuantity = Number(String(manualFilialQuantity || "").replace(",", "."));
+  const manualFilialLoja1UnitProfitPreview = manualFilialComputedRepasseUnitCost == null ? null : Number((manualFilialComputedRepasseUnitCost - manualFilialBaseUnitCost).toFixed(2));
+  const manualFilialLoja1TotalProfitPreview = manualFilialLoja1UnitProfitPreview == null || !Number.isFinite(manualFilialSelectedQuantity) || manualFilialSelectedQuantity <= 0
+    ? null
+    : Number((manualFilialLoja1UnitProfitPreview * manualFilialSelectedQuantity).toFixed(2));
+  const manualFilialFilialUnitProfitPreview = selectedManualFilialProduct && manualFilialComputedRepasseUnitCost != null
+    ? Number((Number(selectedManualFilialProduct.price || 0) - manualFilialComputedRepasseUnitCost).toFixed(2))
     : null;
   const manualFilialTotal = manualFilialItems.reduce((sum, item) => sum + (item.repasseUnitCost * item.quantity), 0);
   const filteredFilialStoreProducts = filialStoreProducts.filter((product) => {
@@ -2735,6 +2744,7 @@ export default function Admin() {
             productId: selectedManualFilialProduct.id,
             productName: selectedManualFilialProduct.name,
             quantity,
+            baseUnitCost: manualFilialBaseUnitCost,
             repasseUnitCost,
             saleUnitPrice: Number(selectedManualFilialProduct.price || 0),
           },
@@ -2742,10 +2752,18 @@ export default function Admin() {
       }
 
       const next = [...prev];
+      const nextQty = next[idx].quantity + quantity;
+      const weightedBaseUnitCost = nextQty > 0
+        ? Number((((next[idx].baseUnitCost * next[idx].quantity) + (manualFilialBaseUnitCost * quantity)) / nextQty).toFixed(2))
+        : next[idx].baseUnitCost;
+      const weightedRepasseUnitCost = nextQty > 0
+        ? Number((((next[idx].repasseUnitCost * next[idx].quantity) + (repasseUnitCost * quantity)) / nextQty).toFixed(2))
+        : next[idx].repasseUnitCost;
       next[idx] = {
         ...next[idx],
-        quantity: next[idx].quantity + quantity,
-        repasseUnitCost,
+        quantity: nextQty,
+        baseUnitCost: weightedBaseUnitCost,
+        repasseUnitCost: weightedRepasseUnitCost,
       };
       return next;
     });
@@ -7682,7 +7700,17 @@ export default function Admin() {
                                 Margens aplicadas: <span className="font-semibold text-foreground">{selectedFilialMarginPercent}%</span> + <span className="font-semibold text-foreground">{formatCurrency(selectedFilialMarginFixedBrl)}</span>
                               </p>
                               <p className="text-xs text-muted-foreground">
+                                Custo pago informado: <span className="font-semibold text-foreground">{Number.isFinite(manualFilialBaseUnitCost) && manualFilialBaseUnitCost >= 0 ? formatCurrency(manualFilialBaseUnitCost) : "-"}</span>
+                              </p>
+                              <p className="text-xs text-muted-foreground">
                                 Repasse unit. calculado: <span className="font-semibold text-emerald-700">{manualFilialComputedRepasseUnitCost == null ? "-" : formatCurrency(manualFilialComputedRepasseUnitCost)}</span>
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                Lucro Loja 1 un.: <span className={`font-semibold ${manualFilialLoja1UnitProfitPreview != null && manualFilialLoja1UnitProfitPreview < 0 ? "text-red-700" : "text-blue-700"}`}>{manualFilialLoja1UnitProfitPreview == null ? "-" : formatCurrency(manualFilialLoja1UnitProfitPreview)}</span>
+                                {" "}· Lucro Loja 1 total: <span className={`font-semibold ${manualFilialLoja1TotalProfitPreview != null && manualFilialLoja1TotalProfitPreview < 0 ? "text-red-700" : "text-blue-700"}`}>{manualFilialLoja1TotalProfitPreview == null ? "-" : formatCurrency(manualFilialLoja1TotalProfitPreview)}</span>
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                Margem filial un. na venda: <span className={`font-semibold ${manualFilialFilialUnitProfitPreview != null && manualFilialFilialUnitProfitPreview < 0 ? "text-red-700" : "text-emerald-700"}`}>{manualFilialFilialUnitProfitPreview == null ? "-" : formatCurrency(manualFilialFilialUnitProfitPreview)}</span>
                               </p>
                             </div>
                           </div>
@@ -7753,7 +7781,11 @@ export default function Admin() {
                                 <p className="text-xs text-muted-foreground">ID: {item.productId}</p>
                               </div>
                               <p className="text-xs text-muted-foreground">Qtd: <span className="font-semibold text-foreground">{item.quantity}</span></p>
-                              <p className="text-xs text-muted-foreground">Custo un.: <span className="font-semibold text-foreground">{formatCurrency(item.repasseUnitCost)}</span></p>
+                              <div className="text-right space-y-0.5">
+                                <p className="text-xs text-muted-foreground">Custo pago un.: <span className="font-semibold text-foreground">{formatCurrency(item.baseUnitCost)}</span></p>
+                                <p className="text-xs text-muted-foreground">Repasse un.: <span className="font-semibold text-foreground">{formatCurrency(item.repasseUnitCost)}</span></p>
+                                <p className="text-xs text-muted-foreground">Lucro Loja 1: <span className={`font-semibold ${(item.repasseUnitCost - item.baseUnitCost) < 0 ? "text-red-700" : "text-blue-700"}`}>{formatCurrency((item.repasseUnitCost - item.baseUnitCost) * item.quantity)}</span></p>
+                              </div>
                               <Button
                                 type="button"
                                 variant="outline"
