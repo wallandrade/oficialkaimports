@@ -507,6 +507,7 @@ router.post("/admin/filial-purchases/:requestId/update-cost-flag", requirePrimar
         id: filialPurchaseRequestsTable.id,
         filialTenantId: filialPurchaseRequestsTable.filialTenantId,
         orderId: filialPurchaseRequestsTable.orderId,
+        itemsSnapshot: filialPurchaseRequestsTable.itemsSnapshot,
       })
       .from(filialPurchaseRequestsTable)
       .where(eq(filialPurchaseRequestsTable.id, requestId))
