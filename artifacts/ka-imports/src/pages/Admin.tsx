@@ -1531,11 +1531,6 @@ export default function Admin() {
   const [tenantDeletingId, setTenantDeletingId] = useState<string | null>(null);
   const [tenantDnsTargetSavingId, setTenantDnsTargetSavingId] = useState<string | null>(null);
   const [tenantDnsTargetDrafts, setTenantDnsTargetDrafts] = useState<Record<string, string>>({});
-  const [tenantSupplyMarginDrafts, setTenantSupplyMarginDrafts] = useState<Record<string, string>>({});
-  const [tenantSupplyFixedMarginDrafts, setTenantSupplyFixedMarginDrafts] = useState<Record<string, string>>({});
-  const [tenantSyncProductsDrafts, setTenantSyncProductsDrafts] = useState<Record<string, boolean>>({});
-  const [tenantSupplyMarginSavingId, setTenantSupplyMarginSavingId] = useState<string | null>(null);
-  const [tenantSyncProductsSavingId, setTenantSyncProductsSavingId] = useState<string | null>(null);
   const [tenantProfitSummary, setTenantProfitSummary] = useState<TenantProfitSummary[]>([]);
   const [tenantProfitLoading, setTenantProfitLoading] = useState(false);
   const [lojasSubTab, setLojasSubTab] = useState<LojasSubTab>("criar");
@@ -2260,9 +2255,6 @@ export default function Admin() {
       const data = await res.json() as { tenants: AdminTenant[] };
       setTenants(data.tenants || []);
       setTenantDnsTargetDrafts(Object.fromEntries((data.tenants || []).map((tenant) => [tenant.id, tenant.dnsTargetHost || ""])));
-      setTenantSupplyMarginDrafts(Object.fromEntries((data.tenants || []).map((tenant) => [tenant.id, String(tenant.supplyMarginPercent ?? 0)])));
-      setTenantSupplyFixedMarginDrafts(Object.fromEntries((data.tenants || []).map((tenant) => [tenant.id, String(tenant.supplyMarginFixedBrl ?? 0)])));
-      setTenantSyncProductsDrafts(Object.fromEntries((data.tenants || []).map((tenant) => [tenant.id, Boolean(tenant.syncProductsFromLoja1)])));
       setTenantAdminUsernameDrafts(Object.fromEntries((data.tenants || []).map((tenant) => [tenant.id, tenant.adminUsername || ""])));
     } catch {
       toast.error("Erro ao carregar lojas.");
@@ -2515,84 +2507,6 @@ export default function Admin() {
       setTenantProfitLoading(false);
     }
   }, [canManageTenants, statsDateFrom, statsDateTo, handleUnauthorized]);
-
-  const saveTenantSupplyMargin = useCallback(async (tenant: AdminTenant) => {
-    if (!canManageTenants) return;
-    const raw = String(tenantSupplyMarginDrafts[tenant.id] || "").replace(",", ".").trim();
-    const fixedRaw = String(tenantSupplyFixedMarginDrafts[tenant.id] || "").replace(",", ".").trim();
-    const marginPercent = Number(raw);
-    const marginFixedBrl = Number(fixedRaw);
-
-    if (!Number.isFinite(marginPercent) || marginPercent < 0) {
-      toast.error("Informe uma margem válida (>= 0).");
-      return;
-    }
-
-    if (!Number.isFinite(marginFixedBrl) || marginFixedBrl < 0) {
-      toast.error("Informe uma margem fixa válida (>= 0).");
-      return;
-    }
-
-    setTenantSupplyMarginSavingId(tenant.id);
-    try {
-      const res = await fetch(`${BASE}/api/admin/tenants/${encodeURIComponent(tenant.id)}/supply-margin`, {
-        method: "PATCH",
-        headers: authHeaders(),
-        body: JSON.stringify({ marginPercent, marginFixedBrl }),
-      });
-
-      if (res.status === 401) { handleUnauthorized(); return; }
-
-      const data = await res.json().catch(() => null) as { message?: string } | null;
-      if (!res.ok) {
-        toast.error(data?.message || "Erro ao salvar margem de repasse.");
-        return;
-      }
-
-      toast.success("Margem de repasse salva.");
-      await fetchTenants();
-      await fetchTenantProfitSummary();
-    } catch {
-      toast.error("Erro ao salvar margem de repasse.");
-    } finally {
-      setTenantSupplyMarginSavingId(null);
-    }
-  }, [canManageTenants, fetchTenants, fetchTenantProfitSummary, handleUnauthorized, tenantSupplyFixedMarginDrafts, tenantSupplyMarginDrafts]);
-
-  const saveTenantProductSync = useCallback(async (tenant: AdminTenant) => {
-    if (!canManageTenants) return;
-    const enabled = !!tenantSyncProductsDrafts[tenant.id];
-
-    setTenantSyncProductsSavingId(tenant.id);
-    try {
-      const res = await fetch(`${BASE}/api/admin/tenants/${encodeURIComponent(tenant.id)}/product-sync`, {
-        method: "PATCH",
-        headers: authHeaders(),
-        body: JSON.stringify({ enabled }),
-      });
-
-      if (res.status === 401) { handleUnauthorized(); return; }
-
-      const data = await res.json().catch(() => null) as { message?: string; syncedProducts?: number } | null;
-      if (!res.ok) {
-        toast.error(data?.message || "Erro ao salvar sincronização de produtos.");
-        return;
-      }
-
-      if (enabled) {
-        const synced = Number(data?.syncedProducts || 0);
-        toast.success(`Sincronização ativada. ${synced} produto(s) atualizados na filial.`);
-      } else {
-        toast.success("Sincronização desativada para esta filial.");
-      }
-
-      await fetchTenants();
-    } catch {
-      toast.error("Erro ao salvar sincronização de produtos.");
-    } finally {
-      setTenantSyncProductsSavingId(null);
-    }
-  }, [canManageTenants, fetchTenants, handleUnauthorized, tenantSyncProductsDrafts]);
 
   const fetchFilialPurchaseRequests = useCallback(async (tenantId?: string) => {
     if (!canManageTenants) return;
@@ -7649,73 +7563,6 @@ export default function Admin() {
                           </Button>
                         </div>
                         {tenant.id !== "tenant_loja1" ? (
-                          <div className="mt-2 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2">
-                            <div className="rounded-xl border-2 border-border bg-white p-2 space-y-2">
-                              <label className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
-                                <span className="text-xs text-muted-foreground">Receber produtos da Loja 1</span>
-                                <input
-                                  type="checkbox"
-                                  checked={!!tenantSyncProductsDrafts[tenant.id]}
-                                  onChange={(e) => setTenantSyncProductsDrafts((prev) => ({ ...prev, [tenant.id]: e.target.checked }))}
-                                  className="h-4 w-4"
-                                />
-                              </label>
-                              <div className="flex items-center gap-2 rounded-lg border border-border px-3 h-10">
-                                <span className="text-xs text-muted-foreground whitespace-nowrap">Margem repasse produtos Loja 1 (%)</span>
-                                <input
-                                  type="text"
-                                  inputMode="decimal"
-                                  value={tenantSupplyMarginDrafts[tenant.id] ?? String(tenant.supplyMarginPercent ?? 0)}
-                                  onChange={(e) => {
-                                    const raw = e.target.value;
-                                    const sanitized = raw.replace(/[^0-9.,]/g, "");
-                                    setTenantSupplyMarginDrafts((prev) => ({ ...prev, [tenant.id]: sanitized }));
-                                  }}
-                                  placeholder="Ex: 15"
-                                  className="w-full bg-white rounded-md border border-border px-2 py-1 outline-none focus:border-primary text-sm text-right"
-                                />
-                              </div>
-                              <div className="flex items-center gap-2 rounded-lg border border-border px-3 h-10">
-                                <span className="text-xs text-muted-foreground whitespace-nowrap">Margem repasse produtos em R$ Loja 1</span>
-                                <input
-                                  type="text"
-                                  inputMode="decimal"
-                                  value={tenantSupplyFixedMarginDrafts[tenant.id] ?? String(tenant.supplyMarginFixedBrl ?? 0)}
-                                  onChange={(e) => {
-                                    const raw = e.target.value;
-                                    const sanitized = raw.replace(/[^0-9.,]/g, "");
-                                    setTenantSupplyFixedMarginDrafts((prev) => ({ ...prev, [tenant.id]: sanitized }));
-                                  }}
-                                  placeholder="Ex: 10"
-                                  className="w-full bg-white rounded-md border border-border px-2 py-1 outline-none focus:border-primary text-sm text-right"
-                                />
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-1 gap-2">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className="h-10"
-                                onClick={() => saveTenantSupplyMargin(tenant)}
-                                disabled={tenantSupplyMarginSavingId === tenant.id}
-                              >
-                                {tenantSupplyMarginSavingId === tenant.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                                <span className="ml-2">Salvar margem</span>
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className="h-10"
-                                onClick={() => saveTenantProductSync(tenant)}
-                                disabled={tenantSyncProductsSavingId === tenant.id}
-                              >
-                                {tenantSyncProductsSavingId === tenant.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                                <span className="ml-2">Salvar sincronização</span>
-                              </Button>
-                            </div>
-                          </div>
-                        ) : null}
-                        {tenant.id !== "tenant_loja1" ? (
                           <div className="mt-2 grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2">
                             <input
                               type="text"
@@ -7877,6 +7724,7 @@ export default function Admin() {
             </div>
 
             <ConfiguracoesPanel
+              adminTenantId={adminTenantId}
               settings={settings}
               loading={settingsLoading}
               products={products}
@@ -15061,7 +14909,8 @@ function ImageUploadCard({
   );
 }
 
-function ConfiguracoesPanel({ settings, loading, products, clientErrors, clientErrorsLoading, onRefreshClientErrors, onTestOutboundWebhook, onSave, onDelete, brevoApiKey, setBrevoApiKey, brevoConfigured, brevoTesting, onTestBrevoConnection }: {
+function ConfiguracoesPanel({ adminTenantId, settings, loading, products, clientErrors, clientErrorsLoading, onRefreshClientErrors, onTestOutboundWebhook, onSave, onDelete, brevoApiKey, setBrevoApiKey, brevoConfigured, brevoTesting, onTestBrevoConnection }: {
+  adminTenantId: string;
   settings: Record<string, string>;
   loading: Record<string, boolean>;
   products: Array<{ id?: string; name?: string | null; image?: string | null; price?: number | null; promoPrice?: number | null }>;
@@ -15098,6 +14947,9 @@ function ConfiguracoesPanel({ settings, loading, products, clientErrors, clientE
   const [promoCountdownEnabled, setPromoCountdownEnabled] = useState(!["0", "false", "off", "no", "disabled"].includes(String(settings["promo_countdown_enabled"] ?? "0").toLowerCase()));
   const [promoCountdownDateTime, setPromoCountdownDateTime] = useState(settings["promo_countdown_datetime"] ?? "");
   const [promoCountdownText, setPromoCountdownText] = useState(settings["promo_countdown_text"] ?? "");
+  const [syncProductsFromLoja1Enabled, setSyncProductsFromLoja1Enabled] = useState(!["0", "false", "off", "no", "disabled"].includes(String(settings["tenant_sync_products_from_loja1"] ?? "0").toLowerCase()));
+  const [tenantSupplyMarginPercent, setTenantSupplyMarginPercent] = useState(settings["tenant_supply_margin_percent"] ?? "0");
+  const [tenantSupplyMarginFixedBrl, setTenantSupplyMarginFixedBrl] = useState(settings["tenant_supply_margin_fixed_brl"] ?? "0");
   const [promotionProductSearch, setPromotionProductSearch] = useState("");
   const pixEnabled = !["0", "false", "off", "no", "disabled"].includes(String(settings["checkout_enable_pix"] ?? "1").toLowerCase());
   const cardEnabled = !["0", "false", "off", "no", "disabled"].includes(String(settings["checkout_enable_card"] ?? "1").toLowerCase());
@@ -15122,6 +14974,9 @@ function ConfiguracoesPanel({ settings, loading, products, clientErrors, clientE
     setPromoCountdownEnabled(!["0", "false", "off", "no", "disabled"].includes(String(settings["promo_countdown_enabled"] ?? "0").toLowerCase()));
     setPromoCountdownDateTime(settings["promo_countdown_datetime"] ?? "");
     setPromoCountdownText(settings["promo_countdown_text"] ?? "");
+    setSyncProductsFromLoja1Enabled(!["0", "false", "off", "no", "disabled"].includes(String(settings["tenant_sync_products_from_loja1"] ?? "0").toLowerCase()));
+    setTenantSupplyMarginPercent(settings["tenant_supply_margin_percent"] ?? "0");
+    setTenantSupplyMarginFixedBrl(settings["tenant_supply_margin_fixed_brl"] ?? "0");
   }, [settings]);
 
   const togglePaymentMethod = (key: "checkout_enable_pix" | "checkout_enable_card" | "checkout_enable_whatsapp", enabled: boolean) => {
@@ -15202,6 +15057,73 @@ function ConfiguracoesPanel({ settings, loading, products, clientErrors, clientE
             </Button>
           </div>
         </div>
+
+        {adminTenantId !== "tenant_loja1" ? (
+          <div className="mb-5 rounded-2xl border border-border/60 bg-card p-4 shadow-sm space-y-3">
+            <h3 className="text-sm font-bold">Produtos da Loja 1</h3>
+            <p className="text-xs text-muted-foreground">A própria filial decide se quer receber e atualizar produtos vindos da Loja 1.</p>
+
+            <label className="flex items-center justify-between gap-2 rounded-xl border border-border px-3 py-2 bg-white">
+              <span className="text-sm text-foreground">Receber produtos da Loja 1</span>
+              <input
+                type="checkbox"
+                checked={syncProductsFromLoja1Enabled}
+                onChange={(e) => setSyncProductsFromLoja1Enabled(e.target.checked)}
+                className="h-4 w-4"
+              />
+            </label>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <div className="flex items-center gap-2 rounded-lg border border-border px-3 h-10 bg-white">
+                <span className="text-xs text-muted-foreground whitespace-nowrap">Margem repasse produtos Loja 1 (%)</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={tenantSupplyMarginPercent}
+                  onChange={(e) => setTenantSupplyMarginPercent(e.target.value.replace(/[^0-9.,]/g, ""))}
+                  placeholder="Ex: 15"
+                  className="w-full bg-white rounded-md border border-border px-2 py-1 outline-none focus:border-primary text-sm text-right"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 rounded-lg border border-border px-3 h-10 bg-white">
+                <span className="text-xs text-muted-foreground whitespace-nowrap">Margem repasse produtos em R$ Loja 1</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={tenantSupplyMarginFixedBrl}
+                  onChange={(e) => setTenantSupplyMarginFixedBrl(e.target.value.replace(/[^0-9.,]/g, ""))}
+                  placeholder="Ex: 10"
+                  className="w-full bg-white rounded-md border border-border px-2 py-1 outline-none focus:border-primary text-sm text-right"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                disabled={!!loading["tenant_sync_products_from_loja1"]}
+                onClick={() => onSave("tenant_sync_products_from_loja1", syncProductsFromLoja1Enabled ? "1" : "0")}
+              >
+                {loading["tenant_sync_products_from_loja1"] ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                Salvar sincronização
+              </Button>
+
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!!loading["tenant_supply_margin_percent"] || !!loading["tenant_supply_margin_fixed_brl"]}
+                onClick={() => {
+                  onSave("tenant_supply_margin_percent", String(tenantSupplyMarginPercent || "0").replace(",", ".").trim() || "0");
+                  onSave("tenant_supply_margin_fixed_brl", String(tenantSupplyMarginFixedBrl || "0").replace(",", ".").trim() || "0");
+                }}
+              >
+                {(loading["tenant_supply_margin_percent"] || loading["tenant_supply_margin_fixed_brl"]) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                Salvar margens
+              </Button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="mb-5 rounded-2xl border border-border/60 bg-card p-4 shadow-sm space-y-3">
           <div className="flex items-center justify-between gap-3 flex-wrap">

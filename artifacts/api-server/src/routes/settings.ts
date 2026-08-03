@@ -4,6 +4,12 @@ import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { getR2MissingConfig, isR2Configured, uploadSiteSettingImageToR2 } from "../lib/r2";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
+import {
+  TENANT_SUPPLY_MARGIN_FIXED_BRL_KEY,
+  TENANT_SUPPLY_MARGIN_PERCENT_KEY,
+  TENANT_SYNC_PRODUCTS_FROM_LOJA1_KEY,
+  syncAllLoja1ProductsToTenant,
+} from "../lib/tenant-product-sync";
 
 const router: IRouter = Router();
 
@@ -20,6 +26,9 @@ const PUBLIC_KEYS  = [
 const ALLOWED_KEYS = [
   ...PUBLIC_KEYS,
   "site_password", "payment_password",
+  TENANT_SYNC_PRODUCTS_FROM_LOJA1_KEY,
+  TENANT_SUPPLY_MARGIN_PERCENT_KEY,
+  TENANT_SUPPLY_MARGIN_FIXED_BRL_KEY,
   // Taxas do gateway permitidas
   "gateway_fee_percent",
   "gateway_fee_fixed",
@@ -54,6 +63,10 @@ function normalizeDomain(value: string): string {
   } catch {
     return raw.replace(/^https?:\/\//, "").split("/")[0]?.split(":")[0]?.trim().toLowerCase() || "";
   }
+}
+
+function isTruthySetting(value: string | undefined): boolean {
+  return ["1", "true", "on", "yes", "enabled"].includes(String(value || "").trim().toLowerCase());
 }
 
 function withDomainVariants(domainRaw: string): string[] {
@@ -249,6 +262,12 @@ router.put("/admin/settings/:key", requireAdminAuth, async (req, res) => {
     const { value } = req.body as { value?: string };
     if (!value) {
       await deleteTenantSetting(tenantId, key);
+      if (tenantId !== DEFAULT_TENANT_ID && (key === TENANT_SUPPLY_MARGIN_PERCENT_KEY || key === TENANT_SUPPLY_MARGIN_FIXED_BRL_KEY)) {
+        const settings = await getTenantSettingsMap(tenantId);
+        if (isTruthySetting(settings[TENANT_SYNC_PRODUCTS_FROM_LOJA1_KEY])) {
+          await syncAllLoja1ProductsToTenant(tenantId);
+        }
+      }
     } else {
       let storedValue = value;
       if (IMAGE_SETTING_KEYS.has(key) && value.startsWith("data:image/")) {
@@ -263,6 +282,20 @@ router.put("/admin/settings/:key", requireAdminAuth, async (req, res) => {
         storedValue = await uploadSiteSettingImageToR2({ dataUrl: value, settingKey: key });
       }
       await upsertTenantSetting(tenantId, key, storedValue);
+
+      if (tenantId !== DEFAULT_TENANT_ID && (
+        key === TENANT_SYNC_PRODUCTS_FROM_LOJA1_KEY ||
+        key === TENANT_SUPPLY_MARGIN_PERCENT_KEY ||
+        key === TENANT_SUPPLY_MARGIN_FIXED_BRL_KEY
+      )) {
+        const settings = await getTenantSettingsMap(tenantId);
+        const enabled = key === TENANT_SYNC_PRODUCTS_FROM_LOJA1_KEY
+          ? isTruthySetting(storedValue)
+          : isTruthySetting(settings[TENANT_SYNC_PRODUCTS_FROM_LOJA1_KEY]);
+        if (enabled) {
+          await syncAllLoja1ProductsToTenant(tenantId);
+        }
+      }
     }
     res.json({ ok: true });
   } catch (err) {
