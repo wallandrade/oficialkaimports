@@ -10,7 +10,7 @@ import {
   tenantsTable,
 } from "@workspace/db";
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
-import { getAdminScope, requirePrimaryAdmin } from "./admin-auth";
+import { getAdminScope, requireAdminAuth, requirePrimaryAdmin } from "./admin-auth";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-context";
 import { registerInventoryEntry } from "../lib/reshipments";
 
@@ -216,6 +216,105 @@ router.get("/admin/filial-purchases", requirePrimaryAdmin, async (req, res) => {
   } catch (err) {
     console.error("[FilialPurchases] list error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao carregar fila de compras das filiais." });
+  }
+});
+
+router.get("/admin/filial-purchases/my", requireAdminAuth, async (req, res) => {
+  try {
+    const scope = getAdminScope(req);
+    const tenantId = String(scope?.tenantId || "").trim() || DEFAULT_TENANT_ID;
+    if (!tenantId || tenantId === DEFAULT_TENANT_ID) {
+      res.status(403).json({
+        error: "FORBIDDEN",
+        message: "Esta visualização está disponível apenas para lojas filiais.",
+      });
+      return;
+    }
+
+    const statusParam = String(req.query.status || "pending").trim().toLowerCase();
+    const pendingStatuses = ["pendente_pagamento_filial", "pago_na_filial", "aguardando_compra_loja1", "compra_registrada", "estoque_lancado_filial"];
+
+    const statusWhere = statusParam === "all"
+      ? sql`1 = 1`
+      : statusParam === "finalized"
+        ? eq(filialPurchaseRequestsTable.status, "finalizado")
+        : inArray(filialPurchaseRequestsTable.status, pendingStatuses);
+
+    const rows = await db
+      .select({
+        id: filialPurchaseRequestsTable.id,
+        filialTenantId: filialPurchaseRequestsTable.filialTenantId,
+        orderId: filialPurchaseRequestsTable.orderId,
+        status: filialPurchaseRequestsTable.status,
+        clientName: filialPurchaseRequestsTable.clientName,
+        orderTotal: filialPurchaseRequestsTable.orderTotal,
+        repasseTotal: filialPurchaseRequestsTable.repasseTotal,
+        itemsSnapshot: filialPurchaseRequestsTable.itemsSnapshot,
+        costsSnapshot: filialPurchaseRequestsTable.costsSnapshot,
+        loja1RealCostTotal: filialPurchaseRequestsTable.loja1RealCostTotal,
+        loja1RealProfit: filialPurchaseRequestsTable.loja1RealProfit,
+        purchaseRecordedAt: filialPurchaseRequestsTable.purchaseRecordedAt,
+        stockLaunchedAt: filialPurchaseRequestsTable.stockLaunchedAt,
+        finalizedAt: filialPurchaseRequestsTable.finalizedAt,
+        createdAt: filialPurchaseRequestsTable.createdAt,
+        updatedAt: filialPurchaseRequestsTable.updatedAt,
+        tenantName: tenantsTable.name,
+      })
+      .from(filialPurchaseRequestsTable)
+      .leftJoin(tenantsTable, eq(tenantsTable.id, filialPurchaseRequestsTable.filialTenantId))
+      .where(and(statusWhere, eq(filialPurchaseRequestsTable.filialTenantId, tenantId)))
+      .orderBy(asc(filialPurchaseRequestsTable.createdAt));
+
+    const requestIds = rows.map((row) => row.id).filter(Boolean);
+    const purchaseAudits = requestIds.length > 0
+      ? await db
+        .select({
+          requestId: filialPurchaseRequestAuditsTable.requestId,
+          payload: filialPurchaseRequestAuditsTable.payload,
+          createdAt: filialPurchaseRequestAuditsTable.createdAt,
+        })
+        .from(filialPurchaseRequestAuditsTable)
+        .where(and(
+          inArray(filialPurchaseRequestAuditsTable.requestId, requestIds),
+          eq(filialPurchaseRequestAuditsTable.action, "compra_registrada"),
+        ))
+        .orderBy(asc(filialPurchaseRequestAuditsTable.createdAt))
+      : [];
+
+    const updateCostByRequestId = new Map<string, boolean>();
+    for (const audit of purchaseAudits) {
+      const requestId = String(audit.requestId || "").trim();
+      if (!requestId) continue;
+      const flag = readUpdateProductCostFlag(audit.payload);
+      if (flag == null) continue;
+      updateCostByRequestId.set(requestId, flag);
+    }
+
+    res.json({
+      requests: rows.map((row) => ({
+        id: row.id,
+        filialTenantId: row.filialTenantId,
+        filialTenantName: row.tenantName || row.filialTenantId,
+        orderId: row.orderId,
+        status: row.status,
+        clientName: row.clientName,
+        orderTotal: Number(row.orderTotal || 0),
+        repasseTotal: Number(row.repasseTotal || 0),
+        items: parseSnapshotItems(row.itemsSnapshot),
+        costs: parseSnapshotItems(row.costsSnapshot),
+        loja1RealCostTotal: Number(row.loja1RealCostTotal || 0),
+        loja1RealProfit: Number(row.loja1RealProfit || 0),
+        updateProductCost: updateCostByRequestId.has(row.id) ? updateCostByRequestId.get(row.id)! : null,
+        purchaseRecordedAt: row.purchaseRecordedAt?.toISOString() || null,
+        stockLaunchedAt: row.stockLaunchedAt?.toISOString() || null,
+        finalizedAt: row.finalizedAt?.toISOString() || null,
+        createdAt: row.createdAt?.toISOString() || null,
+        updatedAt: row.updatedAt?.toISOString() || null,
+      })),
+    });
+  } catch (err) {
+    console.error("[FilialPurchases] my list error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao carregar pedidos de compra da filial." });
   }
 });
 

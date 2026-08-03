@@ -918,7 +918,7 @@ function OrderBumpsPanel({ bumps, products, form, setForm, creating, toggling, d
   );
 }
 
-type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "socialProof" | "raffles" | "lojas";
+type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "socialProof" | "raffles" | "lojas" | "supplierPurchases";
 type LojasSubTab = "criar" | "pedidos" | "cadastradas";
 type FilialScopeSubTab = "pedidos" | "produtos" | "estoque";
 
@@ -1558,6 +1558,9 @@ export default function Admin() {
   const [filialPurchaseCostDrafts, setFilialPurchaseCostDrafts] = useState<Record<string, Record<string, string>>>({});
   const [filialPurchaseUpdateCostFlags, setFilialPurchaseUpdateCostFlags] = useState<Record<string, boolean>>({});
   const [filialPurchaseOpenId, setFilialPurchaseOpenId] = useState<string | null>(null);
+  const [myFilialPurchaseRequests, setMyFilialPurchaseRequests] = useState<FilialPurchaseRequest[]>([]);
+  const [myFilialPurchaseLoading, setMyFilialPurchaseLoading] = useState(false);
+  const [myFilialPurchaseStatusFilter, setMyFilialPurchaseStatusFilter] = useState<"pending" | "all" | "finalized">("pending");
   const [manualFilialClientName, setManualFilialClientName] = useState("Compra manual da filial");
   const [manualFilialProductId, setManualFilialProductId] = useState("");
   const [manualFilialQuantity, setManualFilialQuantity] = useState("1");
@@ -1619,6 +1622,7 @@ export default function Admin() {
   const canManageInventoryTab = isPrimary || adminTenantId !== "tenant_loja1";
   const canManageShippingTab = isPrimary || adminTenantId !== "tenant_loja1";
   const canManageSellerLinks = isPrimary || adminTenantId !== "tenant_loja1";
+  const canViewSupplierPurchasesTab = adminTenantId !== "tenant_loja1";
   const filialTenantOptions = tenants.filter((tenant) => tenant.id !== "tenant_loja1");
   const selectedFilialTenant = filialTenantOptions.find((tenant) => tenant.id === selectedFilialTenantId) || null;
   const filteredFilialPurchaseRequests = selectedFilialTenantId
@@ -2893,6 +2897,28 @@ export default function Admin() {
     }
   }, [canManageTenants, handleUnauthorized, selectedFilialTenantId]);
 
+  const fetchMyFilialPurchaseRequests = useCallback(async (status: "pending" | "all" | "finalized" = myFilialPurchaseStatusFilter) => {
+    if (adminTenantId === "tenant_loja1") return;
+    setMyFilialPurchaseLoading(true);
+    try {
+      const params = new URLSearchParams({ status });
+      const res = await fetch(`${BASE}/api/admin/filial-purchases/my?${params.toString()}`, { headers: authHeaders() });
+      if (res.status === 401) { handleUnauthorized(); return; }
+      if (!res.ok) {
+        const data = await res.json().catch(() => null) as { message?: string } | null;
+        toast.error(data?.message || "Erro ao carregar compras do fornecedor.");
+        return;
+      }
+
+      const data = await res.json() as { requests: FilialPurchaseRequest[] };
+      setMyFilialPurchaseRequests(data.requests || []);
+    } catch {
+      toast.error("Erro ao carregar compras do fornecedor.");
+    } finally {
+      setMyFilialPurchaseLoading(false);
+    }
+  }, [adminTenantId, handleUnauthorized, myFilialPurchaseStatusFilter]);
+
   const fetchFilialStoreProducts = useCallback(async (tenantId?: string) => {
     if (!canManageTenants) return;
     const targetTenantId = String(tenantId || selectedFilialTenantId || "").trim();
@@ -3531,8 +3557,9 @@ export default function Admin() {
     else if (tab === "socialProof") { fetchSocialProof(); fetchProducts(); }
     else if (tab === "raffles")    fetchRaffles();
     else if (tab === "lojas")      { fetchTenants(); fetchDnsGuide(dnsDomainInput); fetchTenantProfitSummary(); fetchFilialPurchaseRequests(selectedFilialTenantId || undefined); }
+    else if (tab === "supplierPurchases") { fetchMyFilialPurchaseRequests(); }
     else setLoading(false);
-  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchSellers, fetchSellerData, fetchShippingOptions, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchCommissionPayments, fetchSocialProof, fetchRaffles, fetchTenants, fetchDnsGuide, fetchTenantProfitSummary, fetchFilialPurchaseRequests, dnsDomainInput, selectedFilialTenantId]);
+  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchSellers, fetchSellerData, fetchShippingOptions, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchCommissionPayments, fetchSocialProof, fetchRaffles, fetchTenants, fetchDnsGuide, fetchTenantProfitSummary, fetchFilialPurchaseRequests, fetchMyFilialPurchaseRequests, dnsDomainInput, selectedFilialTenantId]);
 
   // -------------------------------------------------------------------------
   // SSE
@@ -3818,10 +3845,15 @@ export default function Admin() {
   }, [tab, authChecked, fetchUsers, fetchCustomers, fetchRecurringCustomers]);
 
   useEffect(() => {
-    if ((tab === "products" && !canManageProductsTab) || (!isPrimary && PRIMARY_ONLY_TABS.has(tab)) || (tab === "lojas" && !canManageTenants)) {
+    if ((tab === "products" && !canManageProductsTab) || (!isPrimary && PRIMARY_ONLY_TABS.has(tab)) || (tab === "lojas" && !canManageTenants) || (tab === "supplierPurchases" && !canViewSupplierPurchasesTab)) {
       setTab("orders");
     }
-  }, [isPrimary, tab, canManageTenants, canManageProductsTab]);
+  }, [isPrimary, tab, canManageTenants, canManageProductsTab, canViewSupplierPurchasesTab]);
+
+  useEffect(() => {
+    if (!authChecked || tab !== "supplierPurchases") return;
+    void fetchMyFilialPurchaseRequests(myFilialPurchaseStatusFilter);
+  }, [authChecked, fetchMyFilialPurchaseRequests, myFilialPurchaseStatusFilter, tab]);
 
   // -------------------------------------------------------------------------
   // Handlers
@@ -5288,6 +5320,9 @@ export default function Admin() {
             ] : []),
             ...(canManageInventoryTab ? [
               { key: "inventory" as TabType, label: "Estoque", icon: "Package", count: pendingReshipments.length || undefined },
+            ] : []),
+            ...(canViewSupplierPurchasesTab ? [
+              { key: "supplierPurchases" as TabType, label: "Compra fornecedor", icon: "ShoppingBag", count: myFilialPurchaseRequests.length || undefined },
             ] : []),
             ...(isPrimary ? [
               { key: "coupons",       label: "Cupons",           icon: "Ticket",      count: coupons.length },
@@ -8219,6 +8254,71 @@ export default function Admin() {
                 )}
               </div>
             ) : null}
+          </div>
+        ) : tab === "supplierPurchases" ? (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold text-amber-900 uppercase tracking-wide">Compra fornecedor</p>
+                <p className="text-sm text-amber-800">Aqui a filial acompanha os pedidos de compra gerados pela Loja 1.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <select
+                  value={myFilialPurchaseStatusFilter}
+                  onChange={(e) => setMyFilialPurchaseStatusFilter(e.target.value as "pending" | "all" | "finalized")}
+                  className="h-9 px-3 rounded-lg border border-border bg-white text-sm"
+                >
+                  <option value="pending">Em andamento</option>
+                  <option value="finalized">Finalizados</option>
+                  <option value="all">Todos</option>
+                </select>
+                <Button type="button" variant="outline" className="h-9" onClick={() => fetchMyFilialPurchaseRequests(myFilialPurchaseStatusFilter)} disabled={myFilialPurchaseLoading}>
+                  {myFilialPurchaseLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                  <span className="ml-2">Atualizar</span>
+                </Button>
+              </div>
+            </div>
+
+            {myFilialPurchaseLoading ? (
+              <div className="text-sm text-muted-foreground">Carregando pedidos de compra...</div>
+            ) : myFilialPurchaseRequests.length === 0 ? (
+              <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">Nenhum pedido de compra encontrado para esta filial.</div>
+            ) : (
+              <div className="space-y-3">
+                {myFilialPurchaseRequests.map((request) => (
+                  <div key={`my-filial-purchase-${request.id}`} className="rounded-xl border border-border bg-card p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-foreground">Pedido {request.orderId}</p>
+                        <p className="text-xs text-muted-foreground">Cliente: {request.clientName || "-"}</p>
+                        <p className="text-xs text-muted-foreground">Status: {filialPurchaseStatusLabel(request.status)} · Criado em {formatDateBR(request.createdAt) || "-"}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs text-muted-foreground">Total pago na filial</p>
+                        <p className="text-sm font-semibold text-foreground">{formatCurrency(Number(request.orderTotal || 0))}</p>
+                        <p className="text-xs text-muted-foreground mt-1">Repasse estimado Loja 1</p>
+                        <p className="text-sm font-semibold text-blue-700">{formatCurrency(Number(request.repasseTotal || 0))}</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 space-y-1.5">
+                      {(request.items || []).map((item) => (
+                        <div key={`${request.id}-${item.productId}`} className="rounded-lg border border-border bg-muted/20 px-3 py-2 flex flex-wrap items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-foreground truncate">{item.productName}</p>
+                            <p className="text-xs text-muted-foreground">ID: {item.productId}</p>
+                          </div>
+                          <div className="text-right text-xs text-muted-foreground">
+                            <p>Qtd: <span className="font-semibold text-foreground">{item.quantity}</span></p>
+                            <p>Repasse un.: <span className="font-semibold text-foreground">{formatCurrency(Number(item.repasseUnitCost || 0))}</span></p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         ) : tab === "webhook" ? (
           <WebhookPanel
