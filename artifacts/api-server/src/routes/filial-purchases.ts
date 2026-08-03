@@ -839,4 +839,53 @@ router.delete("/admin/filial-purchases/:requestId", requirePrimaryAdmin, async (
   }
 });
 
+router.delete("/admin/filial-purchases/:requestId/purge", requirePrimaryAdmin, async (req, res) => {
+  try {
+    if (!ensureDefaultTenantScope(req, res)) return;
+
+    const requestId = String(req.params.requestId || "").trim();
+    if (!requestId) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Compra inválida." });
+      return;
+    }
+
+    const rows = await db
+      .select({
+        id: filialPurchaseRequestsTable.id,
+        status: filialPurchaseRequestsTable.status,
+        orderId: filialPurchaseRequestsTable.orderId,
+      })
+      .from(filialPurchaseRequestsTable)
+      .where(eq(filialPurchaseRequestsTable.id, requestId))
+      .limit(1);
+
+    const requestRow = rows[0];
+    if (!requestRow) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Compra da filial não encontrada." });
+      return;
+    }
+
+    if (requestRow.status !== "cancelado") {
+      res.status(400).json({
+        error: "INVALID_STATE",
+        message: "A exclusão definitiva só é permitida para pedidos cancelados.",
+      });
+      return;
+    }
+
+    await db
+      .delete(filialPurchaseRequestAuditsTable)
+      .where(eq(filialPurchaseRequestAuditsTable.requestId, requestId));
+
+    await db
+      .delete(filialPurchaseRequestsTable)
+      .where(eq(filialPurchaseRequestsTable.id, requestId));
+
+    res.json({ ok: true, requestId, purged: true, orderId: requestRow.orderId });
+  } catch (err) {
+    console.error("[FilialPurchases] purge error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao apagar rascunho da compra da filial." });
+  }
+});
+
 export default router;

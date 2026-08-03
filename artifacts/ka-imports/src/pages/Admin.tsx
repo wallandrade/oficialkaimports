@@ -3133,11 +3133,22 @@ export default function Admin() {
 
   const deleteFilialPurchase = useCallback(async (request: FilialPurchaseRequest) => {
     if (!canManageTenants) return;
-    if (!window.confirm(`Cancelar a compra do pedido ${request.orderId} (${request.filialTenantName})? O histórico será mantido.`)) return;
+    const normalizedStatus = String(request.status || "").trim().toLowerCase();
+    const isCancelled = normalizedStatus === "cancelado";
+
+    if (isCancelled) {
+      if (!window.confirm(`Apagar definitivamente o rascunho cancelado do pedido ${request.orderId} (${request.filialTenantName})? Essa ação não pode ser desfeita.`)) return;
+    } else {
+      if (!window.confirm(`Cancelar a compra do pedido ${request.orderId} (${request.filialTenantName})? O histórico será mantido.`)) return;
+    }
 
     setFilialPurchaseDeletingId(request.id);
     try {
-      const res = await fetch(`${BASE}/api/admin/filial-purchases/${encodeURIComponent(request.id)}`, {
+      const endpoint = isCancelled
+        ? `${BASE}/api/admin/filial-purchases/${encodeURIComponent(request.id)}/purge`
+        : `${BASE}/api/admin/filial-purchases/${encodeURIComponent(request.id)}`;
+
+      const res = await fetch(endpoint, {
         method: "DELETE",
         headers: authHeaders(),
       });
@@ -3150,11 +3161,11 @@ export default function Admin() {
         return;
       }
 
-      toast.success("Compra da filial cancelada com sucesso.");
+      toast.success(isCancelled ? "Rascunho apagado com sucesso." : "Compra da filial cancelada com sucesso.");
       setFilialPurchaseOpenId((prev) => (prev === request.id ? null : prev));
       await fetchFilialPurchaseRequests(selectedFilialTenantId || undefined);
     } catch {
-      toast.error("Erro ao cancelar compra da filial.");
+      toast.error(isCancelled ? "Erro ao apagar rascunho da filial." : "Erro ao cancelar compra da filial.");
     } finally {
       setFilialPurchaseDeletingId(null);
     }
@@ -7836,7 +7847,7 @@ export default function Admin() {
                                   disabled={filialPurchaseDeletingId === request.id || filialPurchaseConfirmingId === request.id}
                                 >
                                   {filialPurchaseDeletingId === request.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                                  <span className="ml-2">Cancelar pedido</span>
+                                  <span className="ml-2">{String(request.status || "").trim().toLowerCase() === "cancelado" ? "Apagar rascunho" : "Cancelar pedido"}</span>
                                 </Button>
                                 <Button
                                   type="button"
