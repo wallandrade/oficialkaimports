@@ -15156,7 +15156,7 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
             <p className="text-xs text-muted-foreground">A própria filial decide se quer receber e atualizar produtos vindos da Loja 1.</p>
 
             <label className="flex items-center justify-between gap-2 rounded-xl border border-border px-3 py-2 bg-white">
-              <span className="text-sm text-foreground">Receber produtos da Loja 1</span>
+              <span className="text-sm text-foreground">Aceitar atualização Fornecedor</span>
               <input
                 type="checkbox"
                 checked={syncProductsFromLoja1Enabled}
