@@ -3137,12 +3137,13 @@ export default function Admin() {
         return;
       }
 
+      await fetchFilialStoreProducts(selectedFilialTenantId || undefined);
       toast.success(checked ? "Opção de atualizar custo salva." : "Opção de atualizar custo removida.");
     } catch {
       setFilialPurchaseUpdateCostFlags((current) => ({ ...current, [request.id]: previous }));
       toast.error("Erro ao salvar a opção de atualizar custo.");
     }
-  }, [BASE, canManageTenants, filialPurchaseUpdateCostFlags, handleUnauthorized]);
+  }, [BASE, canManageTenants, fetchFilialStoreProducts, filialPurchaseUpdateCostFlags, handleUnauthorized, selectedFilialTenantId]);
 
   const confirmFilialPurchase = useCallback(async (request: FilialPurchaseRequest) => {
     if (!canManageTenants) return;

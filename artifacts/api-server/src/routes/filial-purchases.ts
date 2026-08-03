@@ -518,18 +518,64 @@ router.post("/admin/filial-purchases/:requestId/update-cost-flag", requirePrimar
       return;
     }
 
+    let appliedProductCostUpdates = 0;
+    if (updateProductCost) {
+      const snapshotItems = parseSnapshotItems((requestRow as { itemsSnapshot?: unknown }).itemsSnapshot);
+      const repasseCostByProductId = new Map(
+        snapshotItems.map((item) => [item.productId, round2(Number(item.repasseUnitCost || 0))]),
+      );
+      const productIds = Array.from(new Set(snapshotItems.map((item) => item.productId).filter(Boolean)));
+
+      if (productIds.length > 0) {
+        const productRows = await db
+          .select({
+            id: productsTable.id,
+            costPrice: productsTable.costPrice,
+          })
+          .from(productsTable)
+          .where(and(buildProductsTenantWhere(requestRow.filialTenantId), inArray(productsTable.id, productIds)));
+
+        const currentCostByProductId = new Map(productRows.map((row) => [row.id, Number(row.costPrice || 0)]));
+
+        for (const item of snapshotItems) {
+          const currentCost = currentCostByProductId.get(item.productId);
+          if (currentCost == null) continue;
+
+          const nextCost = Number(repasseCostByProductId.get(item.productId) ?? item.repasseUnitCost ?? 0);
+          if (!Number.isFinite(nextCost)) continue;
+          if (round2(currentCost) === nextCost) continue;
+
+          await db
+            .update(productsTable)
+            .set({
+              costPrice: String(nextCost),
+              updatedAt: new Date(),
+            })
+            .where(and(buildProductsTenantWhere(requestRow.filialTenantId), eq(productsTable.id, item.productId)));
+
+          await db.insert(productCostHistoryTable).values({
+            productId: item.productId,
+            costPrice: String(nextCost),
+          });
+
+          appliedProductCostUpdates += 1;
+        }
+      }
+    }
+
     await addAudit({
       requestId,
       action: "update_product_cost_flag",
       actorUsername,
       payload: {
         updateProductCost,
+        appliedProductCostUpdates,
         filialTenantId: requestRow.filialTenantId,
         orderId: requestRow.orderId,
       },
     });
 
-    res.json({ ok: true, requestId, updateProductCost });
+    res.json({ ok: true, requestId, updateProductCost, appliedProductCostUpdates });
   } catch (err) {
     console.error("[FilialPurchases] update-cost-flag error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao salvar opção de atualizar custo do produto." });
