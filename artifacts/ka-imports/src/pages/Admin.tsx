@@ -1212,6 +1212,27 @@ function filialPurchaseStatusLabel(status: string): string {
   return status || "-";
 }
 
+function filialPurchaseStatusTag(status: string): "cancelado" | "pendente" | "pago" {
+  const normalized = String(status || "").trim().toLowerCase();
+  if (normalized === "cancelado") return "cancelado";
+  if (normalized === "pago_na_filial" || normalized === "finalizado" || normalized === "estoque_lancado_filial") return "pago";
+  return "pendente";
+}
+
+function filialPurchaseStatusTagLabel(status: string): string {
+  const tag = filialPurchaseStatusTag(status);
+  if (tag === "cancelado") return "Cancelado";
+  if (tag === "pago") return "Pago";
+  return "Pendente";
+}
+
+function filialPurchaseStatusTagClass(status: string): string {
+  const tag = filialPurchaseStatusTag(status);
+  if (tag === "cancelado") return "border-red-200 bg-red-50 text-red-700";
+  if (tag === "pago") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  return "border-amber-200 bg-amber-50 text-amber-700";
+}
+
 interface DnsGuideResponse {
   targetHost: string;
   envTargetHost: string | null;
@@ -7747,8 +7768,12 @@ export default function Admin() {
                               <div>
                                 <p className="text-sm font-semibold text-foreground">{request.filialTenantName} · Pedido {request.orderId}</p>
                                 <p className="text-xs text-muted-foreground">Cliente: {request.clientName}</p>
-                                <p className="text-xs text-muted-foreground">
-                                  Status: {filialPurchaseStatusLabel(request.status)} · Criado em {formatDateBR(request.createdAt) || "-"}
+                                <p className="text-xs text-muted-foreground flex flex-wrap items-center gap-2">
+                                  <span>Status:</span>
+                                  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${filialPurchaseStatusTagClass(request.status)}`}>{filialPurchaseStatusTagLabel(request.status)}</span>
+                                  <span>({filialPurchaseStatusLabel(request.status)})</span>
+                                  <span>·</span>
+                                  <span>Criado em {formatDateBR(request.createdAt) || "-"}</span>
                                 </p>
                                 <p className="text-xs mt-1">
                                   <span className="text-muted-foreground">Custo produto atualizado:</span>{" "}
@@ -8291,7 +8316,13 @@ export default function Admin() {
                       <div>
                         <p className="text-sm font-semibold text-foreground">Pedido {request.orderId}</p>
                         <p className="text-xs text-muted-foreground">Cliente: {request.clientName || "-"}</p>
-                        <p className="text-xs text-muted-foreground">Status: {filialPurchaseStatusLabel(request.status)} · Criado em {formatDateBR(request.createdAt) || "-"}</p>
+                        <p className="text-xs text-muted-foreground flex flex-wrap items-center gap-2">
+                          <span>Status:</span>
+                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${filialPurchaseStatusTagClass(request.status)}`}>{filialPurchaseStatusTagLabel(request.status)}</span>
+                          <span>({filialPurchaseStatusLabel(request.status)})</span>
+                          <span>·</span>
+                          <span>Criado em {formatDateBR(request.createdAt) || "-"}</span>
+                        </p>
                       </div>
                       <div className="text-right">
                         <p className="text-xs text-muted-foreground">Total pago na filial</p>
