@@ -1630,6 +1630,20 @@ export default function Admin() {
     name: `${product.name} · ${formatCurrency(product.price)}`,
     image: product.image,
   }));
+  const selectedFilialMarginPercent = (() => {
+    const raw = tenantSupplyMarginDrafts[selectedFilialTenantId] ?? selectedFilialTenant?.supplyMarginPercent ?? 0;
+    const parsed = Number(String(raw).replace(",", "."));
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  })();
+  const selectedFilialMarginFixedBrl = (() => {
+    const raw = tenantSupplyFixedMarginDrafts[selectedFilialTenantId] ?? selectedFilialTenant?.supplyMarginFixedBrl ?? 0;
+    const parsed = Number(String(raw).replace(",", "."));
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  })();
+  const manualFilialBaseUnitCost = Number(String(manualFilialRepasseUnitCost || "").replace(",", "."));
+  const manualFilialComputedRepasseUnitCost = Number.isFinite(manualFilialBaseUnitCost) && manualFilialBaseUnitCost >= 0
+    ? Number((manualFilialBaseUnitCost * (1 + (selectedFilialMarginPercent / 100)) + selectedFilialMarginFixedBrl).toFixed(2))
+    : null;
   const manualFilialTotal = manualFilialItems.reduce((sum, item) => sum + (item.repasseUnitCost * item.quantity), 0);
   const filteredFilialStoreProducts = filialStoreProducts.filter((product) => {
     const query = filialStoreProductsSearch.trim().toLowerCase();
@@ -2656,14 +2670,14 @@ export default function Admin() {
     }
 
     const quantity = Number(String(manualFilialQuantity || "").replace(",", "."));
-    const repasseUnitCost = Number(String(manualFilialRepasseUnitCost || "").replace(",", "."));
+    const repasseUnitCost = manualFilialComputedRepasseUnitCost;
 
     if (!Number.isFinite(quantity) || quantity <= 0) {
       toast.error("Informe uma quantidade válida.");
       return;
     }
-    if (!Number.isFinite(repasseUnitCost) || repasseUnitCost < 0) {
-      toast.error("Informe um custo de repasse válido.");
+    if (!Number.isFinite(manualFilialBaseUnitCost) || manualFilialBaseUnitCost < 0 || !Number.isFinite(repasseUnitCost ?? NaN)) {
+      toast.error("Informe um custo base válido para calcular o repasse.");
       return;
     }
 
@@ -2692,7 +2706,7 @@ export default function Admin() {
     });
 
     setManualFilialQuantity("1");
-  }, [manualFilialQuantity, manualFilialRepasseUnitCost, selectedFilialTenantId, selectedManualFilialProduct]);
+  }, [manualFilialBaseUnitCost, manualFilialComputedRepasseUnitCost, manualFilialQuantity, selectedFilialTenantId, selectedManualFilialProduct]);
 
   const removeManualFilialItem = useCallback((productId: string) => {
     setManualFilialItems((prev) => prev.filter((item) => item.productId !== productId));
@@ -7545,7 +7559,7 @@ export default function Admin() {
                           inputMode="decimal"
                           value={manualFilialRepasseUnitCost}
                           onChange={(e) => setManualFilialRepasseUnitCost(e.target.value.replace(/[^0-9.,]/g, ""))}
-                          placeholder="Custo unit."
+                          placeholder="Custo base unit."
                           className="h-10 w-full rounded-lg border border-border px-3 text-sm bg-white"
                         />
 
@@ -7576,6 +7590,12 @@ export default function Admin() {
                               </p>
                               <p className="text-xs text-muted-foreground">
                                 Preco venda: <span className="font-semibold text-foreground">{formatCurrency(selectedManualFilialProduct.price)}</span> · Custo atual: <span className="font-semibold text-foreground">{formatCurrency(selectedManualFilialProduct.costPrice)}</span>
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                Margens aplicadas: <span className="font-semibold text-foreground">{selectedFilialMarginPercent}%</span> + <span className="font-semibold text-foreground">{formatCurrency(selectedFilialMarginFixedBrl)}</span>
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                Repasse unit. calculado: <span className="font-semibold text-emerald-700">{manualFilialComputedRepasseUnitCost == null ? "-" : formatCurrency(manualFilialComputedRepasseUnitCost)}</span>
                               </p>
                             </div>
                           </div>
