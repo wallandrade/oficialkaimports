@@ -24,6 +24,12 @@ const ADMIN_SESSION_COOKIE_SECURE = (() => {
 })();
 const DEFAULT_TENANT_ID = "tenant_loja1";
 
+type EnvAdminCredential = {
+  username: string;
+  password: string;
+  isPrimary: boolean;
+};
+
 type AdminSessionRecord = {
   username: string;
   isPrimary: number | boolean;
@@ -294,18 +300,75 @@ function generateSalt(): string {
   return crypto.randomBytes(16).toString("hex");
 }
 
+function getEnvAdminCredentials(): EnvAdminCredential[] {
+  const entries: EnvAdminCredential[] = [];
+
+  if (process.env["ADMIN_USERNAME"] && process.env["ADMIN_PASSWORD"]) {
+    entries.push({
+      username: String(process.env["ADMIN_USERNAME"]).trim().toLowerCase(),
+      password: String(process.env["ADMIN_PASSWORD"]),
+      isPrimary: true,
+    });
+  }
+
+  if (process.env["ADMIN_USERNAME_2"] && process.env["ADMIN_PASSWORD_2"]) {
+    entries.push({
+      username: String(process.env["ADMIN_USERNAME_2"]).trim().toLowerCase(),
+      password: String(process.env["ADMIN_PASSWORD_2"]),
+      isPrimary: false,
+    });
+  }
+
+  return entries.filter((item) => item.username && item.password);
+}
+
+async function ensureAdminUserFromEnvCredential(credential: EnvAdminCredential): Promise<{ username: string; isPrimary: boolean }> {
+  const targetUsername = String(credential.username || "").trim().toLowerCase();
+  const salt = generateSalt();
+  const passwordHash = hashPassword(credential.password, salt);
+
+  let user = (
+    await db
+      .select({ id: adminUsersTable.id, username: adminUsersTable.username, isPrimary: adminUsersTable.isPrimary })
+      .from(adminUsersTable)
+      .where(eq(adminUsersTable.username, targetUsername))
+      .limit(1)
+  )[0];
+
+  if (!user) {
+    const allUsers = await db.select({ id: adminUsersTable.id, username: adminUsersTable.username, isPrimary: adminUsersTable.isPrimary }).from(adminUsersTable);
+    user = allUsers.find((row) => String(row.username || "").trim().toLowerCase() === targetUsername);
+  }
+
+  if (!user) {
+    await db.insert(adminUsersTable).values({
+      id: crypto.randomBytes(8).toString("hex"),
+      username: targetUsername,
+      passwordHash,
+      salt,
+      isPrimary: credential.isPrimary,
+    });
+
+    return { username: targetUsername, isPrimary: credential.isPrimary };
+  }
+
+  await db
+    .update(adminUsersTable)
+    .set({
+      passwordHash,
+      salt,
+      isPrimary: credential.isPrimary,
+    })
+    .where(eq(adminUsersTable.id, user.id));
+
+  return { username: targetUsername, isPrimary: credential.isPrimary };
+}
+
 // --------------------------------------------------------------------------
 // Seed admin users from env vars
 // --------------------------------------------------------------------------
 async function seedFromEnvUsers() {
-  const usersToSeed: Array<{ username: string; password: string; isPrimary: boolean }> = [];
-
-  if (process.env["ADMIN_USERNAME"] && process.env["ADMIN_PASSWORD"]) {
-    usersToSeed.push({ username: process.env["ADMIN_USERNAME"], password: process.env["ADMIN_PASSWORD"], isPrimary: true });
-  }
-  if (process.env["ADMIN_USERNAME_2"] && process.env["ADMIN_PASSWORD_2"]) {
-    usersToSeed.push({ username: process.env["ADMIN_USERNAME_2"], password: process.env["ADMIN_PASSWORD_2"], isPrimary: false });
-  }
+  const usersToSeed = getEnvAdminCredentials();
 
   let createdCount = 0;
   for (const u of usersToSeed) {
@@ -445,10 +508,13 @@ router.post("/admin/login", async (req, res) => {
   }
 
   try {
+    const normalizedUsername = username.trim().toLowerCase();
+    const envCredential = getEnvAdminCredentials().find((item) => item.username === normalizedUsername && item.password === password);
+
     const users = await db
       .select()
       .from(adminUsersTable)
-      .where(eq(adminUsersTable.username, username.trim().toLowerCase()))
+      .where(eq(adminUsersTable.username, normalizedUsername))
       .limit(1);
 
     // Also try case-insensitive via all users (small table)
@@ -456,8 +522,15 @@ router.post("/admin/login", async (req, res) => {
     if (!user) {
       const allUsers = await db.select().from(adminUsersTable);
       user = allUsers.find(
-        (u) => u.username.toLowerCase() === username.trim().toLowerCase()
+        (u) => u.username.toLowerCase() === normalizedUsername
       );
+    }
+
+    if (!user && envCredential) {
+      const synced = await ensureAdminUserFromEnvCredential(envCredential);
+      user = {
+        ...(await db.select().from(adminUsersTable).where(eq(adminUsersTable.username, synced.username)).limit(1))[0],
+      };
     }
 
     if (!user) {
@@ -468,6 +541,25 @@ router.post("/admin/login", async (req, res) => {
 
     const hash = hashPassword(password, user.salt);
     if (hash !== user.passwordHash) {
+      if (envCredential) {
+        const synced = await ensureAdminUserFromEnvCredential(envCredential);
+        user = {
+          ...(await db.select().from(adminUsersTable).where(eq(adminUsersTable.username, synced.username)).limit(1))[0],
+        };
+      }
+
+      const retryHash = hashPassword(password, user.salt);
+      if (retryHash !== user.passwordHash) {
+        registerAdminLoginFailure(ip, now);
+        res.status(401).json({ error: "INVALID_CREDENTIALS", message: "Usuário ou senha incorretos." });
+        return;
+      }
+
+    } else {
+      // ok
+    }
+
+    if (!user) {
       registerAdminLoginFailure(ip, now);
       res.status(401).json({ error: "INVALID_CREDENTIALS", message: "Usuário ou senha incorretos." });
       return;
