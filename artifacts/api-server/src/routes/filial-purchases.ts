@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import crypto from "crypto";
 import {
   db,
   filialPurchaseRequestAuditsTable,
@@ -69,6 +70,10 @@ function parseSnapshotItems(raw: unknown): SnapshotItem[] {
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+function randomId(prefix: string): string {
+  return `${prefix}_${crypto.randomBytes(8).toString("hex")}`;
 }
 
 function buildManualOrderRef(tenantId: string): string {
