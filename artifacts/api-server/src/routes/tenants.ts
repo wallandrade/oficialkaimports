@@ -10,6 +10,7 @@ import {
   TENANT_SUPPLY_MARGIN_PERCENT_KEY,
   TENANT_SYNC_PRODUCTS_FROM_LOJA1_KEY,
   isTenantSyncFromLoja1Enabled,
+  removeAllLoja1ProductsFromTenant,
   syncAllLoja1ProductsToTenant,
 } from "../lib/tenant-product-sync";
 
@@ -624,6 +625,70 @@ router.patch("/admin/tenants/:tenantId/product-sync", requirePrimaryAdmin, async
   } catch (err) {
     console.error("[Tenants] PATCH product-sync error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao salvar sincronização de produtos." });
+  }
+});
+
+router.post("/admin/tenants/:tenantId/product-sync/refresh", requirePrimaryAdmin, async (req, res) => {
+  try {
+    if (!ensureDefaultTenantScope(req, res)) return;
+
+    const tenantId = String(req.params.tenantId || "").trim();
+    if (!tenantId || tenantId === DEFAULT_TENANT_ID) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Informe uma filial válida." });
+      return;
+    }
+
+    const existing = await db
+      .select({ id: tenantsTable.id })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, tenantId))
+      .limit(1);
+
+    if (!existing[0]) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Loja não encontrada." });
+      return;
+    }
+
+    const enabled = await isTenantSyncFromLoja1Enabled(tenantId);
+    if (!enabled) {
+      res.status(409).json({ error: "SYNC_DISABLED", message: "Ative a sincronização antes de atualizar os produtos." });
+      return;
+    }
+
+    const syncedProducts = await syncAllLoja1ProductsToTenant(tenantId);
+    res.json({ ok: true, tenantId, syncedProducts });
+  } catch (err) {
+    console.error("[Tenants] POST product-sync refresh error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao atualizar produtos." });
+  }
+});
+
+router.delete("/admin/tenants/:tenantId/product-sync", requirePrimaryAdmin, async (req, res) => {
+  try {
+    if (!ensureDefaultTenantScope(req, res)) return;
+
+    const tenantId = String(req.params.tenantId || "").trim();
+    if (!tenantId || tenantId === DEFAULT_TENANT_ID) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Informe uma filial válida." });
+      return;
+    }
+
+    const existing = await db
+      .select({ id: tenantsTable.id })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, tenantId))
+      .limit(1);
+
+    if (!existing[0]) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Loja não encontrada." });
+      return;
+    }
+
+    const removedProducts = await removeAllLoja1ProductsFromTenant(tenantId);
+    res.json({ ok: true, tenantId, removedProducts });
+  } catch (err) {
+    console.error("[Tenants] DELETE product-sync error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao remover produtos sincronizados." });
   }
 });
 

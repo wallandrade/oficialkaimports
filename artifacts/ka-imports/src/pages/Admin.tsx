@@ -1557,6 +1557,8 @@ export default function Admin() {
   const [tenantAdminSavingId, setTenantAdminSavingId] = useState<string | null>(null);
   const [tenantAdminUsernameDrafts, setTenantAdminUsernameDrafts] = useState<Record<string, string>>({});
   const [tenantAdminPasswordDrafts, setTenantAdminPasswordDrafts] = useState<Record<string, string>>({});
+  const [tenantProductSyncRefreshingId, setTenantProductSyncRefreshingId] = useState<string | null>(null);
+  const [tenantProductSyncClearingId, setTenantProductSyncClearingId] = useState<string | null>(null);
   const [tenantForm, setTenantForm] = useState({
     name: "",
     slug: "",
@@ -2488,6 +2490,61 @@ export default function Admin() {
       setTenantAdminSavingId(null);
     }
   }, [canManageTenants, fetchTenants, handleUnauthorized, tenantAdminPasswordDrafts, tenantAdminUsernameDrafts]);
+
+  const refreshTenantSyncedProducts = useCallback(async (tenant: AdminTenant) => {
+    if (!canManageTenants) return;
+
+    setTenantProductSyncRefreshingId(tenant.id);
+    try {
+      const res = await fetch(`${BASE}/api/admin/tenants/${encodeURIComponent(tenant.id)}/product-sync/refresh`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+
+      if (res.status === 401) { handleUnauthorized(); return; }
+
+      const data = await res.json().catch(() => null) as { message?: string; syncedProducts?: number } | null;
+      if (!res.ok) {
+        toast.error(data?.message || "Erro ao atualizar produtos sincronizados.");
+        return;
+      }
+
+      toast.success(`Produtos atualizados. ${Number(data?.syncedProducts || 0)} item(ns) sincronizados.`);
+      await fetchTenants();
+    } catch {
+      toast.error("Erro ao atualizar produtos sincronizados.");
+    } finally {
+      setTenantProductSyncRefreshingId(null);
+    }
+  }, [canManageTenants, fetchTenants, handleUnauthorized]);
+
+  const clearTenantSyncedProducts = useCallback(async (tenant: AdminTenant) => {
+    if (!canManageTenants) return;
+    if (!window.confirm(`Remover todos os produtos sincronizados da Loja 1 da filial ${tenant.name}?`)) return;
+
+    setTenantProductSyncClearingId(tenant.id);
+    try {
+      const res = await fetch(`${BASE}/api/admin/tenants/${encodeURIComponent(tenant.id)}/product-sync`, {
+        method: "DELETE",
+        headers: authHeaders(),
+      });
+
+      if (res.status === 401) { handleUnauthorized(); return; }
+
+      const data = await res.json().catch(() => null) as { message?: string; removedProducts?: number } | null;
+      if (!res.ok) {
+        toast.error(data?.message || "Erro ao remover produtos sincronizados.");
+        return;
+      }
+
+      toast.success(`Produtos sincronizados removidos. ${Number(data?.removedProducts || 0)} item(ns) excluído(s).`);
+      await fetchTenants();
+    } catch {
+      toast.error("Erro ao remover produtos sincronizados.");
+    } finally {
+      setTenantProductSyncClearingId(null);
+    }
+  }, [canManageTenants, fetchTenants, handleUnauthorized]);
 
   const fetchTenantProfitSummary = useCallback(async () => {
     if (!canManageTenants) return;
@@ -7683,6 +7740,30 @@ export default function Admin() {
                             >
                               {tenantAdminSavingId === tenant.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                               <span className="ml-2">Salvar admin</span>
+                            </Button>
+                          </div>
+                        ) : null}
+                        {tenant.id !== "tenant_loja1" ? (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-10"
+                              onClick={() => refreshTenantSyncedProducts(tenant)}
+                              disabled={tenantProductSyncRefreshingId === tenant.id}
+                            >
+                              {tenantProductSyncRefreshingId === tenant.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                              <span className="ml-2">Atualizar produtos</span>
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-10 border-red-200 text-red-700 hover:bg-red-50"
+                              onClick={() => clearTenantSyncedProducts(tenant)}
+                              disabled={tenantProductSyncClearingId === tenant.id}
+                            >
+                              {tenantProductSyncClearingId === tenant.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                              <span className="ml-2">Deletar produtos sincronizados</span>
                             </Button>
                           </div>
                         ) : null}

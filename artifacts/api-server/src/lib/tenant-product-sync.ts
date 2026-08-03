@@ -1,5 +1,5 @@
 import { db, productsTable, tenantSettingsTable, tenantsTable } from "@workspace/db";
-import { and, eq, inArray, isNull, ne, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, like, ne, or } from "drizzle-orm";
 import { DEFAULT_TENANT_ID } from "./tenant-context";
 
 export const TENANT_SYNC_PRODUCTS_FROM_LOJA1_KEY = "tenant_sync_products_from_loja1";
@@ -293,4 +293,19 @@ export async function removeLoja1ProductFromEnabledFiliais(productId: string): P
   }
 
   return removed;
+}
+
+export async function removeAllLoja1ProductsFromTenant(tenantId: string): Promise<number> {
+  const normalizedTenantId = String(tenantId || "").trim();
+  if (!normalizedTenantId || normalizedTenantId === DEFAULT_TENANT_ID) return 0;
+
+  const [config] = await getTenantSyncConfigs([normalizedTenantId]);
+  if (!config) return 0;
+
+  const replicatedPrefix = `loja1sync_${normalizedTenantId}_%`;
+  const result = await db
+    .delete(productsTable)
+    .where(and(eq(productsTable.tenantId, normalizedTenantId), like(productsTable.id, replicatedPrefix)));
+
+  return Number((result as { affectedRows?: number } | undefined)?.affectedRows || 0);
 }
