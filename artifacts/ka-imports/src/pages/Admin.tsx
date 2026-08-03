@@ -2905,7 +2905,7 @@ export default function Admin() {
     const targetTenantId = String(tenantId || selectedFilialTenantId || "").trim();
     setFilialPurchaseLoading(true);
     try {
-      const params = new URLSearchParams({ status: "pending" });
+      const params = new URLSearchParams({ status: "all" });
       if (targetTenantId) params.set("filialTenantId", targetTenantId);
       const res = await fetch(`${BASE}/api/admin/filial-purchases?${params.toString()}`, { headers: authHeaders() });
       if (res.status === 401) { handleUnauthorized(); return; }
@@ -7790,7 +7790,7 @@ export default function Admin() {
                     {filialPurchaseLoading ? (
                       <div className="text-sm text-muted-foreground mb-4">Carregando pedidos da filial selecionada...</div>
                     ) : sortedFilialPurchaseRequests.length === 0 ? (
-                      <div className="text-sm text-muted-foreground mb-4">Nenhum pedido pendente para essa filial.</div>
+                      <div className="text-sm text-muted-foreground mb-4">Nenhum pedido encontrado para essa filial.</div>
                     ) : (
                       <div className="space-y-3 mb-4">
                         {sortedFilialPurchaseRequests.map((request) => (
