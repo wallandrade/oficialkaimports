@@ -5,7 +5,7 @@ import crypto from "crypto";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { getR2MissingConfig, isR2Configured, uploadProductImageToR2 } from "../lib/r2";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
-import { syncLoja1ProductToEnabledFiliais } from "../lib/tenant-product-sync";
+import { removeLoja1ProductFromEnabledFiliais, syncLoja1ProductToEnabledFiliais } from "../lib/tenant-product-sync";
 
 const router: IRouter = Router();
 
@@ -823,6 +823,9 @@ router.delete("/admin/products/:id", requireAdminAuth, async (req, res) => {
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
     await db.delete(productsTable).where(and(eq(productsTable.id, id), buildProductTenantWhere(tenantId)));
+    if (tenantId === DEFAULT_TENANT_ID) {
+      await removeLoja1ProductFromEnabledFiliais(id);
+    }
     res.json({ ok: true });
   } catch (err) {
     console.error("Delete product error:", err);

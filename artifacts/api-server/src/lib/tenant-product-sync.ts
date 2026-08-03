@@ -271,3 +271,26 @@ export async function syncAllLoja1ProductsToTenant(tenantId: string): Promise<nu
 
   return synced;
 }
+
+export async function removeLoja1ProductFromEnabledFiliais(productId: string): Promise<number> {
+  const normalizedProductId = String(productId || "").trim();
+  if (!normalizedProductId) return 0;
+
+  const source = await db
+    .select({ id: productsTable.id })
+    .from(productsTable)
+    .where(and(eq(productsTable.id, normalizedProductId), buildLoja1ProductsWhere()))
+    .limit(1);
+
+  if (source.length === 0) return 0;
+
+  const configs = (await getTenantSyncConfigs()).filter((cfg) => cfg.enabled);
+  let removed = 0;
+  for (const config of configs) {
+    const replicatedId = buildReplicatedProductId(normalizedProductId, config.tenantId);
+    const result = await db.delete(productsTable).where(and(eq(productsTable.id, replicatedId), eq(productsTable.tenantId, config.tenantId)));
+    if (result) removed += 1;
+  }
+
+  return removed;
+}
