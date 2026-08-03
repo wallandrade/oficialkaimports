@@ -8007,7 +8007,7 @@ export default function Admin() {
                                       onChange={(e) => { void saveFilialPurchaseUpdateCostFlag(request, e.target.checked); }}
                                       className="h-4 w-4 rounded border-border"
                                     />
-                                    Atualizar custo do produto na filial
+                                    Atualizar custo do produto na filial com o repasse
                                   </label>
                                   <Button
                                     type="button"

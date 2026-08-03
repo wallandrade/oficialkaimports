@@ -697,6 +697,9 @@ router.post("/admin/filial-purchases/:requestId/confirm", requirePrimaryAdmin, a
     const loja1RealProfit = round2(repasseTotal - loja1RealCostTotal);
 
     if (shouldUpdateProductCost) {
+      const repasseCostByProductId = new Map(
+        snapshotItems.map((item) => [item.productId, round2(Number(item.repasseUnitCost || 0))]),
+      );
       const productIds = Array.from(new Set(costsSnapshot.map((item) => item.productId).filter(Boolean)));
       if (productIds.length > 0) {
         const productRows = await db
@@ -713,7 +716,7 @@ router.post("/admin/filial-purchases/:requestId/confirm", requirePrimaryAdmin, a
           const currentCost = currentCostByProductId.get(item.productId);
           if (currentCost == null) continue;
 
-          const nextCost = round2(Number(item.unitCost || 0));
+          const nextCost = Number(repasseCostByProductId.get(item.productId) ?? item.unitCost ?? 0);
           if (!Number.isFinite(nextCost)) continue;
           if (round2(currentCost) === nextCost) continue;
 
