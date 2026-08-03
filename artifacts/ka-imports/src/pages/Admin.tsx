@@ -3192,12 +3192,13 @@ export default function Admin() {
       }
 
       await fetchFilialPurchaseRequests(selectedFilialTenantId || undefined);
+      await fetchFilialStoreProducts(selectedFilialTenantId || undefined);
     } catch {
       toast.error("Erro ao confirmar compra da filial.");
     } finally {
       setFilialPurchaseConfirmingId(null);
     }
-  }, [canManageTenants, fetchFilialPurchaseRequests, filialPurchaseCostDrafts, filialPurchaseUpdateCostFlags, handleUnauthorized, selectedFilialTenantId]);
+  }, [canManageTenants, fetchFilialPurchaseRequests, fetchFilialStoreProducts, filialPurchaseCostDrafts, filialPurchaseUpdateCostFlags, handleUnauthorized, selectedFilialTenantId]);
 
   const deleteFilialPurchase = useCallback(async (request: FilialPurchaseRequest) => {
     if (!canManageTenants) return;
