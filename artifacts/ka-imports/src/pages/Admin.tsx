@@ -2758,7 +2758,7 @@ export default function Admin() {
     } finally {
       setManualFilialCreatingProduct(false);
     }
-  }, [fetchFilialStoreProducts, handleUnauthorized, manualFilialNewProductCategory, manualFilialNewProductCost, manualFilialNewProductName, manualFilialNewProductPrice, manualFilialNewProductUnit, selectedFilialTenantId]);
+  }, [handleUnauthorized, manualFilialNewProductCategory, manualFilialNewProductCost, manualFilialNewProductName, manualFilialNewProductPrice, manualFilialNewProductUnit, selectedFilialTenantId]);
 
   const submitManualFilialPurchase = useCallback(async () => {
     if (!selectedFilialTenantId) {
@@ -2803,7 +2803,7 @@ export default function Admin() {
     } finally {
       setManualFilialSubmitting(false);
     }
-  }, [fetchFilialPurchaseRequests, handleUnauthorized, manualFilialClientName, manualFilialItems, selectedFilialTenantId]);
+  }, [handleUnauthorized, manualFilialClientName, manualFilialItems, selectedFilialTenantId]);
 
   const markFilialPurchaseAsPaid = useCallback(async (request: FilialPurchaseRequest) => {
     if (!canManageTenants) return;
@@ -2831,7 +2831,7 @@ export default function Admin() {
     } finally {
       setFilialPurchaseMarkPaidId(null);
     }
-  }, [canManageTenants, fetchFilialPurchaseRequests, handleUnauthorized, selectedFilialTenantId]);
+  }, [canManageTenants, handleUnauthorized, selectedFilialTenantId]);
 
   const fetchFilialPurchaseRequests = useCallback(async (tenantId?: string) => {
     if (!canManageTenants) return;
