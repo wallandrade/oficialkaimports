@@ -295,12 +295,9 @@ function generateSalt(): string {
 }
 
 // --------------------------------------------------------------------------
-// Seed admin users from env vars on first run
+// Seed admin users from env vars
 // --------------------------------------------------------------------------
-async function seedFromEnvIfEmpty() {
-  const existing = await db.select({ id: adminUsersTable.id }).from(adminUsersTable).limit(1);
-  if (existing.length > 0) return; // already seeded
-
+async function seedFromEnvUsers() {
   const usersToSeed: Array<{ username: string; password: string; isPrimary: boolean }> = [];
 
   if (process.env["ADMIN_USERNAME"] && process.env["ADMIN_PASSWORD"]) {
@@ -310,27 +307,32 @@ async function seedFromEnvIfEmpty() {
     usersToSeed.push({ username: process.env["ADMIN_USERNAME_2"], password: process.env["ADMIN_PASSWORD_2"], isPrimary: false });
   }
 
+  let createdCount = 0;
   for (const u of usersToSeed) {
-    const existingUser = await db.select({ id: adminUsersTable.id }).from(adminUsersTable).where(eq(adminUsersTable.username, u.username.trim())).limit(1);
+    const normalizedUsername = u.username.trim().toLowerCase();
+    if (!normalizedUsername) continue;
+
+    const existingUser = await db.select({ id: adminUsersTable.id }).from(adminUsersTable).where(eq(adminUsersTable.username, normalizedUsername)).limit(1);
     if (existingUser.length > 0) continue;
 
     const salt = generateSalt();
     await db.insert(adminUsersTable).values({
       id:           crypto.randomBytes(8).toString("hex"),
-      username:     u.username.trim(),
+      username:     normalizedUsername,
       passwordHash: hashPassword(u.password, salt),
       salt,
       isPrimary:    u.isPrimary,
     });
+    createdCount += 1;
   }
 
-  if (usersToSeed.length > 0) {
-    console.log(`[AdminAuth] Seeded ${usersToSeed.length} admin user(s) from env vars.`);
+  if (createdCount > 0) {
+    console.log(`[AdminAuth] Seeded ${createdCount} missing admin user(s) from env vars.`);
   }
 }
 
 // Run seed on startup
-seedFromEnvIfEmpty().catch(console.error);
+seedFromEnvUsers().catch(console.error);
 
 // --------------------------------------------------------------------------
 // Middleware
