@@ -150,6 +150,7 @@ async function upsertReplicatedProduct(
   config: TenantSyncConfig,
 ): Promise<void> {
   const basePrice = Number(sourceProduct.price || 0);
+  const baseCostPrice = sourceProduct.costPrice == null ? basePrice : Number(sourceProduct.costPrice || 0);
   const basePromoPrice = sourceProduct.promoPrice == null ? null : Number(sourceProduct.promoPrice || 0);
   const adjustedPrice = round2(basePrice * (1 + config.marginPercent / 100) + config.marginFixedBrl);
   const adjustedPromoPrice =
@@ -167,7 +168,7 @@ async function upsertReplicatedProduct(
       category: sourceProduct.category,
       unit: sourceProduct.unit,
       price: formatMoney(adjustedPrice),
-      costPrice: formatMoney(adjustedPrice),
+      costPrice: formatMoney(baseCostPrice),
       promoPrice: adjustedPromoPrice == null ? null : formatMoney(adjustedPromoPrice),
       promoEndsAt: sourceProduct.promoEndsAt,
       bulkDiscountEnabled: Boolean(sourceProduct.bulkDiscountEnabled),
@@ -193,7 +194,7 @@ async function upsertReplicatedProduct(
         category: sourceProduct.category,
         unit: sourceProduct.unit,
         price: formatMoney(adjustedPrice),
-        costPrice: formatMoney(adjustedPrice),
+        costPrice: formatMoney(baseCostPrice),
         promoPrice: adjustedPromoPrice == null ? null : formatMoney(adjustedPromoPrice),
         promoEndsAt: sourceProduct.promoEndsAt,
         bulkDiscountEnabled: Boolean(sourceProduct.bulkDiscountEnabled),
