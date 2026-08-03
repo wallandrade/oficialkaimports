@@ -7758,8 +7758,7 @@ export default function Admin() {
                                 Repasse para filial: <span className="font-semibold text-emerald-700">{manualFilialComputedRepasseUnitCost == null ? "-" : formatCurrency(manualFilialComputedRepasseUnitCost)}</span>
                               </p>
                               <p className="text-xs text-muted-foreground">
-                                Lucro Loja 1 un.: <span className={`font-semibold ${manualFilialLoja1UnitProfitPreview != null && manualFilialLoja1UnitProfitPreview < 0 ? "text-red-700" : "text-blue-700"}`}>{manualFilialLoja1UnitProfitPreview == null ? "-" : formatCurrency(manualFilialLoja1UnitProfitPreview)}</span>
-                                {" "}· Lucro Loja 1 total: <span className={`font-semibold ${manualFilialLoja1TotalProfitPreview != null && manualFilialLoja1TotalProfitPreview < 0 ? "text-red-700" : "text-blue-700"}`}>{manualFilialLoja1TotalProfitPreview == null ? "-" : formatCurrency(manualFilialLoja1TotalProfitPreview)}</span>
+                                Lucro Loja 1: <span className={`font-semibold ${manualFilialLoja1TotalProfitPreview != null && manualFilialLoja1TotalProfitPreview < 0 ? "text-red-700" : "text-blue-700"}`}>{manualFilialLoja1TotalProfitPreview == null ? "-" : formatCurrency(manualFilialLoja1TotalProfitPreview)}</span>
                               </p>
                               <p className="text-xs text-muted-foreground">
                                 Lucro filial un. na venda: <span className={`font-semibold ${manualFilialFilialUnitProfitPreview != null && manualFilialFilialUnitProfitPreview < 0 ? "text-red-700" : "text-emerald-700"}`}>{manualFilialFilialUnitProfitPreview == null ? "-" : formatCurrency(manualFilialFilialUnitProfitPreview)}</span>
