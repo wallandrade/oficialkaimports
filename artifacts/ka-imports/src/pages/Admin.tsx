@@ -7854,6 +7854,14 @@ export default function Admin() {
                                 <p className="font-semibold text-foreground">{formatCurrency(request.orderTotal)}</p>
                                 <p className="text-muted-foreground mt-1">Repasse estimado Loja 1</p>
                                 <p className="font-semibold text-blue-700">{formatCurrency(request.repasseTotal)}</p>
+                                {(String(request.status || "").trim().toLowerCase() === "compra_registrada" || String(request.status || "").trim().toLowerCase() === "estoque_lancado_filial" || String(request.status || "").trim().toLowerCase() === "finalizado") ? (
+                                  <>
+                                    <p className="text-muted-foreground mt-1">Custo real Loja 1</p>
+                                    <p className="font-semibold text-foreground">{formatCurrency(Number(request.loja1RealCostTotal || 0))}</p>
+                                    <p className="text-muted-foreground mt-1">Lucro Loja 1 no repasse</p>
+                                    <p className={`font-semibold ${Number(request.loja1RealProfit || 0) < 0 ? "text-red-700" : "text-emerald-700"}`}>{formatCurrency(Number(request.loja1RealProfit || 0))}</p>
+                                  </>
+                                ) : null}
                               </div>
                             </div>
 
