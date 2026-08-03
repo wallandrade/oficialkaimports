@@ -5229,7 +5229,7 @@ export default function Admin() {
             <div className="grid grid-cols-1 gap-3 mb-3">
               <div className="rounded-xl border bg-gradient-to-br from-indigo-50 to-sky-100/60 border-indigo-200 p-5 flex flex-col gap-1">
                 <div className="flex items-start justify-between gap-3 flex-wrap">
-                  <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wide">Lucro líquido de repasse para afiliadas</p>
+                  <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wide">Lucro líquido de repasse para filiais</p>
                   <select
                     value={affiliateRepasseDateBasis}
                     onChange={(e) => setAffiliateRepasseDateBasis(e.target.value as "purchaseRecordedAt" | "createdAt")}
@@ -7992,7 +7992,7 @@ export default function Admin() {
                                             },
                                           }));
                                         }}
-                                        placeholder="Custo real unit."
+                                        placeholder="Custo pago Loja 1 unit."
                                         className="h-9 px-2 rounded-lg border border-border bg-white focus:border-primary outline-none text-sm text-right"
                                       />
                                     </div>
@@ -8211,7 +8211,7 @@ export default function Admin() {
                   <p className="text-xs font-semibold text-blue-900 uppercase tracking-wide">Resumo de lucro por loja</p>
                   <p className="text-xs text-blue-800 mt-1">
                     Período: {formatDateOnlyLocal(statsDateFrom)} até {formatDateOnlyLocal(statsDateTo)} ·
-                    lucro da Loja 1 estimado com base na margem de repasse configurada por loja.
+                    lucro da Loja 1 calculado com base na margem de repasse configurada por loja.
                   </p>
                 </div>
 
@@ -8225,9 +8225,9 @@ export default function Admin() {
                         <p className="text-xs text-muted-foreground">{summary.ordersCount} pedido(s) pago(s)</p>
                         <div className="mt-2 space-y-1 text-xs">
                           <p className="text-muted-foreground">Faturamento: <span className="font-semibold text-foreground">{formatCurrency(summary.totalPaid)}</span></p>
-                          <p className="text-muted-foreground">Custo repasse (loja filha): <span className="font-semibold text-foreground">{formatCurrency(summary.childRepasseCost)}</span></p>
-                          <p className="text-muted-foreground">Lucro loja filha (bruto): <span className="font-semibold text-emerald-700">{formatCurrency(summary.childGrossProfit)}</span></p>
-                          <p className="text-muted-foreground">Lucro Loja 1 (estimado): <span className="font-semibold text-blue-700">{formatCurrency(summary.loja1EstimatedProfit)}</span></p>
+                          <p className="text-muted-foreground">Repasse para filial: <span className="font-semibold text-foreground">{formatCurrency(summary.childRepasseCost)}</span></p>
+                          <p className="text-muted-foreground">Lucro da filial (bruto): <span className="font-semibold text-emerald-700">{formatCurrency(summary.childGrossProfit)}</span></p>
+                          <p className="text-muted-foreground">Lucro Loja 1: <span className="font-semibold text-blue-700">{formatCurrency(summary.loja1EstimatedProfit)}</span></p>
                         </div>
                       </div>
                     ))}
