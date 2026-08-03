@@ -1233,6 +1233,24 @@ function filialPurchaseStatusTagClass(status: string): string {
   return "border-amber-200 bg-amber-50 text-amber-700";
 }
 
+function filialPurchaseStatusOrder(status: string): number {
+  const tag = filialPurchaseStatusTag(status);
+  if (tag === "pendente") return 0;
+  if (tag === "pago") return 1;
+  return 2;
+}
+
+function compareFilialPurchaseRequests(a: FilialPurchaseRequest, b: FilialPurchaseRequest): number {
+  const statusDiff = filialPurchaseStatusOrder(a.status) - filialPurchaseStatusOrder(b.status);
+  if (statusDiff !== 0) return statusDiff;
+
+  const aDate = Date.parse(String(a.createdAt || ""));
+  const bDate = Date.parse(String(b.createdAt || ""));
+  const aTime = Number.isFinite(aDate) ? aDate : 0;
+  const bTime = Number.isFinite(bDate) ? bDate : 0;
+  return bTime - aTime;
+}
+
 interface DnsGuideResponse {
   targetHost: string;
   envTargetHost: string | null;
@@ -1649,6 +1667,8 @@ export default function Admin() {
   const filteredFilialPurchaseRequests = selectedFilialTenantId
     ? filialPurchaseRequests.filter((request) => request.filialTenantId === selectedFilialTenantId)
     : filialPurchaseRequests;
+  const sortedFilialPurchaseRequests = [...filteredFilialPurchaseRequests].sort(compareFilialPurchaseRequests);
+  const sortedMyFilialPurchaseRequests = [...myFilialPurchaseRequests].sort(compareFilialPurchaseRequests);
   const selectedManualFilialProduct = filialStoreProducts.find((product) => product.id === manualFilialProductId) || null;
   const manualFilialSelectableProducts: BumpProduct[] = filialStoreProducts.map((product) => ({
     id: product.id,
@@ -7758,11 +7778,11 @@ export default function Admin() {
 
                     {filialPurchaseLoading ? (
                       <div className="text-sm text-muted-foreground mb-4">Carregando pedidos da filial selecionada...</div>
-                    ) : filteredFilialPurchaseRequests.length === 0 ? (
+                    ) : sortedFilialPurchaseRequests.length === 0 ? (
                       <div className="text-sm text-muted-foreground mb-4">Nenhum pedido pendente para essa filial.</div>
                     ) : (
                       <div className="space-y-3 mb-4">
-                        {filteredFilialPurchaseRequests.map((request) => (
+                        {sortedFilialPurchaseRequests.map((request) => (
                           <div key={request.id} className="rounded-xl border border-amber-200 bg-white p-3">
                             <div className="flex flex-wrap items-start justify-between gap-2">
                               <div>
@@ -8306,11 +8326,11 @@ export default function Admin() {
 
             {myFilialPurchaseLoading ? (
               <div className="text-sm text-muted-foreground">Carregando pedidos de compra...</div>
-            ) : myFilialPurchaseRequests.length === 0 ? (
+            ) : sortedMyFilialPurchaseRequests.length === 0 ? (
               <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">Nenhum pedido de compra encontrado para esta filial.</div>
             ) : (
               <div className="space-y-3">
-                {myFilialPurchaseRequests.map((request) => (
+                {sortedMyFilialPurchaseRequests.map((request) => (
                   <div key={`my-filial-purchase-${request.id}`} className="rounded-xl border border-border bg-card p-4">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div>
