@@ -7751,17 +7751,17 @@ export default function Admin() {
                                 Margens aplicadas: <span className="font-semibold text-foreground">{selectedFilialMarginPercent}%</span> + <span className="font-semibold text-foreground">{formatCurrency(selectedFilialMarginFixedBrl)}</span>
                               </p>
                               <p className="text-xs text-muted-foreground">
-                                Custo pago informado: <span className="font-semibold text-foreground">{Number.isFinite(manualFilialBaseUnitCost) && manualFilialBaseUnitCost >= 0 ? formatCurrency(manualFilialBaseUnitCost) : "-"}</span>
+                                Custo pago Loja 1: <span className="font-semibold text-foreground">{Number.isFinite(manualFilialBaseUnitCost) && manualFilialBaseUnitCost >= 0 ? formatCurrency(manualFilialBaseUnitCost) : "-"}</span>
                               </p>
                               <p className="text-xs text-muted-foreground">
-                                Repasse unit. calculado: <span className="font-semibold text-emerald-700">{manualFilialComputedRepasseUnitCost == null ? "-" : formatCurrency(manualFilialComputedRepasseUnitCost)}</span>
+                                Repasse para filial: <span className="font-semibold text-emerald-700">{manualFilialComputedRepasseUnitCost == null ? "-" : formatCurrency(manualFilialComputedRepasseUnitCost)}</span>
                               </p>
                               <p className="text-xs text-muted-foreground">
                                 Lucro Loja 1 un.: <span className={`font-semibold ${manualFilialLoja1UnitProfitPreview != null && manualFilialLoja1UnitProfitPreview < 0 ? "text-red-700" : "text-blue-700"}`}>{manualFilialLoja1UnitProfitPreview == null ? "-" : formatCurrency(manualFilialLoja1UnitProfitPreview)}</span>
                                 {" "}· Lucro Loja 1 total: <span className={`font-semibold ${manualFilialLoja1TotalProfitPreview != null && manualFilialLoja1TotalProfitPreview < 0 ? "text-red-700" : "text-blue-700"}`}>{manualFilialLoja1TotalProfitPreview == null ? "-" : formatCurrency(manualFilialLoja1TotalProfitPreview)}</span>
                               </p>
                               <p className="text-xs text-muted-foreground">
-                                Margem filial un. na venda: <span className={`font-semibold ${manualFilialFilialUnitProfitPreview != null && manualFilialFilialUnitProfitPreview < 0 ? "text-red-700" : "text-emerald-700"}`}>{manualFilialFilialUnitProfitPreview == null ? "-" : formatCurrency(manualFilialFilialUnitProfitPreview)}</span>
+                                Lucro filial un. na venda: <span className={`font-semibold ${manualFilialFilialUnitProfitPreview != null && manualFilialFilialUnitProfitPreview < 0 ? "text-red-700" : "text-emerald-700"}`}>{manualFilialFilialUnitProfitPreview == null ? "-" : formatCurrency(manualFilialFilialUnitProfitPreview)}</span>
                               </p>
                             </div>
                           </div>
@@ -7833,9 +7833,9 @@ export default function Admin() {
                               </div>
                               <p className="text-xs text-muted-foreground">Qtd: <span className="font-semibold text-foreground">{item.quantity}</span></p>
                               <div className="text-right space-y-0.5">
-                                <p className="text-xs text-muted-foreground">Custo pago un.: <span className="font-semibold text-foreground">{formatCurrency(item.baseUnitCost)}</span></p>
-                                <p className="text-xs text-muted-foreground">Repasse un.: <span className="font-semibold text-foreground">{formatCurrency(item.repasseUnitCost)}</span></p>
-                                <p className="text-xs text-muted-foreground">Lucro Loja 1: <span className={`font-semibold ${(item.repasseUnitCost - item.baseUnitCost) < 0 ? "text-red-700" : "text-blue-700"}`}>{formatCurrency((item.repasseUnitCost - item.baseUnitCost) * item.quantity)}</span></p>
+                                <p className="text-xs text-muted-foreground">Custo pago Loja 1 un.: <span className="font-semibold text-foreground">{formatCurrency(item.baseUnitCost)}</span></p>
+                                <p className="text-xs text-muted-foreground">Repasse para filial un.: <span className="font-semibold text-foreground">{formatCurrency(item.repasseUnitCost)}</span></p>
+                                <p className="text-xs text-muted-foreground">Lucro Loja 1 no item: <span className={`font-semibold ${(item.repasseUnitCost - item.baseUnitCost) < 0 ? "text-red-700" : "text-blue-700"}`}>{formatCurrency((item.repasseUnitCost - item.baseUnitCost) * item.quantity)}</span></p>
                               </div>
                               <Button
                                 type="button"
@@ -7903,7 +7903,7 @@ export default function Admin() {
                               <div className="text-right text-xs">
                                 <p className="text-muted-foreground">Total pago na filial</p>
                                 <p className="font-semibold text-foreground">{formatCurrency(request.orderTotal)}</p>
-                                <p className="text-muted-foreground mt-1">Repasse estimado Loja 1</p>
+                                <p className="text-muted-foreground mt-1">Repasse para filial</p>
                                 <p className="font-semibold text-blue-700">{formatCurrency(request.repasseTotal)}</p>
                                 {(() => {
                                   const normalizedStatus = String(request.status || "").trim().toLowerCase();
@@ -7911,7 +7911,7 @@ export default function Admin() {
                                   if (isClosed) {
                                     return (
                                       <>
-                                        <p className="text-muted-foreground mt-1">Custo real Loja 1</p>
+                                        <p className="text-muted-foreground mt-1">Custo pago Loja 1</p>
                                         <p className="font-semibold text-foreground">{formatCurrency(Number(request.loja1RealCostTotal || 0))}</p>
                                         <p className="text-muted-foreground mt-1">Lucro Loja 1 no repasse</p>
                                         <p className={`font-semibold ${Number(request.loja1RealProfit || 0) < 0 ? "text-red-700" : "text-emerald-700"}`}>{formatCurrency(Number(request.loja1RealProfit || 0))}</p>
@@ -8007,7 +8007,7 @@ export default function Admin() {
                                       onChange={(e) => { void saveFilialPurchaseUpdateCostFlag(request, e.target.checked); }}
                                       className="h-4 w-4 rounded border-border"
                                     />
-                                    Atualizar custo do produto na filial com o repasse
+                                    Atualizar custo do produto da filial com o repasse
                                   </label>
                                   <Button
                                     type="button"
