@@ -347,7 +347,7 @@ router.post("/admin/filial-purchases/manual", requirePrimaryAdmin, async (req, r
       updatedAt: new Date(),
     });
 
-    await addAuditLog({
+    await addAudit({
       requestId,
       action: "pendente_pagamento_filial",
       actorUsername,
@@ -423,7 +423,7 @@ router.post("/admin/filial-purchases/:requestId/mark-paid", requirePrimaryAdmin,
       })
       .where(eq(filialPurchaseRequestsTable.id, requestId));
 
-    await addAuditLog({
+    await addAudit({
       requestId,
       action: "pago_na_filial",
       actorUsername,
@@ -434,7 +434,7 @@ router.post("/admin/filial-purchases/:requestId/mark-paid", requirePrimaryAdmin,
       },
     });
 
-    await addAuditLog({
+    await addAudit({
       requestId,
       action: "aguardando_compra_loja1",
       actorUsername,
