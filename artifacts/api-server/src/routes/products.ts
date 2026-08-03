@@ -618,7 +618,9 @@ router.post("/admin/products", requireAdminAuth, async (req, res) => {
       res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar produtos." });
       return;
     }
-    const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
+    const scopeTenantId = scope?.tenantId || DEFAULT_TENANT_ID;
+    const queryTenantId = String(req.query.tenantId || "").trim();
+    const tenantId = scope?.isPrimary && queryTenantId ? queryTenantId : scopeTenantId;
     const {
       name, description, category, brand, unit, price,
       costPrice, promoPrice, promoEndsAt, bulkDiscountEnabled, bulkDiscountTiers, variantGroups, image, isActive, isSoldOut, isLaunch, sortOrder,

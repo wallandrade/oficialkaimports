@@ -28,6 +28,12 @@ type CostInput = {
   unitCost?: unknown;
 };
 
+type ManualPurchaseItemInput = {
+  productId?: unknown;
+  quantity?: unknown;
+  repasseUnitCost?: unknown;
+};
+
 function buildProductsTenantWhere(tenantId: string) {
   if (tenantId === DEFAULT_TENANT_ID) {
     return or(eq(productsTable.tenantId, tenantId), isNull(productsTable.tenantId), eq(productsTable.tenantId, ""));
@@ -63,6 +69,18 @@ function parseSnapshotItems(raw: unknown): SnapshotItem[] {
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+function buildManualOrderRef(tenantId: string): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mm = String(now.getMinutes()).padStart(2, "0");
+  const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+  const shortTenant = String(tenantId || "").replace(/[^a-zA-Z0-9]/g, "").slice(-6).toUpperCase() || "FILIAL";
+  return `MANUAL-${shortTenant}-${y}${m}${d}-${hh}${mm}-${suffix}`;
 }
 
 function readUpdateProductCostFlag(payload: unknown): boolean | null {
@@ -106,7 +124,7 @@ router.get("/admin/filial-purchases", requirePrimaryAdmin, async (req, res) => {
 
     const statusParam = String(req.query.status || "pending").trim().toLowerCase();
     const filialTenantIdParam = String(req.query.filialTenantId || req.query.tenantId || "").trim();
-    const pendingStatuses = ["pago_na_filial", "aguardando_compra_loja1", "compra_registrada", "estoque_lancado_filial"];
+    const pendingStatuses = ["pendente_pagamento_filial", "pago_na_filial", "aguardando_compra_loja1", "compra_registrada", "estoque_lancado_filial"];
 
     const statusWhere = statusParam === "all"
       ? sql`1 = 1`
@@ -196,6 +214,239 @@ router.get("/admin/filial-purchases", requirePrimaryAdmin, async (req, res) => {
   }
 });
 
+router.post("/admin/filial-purchases/manual", requirePrimaryAdmin, async (req, res) => {
+  try {
+    if (!ensureDefaultTenantScope(req, res)) return;
+
+    const filialTenantId = String(req.body?.filialTenantId || "").trim();
+    const clientName = String(req.body?.clientName || "Compra manual da filial").trim() || "Compra manual da filial";
+    const inputItems = Array.isArray(req.body?.items) ? (req.body.items as ManualPurchaseItemInput[]) : [];
+
+    if (!filialTenantId || filialTenantId === DEFAULT_TENANT_ID) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Selecione uma filial válida." });
+      return;
+    }
+
+    if (inputItems.length === 0) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Adicione ao menos um produto no pedido." });
+      return;
+    }
+
+    const filialRows = await db
+      .select({ id: tenantsTable.id, name: tenantsTable.name })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, filialTenantId))
+      .limit(1);
+
+    const filial = filialRows[0];
+    if (!filial) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Filial não encontrada." });
+      return;
+    }
+
+    const normalizedItems = inputItems
+      .map((item) => ({
+        productId: String(item.productId || "").trim(),
+        quantity: Number(item.quantity || 0),
+        repasseUnitCostRaw: item.repasseUnitCost,
+      }))
+      .filter((item) => item.productId);
+
+    if (normalizedItems.length === 0) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Produtos inválidos no pedido." });
+      return;
+    }
+
+    for (const item of normalizedItems) {
+      if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
+        res.status(400).json({ error: "INVALID_INPUT", message: `Quantidade inválida para o produto ${item.productId}.` });
+        return;
+      }
+    }
+
+    const productIds = Array.from(new Set(normalizedItems.map((item) => item.productId)));
+    const productRows = await db
+      .select({
+        id: productsTable.id,
+        name: productsTable.name,
+        price: productsTable.price,
+        costPrice: productsTable.costPrice,
+      })
+      .from(productsTable)
+      .where(and(buildProductsTenantWhere(filialTenantId), inArray(productsTable.id, productIds)));
+
+    const productsById = new Map(productRows.map((row) => [row.id, row]));
+    for (const productId of productIds) {
+      if (!productsById.has(productId)) {
+        res.status(400).json({ error: "INVALID_INPUT", message: `Produto ${productId} não encontrado na filial selecionada.` });
+        return;
+      }
+    }
+
+    const grouped = new Map<string, SnapshotItem>();
+    for (const item of normalizedItems) {
+      const product = productsById.get(item.productId)!;
+      const quantity = Number(item.quantity);
+      const saleUnitPrice = Number(product.price || 0);
+      const defaultRepasse = Number(product.costPrice || 0);
+      const inputRepasse = Number(item.repasseUnitCostRaw);
+      const repasseUnitCost = Number.isFinite(inputRepasse) && inputRepasse >= 0 ? inputRepasse : defaultRepasse;
+
+      const existing = grouped.get(item.productId);
+      if (!existing) {
+        grouped.set(item.productId, {
+          productId: item.productId,
+          productName: String(product.name || "Produto"),
+          quantity,
+          saleUnitPrice,
+          repasseUnitCost,
+        });
+        continue;
+      }
+
+      const nextQty = existing.quantity + quantity;
+      const weightedSale = nextQty > 0
+        ? ((existing.saleUnitPrice * existing.quantity) + (saleUnitPrice * quantity)) / nextQty
+        : existing.saleUnitPrice;
+      const weightedRepasse = nextQty > 0
+        ? ((existing.repasseUnitCost * existing.quantity) + (repasseUnitCost * quantity)) / nextQty
+        : existing.repasseUnitCost;
+
+      grouped.set(item.productId, {
+        ...existing,
+        quantity: nextQty,
+        saleUnitPrice: weightedSale,
+        repasseUnitCost: weightedRepasse,
+      });
+    }
+
+    const itemsSnapshot = Array.from(grouped.values());
+    const repasseTotal = round2(itemsSnapshot.reduce((sum, item) => sum + (item.repasseUnitCost * item.quantity), 0));
+    const requestId = randomId("fpr");
+    const orderId = buildManualOrderRef(filialTenantId);
+    const scope = getAdminScope(req);
+    const actorUsername = String(scope?.username || "").trim() || null;
+
+    await db.insert(filialPurchaseRequestsTable).values({
+      id: requestId,
+      filialTenantId,
+      orderId,
+      status: "pendente_pagamento_filial",
+      clientName,
+      orderTotal: String(repasseTotal),
+      repasseTotal: String(repasseTotal),
+      itemsSnapshot,
+      createdByAdmin: actorUsername,
+      updatedByAdmin: actorUsername,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await addAuditLog({
+      requestId,
+      action: "pendente_pagamento_filial",
+      actorUsername,
+      payload: {
+        source: "manual_loja1",
+        filialTenantId,
+        filialTenantName: filial.name,
+        orderId,
+        repasseTotal,
+      },
+    });
+
+    res.status(201).json({
+      ok: true,
+      requestId,
+      orderId,
+      filialTenantId,
+      status: "pendente_pagamento_filial",
+      repasseTotal,
+    });
+  } catch (err) {
+    console.error("[FilialPurchases] manual create error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao gerar pedido manual da filial." });
+  }
+});
+
+router.post("/admin/filial-purchases/:requestId/mark-paid", requirePrimaryAdmin, async (req, res) => {
+  try {
+    if (!ensureDefaultTenantScope(req, res)) return;
+
+    const requestId = String(req.params.requestId || "").trim();
+    if (!requestId) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Compra inválida." });
+      return;
+    }
+
+    const scope = getAdminScope(req);
+    const actorUsername = String(scope?.username || "").trim() || null;
+
+    const rows = await db
+      .select({
+        id: filialPurchaseRequestsTable.id,
+        status: filialPurchaseRequestsTable.status,
+        filialTenantId: filialPurchaseRequestsTable.filialTenantId,
+        orderId: filialPurchaseRequestsTable.orderId,
+      })
+      .from(filialPurchaseRequestsTable)
+      .where(eq(filialPurchaseRequestsTable.id, requestId))
+      .limit(1);
+
+    const requestRow = rows[0];
+    if (!requestRow) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Compra da filial não encontrada." });
+      return;
+    }
+
+    if (requestRow.status === "cancelado") {
+      res.status(400).json({ error: "INVALID_STATE", message: "Não é possível marcar como pago um pedido cancelado." });
+      return;
+    }
+
+    if (requestRow.status === "finalizado" || requestRow.status === "compra_registrada" || requestRow.status === "estoque_lancado_filial" || requestRow.status === "aguardando_compra_loja1" || requestRow.status === "pago_na_filial") {
+      res.json({ ok: true, idempotent: true, requestId, status: requestRow.status });
+      return;
+    }
+
+    await db
+      .update(filialPurchaseRequestsTable)
+      .set({
+        status: "aguardando_compra_loja1",
+        updatedByAdmin: actorUsername,
+        updatedAt: new Date(),
+      })
+      .where(eq(filialPurchaseRequestsTable.id, requestId));
+
+    await addAuditLog({
+      requestId,
+      action: "pago_na_filial",
+      actorUsername,
+      payload: {
+        source: "manual_mark_paid",
+        filialTenantId: requestRow.filialTenantId,
+        orderId: requestRow.orderId,
+      },
+    });
+
+    await addAuditLog({
+      requestId,
+      action: "aguardando_compra_loja1",
+      actorUsername,
+      payload: {
+        source: "manual_mark_paid",
+        filialTenantId: requestRow.filialTenantId,
+        orderId: requestRow.orderId,
+      },
+    });
+
+    res.json({ ok: true, requestId, status: "aguardando_compra_loja1" });
+  } catch (err) {
+    console.error("[FilialPurchases] mark-paid error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao marcar pedido como pago na filial." });
+  }
+});
+
 router.post("/admin/filial-purchases/:requestId/confirm", requirePrimaryAdmin, async (req, res) => {
   try {
     if (!ensureDefaultTenantScope(req, res)) return;
@@ -223,6 +474,16 @@ router.post("/admin/filial-purchases/:requestId/confirm", requirePrimaryAdmin, a
 
     if (requestRow.status === "finalizado") {
       res.json({ ok: true, idempotent: true, message: "Compra já finalizada." });
+      return;
+    }
+
+    if (requestRow.status === "cancelado") {
+      res.status(400).json({ error: "INVALID_STATE", message: "Não é possível confirmar uma compra cancelada." });
+      return;
+    }
+
+    if (requestRow.status === "pendente_pagamento_filial") {
+      res.status(409).json({ error: "PAYMENT_PENDING", message: "Esse pedido ainda está pendente de pagamento da filial." });
       return;
     }
 
