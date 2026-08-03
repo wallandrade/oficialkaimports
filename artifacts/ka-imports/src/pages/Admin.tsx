@@ -1159,6 +1159,7 @@ interface FilialPurchaseRequestItem {
   productName: string;
   quantity: number;
   saleUnitPrice: number;
+  baseUnitCost?: number | null;
   repasseUnitCost: number;
 }
 
@@ -1232,6 +1233,25 @@ function filialPurchaseStatusTagClass(status: string): string {
   if (tag === "cancelado") return "border-red-200 bg-red-50 text-red-700";
   if (tag === "pago") return "border-emerald-200 bg-emerald-50 text-emerald-700";
   return "border-amber-200 bg-amber-50 text-amber-700";
+}
+
+function computeLoja1RepasseProfitFromItems(items: FilialPurchaseRequestItem[] | null | undefined): number | null {
+  if (!Array.isArray(items) || items.length === 0) return null;
+
+  let totalProfit = 0;
+  let hasAnyBase = false;
+  for (const item of items) {
+    const quantity = Number(item.quantity || 0);
+    const repasseUnitCost = Number(item.repasseUnitCost || 0);
+    const baseUnitCost = Number(item.baseUnitCost);
+    if (!Number.isFinite(quantity) || quantity <= 0) continue;
+    if (!Number.isFinite(repasseUnitCost)) continue;
+    if (!Number.isFinite(baseUnitCost) || baseUnitCost < 0) continue;
+    hasAnyBase = true;
+    totalProfit += (repasseUnitCost - baseUnitCost) * quantity;
+  }
+
+  return hasAnyBase ? Number(totalProfit.toFixed(2)) : null;
 }
 
 function filialPurchaseStatusOrder(status: string): number {
@@ -2866,6 +2886,7 @@ export default function Admin() {
           items: manualFilialItems.map((item) => ({
             productId: item.productId,
             quantity: item.quantity,
+            baseUnitCost: item.baseUnitCost,
             repasseUnitCost: item.repasseUnitCost,
           })),
         }),
@@ -7854,14 +7875,30 @@ export default function Admin() {
                                 <p className="font-semibold text-foreground">{formatCurrency(request.orderTotal)}</p>
                                 <p className="text-muted-foreground mt-1">Repasse estimado Loja 1</p>
                                 <p className="font-semibold text-blue-700">{formatCurrency(request.repasseTotal)}</p>
-                                {(String(request.status || "").trim().toLowerCase() === "compra_registrada" || String(request.status || "").trim().toLowerCase() === "estoque_lancado_filial" || String(request.status || "").trim().toLowerCase() === "finalizado") ? (
-                                  <>
-                                    <p className="text-muted-foreground mt-1">Custo real Loja 1</p>
-                                    <p className="font-semibold text-foreground">{formatCurrency(Number(request.loja1RealCostTotal || 0))}</p>
-                                    <p className="text-muted-foreground mt-1">Lucro Loja 1 no repasse</p>
-                                    <p className={`font-semibold ${Number(request.loja1RealProfit || 0) < 0 ? "text-red-700" : "text-emerald-700"}`}>{formatCurrency(Number(request.loja1RealProfit || 0))}</p>
-                                  </>
-                                ) : null}
+                                {(() => {
+                                  const normalizedStatus = String(request.status || "").trim().toLowerCase();
+                                  const isClosed = normalizedStatus === "compra_registrada" || normalizedStatus === "estoque_lancado_filial" || normalizedStatus === "finalizado";
+                                  if (isClosed) {
+                                    return (
+                                      <>
+                                        <p className="text-muted-foreground mt-1">Custo real Loja 1</p>
+                                        <p className="font-semibold text-foreground">{formatCurrency(Number(request.loja1RealCostTotal || 0))}</p>
+                                        <p className="text-muted-foreground mt-1">Lucro Loja 1 no repasse</p>
+                                        <p className={`font-semibold ${Number(request.loja1RealProfit || 0) < 0 ? "text-red-700" : "text-emerald-700"}`}>{formatCurrency(Number(request.loja1RealProfit || 0))}</p>
+                                      </>
+                                    );
+                                  }
+
+                                  const estimatedProfit = computeLoja1RepasseProfitFromItems(request.items);
+                                  if (estimatedProfit == null) return null;
+
+                                  return (
+                                    <>
+                                      <p className="text-muted-foreground mt-1">Lucro Loja 1 no repasse (estimado)</p>
+                                      <p className={`font-semibold ${estimatedProfit < 0 ? "text-red-700" : "text-emerald-700"}`}>{formatCurrency(estimatedProfit)}</p>
+                                    </>
+                                  );
+                                })()}
                               </div>
                             </div>
 

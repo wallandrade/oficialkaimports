@@ -21,6 +21,7 @@ type SnapshotItem = {
   productName: string;
   quantity: number;
   saleUnitPrice: number;
+  baseUnitCost: number | null;
   repasseUnitCost: number;
 };
 
@@ -32,6 +33,7 @@ type CostInput = {
 type ManualPurchaseItemInput = {
   productId?: unknown;
   quantity?: unknown;
+  baseUnitCost?: unknown;
   repasseUnitCost?: unknown;
 };
 
@@ -63,6 +65,10 @@ function parseSnapshotItems(raw: unknown): SnapshotItem[] {
       productName: String((item as { productName?: unknown })?.productName || "Produto").trim() || "Produto",
       quantity: Number((item as { quantity?: unknown })?.quantity || 0),
       saleUnitPrice: Number((item as { saleUnitPrice?: unknown })?.saleUnitPrice || 0),
+      baseUnitCost: (() => {
+        const raw = Number((item as { baseUnitCost?: unknown })?.baseUnitCost);
+        return Number.isFinite(raw) && raw >= 0 ? raw : null;
+      })(),
       repasseUnitCost: Number((item as { repasseUnitCost?: unknown })?.repasseUnitCost || 0),
     }))
     .filter((item) => item.productId && Number.isFinite(item.quantity) && item.quantity > 0);
@@ -352,6 +358,7 @@ router.post("/admin/filial-purchases/manual", requirePrimaryAdmin, async (req, r
       .map((item) => ({
         productId: String(item.productId || "").trim(),
         quantity: Number(item.quantity || 0),
+        baseUnitCostRaw: item.baseUnitCost,
         repasseUnitCostRaw: item.repasseUnitCost,
       }))
       .filter((item) => item.productId);
@@ -392,6 +399,9 @@ router.post("/admin/filial-purchases/manual", requirePrimaryAdmin, async (req, r
       const product = productsById.get(item.productId)!;
       const quantity = Number(item.quantity);
       const saleUnitPrice = Number(product.price || 0);
+      const defaultBase = Number(product.costPrice || 0);
+      const inputBase = Number(item.baseUnitCostRaw);
+      const baseUnitCost = Number.isFinite(inputBase) && inputBase >= 0 ? inputBase : defaultBase;
       const defaultRepasse = Number(product.costPrice || 0);
       const inputRepasse = Number(item.repasseUnitCostRaw);
       const repasseUnitCost = Number.isFinite(inputRepasse) && inputRepasse >= 0 ? inputRepasse : defaultRepasse;
@@ -403,6 +413,7 @@ router.post("/admin/filial-purchases/manual", requirePrimaryAdmin, async (req, r
           productName: String(product.name || "Produto"),
           quantity,
           saleUnitPrice,
+          baseUnitCost,
           repasseUnitCost,
         });
         continue;
@@ -412,6 +423,9 @@ router.post("/admin/filial-purchases/manual", requirePrimaryAdmin, async (req, r
       const weightedSale = nextQty > 0
         ? ((existing.saleUnitPrice * existing.quantity) + (saleUnitPrice * quantity)) / nextQty
         : existing.saleUnitPrice;
+      const weightedBase = nextQty > 0
+        ? ((Number(existing.baseUnitCost || 0) * existing.quantity) + (baseUnitCost * quantity)) / nextQty
+        : Number(existing.baseUnitCost || 0);
       const weightedRepasse = nextQty > 0
         ? ((existing.repasseUnitCost * existing.quantity) + (repasseUnitCost * quantity)) / nextQty
         : existing.repasseUnitCost;
@@ -420,6 +434,7 @@ router.post("/admin/filial-purchases/manual", requirePrimaryAdmin, async (req, r
         ...existing,
         quantity: nextQty,
         saleUnitPrice: weightedSale,
+        baseUnitCost: weightedBase,
         repasseUnitCost: weightedRepasse,
       });
     }
