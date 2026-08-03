@@ -183,7 +183,7 @@ router.get("/admin/filial-purchases", requirePrimaryAdmin, async (req, res) => {
         .from(filialPurchaseRequestAuditsTable)
         .where(and(
           inArray(filialPurchaseRequestAuditsTable.requestId, requestIds),
-          eq(filialPurchaseRequestAuditsTable.action, "compra_registrada"),
+          inArray(filialPurchaseRequestAuditsTable.action, ["compra_registrada", "update_product_cost_flag"]),
         ))
         .orderBy(asc(filialPurchaseRequestAuditsTable.createdAt))
       : [];
@@ -282,7 +282,7 @@ router.get("/admin/filial-purchases/my", requireAdminAuth, async (req, res) => {
         .from(filialPurchaseRequestAuditsTable)
         .where(and(
           inArray(filialPurchaseRequestAuditsTable.requestId, requestIds),
-          eq(filialPurchaseRequestAuditsTable.action, "compra_registrada"),
+          inArray(filialPurchaseRequestAuditsTable.action, ["compra_registrada", "update_product_cost_flag"]),
         ))
         .orderBy(asc(filialPurchaseRequestAuditsTable.createdAt))
       : [];
@@ -485,6 +485,54 @@ router.post("/admin/filial-purchases/manual", requirePrimaryAdmin, async (req, r
   } catch (err) {
     console.error("[FilialPurchases] manual create error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao gerar pedido manual da filial." });
+  }
+});
+
+router.post("/admin/filial-purchases/:requestId/update-cost-flag", requirePrimaryAdmin, async (req, res) => {
+  try {
+    if (!ensureDefaultTenantScope(req, res)) return;
+
+    const requestId = String(req.params.requestId || "").trim();
+    if (!requestId) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Compra inválida." });
+      return;
+    }
+
+    const updateProductCost = req.body?.updateProductCost === true;
+    const scope = getAdminScope(req);
+    const actorUsername = String(scope?.username || "").trim() || null;
+
+    const rows = await db
+      .select({
+        id: filialPurchaseRequestsTable.id,
+        filialTenantId: filialPurchaseRequestsTable.filialTenantId,
+        orderId: filialPurchaseRequestsTable.orderId,
+      })
+      .from(filialPurchaseRequestsTable)
+      .where(eq(filialPurchaseRequestsTable.id, requestId))
+      .limit(1);
+
+    const requestRow = rows[0];
+    if (!requestRow) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Compra da filial não encontrada." });
+      return;
+    }
+
+    await addAudit({
+      requestId,
+      action: "update_product_cost_flag",
+      actorUsername,
+      payload: {
+        updateProductCost,
+        filialTenantId: requestRow.filialTenantId,
+        orderId: requestRow.orderId,
+      },
+    });
+
+    res.json({ ok: true, requestId, updateProductCost });
+  } catch (err) {
+    console.error("[FilialPurchases] update-cost-flag error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao salvar opção de atualizar custo do produto." });
   }
 });
 

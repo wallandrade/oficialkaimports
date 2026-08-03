@@ -3115,6 +3115,35 @@ export default function Admin() {
     }
   }, [canManageTenants, handleUnauthorized, selectedFilialTenantId]);
 
+  const saveFilialPurchaseUpdateCostFlag = useCallback(async (request: FilialPurchaseRequest, checked: boolean) => {
+    if (!canManageTenants) return;
+
+    const previous = !!filialPurchaseUpdateCostFlags[request.id];
+    setFilialPurchaseUpdateCostFlags((current) => ({ ...current, [request.id]: checked }));
+
+    try {
+      const res = await fetch(`${BASE}/api/admin/filial-purchases/${encodeURIComponent(request.id)}/update-cost-flag`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ updateProductCost: checked }),
+      });
+
+      if (res.status === 401) { handleUnauthorized(); return; }
+
+      const data = await res.json().catch(() => null) as { message?: string } | null;
+      if (!res.ok) {
+        setFilialPurchaseUpdateCostFlags((current) => ({ ...current, [request.id]: previous }));
+        toast.error(data?.message || "Erro ao salvar a opção de atualizar custo.");
+        return;
+      }
+
+      toast.success(checked ? "Opção de atualizar custo salva." : "Opção de atualizar custo removida.");
+    } catch {
+      setFilialPurchaseUpdateCostFlags((current) => ({ ...current, [request.id]: previous }));
+      toast.error("Erro ao salvar a opção de atualizar custo.");
+    }
+  }, [BASE, canManageTenants, filialPurchaseUpdateCostFlags, handleUnauthorized]);
+
   const confirmFilialPurchase = useCallback(async (request: FilialPurchaseRequest) => {
     if (!canManageTenants) return;
 
@@ -7974,10 +8003,7 @@ export default function Admin() {
                                     <input
                                       type="checkbox"
                                       checked={!!filialPurchaseUpdateCostFlags[request.id]}
-                                      onChange={(e) => {
-                                        const checked = e.target.checked;
-                                        setFilialPurchaseUpdateCostFlags((prev) => ({ ...prev, [request.id]: checked }));
-                                      }}
+                                      onChange={(e) => { void saveFilialPurchaseUpdateCostFlag(request, e.target.checked); }}
                                       className="h-4 w-4 rounded border-border"
                                     />
                                     Atualizar custo do produto na filial
