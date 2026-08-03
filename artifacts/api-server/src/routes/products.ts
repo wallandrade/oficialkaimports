@@ -5,6 +5,7 @@ import crypto from "crypto";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { getR2MissingConfig, isR2Configured, uploadProductImageToR2 } from "../lib/r2";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
+import { syncLoja1ProductToEnabledFiliais } from "../lib/tenant-product-sync";
 
 const router: IRouter = Router();
 
@@ -667,6 +668,9 @@ router.post("/admin/products", requireAdminAuth, async (req, res) => {
     });
 
     const [created] = await db.select().from(productsTable).where(and(eq(productsTable.id, id), buildProductTenantWhere(tenantId)));
+    if (tenantId === DEFAULT_TENANT_ID) {
+      await syncLoja1ProductToEnabledFiliais(id);
+    }
     res.status(201).json(mapProduct(created!, true));
   } catch (err) {
     console.error("Create product error:", err);
@@ -772,6 +776,9 @@ router.patch("/admin/products/:id", requireAdminAuth, async (req, res) => {
 
     const [updated] = await db.select().from(productsTable).where(and(eq(productsTable.id, id), buildProductTenantWhere(tenantId)));
     if (!updated) { res.status(404).json({ error: "NOT_FOUND" }); return; }
+    if (tenantId === DEFAULT_TENANT_ID) {
+      await syncLoja1ProductToEnabledFiliais(id);
+    }
     res.json(mapProduct(updated, true));
   } catch (err) {
     console.error("Update product error:", err);

@@ -1132,6 +1132,8 @@ interface AdminTenant {
   dnsTargetHost?: string | null;
   adminUsername?: string | null;
   supplyMarginPercent?: number;
+  supplyMarginFixedBrl?: number;
+  syncProductsFromLoja1?: boolean;
   createdAt: string;
 }
 
@@ -1530,7 +1532,10 @@ export default function Admin() {
   const [tenantDnsTargetSavingId, setTenantDnsTargetSavingId] = useState<string | null>(null);
   const [tenantDnsTargetDrafts, setTenantDnsTargetDrafts] = useState<Record<string, string>>({});
   const [tenantSupplyMarginDrafts, setTenantSupplyMarginDrafts] = useState<Record<string, string>>({});
+  const [tenantSupplyFixedMarginDrafts, setTenantSupplyFixedMarginDrafts] = useState<Record<string, string>>({});
+  const [tenantSyncProductsDrafts, setTenantSyncProductsDrafts] = useState<Record<string, boolean>>({});
   const [tenantSupplyMarginSavingId, setTenantSupplyMarginSavingId] = useState<string | null>(null);
+  const [tenantSyncProductsSavingId, setTenantSyncProductsSavingId] = useState<string | null>(null);
   const [tenantProfitSummary, setTenantProfitSummary] = useState<TenantProfitSummary[]>([]);
   const [tenantProfitLoading, setTenantProfitLoading] = useState(false);
   const [lojasSubTab, setLojasSubTab] = useState<LojasSubTab>("criar");
@@ -2256,6 +2261,8 @@ export default function Admin() {
       setTenants(data.tenants || []);
       setTenantDnsTargetDrafts(Object.fromEntries((data.tenants || []).map((tenant) => [tenant.id, tenant.dnsTargetHost || ""])));
       setTenantSupplyMarginDrafts(Object.fromEntries((data.tenants || []).map((tenant) => [tenant.id, String(tenant.supplyMarginPercent ?? 0)])));
+      setTenantSupplyFixedMarginDrafts(Object.fromEntries((data.tenants || []).map((tenant) => [tenant.id, String(tenant.supplyMarginFixedBrl ?? 0)])));
+      setTenantSyncProductsDrafts(Object.fromEntries((data.tenants || []).map((tenant) => [tenant.id, Boolean(tenant.syncProductsFromLoja1)])));
       setTenantAdminUsernameDrafts(Object.fromEntries((data.tenants || []).map((tenant) => [tenant.id, tenant.adminUsername || ""])));
     } catch {
       toast.error("Erro ao carregar lojas.");
@@ -2512,10 +2519,17 @@ export default function Admin() {
   const saveTenantSupplyMargin = useCallback(async (tenant: AdminTenant) => {
     if (!canManageTenants) return;
     const raw = String(tenantSupplyMarginDrafts[tenant.id] || "").replace(",", ".").trim();
+    const fixedRaw = String(tenantSupplyFixedMarginDrafts[tenant.id] || "").replace(",", ".").trim();
     const marginPercent = Number(raw);
+    const marginFixedBrl = Number(fixedRaw);
 
     if (!Number.isFinite(marginPercent) || marginPercent < 0) {
       toast.error("Informe uma margem válida (>= 0).");
+      return;
+    }
+
+    if (!Number.isFinite(marginFixedBrl) || marginFixedBrl < 0) {
+      toast.error("Informe uma margem fixa válida (>= 0).");
       return;
     }
 
@@ -2524,7 +2538,7 @@ export default function Admin() {
       const res = await fetch(`${BASE}/api/admin/tenants/${encodeURIComponent(tenant.id)}/supply-margin`, {
         method: "PATCH",
         headers: authHeaders(),
-        body: JSON.stringify({ marginPercent }),
+        body: JSON.stringify({ marginPercent, marginFixedBrl }),
       });
 
       if (res.status === 401) { handleUnauthorized(); return; }
@@ -2543,7 +2557,42 @@ export default function Admin() {
     } finally {
       setTenantSupplyMarginSavingId(null);
     }
-  }, [canManageTenants, fetchTenants, fetchTenantProfitSummary, handleUnauthorized, tenantSupplyMarginDrafts]);
+  }, [canManageTenants, fetchTenants, fetchTenantProfitSummary, handleUnauthorized, tenantSupplyFixedMarginDrafts, tenantSupplyMarginDrafts]);
+
+  const saveTenantProductSync = useCallback(async (tenant: AdminTenant) => {
+    if (!canManageTenants) return;
+    const enabled = !!tenantSyncProductsDrafts[tenant.id];
+
+    setTenantSyncProductsSavingId(tenant.id);
+    try {
+      const res = await fetch(`${BASE}/api/admin/tenants/${encodeURIComponent(tenant.id)}/product-sync`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({ enabled }),
+      });
+
+      if (res.status === 401) { handleUnauthorized(); return; }
+
+      const data = await res.json().catch(() => null) as { message?: string; syncedProducts?: number } | null;
+      if (!res.ok) {
+        toast.error(data?.message || "Erro ao salvar sincronização de produtos.");
+        return;
+      }
+
+      if (enabled) {
+        const synced = Number(data?.syncedProducts || 0);
+        toast.success(`Sincronização ativada. ${synced} produto(s) atualizados na filial.`);
+      } else {
+        toast.success("Sincronização desativada para esta filial.");
+      }
+
+      await fetchTenants();
+    } catch {
+      toast.error("Erro ao salvar sincronização de produtos.");
+    } finally {
+      setTenantSyncProductsSavingId(null);
+    }
+  }, [canManageTenants, fetchTenants, handleUnauthorized, tenantSyncProductsDrafts]);
 
   const fetchFilialPurchaseRequests = useCallback(async (tenantId?: string) => {
     if (!canManageTenants) return;
@@ -7601,31 +7650,69 @@ export default function Admin() {
                         </div>
                         {tenant.id !== "tenant_loja1" ? (
                           <div className="mt-2 grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2">
-                            <div className="flex items-center gap-2 rounded-xl border-2 border-border bg-white px-3 h-10">
-                              <span className="text-xs text-muted-foreground whitespace-nowrap">Margem repasse Loja 1 (%)</span>
-                              <input
-                                type="text"
-                                inputMode="decimal"
-                                value={tenantSupplyMarginDrafts[tenant.id] ?? String(tenant.supplyMarginPercent ?? 0)}
-                                onChange={(e) => {
-                                  const raw = e.target.value;
-                                  const sanitized = raw.replace(/[^0-9.,]/g, "");
-                                  setTenantSupplyMarginDrafts((prev) => ({ ...prev, [tenant.id]: sanitized }));
-                                }}
-                                placeholder="Ex: 15"
-                                className="w-full bg-white rounded-md border border-border px-2 py-1 outline-none focus:border-primary text-sm text-right"
-                              />
+                            <div className="rounded-xl border-2 border-border bg-white p-2 space-y-2">
+                              <label className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
+                                <span className="text-xs text-muted-foreground">Receber produtos da Loja 1</span>
+                                <input
+                                  type="checkbox"
+                                  checked={!!tenantSyncProductsDrafts[tenant.id]}
+                                  onChange={(e) => setTenantSyncProductsDrafts((prev) => ({ ...prev, [tenant.id]: e.target.checked }))}
+                                  className="h-4 w-4"
+                                />
+                              </label>
+                              <div className="flex items-center gap-2 rounded-lg border border-border px-3 h-10">
+                                <span className="text-xs text-muted-foreground whitespace-nowrap">Margem repasse produtos Loja 1 (%)</span>
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={tenantSupplyMarginDrafts[tenant.id] ?? String(tenant.supplyMarginPercent ?? 0)}
+                                  onChange={(e) => {
+                                    const raw = e.target.value;
+                                    const sanitized = raw.replace(/[^0-9.,]/g, "");
+                                    setTenantSupplyMarginDrafts((prev) => ({ ...prev, [tenant.id]: sanitized }));
+                                  }}
+                                  placeholder="Ex: 15"
+                                  className="w-full bg-white rounded-md border border-border px-2 py-1 outline-none focus:border-primary text-sm text-right"
+                                />
+                              </div>
+                              <div className="flex items-center gap-2 rounded-lg border border-border px-3 h-10">
+                                <span className="text-xs text-muted-foreground whitespace-nowrap">Margem repasse produtos em R$ Loja 1</span>
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={tenantSupplyFixedMarginDrafts[tenant.id] ?? String(tenant.supplyMarginFixedBrl ?? 0)}
+                                  onChange={(e) => {
+                                    const raw = e.target.value;
+                                    const sanitized = raw.replace(/[^0-9.,]/g, "");
+                                    setTenantSupplyFixedMarginDrafts((prev) => ({ ...prev, [tenant.id]: sanitized }));
+                                  }}
+                                  placeholder="Ex: 10"
+                                  className="w-full bg-white rounded-md border border-border px-2 py-1 outline-none focus:border-primary text-sm text-right"
+                                />
+                              </div>
                             </div>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="h-10"
-                              onClick={() => saveTenantSupplyMargin(tenant)}
-                              disabled={tenantSupplyMarginSavingId === tenant.id}
-                            >
-                              {tenantSupplyMarginSavingId === tenant.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                              <span className="ml-2">Salvar margem</span>
-                            </Button>
+                            <div className="grid grid-cols-1 gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-10"
+                                onClick={() => saveTenantSupplyMargin(tenant)}
+                                disabled={tenantSupplyMarginSavingId === tenant.id}
+                              >
+                                {tenantSupplyMarginSavingId === tenant.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                                <span className="ml-2">Salvar margem</span>
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-10"
+                                onClick={() => saveTenantProductSync(tenant)}
+                                disabled={tenantSyncProductsSavingId === tenant.id}
+                              >
+                                {tenantSyncProductsSavingId === tenant.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                                <span className="ml-2">Salvar sincronização</span>
+                              </Button>
+                            </div>
                           </div>
                         ) : null}
                         {tenant.id !== "tenant_loja1" ? (

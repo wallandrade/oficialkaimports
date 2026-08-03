@@ -5,10 +5,16 @@ import dns from "node:dns/promises";
 import crypto from "node:crypto";
 import { getAdminScope, requirePrimaryAdmin } from "./admin-auth";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-context";
+import {
+  TENANT_SUPPLY_MARGIN_FIXED_BRL_KEY,
+  TENANT_SUPPLY_MARGIN_PERCENT_KEY,
+  TENANT_SYNC_PRODUCTS_FROM_LOJA1_KEY,
+  isTenantSyncFromLoja1Enabled,
+  syncAllLoja1ProductsToTenant,
+} from "../lib/tenant-product-sync";
 
 const router: IRouter = Router();
 const TENANT_DNS_TARGET_HOST_KEY = "tenant_dns_target_host";
-const TENANT_SUPPLY_MARGIN_PERCENT_KEY = "tenant_supply_margin_percent";
 const TENANT_SITE_NAME_KEY = "site_name";
 const TENANT_SUPPORT_WHATSAPP_KEY = "support_whatsapp";
 
@@ -242,6 +248,11 @@ function parseOrderProducts(raw: unknown): OrderProductSnapshot[] {
   return [];
 }
 
+function parseBool(value: string): boolean {
+  const normalized = String(value || "").trim().toLowerCase();
+  return ["1", "true", "on", "yes", "enabled"].includes(normalized);
+}
+
 function sumOrderCost(rawProducts: unknown): number {
   const products = parseOrderProducts(rawProducts);
   let total = 0;
@@ -446,8 +457,30 @@ router.get("/admin/tenants", requirePrimaryAdmin, async (req, res) => {
           .where(and(inArray(tenantSettingsTable.tenantId, tenantIds), eq(tenantSettingsTable.key, TENANT_SUPPLY_MARGIN_PERCENT_KEY)))
       : [];
 
+    const fixedMarginRows = tenantIds.length > 0
+      ? await db
+          .select({ tenantId: tenantSettingsTable.tenantId, value: tenantSettingsTable.value })
+          .from(tenantSettingsTable)
+          .where(and(inArray(tenantSettingsTable.tenantId, tenantIds), eq(tenantSettingsTable.key, TENANT_SUPPLY_MARGIN_FIXED_BRL_KEY)))
+      : [];
+
+    const syncRows = tenantIds.length > 0
+      ? await db
+          .select({ tenantId: tenantSettingsTable.tenantId, value: tenantSettingsTable.value })
+          .from(tenantSettingsTable)
+          .where(and(inArray(tenantSettingsTable.tenantId, tenantIds), eq(tenantSettingsTable.key, TENANT_SYNC_PRODUCTS_FROM_LOJA1_KEY)))
+      : [];
+
     const marginByTenantId = new Map(
       marginRows.map((row) => [row.tenantId, Number.parseFloat(String(row.value || "0")) || 0]),
+    );
+
+    const fixedMarginByTenantId = new Map(
+      fixedMarginRows.map((row) => [row.tenantId, Number.parseFloat(String(row.value || "0")) || 0]),
+    );
+
+    const syncByTenantId = new Map(
+      syncRows.map((row) => [row.tenantId, parseBool(String(row.value || "0"))]),
     );
 
     res.json({
@@ -456,6 +489,8 @@ router.get("/admin/tenants", requirePrimaryAdmin, async (req, res) => {
         dnsTargetHost: targetByTenantId.get(row.id) || null,
         adminUsername: adminByTenantId.get(row.id) || null,
         supplyMarginPercent: Number(marginByTenantId.get(row.id) || 0),
+        supplyMarginFixedBrl: Number(fixedMarginByTenantId.get(row.id) || 0),
+        syncProductsFromLoja1: Boolean(syncByTenantId.get(row.id) || false),
       })),
     });
   } catch (err) {
@@ -470,6 +505,7 @@ router.patch("/admin/tenants/:tenantId/supply-margin", requirePrimaryAdmin, asyn
 
     const tenantId = String(req.params.tenantId || "").trim();
     const marginRaw = Number(req.body?.marginPercent);
+    const fixedRaw = Number(req.body?.marginFixedBrl);
 
     if (!tenantId) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Informe a loja a ser atualizada." });
@@ -481,7 +517,13 @@ router.patch("/admin/tenants/:tenantId/supply-margin", requirePrimaryAdmin, asyn
       return;
     }
 
+    if (!Number.isFinite(fixedRaw) || fixedRaw < 0) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Informe uma margem fixa válida (>= 0)." });
+      return;
+    }
+
     const marginPercent = Math.round(marginRaw * 100) / 100;
+    const marginFixedBrl = Math.round(fixedRaw * 100) / 100;
 
     const existing = await db
       .select({ id: tenantsTable.id })
@@ -509,10 +551,79 @@ router.patch("/admin/tenants/:tenantId/supply-margin", requirePrimaryAdmin, asyn
         },
       });
 
-    res.json({ ok: true, tenantId, marginPercent });
+    await db
+      .insert(tenantSettingsTable)
+      .values({
+        tenantId,
+        key: TENANT_SUPPLY_MARGIN_FIXED_BRL_KEY,
+        value: String(marginFixedBrl),
+        updatedAt: new Date(),
+      })
+      .onDuplicateKeyUpdate({
+        set: {
+          value: String(marginFixedBrl),
+          updatedAt: new Date(),
+        },
+      });
+
+    if (await isTenantSyncFromLoja1Enabled(tenantId)) {
+      await syncAllLoja1ProductsToTenant(tenantId);
+    }
+
+    res.json({ ok: true, tenantId, marginPercent, marginFixedBrl });
   } catch (err) {
     console.error("[Tenants] PATCH supply-margin error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao salvar margem de repasse." });
+  }
+});
+
+router.patch("/admin/tenants/:tenantId/product-sync", requirePrimaryAdmin, async (req, res) => {
+  try {
+    if (!ensureDefaultTenantScope(req, res)) return;
+
+    const tenantId = String(req.params.tenantId || "").trim();
+    const enabled = req.body?.enabled === true;
+
+    if (!tenantId || tenantId === DEFAULT_TENANT_ID) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Informe uma filial válida." });
+      return;
+    }
+
+    const existing = await db
+      .select({ id: tenantsTable.id })
+      .from(tenantsTable)
+      .where(eq(tenantsTable.id, tenantId))
+      .limit(1);
+
+    if (!existing[0]) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Loja não encontrada." });
+      return;
+    }
+
+    await db
+      .insert(tenantSettingsTable)
+      .values({
+        tenantId,
+        key: TENANT_SYNC_PRODUCTS_FROM_LOJA1_KEY,
+        value: enabled ? "1" : "0",
+        updatedAt: new Date(),
+      })
+      .onDuplicateKeyUpdate({
+        set: {
+          value: enabled ? "1" : "0",
+          updatedAt: new Date(),
+        },
+      });
+
+    let syncedProducts = 0;
+    if (enabled) {
+      syncedProducts = await syncAllLoja1ProductsToTenant(tenantId);
+    }
+
+    res.json({ ok: true, tenantId, enabled, syncedProducts });
+  } catch (err) {
+    console.error("[Tenants] PATCH product-sync error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao salvar sincronização de produtos." });
   }
 });
 
