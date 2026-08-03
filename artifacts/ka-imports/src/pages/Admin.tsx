@@ -5247,7 +5247,7 @@ export default function Admin() {
                 </p>
                 <div className="flex gap-4 mt-1 text-xs text-muted-foreground flex-wrap">
                   <span>Repasse total: <strong className="text-indigo-800">{formatCurrency(Number(financialSummary?.affiliateRepasseTotal) || 0)}</strong></span>
-                  <span>Custo real Loja 1: <strong className="text-red-700">-{formatCurrency(Number(financialSummary?.affiliateRepasseRealCostTotal) || 0)}</strong></span>
+                  <span>Custo pago Loja 1: <strong className="text-red-700">-{formatCurrency(Number(financialSummary?.affiliateRepasseRealCostTotal) || 0)}</strong></span>
                   <span>Operações: <strong className="text-indigo-800">{Number(financialSummary?.affiliateRepasseCount) || 0}</strong></span>
                 </div>
               </div>
@@ -8462,7 +8462,7 @@ export default function Admin() {
                       <div className="text-right">
                         <p className="text-xs text-muted-foreground">Total pago na filial</p>
                         <p className="text-sm font-semibold text-foreground">{formatCurrency(Number(request.orderTotal || 0))}</p>
-                        <p className="text-xs text-muted-foreground mt-1">Repasse estimado Loja 1</p>
+                        <p className="text-xs text-muted-foreground mt-1">Repasse para filial</p>
                         <p className="text-sm font-semibold text-blue-700">{formatCurrency(Number(request.repasseTotal || 0))}</p>
                       </div>
                     </div>
