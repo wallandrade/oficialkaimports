@@ -615,9 +615,12 @@ function ProductSelect({ products, value, onChange, placeholder }: { products: B
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   
-  const filteredProducts = products.filter((p) => 
-    p.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredProducts = products.filter((p) => {
+    const query = search.toLowerCase().trim();
+    if (!query) return true;
+    const haystack = `${p.name} ${p.id}`.toLowerCase();
+    return haystack.includes(query);
+  });
 
   const selectedProduct = products.find((p) => p.id === value);
 
@@ -1622,6 +1625,11 @@ export default function Admin() {
     ? filialPurchaseRequests.filter((request) => request.filialTenantId === selectedFilialTenantId)
     : filialPurchaseRequests;
   const selectedManualFilialProduct = filialStoreProducts.find((product) => product.id === manualFilialProductId) || null;
+  const manualFilialSelectableProducts: BumpProduct[] = filialStoreProducts.map((product) => ({
+    id: product.id,
+    name: `${product.name} · ${formatCurrency(product.price)}`,
+    image: product.image,
+  }));
   const manualFilialTotal = manualFilialItems.reduce((sum, item) => sum + (item.repasseUnitCost * item.quantity), 0);
   const filteredFilialStoreProducts = filialStoreProducts.filter((product) => {
     const query = filialStoreProductsSearch.trim().toLowerCase();
@@ -7516,18 +7524,12 @@ export default function Admin() {
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-[1.3fr_0.5fr_0.6fr_auto] gap-2">
-                        <select
+                        <ProductSelect
+                          products={manualFilialSelectableProducts}
                           value={manualFilialProductId}
-                          onChange={(e) => setManualFilialProductId(e.target.value)}
-                          className="h-10 w-full rounded-lg border border-border bg-white px-3 text-sm outline-none focus:border-primary"
-                        >
-                          <option value="">Selecionar produto da filial</option>
-                          {filialStoreProducts.map((product) => (
-                            <option key={`manual-product-${product.id}`} value={product.id}>
-                              {product.name} · {formatCurrency(product.price)}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={setManualFilialProductId}
+                          placeholder="Pesquisar produto da filial"
+                        />
 
                         <input
                           type="text"
@@ -7559,9 +7561,25 @@ export default function Admin() {
                       </div>
 
                       {selectedManualFilialProduct ? (
-                        <p className="text-xs text-muted-foreground">
-                          Produto: <span className="font-semibold text-foreground">{selectedManualFilialProduct.name}</span> · Custo atual: <span className="font-semibold text-foreground">{formatCurrency(selectedManualFilialProduct.costPrice)}</span>
-                        </p>
+                        <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            {selectedManualFilialProduct.image ? (
+                              <img src={selectedManualFilialProduct.image} alt={selectedManualFilialProduct.name} className="h-9 w-9 rounded-md object-cover shrink-0 border border-border" loading="lazy" />
+                            ) : (
+                              <div className="h-9 w-9 rounded-md bg-muted shrink-0 border border-border flex items-center justify-center">
+                                <IconLucide name="Package" className="w-4 h-4 text-muted-foreground" />
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <p className="text-xs text-muted-foreground">
+                                Produto selecionado: <span className="font-semibold text-foreground">{selectedManualFilialProduct.name}</span>
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                Preco venda: <span className="font-semibold text-foreground">{formatCurrency(selectedManualFilialProduct.price)}</span> · Custo atual: <span className="font-semibold text-foreground">{formatCurrency(selectedManualFilialProduct.costPrice)}</span>
+                              </p>
+                            </div>
+                          </div>
+                        </div>
                       ) : null}
 
                       <div className="rounded-lg border border-dashed border-border p-2 space-y-2">
