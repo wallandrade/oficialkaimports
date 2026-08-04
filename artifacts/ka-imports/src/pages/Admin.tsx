@@ -2914,7 +2914,7 @@ export default function Admin() {
     }
   }, [handleUnauthorized, manualFilialClientName, manualFilialItems, selectedFilialTenantId]);
 
-  const editManualFilialPurchaseQuick = useCallback(async (request: FilialPurchaseRequest) => {
+  const editManualFilialPurchaseQuick = async (request: FilialPurchaseRequest) => {
     const normalizedStatus = String(request.status || "").trim().toLowerCase();
     const isManualOrder = String(request.orderId || "").trim().toUpperCase().startsWith("MANUAL-");
 
@@ -3008,7 +3008,7 @@ export default function Admin() {
     } catch {
       toast.error("Erro ao editar pedido manual da filial.");
     }
-  }, [fetchFilialPurchaseRequests, handleUnauthorized, selectedFilialTenantId]);
+  };
 
   const markFilialPurchaseAsPaid = useCallback(async (request: FilialPurchaseRequest) => {
     if (!canManageTenants) return;
