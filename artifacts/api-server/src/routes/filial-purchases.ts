@@ -488,6 +488,189 @@ router.post("/admin/filial-purchases/manual", requirePrimaryAdmin, async (req, r
   }
 });
 
+router.patch("/admin/filial-purchases/:requestId/manual", requirePrimaryAdmin, async (req, res) => {
+  try {
+    if (!ensureDefaultTenantScope(req, res)) return;
+
+    const requestId = String(req.params.requestId || "").trim();
+    if (!requestId) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Compra inválida." });
+      return;
+    }
+
+    const scope = getAdminScope(req);
+    const actorUsername = String(scope?.username || "").trim() || null;
+
+    const rows = await db
+      .select({
+        id: filialPurchaseRequestsTable.id,
+        status: filialPurchaseRequestsTable.status,
+        filialTenantId: filialPurchaseRequestsTable.filialTenantId,
+        orderId: filialPurchaseRequestsTable.orderId,
+        clientName: filialPurchaseRequestsTable.clientName,
+      })
+      .from(filialPurchaseRequestsTable)
+      .where(eq(filialPurchaseRequestsTable.id, requestId))
+      .limit(1);
+
+    const requestRow = rows[0];
+    if (!requestRow) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Compra da filial não encontrada." });
+      return;
+    }
+
+    if (String(requestRow.status || "").trim().toLowerCase() !== "pendente_pagamento_filial") {
+      res.status(409).json({
+        error: "INVALID_STATE",
+        message: "Só é possível editar pedidos manuais pendentes de pagamento da filial.",
+      });
+      return;
+    }
+
+    const orderId = String(requestRow.orderId || "").trim().toUpperCase();
+    if (!orderId.startsWith("MANUAL-")) {
+      res.status(409).json({
+        error: "INVALID_STATE",
+        message: "A edição está disponível apenas para pedidos manuais da Loja 1.",
+      });
+      return;
+    }
+
+    const clientName = String(req.body?.clientName || requestRow.clientName || "Compra manual da filial").trim() || "Compra manual da filial";
+    const inputItems = Array.isArray(req.body?.items) ? (req.body.items as ManualPurchaseItemInput[]) : [];
+
+    if (inputItems.length === 0) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Adicione ao menos um produto no pedido." });
+      return;
+    }
+
+    const normalizedItems = inputItems
+      .map((item) => ({
+        productId: String(item.productId || "").trim(),
+        quantity: Number(item.quantity || 0),
+        baseUnitCostRaw: item.baseUnitCost,
+        repasseUnitCostRaw: item.repasseUnitCost,
+      }))
+      .filter((item) => item.productId);
+
+    if (normalizedItems.length === 0) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Produtos inválidos no pedido." });
+      return;
+    }
+
+    for (const item of normalizedItems) {
+      if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
+        res.status(400).json({ error: "INVALID_INPUT", message: `Quantidade inválida para o produto ${item.productId}.` });
+        return;
+      }
+    }
+
+    const productIds = Array.from(new Set(normalizedItems.map((item) => item.productId)));
+    const productRows = await db
+      .select({
+        id: productsTable.id,
+        name: productsTable.name,
+        price: productsTable.price,
+        costPrice: productsTable.costPrice,
+      })
+      .from(productsTable)
+      .where(and(buildProductsTenantWhere(requestRow.filialTenantId), inArray(productsTable.id, productIds)));
+
+    const productsById = new Map(productRows.map((row) => [row.id, row]));
+    for (const productId of productIds) {
+      if (!productsById.has(productId)) {
+        res.status(400).json({ error: "INVALID_INPUT", message: `Produto ${productId} não encontrado na filial selecionada.` });
+        return;
+      }
+    }
+
+    const grouped = new Map<string, SnapshotItem>();
+    for (const item of normalizedItems) {
+      const product = productsById.get(item.productId)!;
+      const quantity = Number(item.quantity);
+      const saleUnitPrice = Number(product.price || 0);
+      const defaultBase = Number(product.costPrice || 0);
+      const inputBase = Number(item.baseUnitCostRaw);
+      const baseUnitCost = Number.isFinite(inputBase) && inputBase >= 0 ? inputBase : defaultBase;
+      const defaultRepasse = Number(product.costPrice || 0);
+      const inputRepasse = Number(item.repasseUnitCostRaw);
+      const repasseUnitCost = Number.isFinite(inputRepasse) && inputRepasse >= 0 ? inputRepasse : defaultRepasse;
+
+      const existing = grouped.get(item.productId);
+      if (!existing) {
+        grouped.set(item.productId, {
+          productId: item.productId,
+          productName: String(product.name || "Produto"),
+          quantity,
+          saleUnitPrice,
+          baseUnitCost,
+          repasseUnitCost,
+        });
+        continue;
+      }
+
+      const nextQty = existing.quantity + quantity;
+      const weightedSale = nextQty > 0
+        ? ((existing.saleUnitPrice * existing.quantity) + (saleUnitPrice * quantity)) / nextQty
+        : existing.saleUnitPrice;
+      const weightedBase = nextQty > 0
+        ? ((Number(existing.baseUnitCost || 0) * existing.quantity) + (baseUnitCost * quantity)) / nextQty
+        : Number(existing.baseUnitCost || 0);
+      const weightedRepasse = nextQty > 0
+        ? ((existing.repasseUnitCost * existing.quantity) + (repasseUnitCost * quantity)) / nextQty
+        : existing.repasseUnitCost;
+
+      grouped.set(item.productId, {
+        ...existing,
+        quantity: nextQty,
+        saleUnitPrice: weightedSale,
+        baseUnitCost: weightedBase,
+        repasseUnitCost: weightedRepasse,
+      });
+    }
+
+    const itemsSnapshot = Array.from(grouped.values());
+    const repasseTotal = round2(itemsSnapshot.reduce((sum, item) => sum + (item.repasseUnitCost * item.quantity), 0));
+
+    await db
+      .update(filialPurchaseRequestsTable)
+      .set({
+        clientName,
+        itemsSnapshot,
+        orderTotal: String(repasseTotal),
+        repasseTotal: String(repasseTotal),
+        updatedByAdmin: actorUsername,
+        updatedAt: new Date(),
+      })
+      .where(eq(filialPurchaseRequestsTable.id, requestId));
+
+    await addAudit({
+      requestId,
+      action: "manual_editado_loja1",
+      actorUsername,
+      payload: {
+        orderId: requestRow.orderId,
+        clientName,
+        repasseTotal,
+        itemsCount: itemsSnapshot.length,
+      },
+    });
+
+    res.json({
+      ok: true,
+      requestId,
+      status: "pendente_pagamento_filial",
+      repasseTotal,
+      orderTotal: repasseTotal,
+      clientName,
+      items: itemsSnapshot,
+    });
+  } catch (err) {
+    console.error("[FilialPurchases] manual edit error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao editar pedido manual da filial." });
+  }
+});
+
 router.post("/admin/filial-purchases/:requestId/update-cost-flag", requirePrimaryAdmin, async (req, res) => {
   try {
     if (!ensureDefaultTenantScope(req, res)) return;

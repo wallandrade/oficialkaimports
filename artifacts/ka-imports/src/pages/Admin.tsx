@@ -1193,6 +1193,15 @@ interface ManualFilialPurchaseItemDraft {
   saleUnitPrice: number;
 }
 
+interface EditFilialPurchaseItemDraft {
+  productId: string;
+  productName: string;
+  quantity: string;
+  baseUnitCost: string;
+  repasseUnitCost: string;
+  saleUnitPrice: number;
+}
+
 interface FilialStoreProduct {
   id: string;
   name: string;
@@ -1630,6 +1639,14 @@ export default function Admin() {
   const [manualFilialRepasseUnitCost, setManualFilialRepasseUnitCost] = useState("");
   const [manualFilialItems, setManualFilialItems] = useState<ManualFilialPurchaseItemDraft[]>([]);
   const [manualFilialSubmitting, setManualFilialSubmitting] = useState(false);
+  const [editingManualFilialRequestId, setEditingManualFilialRequestId] = useState<string | null>(null);
+  const [editingManualFilialClientName, setEditingManualFilialClientName] = useState("");
+  const [editingManualFilialItems, setEditingManualFilialItems] = useState<EditFilialPurchaseItemDraft[]>([]);
+  const [editingManualFilialSubmitting, setEditingManualFilialSubmitting] = useState(false);
+  const [editingManualFilialProductId, setEditingManualFilialProductId] = useState("");
+  const [editingManualFilialQuantity, setEditingManualFilialQuantity] = useState("1");
+  const [editingManualFilialBaseUnitCost, setEditingManualFilialBaseUnitCost] = useState("");
+  const [editingManualFilialRepasseUnitCost, setEditingManualFilialRepasseUnitCost] = useState("");
   const [filialPurchaseMarkPaidId, setFilialPurchaseMarkPaidId] = useState<string | null>(null);
   const [manualFilialNewProductName, setManualFilialNewProductName] = useState("");
   const [manualFilialNewProductCategory, setManualFilialNewProductCategory] = useState("Geral");
@@ -1694,6 +1711,7 @@ export default function Admin() {
   const sortedFilialPurchaseRequests = [...filteredFilialPurchaseRequests].sort(compareFilialPurchaseRequests);
   const sortedMyFilialPurchaseRequests = [...myFilialPurchaseRequests].sort(compareFilialPurchaseRequests);
   const selectedManualFilialProduct = filialStoreProducts.find((product) => product.id === manualFilialProductId) || null;
+  const selectedEditingManualFilialProduct = filialStoreProducts.find((product) => product.id === editingManualFilialProductId) || null;
   const manualFilialSelectableProducts: BumpProduct[] = filialStoreProducts.map((product) => ({
     id: product.id,
     name: `${product.name} · ${formatCurrency(product.price)}`,
@@ -1722,6 +1740,10 @@ export default function Admin() {
     ? Number((Number(selectedManualFilialProduct.price || 0) - manualFilialComputedRepasseUnitCost).toFixed(2))
     : null;
   const manualFilialTotal = manualFilialItems.reduce((sum, item) => sum + (item.repasseUnitCost * item.quantity), 0);
+  const editingManualFilialBaseUnitCostNumber = Number(String(editingManualFilialBaseUnitCost || "").replace(",", "."));
+  const editingManualFilialComputedRepasseUnitCost = Number.isFinite(editingManualFilialBaseUnitCostNumber) && editingManualFilialBaseUnitCostNumber >= 0
+    ? Number((editingManualFilialBaseUnitCostNumber * (1 + (selectedFilialMarginPercent / 100)) + selectedFilialMarginFixedBrl).toFixed(2))
+    : null;
   const filteredFilialStoreProducts = filialStoreProducts.filter((product) => {
     const query = filialStoreProductsSearch.trim().toLowerCase();
     if (!query) return true;
@@ -2914,6 +2936,197 @@ export default function Admin() {
     }
   }, [handleUnauthorized, manualFilialClientName, manualFilialItems, selectedFilialTenantId]);
 
+  const startEditingManualFilialPurchase = useCallback((request: FilialPurchaseRequest) => {
+    const normalizedStatus = String(request.status || "").trim().toLowerCase();
+    const isManualOrder = String(request.orderId || "").trim().toUpperCase().startsWith("MANUAL-");
+    if (!isManualOrder) {
+      toast.error("A edição está disponível apenas para pedidos manuais da Loja 1.");
+      return;
+    }
+    if (normalizedStatus !== "pendente_pagamento_filial") {
+      toast.error("A edição só é permitida para pedidos pendentes de pagamento da filial.");
+      return;
+    }
+
+    setEditingManualFilialRequestId(request.id);
+    setEditingManualFilialClientName(String(request.clientName || "Compra manual da filial"));
+    setEditingManualFilialItems((request.items || []).map((item) => ({
+      productId: item.productId,
+      productName: item.productName,
+      quantity: String(Number(item.quantity || 0)),
+      baseUnitCost: String(Number(item.baseUnitCost ?? item.repasseUnitCost ?? 0)),
+      repasseUnitCost: String(Number(item.repasseUnitCost || 0)),
+      saleUnitPrice: Number(item.saleUnitPrice || 0),
+    })));
+    setEditingManualFilialProductId("");
+    setEditingManualFilialQuantity("1");
+    setEditingManualFilialBaseUnitCost("");
+    setEditingManualFilialRepasseUnitCost("");
+    setFilialPurchaseOpenId(request.id);
+  }, []);
+
+  const cancelEditingManualFilialPurchase = useCallback(() => {
+    if (editingManualFilialSubmitting) return;
+    setEditingManualFilialRequestId(null);
+    setEditingManualFilialClientName("");
+    setEditingManualFilialItems([]);
+    setEditingManualFilialProductId("");
+    setEditingManualFilialQuantity("1");
+    setEditingManualFilialBaseUnitCost("");
+    setEditingManualFilialRepasseUnitCost("");
+  }, [editingManualFilialSubmitting]);
+
+  const updateEditingManualFilialItemField = useCallback((productId: string, field: "quantity" | "baseUnitCost" | "repasseUnitCost", value: string) => {
+    const sanitized = field === "quantity"
+      ? value.replace(/[^0-9.,]/g, "")
+      : value.replace(/[^0-9.,]/g, "");
+    setEditingManualFilialItems((prev) => prev.map((item) => (
+      item.productId === productId ? { ...item, [field]: sanitized } : item
+    )));
+  }, []);
+
+  const removeEditingManualFilialItem = useCallback((productId: string) => {
+    setEditingManualFilialItems((prev) => prev.filter((item) => item.productId !== productId));
+  }, []);
+
+  const addEditingManualFilialItem = useCallback(() => {
+    if (!editingManualFilialRequestId) return;
+    if (!selectedEditingManualFilialProduct) {
+      toast.error("Selecione um produto para adicionar no pedido.");
+      return;
+    }
+
+    const quantity = Number(String(editingManualFilialQuantity || "").replace(",", "."));
+    const baseUnitCost = Number(String(editingManualFilialBaseUnitCost || "").replace(",", "."));
+    const repasseRaw = Number(String(editingManualFilialRepasseUnitCost || "").replace(",", "."));
+    const repasseUnitCost = Number.isFinite(repasseRaw) && repasseRaw >= 0
+      ? repasseRaw
+      : editingManualFilialComputedRepasseUnitCost;
+
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      toast.error("Informe uma quantidade válida para o item.");
+      return;
+    }
+    if (!Number.isFinite(baseUnitCost) || baseUnitCost < 0) {
+      toast.error("Informe um custo base válido para o item.");
+      return;
+    }
+    if (!Number.isFinite(repasseUnitCost ?? NaN) || Number(repasseUnitCost) < 0) {
+      toast.error("Informe um repasse válido para o item.");
+      return;
+    }
+
+    setEditingManualFilialItems((prev) => {
+      const existing = prev.find((item) => item.productId === selectedEditingManualFilialProduct.id);
+      if (!existing) {
+        return [
+          ...prev,
+          {
+            productId: selectedEditingManualFilialProduct.id,
+            productName: selectedEditingManualFilialProduct.name,
+            quantity: String(quantity),
+            baseUnitCost: String(baseUnitCost),
+            repasseUnitCost: String(repasseUnitCost),
+            saleUnitPrice: Number(selectedEditingManualFilialProduct.price || 0),
+          },
+        ];
+      }
+
+      const currentQty = Number(String(existing.quantity || "0").replace(",", "."));
+      const currentBase = Number(String(existing.baseUnitCost || "0").replace(",", "."));
+      const currentRepasse = Number(String(existing.repasseUnitCost || "0").replace(",", "."));
+      const nextQty = currentQty + quantity;
+      const weightedBase = nextQty > 0
+        ? Number((((currentBase * currentQty) + (baseUnitCost * quantity)) / nextQty).toFixed(2))
+        : currentBase;
+      const weightedRepasse = nextQty > 0
+        ? Number((((currentRepasse * currentQty) + (Number(repasseUnitCost) * quantity)) / nextQty).toFixed(2))
+        : currentRepasse;
+
+      return prev.map((item) => (
+        item.productId !== selectedEditingManualFilialProduct.id
+          ? item
+          : {
+              ...item,
+              quantity: String(nextQty),
+              baseUnitCost: String(weightedBase),
+              repasseUnitCost: String(weightedRepasse),
+              saleUnitPrice: Number(selectedEditingManualFilialProduct.price || item.saleUnitPrice || 0),
+            }
+      ));
+    });
+
+    setEditingManualFilialProductId("");
+    setEditingManualFilialQuantity("1");
+    setEditingManualFilialBaseUnitCost("");
+    setEditingManualFilialRepasseUnitCost("");
+  }, [editingManualFilialBaseUnitCost, editingManualFilialComputedRepasseUnitCost, editingManualFilialQuantity, editingManualFilialRepasseUnitCost, editingManualFilialRequestId, selectedEditingManualFilialProduct]);
+
+  const submitEditingManualFilialPurchase = useCallback(async (request: FilialPurchaseRequest) => {
+    if (!selectedFilialTenantId) {
+      toast.error("Selecione uma filial.");
+      return;
+    }
+
+    const itemsPayload = editingManualFilialItems
+      .map((item) => {
+        const quantity = Number(String(item.quantity || "").replace(",", "."));
+        const baseUnitCost = Number(String(item.baseUnitCost || "").replace(",", "."));
+        const repasseUnitCost = Number(String(item.repasseUnitCost || "").replace(",", "."));
+        return {
+          productId: item.productId,
+          quantity,
+          baseUnitCost,
+          repasseUnitCost,
+        };
+      })
+      .filter((item) => item.productId);
+
+    if (itemsPayload.length === 0) {
+      toast.error("Adicione ao menos um item antes de salvar a edição.");
+      return;
+    }
+
+    const invalid = itemsPayload.find((item) => (
+      !Number.isFinite(item.quantity) || item.quantity <= 0 ||
+      !Number.isFinite(item.baseUnitCost) || item.baseUnitCost < 0 ||
+      !Number.isFinite(item.repasseUnitCost) || item.repasseUnitCost < 0
+    ));
+
+    if (invalid) {
+      toast.error("Revise quantidade e custos dos itens antes de salvar.");
+      return;
+    }
+
+    setEditingManualFilialSubmitting(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/filial-purchases/${encodeURIComponent(request.id)}/manual`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          clientName: editingManualFilialClientName.trim() || "Compra manual da filial",
+          items: itemsPayload,
+        }),
+      });
+
+      if (res.status === 401) { handleUnauthorized(); return; }
+
+      const data = await res.json().catch(() => null) as { message?: string } | null;
+      if (!res.ok) {
+        toast.error(data?.message || "Erro ao editar pedido manual da filial.");
+        return;
+      }
+
+      toast.success("Pedido manual atualizado com sucesso.");
+      cancelEditingManualFilialPurchase();
+      await fetchFilialPurchaseRequests(selectedFilialTenantId);
+    } catch {
+      toast.error("Erro ao editar pedido manual da filial.");
+    } finally {
+      setEditingManualFilialSubmitting(false);
+    }
+  }, [cancelEditingManualFilialPurchase, editingManualFilialClientName, editingManualFilialItems, fetchFilialPurchaseRequests, handleUnauthorized, selectedFilialTenantId]);
+
   const markFilialPurchaseAsPaid = useCallback(async (request: FilialPurchaseRequest) => {
     if (!canManageTenants) return;
     if (!window.confirm(`Marcar o pedido ${request.orderId} como pago na filial?`)) return;
@@ -3902,6 +4115,13 @@ export default function Admin() {
     setManualFilialQuantity("1");
     setManualFilialRepasseUnitCost("");
     setManualFilialClientName("Compra manual da filial");
+    setEditingManualFilialRequestId(null);
+    setEditingManualFilialClientName("");
+    setEditingManualFilialItems([]);
+    setEditingManualFilialProductId("");
+    setEditingManualFilialQuantity("1");
+    setEditingManualFilialBaseUnitCost("");
+    setEditingManualFilialRepasseUnitCost("");
   }, [selectedFilialTenantId]);
 
   useEffect(() => {
@@ -3911,6 +4131,18 @@ export default function Admin() {
     }
     setManualFilialRepasseUnitCost(String(selectedManualFilialProduct.costPrice || 0));
   }, [selectedManualFilialProduct]);
+
+  useEffect(() => {
+    if (!selectedEditingManualFilialProduct) {
+      setEditingManualFilialBaseUnitCost("");
+      setEditingManualFilialRepasseUnitCost("");
+      return;
+    }
+    const base = Number(selectedEditingManualFilialProduct.costPrice || 0);
+    setEditingManualFilialBaseUnitCost(String(base));
+    const repasse = Number((base * (1 + (selectedFilialMarginPercent / 100)) + selectedFilialMarginFixedBrl).toFixed(2));
+    setEditingManualFilialRepasseUnitCost(String(repasse));
+  }, [selectedEditingManualFilialProduct, selectedFilialMarginFixedBrl, selectedFilialMarginPercent]);
 
   useEffect(() => {
     if (!authChecked || tab !== "lojas" || lojasSubTab !== "pedidos") return;
@@ -7949,6 +8181,19 @@ export default function Admin() {
                                     <span className="ml-2">Marcar pago na filial</span>
                                   </Button>
                                 ) : null}
+                                {String(request.status || "").trim().toLowerCase() === "pendente_pagamento_filial"
+                                  && String(request.orderId || "").trim().toUpperCase().startsWith("MANUAL-") ? (
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="h-9 border-blue-200 text-blue-700 hover:bg-blue-50"
+                                    onClick={() => startEditingManualFilialPurchase(request)}
+                                    disabled={editingManualFilialSubmitting || filialPurchaseDeletingId === request.id || filialPurchaseConfirmingId === request.id}
+                                  >
+                                    <Pencil className="w-4 h-4" />
+                                    <span className="ml-2">Editar pedido</span>
+                                  </Button>
+                                ) : null}
                                 <Button
                                   type="button"
                                   variant="outline"
@@ -7972,6 +8217,136 @@ export default function Admin() {
 
                             {filialPurchaseOpenId === request.id ? (
                               <>
+                                {editingManualFilialRequestId === request.id ? (
+                                  <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50/40 p-3 space-y-3">
+                                    <p className="text-xs font-semibold text-blue-900 uppercase tracking-wide">Editar pedido manual (somente antes do pagamento)</p>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2 items-center">
+                                      <input
+                                        type="text"
+                                        value={editingManualFilialClientName}
+                                        onChange={(e) => setEditingManualFilialClientName(e.target.value)}
+                                        placeholder="Descrição do pedido"
+                                        className="h-9 w-full rounded-lg border border-border px-3 text-sm bg-white"
+                                      />
+                                      <div className="flex gap-2 justify-end">
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          className="h-9"
+                                          onClick={cancelEditingManualFilialPurchase}
+                                          disabled={editingManualFilialSubmitting}
+                                        >
+                                          Cancelar edição
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          className="h-9"
+                                          onClick={() => { void submitEditingManualFilialPurchase(request); }}
+                                          disabled={editingManualFilialSubmitting}
+                                        >
+                                          {editingManualFilialSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                                          <span className="ml-2">Salvar edição</span>
+                                        </Button>
+                                      </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-[1.3fr_0.45fr_0.6fr_0.6fr_auto] gap-2">
+                                      <ProductSelect
+                                        products={manualFilialSelectableProducts}
+                                        value={editingManualFilialProductId}
+                                        onChange={setEditingManualFilialProductId}
+                                        placeholder="Adicionar produto ao pedido"
+                                      />
+                                      <input
+                                        type="text"
+                                        inputMode="decimal"
+                                        value={editingManualFilialQuantity}
+                                        onChange={(e) => setEditingManualFilialQuantity(e.target.value.replace(/[^0-9.,]/g, ""))}
+                                        placeholder="Qtd"
+                                        className="h-9 w-full rounded-lg border border-border px-3 text-sm bg-white"
+                                      />
+                                      <input
+                                        type="text"
+                                        inputMode="decimal"
+                                        value={editingManualFilialBaseUnitCost}
+                                        onChange={(e) => setEditingManualFilialBaseUnitCost(e.target.value.replace(/[^0-9.,]/g, ""))}
+                                        placeholder="Custo base"
+                                        className="h-9 w-full rounded-lg border border-border px-3 text-sm bg-white"
+                                      />
+                                      <input
+                                        type="text"
+                                        inputMode="decimal"
+                                        value={editingManualFilialRepasseUnitCost}
+                                        onChange={(e) => setEditingManualFilialRepasseUnitCost(e.target.value.replace(/[^0-9.,]/g, ""))}
+                                        placeholder="Repasse"
+                                        className="h-9 w-full rounded-lg border border-border px-3 text-sm bg-white"
+                                      />
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="h-9"
+                                        onClick={addEditingManualFilialItem}
+                                        disabled={editingManualFilialSubmitting}
+                                      >
+                                        <Plus className="w-4 h-4" />
+                                        <span className="ml-2">Adicionar</span>
+                                      </Button>
+                                    </div>
+
+                                    {selectedEditingManualFilialProduct && editingManualFilialComputedRepasseUnitCost != null ? (
+                                      <p className="text-xs text-blue-800">
+                                        Repasse sugerido pela margem: <span className="font-semibold">{formatCurrency(editingManualFilialComputedRepasseUnitCost)}</span>
+                                      </p>
+                                    ) : null}
+
+                                    {editingManualFilialItems.length === 0 ? (
+                                      <p className="text-xs text-muted-foreground">Nenhum item no pedido. Adicione ao menos um para salvar.</p>
+                                    ) : (
+                                      <div className="space-y-2">
+                                        {editingManualFilialItems.map((item) => (
+                                          <div key={`edit-manual-item-${request.id}-${item.productId}`} className="grid grid-cols-1 md:grid-cols-[1.5fr_0.35fr_0.6fr_0.6fr_auto] gap-2 items-center rounded-lg border border-border bg-white px-3 py-2">
+                                            <div>
+                                              <p className="text-sm font-medium text-foreground">{item.productName}</p>
+                                              <p className="text-xs text-muted-foreground">ID: {item.productId}</p>
+                                            </div>
+                                            <input
+                                              type="text"
+                                              inputMode="decimal"
+                                              value={item.quantity}
+                                              onChange={(e) => updateEditingManualFilialItemField(item.productId, "quantity", e.target.value)}
+                                              className="h-8 px-2 rounded-lg border border-border bg-white focus:border-primary outline-none text-xs text-right"
+                                            />
+                                            <input
+                                              type="text"
+                                              inputMode="decimal"
+                                              value={item.baseUnitCost}
+                                              onChange={(e) => updateEditingManualFilialItemField(item.productId, "baseUnitCost", e.target.value)}
+                                              className="h-8 px-2 rounded-lg border border-border bg-white focus:border-primary outline-none text-xs text-right"
+                                            />
+                                            <input
+                                              type="text"
+                                              inputMode="decimal"
+                                              value={item.repasseUnitCost}
+                                              onChange={(e) => updateEditingManualFilialItemField(item.productId, "repasseUnitCost", e.target.value)}
+                                              className="h-8 px-2 rounded-lg border border-border bg-white focus:border-primary outline-none text-xs text-right"
+                                            />
+                                            <Button
+                                              type="button"
+                                              variant="outline"
+                                              className="h-8 border-red-200 text-red-700 hover:bg-red-50"
+                                              onClick={() => removeEditingManualFilialItem(item.productId)}
+                                              disabled={editingManualFilialSubmitting}
+                                            >
+                                              <Trash2 className="w-4 h-4" />
+                                            </Button>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                ) : null}
+
                                 <div className="mt-3 space-y-2">
                                   {request.items.map((item) => (
                                     <div key={`${request.id}-${item.productId}`} className="grid grid-cols-1 md:grid-cols-[1.6fr_auto_auto_auto] gap-2 items-center rounded-lg border border-border p-2">
