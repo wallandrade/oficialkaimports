@@ -190,23 +190,15 @@ export function downloadFilialPurchasePdf(input: FilialPurchaseForPdf): void {
 }
 
 export function openFilialPurchasePdfInBrowser(input: FilialPurchaseForPdf): void {
-  // Open a blank tab immediately in the click context to avoid popup blocking,
-  // then navigate it to the generated blob URL.
-  const popup = window.open("", "_blank");
-
-  if (!popup) {
-    throw new Error("POPUP_BLOCKED");
-  }
-
-  popup.document.title = "Gerando PDF...";
-  popup.document.body.style.fontFamily = "Arial, sans-serif";
-  popup.document.body.style.padding = "16px";
-  popup.document.body.textContent = "Gerando PDF da compra...";
-
   const doc = buildPdfDoc(input);
   const blob = doc.output("blob");
   const url = URL.createObjectURL(blob);
-  popup.location.href = url;
+
+  const popup = window.open(url, "_blank");
+  if (!popup) {
+    // Fallback: if popup is blocked, open in the current tab so the user can still view it.
+    window.location.href = url;
+  }
 
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
