@@ -454,6 +454,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { AnimatePresence, motion } from "framer-motion";
 import { formatCurrency, formatDateOnlyBR } from "@/lib/utils";
+import { downloadFilialPurchasePdf, openFilialPurchasePdfInBrowser } from "@/lib/generateFilialPurchasePdf";
 import { generateChargePdf, generateOrderPdf } from "@/lib/generateOrderPdf";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 
@@ -1176,6 +1177,8 @@ interface FilialPurchaseRequest {
   loja1RealCostTotal: number;
   loja1RealProfit: number;
   updateProductCost?: boolean | null;
+  purchaseRecordedAt?: string | null;
+  stockLaunchedAt?: string | null;
   createdAt: string | null;
   updatedAt: string | null;
   finalizedAt: string | null;
@@ -8464,6 +8467,28 @@ export default function Admin() {
                         <p className="text-sm font-semibold text-foreground">{formatCurrency(Number(request.orderTotal || 0))}</p>
                         <p className="text-xs text-muted-foreground mt-1">Repasse para filial</p>
                         <p className="text-sm font-semibold text-blue-700">{formatCurrency(Number(request.repasseTotal || 0))}</p>
+                        <div className="mt-2 flex flex-wrap justify-end gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8"
+                            onClick={() => openMyFilialPurchasePdf(request)}
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span className="ml-1">Abrir PDF</span>
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8"
+                            onClick={() => downloadMyFilialPurchase(request)}
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span className="ml-1">Baixar PDF</span>
+                          </Button>
+                        </div>
                       </div>
                     </div>
 
@@ -10610,6 +10635,22 @@ function OrdersPanel({
       generateOrderPdf({ ...order, products: normalizedProducts });
     } catch {
       toast.error("Não foi possível baixar o pedido.");
+    }
+  };
+
+  const downloadMyFilialPurchase = (request: FilialPurchaseRequest) => {
+    try {
+      downloadFilialPurchasePdf(request);
+    } catch {
+      toast.error("Não foi possível baixar o PDF da compra.");
+    }
+  };
+
+  const openMyFilialPurchasePdf = (request: FilialPurchaseRequest) => {
+    try {
+      openFilialPurchasePdfInBrowser(request);
+    } catch {
+      toast.error("Não foi possível abrir o PDF. Verifique se o navegador bloqueou o pop-up.");
     }
   };
 
