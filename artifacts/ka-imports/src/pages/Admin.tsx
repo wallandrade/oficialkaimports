@@ -1625,6 +1625,7 @@ export default function Admin() {
   const [myFilialPurchaseRequests, setMyFilialPurchaseRequests] = useState<FilialPurchaseRequest[]>([]);
   const [myFilialPurchaseLoading, setMyFilialPurchaseLoading] = useState(false);
   const [myFilialPurchaseStatusFilter, setMyFilialPurchaseStatusFilter] = useState<"pending" | "all" | "finalized">("pending");
+  const [myFilialPurchaseProductImages, setMyFilialPurchaseProductImages] = useState<Record<string, string>>({});
   const [manualFilialClientName, setManualFilialClientName] = useState("Compra manual da filial");
   const [manualFilialProductId, setManualFilialProductId] = useState("");
   const [manualFilialQuantity, setManualFilialQuantity] = useState("1");
@@ -3108,6 +3109,29 @@ export default function Admin() {
     }
   }, [adminTenantId, handleUnauthorized, myFilialPurchaseStatusFilter]);
 
+  const fetchMyFilialPurchaseProductImages = useCallback(async () => {
+    if (adminTenantId === "tenant_loja1") return;
+    try {
+      const res = await fetch(`${BASE}/api/admin/products`, { headers: authHeaders() });
+      if (res.status === 401) { handleUnauthorized(); return; }
+      if (!res.ok) return;
+
+      const data = await res.json() as { products?: Array<Record<string, unknown>> };
+      const rows = Array.isArray(data.products) ? data.products : [];
+      const next: Record<string, string> = {};
+
+      for (const row of rows) {
+        const productId = String(row.id || "").trim();
+        const image = String(row.image || "").trim();
+        if (productId && image) next[productId] = image;
+      }
+
+      setMyFilialPurchaseProductImages(next);
+    } catch {
+      // Silent: images are optional in this screen.
+    }
+  }, [BASE, adminTenantId, handleUnauthorized]);
+
   const fetchFilialStoreProducts = useCallback(async (tenantId?: string) => {
     if (!canManageTenants) return;
     const targetTenantId = String(tenantId || selectedFilialTenantId || "").trim();
@@ -3788,9 +3812,9 @@ export default function Admin() {
     else if (tab === "socialProof") { fetchSocialProof(); fetchProducts(); }
     else if (tab === "raffles")    fetchRaffles();
     else if (tab === "lojas")      { fetchTenants(); fetchDnsGuide(dnsDomainInput); fetchTenantProfitSummary(); fetchFilialPurchaseRequests(selectedFilialTenantId || undefined); }
-    else if (tab === "supplierPurchases") { fetchMyFilialPurchaseRequests(); }
+    else if (tab === "supplierPurchases") { fetchMyFilialPurchaseRequests(); fetchMyFilialPurchaseProductImages(); }
     else setLoading(false);
-  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchSellers, fetchSellerData, fetchShippingOptions, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchCommissionPayments, fetchSocialProof, fetchRaffles, fetchTenants, fetchDnsGuide, fetchTenantProfitSummary, fetchFilialPurchaseRequests, fetchMyFilialPurchaseRequests, dnsDomainInput, selectedFilialTenantId]);
+  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchSellers, fetchSellerData, fetchShippingOptions, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchCommissionPayments, fetchSocialProof, fetchRaffles, fetchTenants, fetchDnsGuide, fetchTenantProfitSummary, fetchFilialPurchaseRequests, fetchMyFilialPurchaseRequests, fetchMyFilialPurchaseProductImages, dnsDomainInput, selectedFilialTenantId]);
 
   // -------------------------------------------------------------------------
   // SSE
@@ -4084,7 +4108,8 @@ export default function Admin() {
   useEffect(() => {
     if (!authChecked || tab !== "supplierPurchases") return;
     void fetchMyFilialPurchaseRequests(myFilialPurchaseStatusFilter);
-  }, [authChecked, fetchMyFilialPurchaseRequests, myFilialPurchaseStatusFilter, tab]);
+    void fetchMyFilialPurchaseProductImages();
+  }, [authChecked, fetchMyFilialPurchaseProductImages, fetchMyFilialPurchaseRequests, myFilialPurchaseStatusFilter, tab]);
 
   // -------------------------------------------------------------------------
   // Handlers
@@ -8096,7 +8121,12 @@ export default function Admin() {
                                     <div key={`${request.id}-${item.productId}`} className="grid grid-cols-1 md:grid-cols-[1.6fr_auto_auto_auto] gap-2 items-center rounded-lg border border-border p-2">
                                       <div className="flex items-center gap-2 min-w-0">
                                         {(() => {
-                                          const image = String(item.image || filialProductImageById.get(String(item.productId || "")) || "").trim();
+                                          const image = String(
+                                            item.image
+                                            || filialProductImageById.get(String(item.productId || ""))
+                                            || myFilialPurchaseProductImages[String(item.productId || "")]
+                                            || "",
+                                          ).trim();
                                           return image ? (
                                             <img src={image} alt={item.productName} className="h-10 w-10 rounded-lg border border-border object-cover flex-shrink-0" loading="lazy" />
                                           ) : (
@@ -8628,7 +8658,12 @@ export default function Admin() {
                         <div key={`${request.id}-${item.productId}`} className="rounded-lg border border-border bg-muted/20 px-3 py-2 flex flex-wrap items-center justify-between gap-2">
                           <div className="min-w-0 flex items-center gap-2">
                             {(() => {
-                              const image = String(item.image || filialProductImageById.get(String(item.productId || "")) || "").trim();
+                              const image = String(
+                                item.image
+                                || filialProductImageById.get(String(item.productId || ""))
+                                || myFilialPurchaseProductImages[String(item.productId || "")]
+                                || "",
+                              ).trim();
                               return image ? (
                                 <img src={image} alt={item.productName} className="h-10 w-10 rounded-lg border border-border object-cover flex-shrink-0" loading="lazy" />
                               ) : (
