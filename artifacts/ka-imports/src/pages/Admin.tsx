@@ -1158,6 +1158,7 @@ interface TenantProfitSummary {
 interface FilialPurchaseRequestItem {
   productId: string;
   productName: string;
+  image?: string | null;
   quantity: number;
   saleUnitPrice: number;
   baseUnitCost?: number | null;
@@ -1694,6 +1695,15 @@ export default function Admin() {
   const sortedFilialPurchaseRequests = [...filteredFilialPurchaseRequests].sort(compareFilialPurchaseRequests);
   const sortedMyFilialPurchaseRequests = [...myFilialPurchaseRequests].sort(compareFilialPurchaseRequests);
   const selectedManualFilialProduct = filialStoreProducts.find((product) => product.id === manualFilialProductId) || null;
+  const filialProductImageById = React.useMemo(() => {
+    const map = new Map<string, string>();
+    for (const product of filialStoreProducts) {
+      const productId = String(product.id || "").trim();
+      const image = String(product.image || "").trim();
+      if (productId && image) map.set(productId, image);
+    }
+    return map;
+  }, [filialStoreProducts]);
   const manualFilialSelectableProducts: BumpProduct[] = filialStoreProducts.map((product) => ({
     id: product.id,
     name: `${product.name} · ${formatCurrency(product.price)}`,
@@ -8084,9 +8094,21 @@ export default function Admin() {
                                 <div className="mt-3 space-y-2">
                                   {request.items.map((item) => (
                                     <div key={`${request.id}-${item.productId}`} className="grid grid-cols-1 md:grid-cols-[1.6fr_auto_auto_auto] gap-2 items-center rounded-lg border border-border p-2">
-                                      <div>
-                                        <p className="text-sm font-medium text-foreground">{item.productName}</p>
-                                        <p className="text-xs text-muted-foreground">ID: {item.productId}</p>
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        {(() => {
+                                          const image = String(item.image || filialProductImageById.get(String(item.productId || "")) || "").trim();
+                                          return image ? (
+                                            <img src={image} alt={item.productName} className="h-10 w-10 rounded-lg border border-border object-cover flex-shrink-0" loading="lazy" />
+                                          ) : (
+                                            <div className="h-10 w-10 rounded-lg border border-border bg-muted/40 flex items-center justify-center flex-shrink-0">
+                                              <ImageOff className="h-4 w-4 text-muted-foreground" />
+                                            </div>
+                                          );
+                                        })()}
+                                        <div className="min-w-0">
+                                          <p className="text-sm font-medium text-foreground truncate">{item.productName}</p>
+                                          <p className="text-xs text-muted-foreground truncate">ID: {item.productId}</p>
+                                        </div>
                                       </div>
                                       <p className="text-xs text-muted-foreground">Qtd: <span className="font-semibold text-foreground">{item.quantity}</span></p>
                                       <p className="text-xs text-muted-foreground">Repasse un.: <span className="font-semibold text-foreground">{formatCurrency(item.repasseUnitCost)}</span></p>
@@ -8604,9 +8626,21 @@ export default function Admin() {
                     <div className="mt-3 space-y-1.5">
                       {(request.items || []).map((item) => (
                         <div key={`${request.id}-${item.productId}`} className="rounded-lg border border-border bg-muted/20 px-3 py-2 flex flex-wrap items-center justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-foreground truncate">{item.productName}</p>
-                            <p className="text-xs text-muted-foreground">ID: {item.productId}</p>
+                          <div className="min-w-0 flex items-center gap-2">
+                            {(() => {
+                              const image = String(item.image || filialProductImageById.get(String(item.productId || "")) || "").trim();
+                              return image ? (
+                                <img src={image} alt={item.productName} className="h-10 w-10 rounded-lg border border-border object-cover flex-shrink-0" loading="lazy" />
+                              ) : (
+                                <div className="h-10 w-10 rounded-lg border border-border bg-muted/40 flex items-center justify-center flex-shrink-0">
+                                  <ImageOff className="h-4 w-4 text-muted-foreground" />
+                                </div>
+                              );
+                            })()}
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-foreground truncate">{item.productName}</p>
+                              <p className="text-xs text-muted-foreground truncate">ID: {item.productId}</p>
+                            </div>
                           </div>
                           <div className="text-right text-xs text-muted-foreground">
                             <p>Qtd: <span className="font-semibold text-foreground">{item.quantity}</span></p>
@@ -10759,7 +10793,8 @@ function OrdersPanel({
     try {
       openFilialPurchasePdfInBrowser(request);
     } catch {
-      toast.error("Não foi possível abrir o PDF. Verifique se o navegador bloqueou o pop-up.");
+      downloadMyFilialPurchase(request);
+      toast.info("O navegador bloqueou a visualização em nova aba. O PDF foi baixado automaticamente.");
     }
   };
 
