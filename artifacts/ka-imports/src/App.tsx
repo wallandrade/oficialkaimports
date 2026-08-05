@@ -41,7 +41,7 @@ class AppErrorBoundary extends Component<
   }
   componentDidCatch(error: Error, info: { componentStack: string }) {
     const message = error?.message ?? "";
-    const isChunkLoadError = /ChunkLoadError|Loading chunk [\d]+ failed|Failed to fetch dynamically imported module|Importing a module script failed/i.test(message);
+    const isChunkLoadError = /ChunkLoadError|Loading chunk [\d]+ failed|Failed to fetch dynamically imported module|Importing a module script failed|LAZY_MODULE_/i.test(message);
 
     reportClientError({
       type: "error_boundary",
@@ -110,16 +110,29 @@ const CustomerLogin       = lazy(() => import("@/pages/CustomerLogin"));
 const CustomerOrders      = lazy(() => import("@/pages/CustomerOrders"));
 const PaymentLink         = lazy(() => import("@/pages/PaymentLink"));
 const ProductDetail       = lazy(async () => {
-  const mod = await import("@/pages/ProductDetail");
-  const fallback = (mod as { ProductDetail?: unknown }).ProductDetail
+  let modUnknown: unknown;
+
+  try {
+    modUnknown = await import("@/pages/ProductDetail");
+  } catch {
+    throw new Error("LAZY_MODULE_IMPORT_FAILED:/pages/ProductDetail");
+  }
+
+  if (!modUnknown || typeof modUnknown !== "object") {
+    throw new Error("LAZY_MODULE_UNDEFINED:/pages/ProductDetail");
+  }
+
+  const mod = modUnknown as Record<string, unknown>;
+  const fallback =
+    (typeof mod.default === "function" ? mod.default : undefined)
+    ?? (typeof mod.ProductDetail === "function" ? mod.ProductDetail : undefined)
     ?? Object.values(mod).find((value) => typeof value === "function");
 
-  const resolvedDefault = (mod as { default?: unknown }).default ?? fallback;
-  if (typeof resolvedDefault !== "function") {
+  if (typeof fallback !== "function") {
     throw new Error(`LAZY_MODULE_INVALID:/pages/ProductDetail exports=[${Object.keys(mod).join(",")}]`);
   }
 
-  return { default: resolvedDefault as ComponentType };
+  return { default: fallback as ComponentType };
 });
 const SellerCheckoutPage  = lazy(() => import("@/pages/SellerCheckoutPage"));
 const KYCPolicy           = lazy(() => import("@/pages/KYCPolicy"));
