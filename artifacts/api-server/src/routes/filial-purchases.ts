@@ -736,6 +736,128 @@ router.post("/admin/filial-purchases/my/launch-motoboy", requireAdminAuth, async
   }
 });
 
+router.post("/admin/filial-purchases/my/mark-order-motoboy", requireAdminAuth, async (req, res) => {
+  try {
+    const scope = getAdminScope(req);
+    const tenantId = String(scope?.tenantId || "").trim() || DEFAULT_TENANT_ID;
+    if (!tenantId || tenantId === DEFAULT_TENANT_ID) {
+      res.status(403).json({
+        error: "FORBIDDEN",
+        message: "Somente a filial pode marcar pedido para motoboy.",
+      });
+      return;
+    }
+
+    const actorUsername = String(scope?.username || "").trim() || null;
+    const orderId = String(req.body?.orderId || "").trim();
+    if (!orderId) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Pedido inválido para marcação de motoboy." });
+      return;
+    }
+
+    const orderRows = await db
+      .select({
+        id: ordersTable.id,
+        status: ordersTable.status,
+      })
+      .from(ordersTable)
+      .where(and(
+        eq(ordersTable.id, orderId),
+        eq(ordersTable.tenantId, tenantId),
+      ))
+      .limit(1);
+
+    const orderRow = orderRows[0];
+    if (!orderRow) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado na filial." });
+      return;
+    }
+
+    const orderStatus = String(orderRow.status || "").trim().toLowerCase();
+    if (orderStatus !== "paid" && orderStatus !== "completed") {
+      res.status(409).json({
+        error: "PAYMENT_PENDING",
+        message: "Marque o pedido como pago antes de enviar para motoboy.",
+      });
+      return;
+    }
+
+    await enqueueFilialOrderPurchaseRequest(orderId);
+
+    const requestRows = await db
+      .select({
+        id: filialPurchaseRequestsTable.id,
+        status: filialPurchaseRequestsTable.status,
+        supplierBatchId: filialPurchaseRequestsTable.supplierBatchId,
+      })
+      .from(filialPurchaseRequestsTable)
+      .where(and(
+        eq(filialPurchaseRequestsTable.orderId, orderId),
+        eq(filialPurchaseRequestsTable.filialTenantId, tenantId),
+      ))
+      .limit(1);
+
+    const requestRow = requestRows[0];
+    if (!requestRow) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Compra da filial não encontrada para este pedido." });
+      return;
+    }
+
+    const requestStatus = String(requestRow.status || "").trim().toLowerCase();
+    if (requestStatus === "enviado_motoboy") {
+      res.json({ ok: true, idempotent: true, orderId, requestId: requestRow.id, status: "enviado_motoboy" });
+      return;
+    }
+
+    if (String(requestRow.supplierBatchId || "").trim()) {
+      res.status(409).json({
+        error: "ALREADY_BATCHED",
+        message: "Esse pedido já foi lançado para compra com fornecedor.",
+      });
+      return;
+    }
+
+    const allowedStatuses = new Set(["aguardando_compra_loja1", "pago_na_filial", "cancelado", "pendente_pagamento_filial"]);
+    if (!allowedStatuses.has(requestStatus)) {
+      res.status(409).json({
+        error: "INVALID_STATE",
+        message: "Esse pedido não está elegível para marcação de motoboy.",
+      });
+      return;
+    }
+
+    const now = new Date();
+    await db
+      .update(filialPurchaseRequestsTable)
+      .set({
+        status: "enviado_motoboy",
+        supplierBatchId: null,
+        supplierBatchLabel: null,
+        supplierBatchSentAt: null,
+        supplierBatchReceivedAt: null,
+        updatedByAdmin: actorUsername,
+        updatedAt: now,
+      })
+      .where(eq(filialPurchaseRequestsTable.id, requestRow.id));
+
+    await addAudit({
+      requestId: requestRow.id,
+      action: "enviado_motoboy",
+      actorUsername,
+      payload: {
+        source: "pedido_marcar_motoboy_direto",
+        tenantId,
+        orderId,
+      },
+    });
+
+    res.json({ ok: true, orderId, requestId: requestRow.id, status: "enviado_motoboy" });
+  } catch (err) {
+    console.error("[FilialPurchases] mark-order-motoboy error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao marcar pedido para motoboy." });
+  }
+});
+
 router.post("/admin/filial-purchases/batches/:batchId/confirm-receipt", requirePrimaryAdmin, async (req, res) => {
   try {
     if (!ensureDefaultTenantScope(req, res)) return;

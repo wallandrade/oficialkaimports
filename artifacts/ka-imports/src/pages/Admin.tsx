@@ -445,7 +445,7 @@ function formatRaffleDescriptionPreview(value: string | undefined | null): strin
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
-import { Loader2, Save, Plus, Trash2, X, CheckCircle, XCircle, Zap, Info, Pencil, MessageCircle, Tag, Bell, RefreshCw, Download, LogOut, QrCode, LinkIcon, Ticket, ShoppingBag, Clock, Upload, ChevronDown, ChevronUp, Copy, Users, Percent, Calendar, DollarSign, ShieldCheck, CreditCard, Truck, UserPlus, Eye, EyeOff, ToggleLeft, Webhook, ImageOff, Lock, AlertTriangle, Star, Send, Mail, Store } from "lucide-react";
+import { Loader2, Save, Plus, Trash2, X, CheckCircle, XCircle, Zap, Info, Pencil, MessageCircle, Tag, Bell, RefreshCw, Download, LogOut, QrCode, LinkIcon, Ticket, ShoppingBag, Clock, Upload, ChevronDown, ChevronUp, Copy, Users, Percent, Calendar, DollarSign, ShieldCheck, CreditCard, Truck, UserPlus, Eye, EyeOff, ToggleLeft, Webhook, ImageOff, Lock, AlertTriangle, Star, Send, Mail, Store, Bike } from "lucide-react";
 import { IconLucide } from "@/components/ui/IconLucide";
 
 import { toast } from "sonner";
@@ -4571,7 +4571,7 @@ export default function Admin() {
     status: string,
     cardActuals?: { cardInstallmentsActual?: number; cardInstallmentValue?: number; cardTotalActual?: number },
     opts?: { adminPassword?: string },
-  ) => {
+  ): Promise<boolean> => {
     setStatusUpdating(id);
     try {
       const res = await fetch(`${BASE}/api/admin/orders/${id}/status`, {
@@ -4582,14 +4582,56 @@ export default function Admin() {
       if (!res.ok) {
         const data = await res.json().catch(() => ({} as { message?: string }));
         toast.error(data?.message || "Erro ao atualizar status.");
-        return;
+        return false;
       }
       toast.success("Status atualizado!");
       setOrders((prev) => prev.map((o) => o.id === id ? { ...o, status, ...cardActuals } : o));
       if (status === "completed") setProofModal(id);
-    } catch { toast.error("Erro ao atualizar status."); }
-    finally { setStatusUpdating(null); }
+      return true;
+    } catch {
+      toast.error("Erro ao atualizar status.");
+      return false;
+    } finally { setStatusUpdating(null); }
   };
+
+  const markOrderMotoboyDirect = useCallback(async (order: AdminOrder): Promise<boolean> => {
+    if (adminTenantId === "tenant_loja1") {
+      toast.error("A marcação de motoboy direto é exclusiva para filiais.");
+      return false;
+    }
+
+    const normalized = String(order.status || "").trim().toLowerCase();
+    const isPaid = normalized === "paid" || normalized === "completed";
+    if (!isPaid) {
+      const paidOk = await updateOrderStatus(order.id, "paid");
+      if (!paidOk) return false;
+    }
+
+    try {
+      const res = await fetch(`${BASE}/api/admin/filial-purchases/my/mark-order-motoboy`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ orderId: order.id }),
+      });
+      if (res.status === 401) { handleUnauthorized(); return false; }
+
+      const data = await res.json().catch(() => null) as { message?: string; idempotent?: boolean } | null;
+      if (!res.ok) {
+        toast.error(data?.message || "Erro ao marcar pedido para motoboy.");
+        return false;
+      }
+
+      toast.success(data?.idempotent
+        ? "Pedido já estava marcado para motoboy."
+        : "Pedido marcado para motoboy e enviado para compra fornecedor.");
+      setTab("supplierPurchases");
+      void fetchMyFilialPurchaseRequests(myFilialPurchaseStatusFilter);
+      return true;
+    } catch {
+      toast.error("Erro ao marcar pedido para motoboy.");
+      return false;
+    }
+  }, [BASE, adminTenantId, fetchMyFilialPurchaseRequests, handleUnauthorized, myFilialPurchaseStatusFilter]);
 
   const submitCardPaid = async () => {
     if (!cardPaidModal) return;
@@ -6124,6 +6166,8 @@ export default function Admin() {
             onOpenCardPaidModal={(id) => { setCardPaidModal(id); setCardPaidForm({ installments: "", installmentValue: "", totalValue: "" }); }}
             updateOrderObservation={updateOrderObservation}
             isPrimary={isPrimary}
+            canMarkMotoboy={adminTenantId !== "tenant_loja1"}
+            onMarkOrderMotoboy={markOrderMotoboyDirect}
             onEditOrder={openEditOrder}
             onOpenKycModal={openKycModal}
             onSetOrderEnviado={(id, enviado) => {
@@ -9265,6 +9309,9 @@ export default function Admin() {
                         {String(request.status || "").trim().toLowerCase() === "lote_recebido_loja1" ? (
                           <p className="text-xs text-blue-700 mt-1 font-semibold">Fornecedor recebeu e esta comprando na farmacia. Aguarde ate 48h para rastreio.</p>
                         ) : null}
+                        {String(request.status || "").trim().toLowerCase() === "enviado_motoboy" ? (
+                          <p className="text-xs text-indigo-700 mt-1 font-semibold">Pedido por motoboy para atendimento direto.</p>
+                        ) : null}
                         {!myFilialBatchEligibleIdSet.has(request.id) ? (
                           <p className="text-xs text-slate-500 mt-1">
                             {myFilialLaunchMode === "fornecedor" ? "Não elegível para novo lote." : "Não elegível para envio ao motoboy."}
@@ -11178,7 +11225,7 @@ function OrdersPanel({
   gatewayFeeMin,
   orders, statusUpdating, expandedOrder, setExpandedOrder,
   updateOrderStatus, setProofModal, setProofViewer, openWhatsApp,
-  onOpenCardPaidModal, updateOrderObservation, isPrimary, onEditOrder, onOpenKycModal,
+  onOpenCardPaidModal, updateOrderObservation, isPrimary, canMarkMotoboy, onMarkOrderMotoboy, onEditOrder, onOpenKycModal,
   onSetOrderEnviado, onSetOrderPatched, availableWhatsappGroups, onSetReshipmentStatus, onRemoveOrder,
 }: {
   allOrders: AdminOrder[];
@@ -11200,13 +11247,15 @@ function OrdersPanel({
     status: string,
     cardActuals?: { cardInstallmentsActual?: number; cardInstallmentValue?: number; cardTotalActual?: number },
     opts?: { adminPassword?: string },
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   setProofModal: (id: string) => void;
   setProofViewer: (url: string) => void;
   openWhatsApp: (order: AdminOrder) => void;
   onOpenCardPaidModal: (id: string) => void;
   updateOrderObservation: (id: string, observation: string) => void;
   isPrimary: boolean;
+  canMarkMotoboy: boolean;
+  onMarkOrderMotoboy: (order: AdminOrder) => Promise<boolean>;
   onEditOrder: (order: AdminOrder) => void;
   onOpenKycModal: (orderId: string) => void;
   onSetOrderEnviado: (id: string, enviado: boolean) => void;
@@ -11227,6 +11276,7 @@ function OrdersPanel({
   const [enviadoLockUntil, setEnviadoLockUntil] = useState<Record<string, number>>({});
   const [imagePreview, setImagePreview] = useState<{ src: string; name: string } | null>(null);
   const [trackingUploading, setTrackingUploading] = useState<Record<string, boolean>>({});
+  const [markingMotoboyByOrderId, setMarkingMotoboyByOrderId] = useState<Record<string, boolean>>({});
   const trackingInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [trackingReview, setTrackingReview] = useState<null | {
     order: AdminOrder;
@@ -12573,6 +12623,26 @@ function OrdersPanel({
                     onClick={() => isCard ? onOpenCardPaidModal(order.id) : updateOrderStatus(order.id, "paid")}>
                     <CheckCircle className="w-3.5 h-3.5" />{isCard ? "Marcar Pago" : "Marcar Pago"}
                   </Button>
+                  {canMarkMotoboy ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 text-indigo-700 border-indigo-200 hover:bg-indigo-50"
+                      disabled={!!markingMotoboyByOrderId[order.id] || statusUpdating === order.id || currentOrderStatus === "cancelled"}
+                      onClick={async () => {
+                        setMarkingMotoboyByOrderId((prev) => ({ ...prev, [order.id]: true }));
+                        try {
+                          await onMarkOrderMotoboy(order);
+                        } finally {
+                          setMarkingMotoboyByOrderId((prev) => ({ ...prev, [order.id]: false }));
+                        }
+                      }}
+                    >
+                      {markingMotoboyByOrderId[order.id] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bike className="w-3.5 h-3.5" />}
+                      Marcar Motoboy
+                    </Button>
+                  ) : null}
                   <Button size="sm" variant="outline" className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50"
                     type="button"
                     disabled={statusUpdating === order.id || currentOrderStatus === "cancelled"}
