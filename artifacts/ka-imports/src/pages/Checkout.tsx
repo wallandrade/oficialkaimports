@@ -815,6 +815,27 @@ export default function Checkout() {
     }
   }, [setValue]);
 
+  useEffect(() => {
+    if (!pendingCheckoutRetry) return;
+
+    const action = pendingCheckoutRetry;
+    setPendingCheckoutRetry(null);
+
+    const timer = window.setTimeout(() => {
+      if (action === "pix") {
+        void handleSubmit((formData) => handlePixPayment(formData, true))();
+        return;
+      }
+      if (action === "whatsapp") {
+        void handleSubmit((formData) => handleWhatsAppPayment(formData, true))();
+        return;
+      }
+      void finalizeCardPayment(true);
+    }, 120);
+
+    return () => window.clearTimeout(timer);
+  }, [finalizeCardPayment, handleSubmit, handlePixPayment, handleWhatsAppPayment, pendingCheckoutRetry]);
+
   if (pendingCheck) {
     return (
       <CheckoutLayout>
@@ -1375,27 +1396,6 @@ export default function Checkout() {
       toast.error(apiError?.data?.message || "Erro ao registrar pedido. Tente novamente.");
     }
   };
-
-  useEffect(() => {
-    if (!pendingCheckoutRetry) return;
-
-    const action = pendingCheckoutRetry;
-    setPendingCheckoutRetry(null);
-
-    const timer = window.setTimeout(() => {
-      if (action === "pix") {
-        void handleSubmit((formData) => handlePixPayment(formData, true))();
-        return;
-      }
-      if (action === "whatsapp") {
-        void handleSubmit((formData) => handleWhatsAppPayment(formData, true))();
-        return;
-      }
-      void finalizeCardPayment(true);
-    }, 120);
-
-    return () => window.clearTimeout(timer);
-  }, [finalizeCardPayment, handleSubmit, handlePixPayment, handleWhatsAppPayment, pendingCheckoutRetry]);
 
   return (
     <CheckoutLayout>
