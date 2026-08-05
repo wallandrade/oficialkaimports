@@ -8854,7 +8854,7 @@ export default function Admin() {
             <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold text-amber-900 uppercase tracking-wide">Compra fornecedor</p>
-                <p className="text-sm text-amber-800">Aqui a filial acompanha os pedidos de compra gerados pela Loja 1.</p>
+                <p className="text-sm text-amber-800">Aqui a filial acompanha apenas pedidos pagos e enviados para compra com a Loja 1.</p>
               </div>
               <div className="flex items-center gap-2">
                 <select
