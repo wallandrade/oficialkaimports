@@ -734,7 +734,7 @@ router.post("/admin/filial-purchases/:requestId/return-to-filial", requirePrimar
     }
 
     const normalizedStatus = String(requestRow.status || "").trim().toLowerCase();
-    const allowedStatuses = new Set(["lote_enviado_loja1", "lote_recebido_loja1"]);
+    const allowedStatuses = new Set(["lote_enviado_loja1", "lote_recebido_loja1", "cancelado"]);
     if (!allowedStatuses.has(normalizedStatus)) {
       res.status(409).json({
         error: "INVALID_STATE",

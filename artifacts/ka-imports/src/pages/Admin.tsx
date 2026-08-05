@@ -1293,6 +1293,22 @@ function isFilialPurchaseBatchLaunchEligible(request: FilialPurchaseRequest): bo
   return !alreadyInBatch && (normalized === "aguardando_compra_loja1" || normalized === "pago_na_filial");
 }
 
+function filialPurchaseDateFilterTs(request: FilialPurchaseRequest): number | null {
+  const normalized = String(request.status || "").trim().toLowerCase();
+  const hasBatch = String(request.supplierBatchId || "").trim().length > 0;
+  const createdAtTs = Date.parse(String(request.createdAt || ""));
+  const updatedAtTs = Date.parse(String(request.updatedAt || ""));
+
+  // When Loja 1 devolve o pedido para relancamento, use updatedAt para cair no filtro da data do dia.
+  if (!hasBatch && normalized === "aguardando_compra_loja1" && Number.isFinite(updatedAtTs)) {
+    return updatedAtTs;
+  }
+
+  if (Number.isFinite(createdAtTs)) return createdAtTs;
+  if (Number.isFinite(updatedAtTs)) return updatedAtTs;
+  return null;
+}
+
 function computeLoja1RepasseProfitFromItems(items: FilialPurchaseRequestItem[] | null | undefined): number | null {
   if (!Array.isArray(items) || items.length === 0) return null;
 
@@ -1782,10 +1798,10 @@ export default function Admin() {
     const toTs = /^\d{4}-\d{2}-\d{2}$/.test(to) ? Date.parse(`${to}T23:59:59.999Z`) : null;
 
     return filteredMyFilialPurchaseRequests.filter((request) => {
-      const createdAtTs = Date.parse(String(request.createdAt || ""));
-      if (!Number.isFinite(createdAtTs)) return false;
-      if (fromTs != null && createdAtTs < fromTs) return false;
-      if (toTs != null && createdAtTs > toTs) return false;
+      const filterTs = filialPurchaseDateFilterTs(request);
+      if (!Number.isFinite(filterTs)) return false;
+      if (fromTs != null && filterTs < fromTs) return false;
+      if (toTs != null && filterTs > toTs) return false;
       return true;
     });
   }, [filteredMyFilialPurchaseRequests, myFilialBatchDateFrom, myFilialBatchDateTo]);
@@ -1797,10 +1813,10 @@ export default function Admin() {
 
     return visibleMyFilialPurchaseRequests.filter((request) => {
       if (!isFilialPurchaseBatchLaunchEligible(request)) return false;
-      const createdAtTs = Date.parse(String(request.createdAt || ""));
-      if (!Number.isFinite(createdAtTs)) return false;
-      if (fromTs != null && createdAtTs < fromTs) return false;
-      if (toTs != null && createdAtTs > toTs) return false;
+      const filterTs = filialPurchaseDateFilterTs(request);
+      if (!Number.isFinite(filterTs)) return false;
+      if (fromTs != null && filterTs < fromTs) return false;
+      if (toTs != null && filterTs > toTs) return false;
       return true;
     });
   }, [myFilialBatchDateFrom, myFilialBatchDateTo, visibleMyFilialPurchaseRequests]);
@@ -3690,24 +3706,24 @@ export default function Admin() {
   const deleteFilialPurchase = useCallback(async (request: FilialPurchaseRequest) => {
     if (!canManageTenants) return;
     const normalizedStatus = String(request.status || "").trim().toLowerCase();
-    const isCancelled = normalizedStatus === "cancelado";
     const isBatched = String(request.supplierBatchId || "").trim().length > 0;
+    const isCancelled = normalizedStatus === "cancelado";
 
-    if (isCancelled) {
-      if (!window.confirm(`Apagar definitivamente o rascunho cancelado do pedido ${request.orderId} (${request.filialTenantName})? Essa ação não pode ser desfeita.`)) return;
-    } else if (isBatched) {
+    if (isBatched) {
       if (!window.confirm(`Devolver o pedido ${request.orderId} (${request.filialTenantName}) para a filial lançar em um novo lote?`)) return;
+    } else if (isCancelled) {
+      if (!window.confirm(`Apagar definitivamente o rascunho cancelado do pedido ${request.orderId} (${request.filialTenantName})? Essa ação não pode ser desfeita.`)) return;
     } else {
       if (!window.confirm(`Cancelar a compra do pedido ${request.orderId} (${request.filialTenantName})? O histórico será mantido.`)) return;
     }
 
     setFilialPurchaseDeletingId(request.id);
     try {
-      const endpoint = isCancelled
-        ? `${BASE}/api/admin/filial-purchases/${encodeURIComponent(request.id)}/purge`
-        : isBatched
-          ? `${BASE}/api/admin/filial-purchases/${encodeURIComponent(request.id)}/return-to-filial`
-        : `${BASE}/api/admin/filial-purchases/${encodeURIComponent(request.id)}`;
+      const endpoint = isBatched
+        ? `${BASE}/api/admin/filial-purchases/${encodeURIComponent(request.id)}/return-to-filial`
+        : isCancelled
+          ? `${BASE}/api/admin/filial-purchases/${encodeURIComponent(request.id)}/purge`
+          : `${BASE}/api/admin/filial-purchases/${encodeURIComponent(request.id)}`;
 
       const res = await fetch(endpoint, {
         method: isBatched ? "POST" : "DELETE",
@@ -3723,20 +3739,20 @@ export default function Admin() {
       }
 
       toast.success(
-        isCancelled
-          ? "Rascunho apagado com sucesso."
-          : isBatched
-            ? "Pedido devolvido para a filial lançar novamente."
+        isBatched
+          ? "Pedido devolvido para a filial lançar novamente."
+          : isCancelled
+            ? "Rascunho apagado com sucesso."
             : "Compra da filial cancelada com sucesso.",
       );
       setFilialPurchaseOpenId((prev) => (prev === request.id ? null : prev));
       await fetchFilialPurchaseRequests(selectedFilialTenantId || undefined);
     } catch {
       toast.error(
-        isCancelled
-          ? "Erro ao apagar rascunho da filial."
-          : isBatched
-            ? "Erro ao devolver pedido para a filial."
+        isBatched
+          ? "Erro ao devolver pedido para a filial."
+          : isCancelled
+            ? "Erro ao apagar rascunho da filial."
             : "Erro ao cancelar compra da filial.",
       );
     } finally {
