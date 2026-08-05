@@ -3090,7 +3090,12 @@ export default function Admin() {
           if (!next[request.id]) next[request.id] = {};
           for (const item of request.items || []) {
             if (next[request.id][item.productId] === undefined) {
-              next[request.id][item.productId] = String(item.repasseUnitCost || 0);
+              const defaultRealCost = Number(item.baseUnitCost);
+              next[request.id][item.productId] = String(
+                Number.isFinite(defaultRealCost) && defaultRealCost >= 0
+                  ? defaultRealCost
+                  : Number(item.repasseUnitCost || 0),
+              );
             }
           }
         }
@@ -8161,7 +8166,12 @@ export default function Admin() {
                                       <input
                                         type="text"
                                         inputMode="decimal"
-                                        value={filialPurchaseCostDrafts[request.id]?.[item.productId] ?? String(item.repasseUnitCost || 0)}
+                                        value={filialPurchaseCostDrafts[request.id]?.[item.productId]
+                                          ?? String(
+                                            Number.isFinite(Number(item.baseUnitCost)) && Number(item.baseUnitCost) >= 0
+                                              ? Number(item.baseUnitCost)
+                                              : Number(item.repasseUnitCost || 0),
+                                          )}
                                         onChange={(e) => {
                                           const sanitized = e.target.value.replace(/[^0-9.,]/g, "");
                                           setFilialPurchaseCostDrafts((prev) => ({
