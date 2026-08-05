@@ -1244,9 +1244,10 @@ function filialPurchaseStatusLabel(status: string): string {
   return status || "-";
 }
 
-function filialPurchaseStatusTag(status: string): "cancelado" | "pendente" | "pago" {
+function filialPurchaseStatusTag(status: string): "cancelado" | "pendente" | "pago" | "em_compra" {
   const normalized = String(status || "").trim().toLowerCase();
   if (normalized === "cancelado") return "cancelado";
+  if (normalized === "lote_recebido_loja1") return "em_compra";
   if (normalized === "pago_na_filial" || normalized === "finalizado" || normalized === "estoque_lancado_filial") return "pago";
   return "pendente";
 }
@@ -1254,6 +1255,7 @@ function filialPurchaseStatusTag(status: string): "cancelado" | "pendente" | "pa
 function filialPurchaseStatusTagLabel(status: string): string {
   const tag = filialPurchaseStatusTag(status);
   if (tag === "cancelado") return "Cancelado";
+  if (tag === "em_compra") return "Em compra";
   if (tag === "pago") return "Pago";
   return "Pendente";
 }
@@ -1261,6 +1263,7 @@ function filialPurchaseStatusTagLabel(status: string): string {
 function filialPurchaseStatusTagClass(status: string): string {
   const tag = filialPurchaseStatusTag(status);
   if (tag === "cancelado") return "border-red-200 bg-red-50 text-red-700";
+  if (tag === "em_compra") return "border-blue-200 bg-blue-50 text-blue-700";
   if (tag === "pago") return "border-emerald-200 bg-emerald-50 text-emerald-700";
   return "border-amber-200 bg-amber-50 text-amber-700";
 }
@@ -9098,6 +9101,9 @@ export default function Admin() {
                             {request.supplierBatchSentAt ? ` · Enviado em ${formatDateBR(request.supplierBatchSentAt)}` : ""}
                             {request.supplierBatchReceivedAt ? ` · Recebido em ${formatDateBR(request.supplierBatchReceivedAt)}` : ""}
                           </p>
+                        ) : null}
+                        {String(request.status || "").trim().toLowerCase() === "lote_recebido_loja1" ? (
+                          <p className="text-xs text-blue-700 mt-1 font-semibold">Fornecedor recebeu e esta comprando na farmacia. Aguarde ate 48h para rastreio.</p>
                         ) : null}
                         {!myFilialBatchEligibleIdSet.has(request.id) ? (
                           <p className="text-xs text-slate-500 mt-1">Não elegível para novo lote.</p>
