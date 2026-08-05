@@ -913,7 +913,7 @@ export default function Checkout() {
     );
   }
 
-  const handlePixPayment = async (data: CheckoutFormData, autoRetry = false) => {
+  async function handlePixPayment(data: CheckoutFormData, autoRetry = false) {
     if (!autoRetry) {
       priceSyncRetryCountRef.current.pix = 0;
     }
@@ -1119,7 +1119,7 @@ export default function Checkout() {
     } finally {
       setIsCheckingOut(false);
     }
-  };
+  }
 
   const handleCardPayment = () => {
     if (!paymentMethods.card) {
@@ -1162,7 +1162,7 @@ export default function Checkout() {
     })();
   };
 
-  const handleWhatsAppPayment = async (data: CheckoutFormData, autoRetry = false) => {
+  async function handleWhatsAppPayment(data: CheckoutFormData, autoRetry = false) {
     if (!autoRetry) {
       priceSyncRetryCountRef.current.whatsapp = 0;
     }
@@ -1279,7 +1279,7 @@ export default function Checkout() {
       }
       toast.error(apiError?.data?.message || "Erro ao registrar pedido via WhatsApp. Tente novamente.");
     }
-  };
+  }
 
   const handleWhatsAppCheckout = () => {
     if (!paymentMethods.whatsapp) {
@@ -1289,7 +1289,7 @@ export default function Checkout() {
     handleSubmit(handleWhatsAppPayment)();
   };
 
-  const finalizeCardPayment = async (autoRetry = false) => {
+  async function finalizeCardPayment(autoRetry = false) {
     if (!autoRetry) {
       priceSyncRetryCountRef.current.card = 0;
     }
@@ -1395,7 +1395,7 @@ export default function Checkout() {
       }
       toast.error(apiError?.data?.message || "Erro ao registrar pedido. Tente novamente.");
     }
-  };
+  }
 
   return (
     <CheckoutLayout>
