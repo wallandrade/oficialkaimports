@@ -161,6 +161,50 @@ async function backfillFilialPaidOrdersQueue(tenantId: string): Promise<void> {
   }
 }
 
+async function restoreCancelledBatchedRequestsForTenant(tenantId: string): Promise<void> {
+  const rows = await db
+    .select({
+      id: filialPurchaseRequestsTable.id,
+      orderId: filialPurchaseRequestsTable.orderId,
+      supplierBatchId: filialPurchaseRequestsTable.supplierBatchId,
+    })
+    .from(filialPurchaseRequestsTable)
+    .where(and(
+      eq(filialPurchaseRequestsTable.filialTenantId, tenantId),
+      eq(filialPurchaseRequestsTable.status, "cancelado"),
+      sql`${filialPurchaseRequestsTable.supplierBatchId} IS NOT NULL`,
+      sql`${filialPurchaseRequestsTable.supplierBatchId} <> ''`,
+    ))
+    .limit(250);
+
+  for (const row of rows) {
+    const requestId = String(row.id || "").trim();
+    if (!requestId) continue;
+
+    await db
+      .update(filialPurchaseRequestsTable)
+      .set({
+        status: "aguardando_compra_loja1",
+        supplierBatchId: null,
+        supplierBatchLabel: null,
+        supplierBatchSentAt: null,
+        supplierBatchReceivedAt: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(filialPurchaseRequestsTable.id, requestId));
+
+    await addAudit({
+      requestId,
+      action: "auto_restaurado_para_filial",
+      payload: {
+        reason: "cancelado_em_lote_restaurado_para_relancamento",
+        orderId: String(row.orderId || "").trim() || null,
+        tenantId,
+      },
+    });
+  }
+}
+
 async function addAudit(params: {
   requestId: string;
   action: string;
@@ -312,6 +356,9 @@ router.get("/admin/filial-purchases/my", requireAdminAuth, async (req, res) => {
       });
       return;
     }
+
+    // Self-healing: restore old batched cancellations back to filial relaunch queue.
+    await restoreCancelledBatchedRequestsForTenant(tenantId);
 
     // Self-healing: ensure paid orders that missed prior enqueue become visible to the filial queue.
     await backfillFilialPaidOrdersQueue(tenantId);
