@@ -1673,6 +1673,7 @@ export default function Admin() {
   const [myFilialBatchSelectedIds, setMyFilialBatchSelectedIds] = useState<string[]>([]);
   const [myFilialBatchLaunching, setMyFilialBatchLaunching] = useState(false);
   const [filialBatchReceiptConfirmingId, setFilialBatchReceiptConfirmingId] = useState<string | null>(null);
+  const [filialBatchCopyingId, setFilialBatchCopyingId] = useState<string | null>(null);
   const [manualFilialClientName, setManualFilialClientName] = useState("Compra manual da filial");
   const [manualFilialProductId, setManualFilialProductId] = useState("");
   const [manualFilialQuantity, setManualFilialQuantity] = useState("1");
@@ -3353,6 +3354,52 @@ export default function Admin() {
       setFilialBatchReceiptConfirmingId(null);
     }
   }, [BASE, canManageTenants, fetchFilialPurchaseRequests, handleUnauthorized, selectedFilialTenantId]);
+
+  const copySupplierBatchOrdersText = useCallback(async (batch: FilialSupplierBatchSummary) => {
+    if (!canManageTenants) return;
+    if (!batch?.batchId) return;
+
+    setFilialBatchCopyingId(batch.batchId);
+    try {
+      const lines: string[] = [];
+      lines.push(`Lote: ${batch.batchLabel}`);
+      lines.push(`Filial: ${batch.tenantNames.join(", ") || "-"}`);
+      lines.push(`Pedidos: ${batch.totalOrders}`);
+      lines.push(`Repasse total: ${formatCurrency(batch.totalRepasse)}`);
+      lines.push(`Enviado em: ${formatDateBR(batch.sentAt) || "-"}`);
+      lines.push("");
+
+      for (const request of batch.requests) {
+        lines.push(`Pedido: ${request.orderId}`);
+        lines.push(`Cliente: ${request.clientName || "-"}`);
+        lines.push(`Status: ${filialPurchaseStatusLabel(request.status)}`);
+        lines.push(`Criado em: ${formatDateBR(request.createdAt) || "-"}`);
+        lines.push(`Total pago na filial: ${formatCurrency(Number(request.orderTotal || 0))}`);
+        lines.push(`Repasse para filial: ${formatCurrency(Number(request.repasseTotal || 0))}`);
+        lines.push("Itens:");
+
+        for (const item of request.items || []) {
+          const qty = Number(item.quantity || 0);
+          const repasseUnit = Number(item.repasseUnitCost || 0);
+          const repasseTotal = qty * repasseUnit;
+          lines.push(`- ${qty}x ${item.productName} (${formatCurrency(repasseTotal)})`);
+        }
+
+        lines.push("");
+      }
+
+      const mode = await copyText(lines.join("\n").trim());
+      if (mode === "auto") {
+        toast.success("TXT do lote copiado!");
+      } else {
+        toast.info("Abra o prompt e copie manualmente o TXT do lote.");
+      }
+    } catch {
+      toast.error("Não foi possível copiar o TXT do lote.");
+    } finally {
+      setFilialBatchCopyingId(null);
+    }
+  }, [canManageTenants]);
 
   const fetchMyFilialPurchaseProductImages = useCallback(async () => {
     if (adminTenantId === "tenant_loja1") return;
@@ -8274,16 +8321,28 @@ export default function Admin() {
                                   {batch.receivedAt ? ` · Recebido: ${formatDateBR(batch.receivedAt)}` : " · Recebimento pendente"}
                                 </p>
                               </div>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                className="h-8 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                                onClick={() => { void confirmSupplierBatchReceipt(batch); }}
-                                disabled={!batch.canConfirmReceipt || filialBatchReceiptConfirmingId === batch.batchId}
-                              >
-                                {filialBatchReceiptConfirmingId === batch.batchId ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                                <span className="ml-2">{batch.canConfirmReceipt ? "Confirmar recebimento lote" : "Lote já recebido"}</span>
-                              </Button>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="h-8 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                                  onClick={() => { void copySupplierBatchOrdersText(batch); }}
+                                  disabled={filialBatchCopyingId === batch.batchId}
+                                >
+                                  {filialBatchCopyingId === batch.batchId ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />}
+                                  <span className="ml-2">Copiar TXT do lote</span>
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="h-8 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                                  onClick={() => { void confirmSupplierBatchReceipt(batch); }}
+                                  disabled={!batch.canConfirmReceipt || filialBatchReceiptConfirmingId === batch.batchId}
+                                >
+                                  {filialBatchReceiptConfirmingId === batch.batchId ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                                  <span className="ml-2">{batch.canConfirmReceipt ? "Confirmar recebimento lote" : "Lote já recebido"}</span>
+                                </Button>
+                              </div>
                             </div>
                           ))}
                         </div>
