@@ -1171,6 +1171,10 @@ interface FilialPurchaseRequest {
   filialTenantName: string;
   orderId: string;
   status: string;
+  supplierBatchId?: string | null;
+  supplierBatchLabel?: string | null;
+  supplierBatchSentAt?: string | null;
+  supplierBatchReceivedAt?: string | null;
   clientName: string;
   orderTotal: number;
   repasseTotal: number;
@@ -1206,11 +1210,25 @@ interface FilialStoreProduct {
   isSoldOut: boolean;
 }
 
+interface FilialSupplierBatchSummary {
+  batchId: string;
+  batchLabel: string;
+  sentAt: string | null;
+  receivedAt: string | null;
+  requests: FilialPurchaseRequest[];
+  totalOrders: number;
+  totalRepasse: number;
+  tenantNames: string[];
+  canConfirmReceipt: boolean;
+}
+
 function filialPurchaseStatusLabel(status: string): string {
   const normalized = String(status || "").trim().toLowerCase();
   if (normalized === "pendente_pagamento_filial") return "Pendente pagamento da filial";
   if (normalized === "pago_na_filial") return "Pago na filial";
   if (normalized === "aguardando_compra_loja1") return "Aguardando compra Loja 1";
+  if (normalized === "lote_enviado_loja1") return "Lote enviado para Loja 1";
+  if (normalized === "lote_recebido_loja1") return "Lote recebido pela Loja 1";
   if (normalized === "compra_registrada") return "Compra registrada";
   if (normalized === "estoque_lancado_filial") return "Estoque lançado na filial";
   if (normalized === "finalizado") return "Finalizado";
@@ -1242,6 +1260,12 @@ function filialPurchaseStatusTagClass(status: string): string {
 function isFilialPurchaseHistoryStatus(status: string): boolean {
   const normalized = String(status || "").trim().toLowerCase();
   return ["pago_na_filial", "compra_registrada", "estoque_lancado_filial", "finalizado", "cancelado"].includes(normalized);
+}
+
+function isFilialPurchaseBatchLaunchEligible(request: FilialPurchaseRequest): boolean {
+  const normalized = String(request.status || "").trim().toLowerCase();
+  const alreadyInBatch = String(request.supplierBatchId || "").trim().length > 0;
+  return !alreadyInBatch && (normalized === "aguardando_compra_loja1" || normalized === "pago_na_filial");
 }
 
 function computeLoja1RepasseProfitFromItems(items: FilialPurchaseRequestItem[] | null | undefined): number | null {
@@ -1631,6 +1655,11 @@ export default function Admin() {
   const [myFilialPurchaseLoading, setMyFilialPurchaseLoading] = useState(false);
   const [myFilialPurchaseStatusFilter, setMyFilialPurchaseStatusFilter] = useState<"pending" | "all" | "finalized">("pending");
   const [myFilialPurchaseProductImages, setMyFilialPurchaseProductImages] = useState<Record<string, string>>({});
+  const [myFilialBatchDateFrom, setMyFilialBatchDateFrom] = useState(todayStr());
+  const [myFilialBatchDateTo, setMyFilialBatchDateTo] = useState(todayStr());
+  const [myFilialBatchSelectedIds, setMyFilialBatchSelectedIds] = useState<string[]>([]);
+  const [myFilialBatchLaunching, setMyFilialBatchLaunching] = useState(false);
+  const [filialBatchReceiptConfirmingId, setFilialBatchReceiptConfirmingId] = useState<string | null>(null);
   const [manualFilialClientName, setManualFilialClientName] = useState("Compra manual da filial");
   const [manualFilialProductId, setManualFilialProductId] = useState("");
   const [manualFilialQuantity, setManualFilialQuantity] = useState("1");
@@ -1711,6 +1740,72 @@ export default function Admin() {
     () => sortedMyFilialPurchaseRequests.filter((request) => isFilialPurchaseHistoryStatus(request.status)),
     [sortedMyFilialPurchaseRequests],
   );
+  const myFilialBatchEligibleRequests = React.useMemo(() => {
+    const from = String(myFilialBatchDateFrom || "").trim();
+    const to = String(myFilialBatchDateTo || "").trim();
+    const fromTs = /^\d{4}-\d{2}-\d{2}$/.test(from) ? Date.parse(`${from}T00:00:00.000Z`) : null;
+    const toTs = /^\d{4}-\d{2}-\d{2}$/.test(to) ? Date.parse(`${to}T23:59:59.999Z`) : null;
+
+    return sortedMyFilialPurchaseRequests.filter((request) => {
+      if (!isFilialPurchaseBatchLaunchEligible(request)) return false;
+      const createdAtTs = Date.parse(String(request.createdAt || ""));
+      if (!Number.isFinite(createdAtTs)) return false;
+      if (fromTs != null && createdAtTs < fromTs) return false;
+      if (toTs != null && createdAtTs > toTs) return false;
+      return true;
+    });
+  }, [myFilialBatchDateFrom, myFilialBatchDateTo, sortedMyFilialPurchaseRequests]);
+  const myFilialBatchEligibleIdSet = React.useMemo(
+    () => new Set(myFilialBatchEligibleRequests.map((request) => request.id)),
+    [myFilialBatchEligibleRequests],
+  );
+  const myFilialBatchSelectedValidIds = React.useMemo(
+    () => myFilialBatchSelectedIds.filter((id) => myFilialBatchEligibleIdSet.has(id)),
+    [myFilialBatchEligibleIdSet, myFilialBatchSelectedIds],
+  );
+  const filialSupplierBatches = React.useMemo<FilialSupplierBatchSummary[]>(() => {
+    const grouped = new Map<string, FilialPurchaseRequest[]>();
+    for (const request of sortedFilialPurchaseRequests) {
+      const batchId = String(request.supplierBatchId || "").trim();
+      if (!batchId) continue;
+      const current = grouped.get(batchId) || [];
+      current.push(request);
+      grouped.set(batchId, current);
+    }
+
+    const receivableStatuses = new Set(["lote_enviado_loja1", "aguardando_compra_loja1", "pago_na_filial"]);
+    return Array.from(grouped.entries())
+      .map(([batchId, requests]) => {
+        const first = requests[0];
+        const sentAt = first?.supplierBatchSentAt || null;
+        const receivedAt = first?.supplierBatchReceivedAt || null;
+        const tenantNames = Array.from(new Set(requests.map((request) => String(request.filialTenantName || request.filialTenantId || "").trim()).filter(Boolean)));
+        const totalRepasse = requests.reduce((sum, request) => sum + Number(request.repasseTotal || 0), 0);
+        const canConfirmReceipt = requests.some((request) => {
+          const normalized = String(request.status || "").trim().toLowerCase();
+          return receivableStatuses.has(normalized) && !request.supplierBatchReceivedAt;
+        });
+
+        return {
+          batchId,
+          batchLabel: String(first?.supplierBatchLabel || `Lote ${batchId}`).trim() || `Lote ${batchId}`,
+          sentAt,
+          receivedAt,
+          requests,
+          totalOrders: requests.length,
+          totalRepasse,
+          tenantNames,
+          canConfirmReceipt,
+        };
+      })
+      .sort((a, b) => {
+        const aTs = Date.parse(String(a.sentAt || ""));
+        const bTs = Date.parse(String(b.sentAt || ""));
+        const safeA = Number.isFinite(aTs) ? aTs : 0;
+        const safeB = Number.isFinite(bTs) ? bTs : 0;
+        return safeB - safeA;
+      });
+  }, [sortedFilialPurchaseRequests]);
   const selectedManualFilialProduct = filialStoreProducts.find((product) => product.id === manualFilialProductId) || null;
   const filialProductImageById = React.useMemo(() => {
     const map = new Map<string, string>();
@@ -1764,6 +1859,10 @@ export default function Admin() {
     const haystack = `${row.productName} ${row.productId}`.toLowerCase();
     return haystack.includes(query);
   });
+
+  useEffect(() => {
+    setMyFilialBatchSelectedIds((prev) => prev.filter((id) => myFilialBatchEligibleIdSet.has(id)));
+  }, [myFilialBatchEligibleIdSet]);
 
   // -------------------- FIM DOS useState --------------------
 
@@ -3129,6 +3228,86 @@ export default function Admin() {
       setMyFilialPurchaseLoading(false);
     }
   }, [adminTenantId, handleUnauthorized, myFilialPurchaseStatusFilter]);
+
+  const launchMyFilialSupplierBatch = useCallback(async () => {
+    if (adminTenantId === "tenant_loja1") return;
+
+    const selectedIds = myFilialBatchSelectedValidIds;
+    if (selectedIds.length === 0) {
+      toast.error("Selecione ao menos um pedido pago para lançar no lote.");
+      return;
+    }
+
+    if (myFilialBatchDateFrom && myFilialBatchDateTo && myFilialBatchDateTo < myFilialBatchDateFrom) {
+      toast.error("A data final do lote deve ser igual ou posterior à data inicial.");
+      return;
+    }
+
+    if (!window.confirm(`Lançar ${selectedIds.length} pedido(s) para a Loja 1 como um lote?`)) return;
+
+    setMyFilialBatchLaunching(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/filial-purchases/my/launch-batch`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          fromDate: myFilialBatchDateFrom,
+          toDate: myFilialBatchDateTo,
+          requestIds: selectedIds,
+        }),
+      });
+
+      if (res.status === 401) { handleUnauthorized(); return; }
+
+      const data = await res.json().catch(() => null) as { message?: string; batchLabel?: string; count?: number } | null;
+      if (!res.ok) {
+        toast.error(data?.message || "Erro ao lançar lote para fornecedor.");
+        return;
+      }
+
+      toast.success(`${data?.batchLabel || "Lote"} enviado com ${data?.count || selectedIds.length} pedido(s).`);
+      setMyFilialBatchSelectedIds([]);
+      await fetchMyFilialPurchaseRequests(myFilialPurchaseStatusFilter);
+    } catch {
+      toast.error("Erro ao lançar lote para fornecedor.");
+    } finally {
+      setMyFilialBatchLaunching(false);
+    }
+  }, [BASE, adminTenantId, fetchMyFilialPurchaseRequests, handleUnauthorized, myFilialBatchDateFrom, myFilialBatchDateTo, myFilialBatchSelectedValidIds, myFilialPurchaseStatusFilter]);
+
+  const confirmSupplierBatchReceipt = useCallback(async (batch: FilialSupplierBatchSummary) => {
+    if (!canManageTenants) return;
+    if (!batch?.batchId) return;
+    if (!window.confirm(`Confirmar recebimento do lote ${batch.batchLabel} (${batch.totalOrders} pedidos)?`)) return;
+
+    setFilialBatchReceiptConfirmingId(batch.batchId);
+    try {
+      const res = await fetch(`${BASE}/api/admin/filial-purchases/batches/${encodeURIComponent(batch.batchId)}/confirm-receipt`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+
+      if (res.status === 401) { handleUnauthorized(); return; }
+
+      const data = await res.json().catch(() => null) as { message?: string; receivedCount?: number; idempotent?: boolean } | null;
+      if (!res.ok) {
+        toast.error(data?.message || "Erro ao confirmar recebimento do lote.");
+        return;
+      }
+
+      if (data?.idempotent) {
+        toast.success("Lote já estava confirmado anteriormente.");
+      } else {
+        toast.success(`Recebimento confirmado para ${data?.receivedCount || 0} pedido(s) do lote.`);
+      }
+
+      await fetchFilialPurchaseRequests(selectedFilialTenantId || undefined);
+    } catch {
+      toast.error("Erro ao confirmar recebimento do lote.");
+    } finally {
+      setFilialBatchReceiptConfirmingId(null);
+    }
+  }, [BASE, canManageTenants, fetchFilialPurchaseRequests, handleUnauthorized, selectedFilialTenantId]);
 
   const fetchMyFilialPurchaseProductImages = useCallback(async () => {
     if (adminTenantId === "tenant_loja1") return;
@@ -8025,6 +8204,47 @@ export default function Admin() {
                       </div>
                     </div>
 
+                    <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50/70 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-semibold text-indigo-900 uppercase tracking-wide">Lotes enviados pelas filiais</p>
+                          <p className="text-xs text-indigo-800 mt-1">Cada lote fica pendente até a Loja 1 confirmar o recebimento.</p>
+                        </div>
+                        <span className="text-xs text-indigo-700">{filialSupplierBatches.length} lote(s)</span>
+                      </div>
+
+                      {filialSupplierBatches.length === 0 ? (
+                        <p className="mt-2 text-xs text-indigo-800">Nenhum lote enviado no momento.</p>
+                      ) : (
+                        <div className="mt-3 space-y-2">
+                          {filialSupplierBatches.slice(0, 15).map((batch) => (
+                            <div key={`supplier-batch-${batch.batchId}`} className="rounded-lg border border-indigo-200 bg-white px-3 py-2 flex flex-wrap items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold text-foreground truncate">{batch.batchLabel}</p>
+                                <p className="text-xs text-muted-foreground truncate">
+                                  Filial: {batch.tenantNames.join(", ") || "-"} · {batch.totalOrders} pedidos · Repasse {formatCurrency(batch.totalRepasse)}
+                                </p>
+                                <p className="text-xs text-indigo-700 truncate">
+                                  Enviado: {formatDateBR(batch.sentAt) || "-"}
+                                  {batch.receivedAt ? ` · Recebido: ${formatDateBR(batch.receivedAt)}` : " · Recebimento pendente"}
+                                </p>
+                              </div>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-8 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                                onClick={() => { void confirmSupplierBatchReceipt(batch); }}
+                                disabled={!batch.canConfirmReceipt || filialBatchReceiptConfirmingId === batch.batchId}
+                              >
+                                {filialBatchReceiptConfirmingId === batch.batchId ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                                <span className="ml-2">{batch.canConfirmReceipt ? "Confirmar recebimento lote" : "Lote já recebido"}</span>
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
                     {filialPurchaseLoading ? (
                       <div className="text-sm text-muted-foreground mb-4">Carregando pedidos da filial selecionada...</div>
                     ) : sortedFilialPurchaseRequests.length === 0 ? (
@@ -8044,6 +8264,13 @@ export default function Admin() {
                                   <span>·</span>
                                   <span>Criado em {formatDateBR(request.createdAt) || "-"}</span>
                                 </p>
+                                {request.supplierBatchId ? (
+                                  <p className="text-xs text-blue-700 mt-1">
+                                    Lote: <span className="font-semibold">{request.supplierBatchLabel || request.supplierBatchId}</span>
+                                    {request.supplierBatchSentAt ? ` · Enviado em ${formatDateBR(request.supplierBatchSentAt)}` : ""}
+                                    {request.supplierBatchReceivedAt ? ` · Recebido em ${formatDateBR(request.supplierBatchReceivedAt)}` : ""}
+                                  </p>
+                                ) : null}
                                 <p className="text-xs mt-1">
                                   <span className="text-muted-foreground">Custo produto atualizado:</span>{" "}
                                   {request.updateProductCost == null ? (
@@ -8629,6 +8856,64 @@ export default function Admin() {
               </div>
             </div>
 
+            <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs font-semibold text-blue-900 uppercase tracking-wide">Lançamento em lote para Loja 1</p>
+                  <p className="text-sm text-blue-800">Selecione um período, marque pedidos pagos e envie no botão "Lançar para fornecedor".</p>
+                </div>
+                <span className="text-xs text-blue-700">{myFilialBatchSelectedValidIds.length} selecionado(s)</span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-[auto_auto_auto_auto_auto] gap-2 items-center">
+                <input
+                  type="date"
+                  value={myFilialBatchDateFrom}
+                  onChange={(e) => setMyFilialBatchDateFrom(e.target.value)}
+                  className="h-9 px-3 rounded-lg border border-border bg-white text-sm"
+                />
+                <input
+                  type="date"
+                  value={myFilialBatchDateTo}
+                  onChange={(e) => setMyFilialBatchDateTo(e.target.value)}
+                  className="h-9 px-3 rounded-lg border border-border bg-white text-sm"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9"
+                  onClick={() => setMyFilialBatchSelectedIds(myFilialBatchEligibleRequests.map((request) => request.id))}
+                  disabled={myFilialBatchEligibleRequests.length === 0}
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  <span className="ml-2">Marcar todos elegíveis</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9"
+                  onClick={() => setMyFilialBatchSelectedIds([])}
+                  disabled={myFilialBatchSelectedValidIds.length === 0}
+                >
+                  <X className="w-4 h-4" />
+                  <span className="ml-2">Limpar seleção</span>
+                </Button>
+                <Button
+                  type="button"
+                  className="h-9"
+                  onClick={() => { void launchMyFilialSupplierBatch(); }}
+                  disabled={myFilialBatchLaunching || myFilialBatchSelectedValidIds.length === 0}
+                >
+                  {myFilialBatchLaunching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  <span className="ml-2">Lançar para fornecedor</span>
+                </Button>
+              </div>
+
+              <p className="text-xs text-blue-800">
+                Elegíveis no período: <span className="font-semibold">{myFilialBatchEligibleRequests.length}</span> pedido(s)
+              </p>
+            </div>
+
             {myFilialPurchaseLoading ? (
               <div className="text-sm text-muted-foreground">Carregando pedidos de compra...</div>
             ) : filteredMyFilialPurchaseRequests.length === 0 ? (
@@ -8638,7 +8923,21 @@ export default function Admin() {
                 {filteredMyFilialPurchaseRequests.map((request) => (
                   <div key={`my-filial-purchase-${request.id}`} className="rounded-xl border border-border bg-card p-4">
                     <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
+                      <div className="flex items-start gap-2">
+                        <input
+                          type="checkbox"
+                          checked={myFilialBatchSelectedValidIds.includes(request.id)}
+                          disabled={!myFilialBatchEligibleIdSet.has(request.id)}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setMyFilialBatchSelectedIds((prev) => {
+                              if (checked) return Array.from(new Set([...prev, request.id]));
+                              return prev.filter((id) => id !== request.id);
+                            });
+                          }}
+                          className="mt-1 h-4 w-4 rounded border-border"
+                        />
+                        <div>
                         <p className="text-sm font-semibold text-foreground">Pedido {request.orderId}</p>
                         <p className="text-xs text-muted-foreground">Cliente: {request.clientName || "-"}</p>
                         <p className="text-xs text-muted-foreground flex flex-wrap items-center gap-2">
@@ -8648,6 +8947,17 @@ export default function Admin() {
                           <span>·</span>
                           <span>Criado em {formatDateBR(request.createdAt) || "-"}</span>
                         </p>
+                        {request.supplierBatchId ? (
+                          <p className="text-xs text-blue-700 mt-1">
+                            Lote: <span className="font-semibold">{request.supplierBatchLabel || request.supplierBatchId}</span>
+                            {request.supplierBatchSentAt ? ` · Enviado em ${formatDateBR(request.supplierBatchSentAt)}` : ""}
+                            {request.supplierBatchReceivedAt ? ` · Recebido em ${formatDateBR(request.supplierBatchReceivedAt)}` : ""}
+                          </p>
+                        ) : null}
+                        {!myFilialBatchEligibleIdSet.has(request.id) ? (
+                          <p className="text-xs text-slate-500 mt-1">Não elegível para novo lote.</p>
+                        ) : null}
+                        </div>
                       </div>
                       <div className="text-right">
                         <p className="text-xs text-muted-foreground">Total pago na filial</p>

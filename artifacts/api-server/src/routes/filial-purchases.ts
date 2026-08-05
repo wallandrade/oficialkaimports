@@ -94,6 +94,25 @@ function buildManualOrderRef(tenantId: string): string {
   return `MANUAL-${shortTenant}-${y}${m}${d}-${hh}${mm}-${suffix}`;
 }
 
+function parseDateInput(value: unknown): string | null {
+  const raw = String(value || "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : null;
+}
+
+function buildSupplierBatchLabel(fromDate: string | null, toDate: string | null): string {
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, "0");
+  const mm = String(now.getMinutes()).padStart(2, "0");
+  const period = fromDate && toDate
+    ? `${fromDate} a ${toDate}`
+    : fromDate
+      ? `${fromDate}`
+      : toDate
+        ? `${toDate}`
+        : now.toISOString().slice(0, 10);
+  return `Lote ${period} ${hh}:${mm}`;
+}
+
 function readUpdateProductCostFlag(payload: unknown): boolean | null {
   if (!payload || typeof payload !== "object") return null;
   const value = (payload as { updateProductCost?: unknown }).updateProductCost;
@@ -135,7 +154,7 @@ router.get("/admin/filial-purchases", requirePrimaryAdmin, async (req, res) => {
 
     const statusParam = String(req.query.status || "pending").trim().toLowerCase();
     const filialTenantIdParam = String(req.query.filialTenantId || req.query.tenantId || "").trim();
-    const pendingStatuses = ["pendente_pagamento_filial", "pago_na_filial", "aguardando_compra_loja1", "compra_registrada", "estoque_lancado_filial"];
+    const pendingStatuses = ["pendente_pagamento_filial", "pago_na_filial", "aguardando_compra_loja1", "lote_enviado_loja1", "lote_recebido_loja1", "compra_registrada", "estoque_lancado_filial"];
 
     const statusWhere = statusParam === "all"
       ? sql`1 = 1`
@@ -153,6 +172,10 @@ router.get("/admin/filial-purchases", requirePrimaryAdmin, async (req, res) => {
         filialTenantId: filialPurchaseRequestsTable.filialTenantId,
         orderId: filialPurchaseRequestsTable.orderId,
         status: filialPurchaseRequestsTable.status,
+        supplierBatchId: filialPurchaseRequestsTable.supplierBatchId,
+        supplierBatchLabel: filialPurchaseRequestsTable.supplierBatchLabel,
+        supplierBatchSentAt: filialPurchaseRequestsTable.supplierBatchSentAt,
+        supplierBatchReceivedAt: filialPurchaseRequestsTable.supplierBatchReceivedAt,
         clientName: filialPurchaseRequestsTable.clientName,
         orderTotal: filialPurchaseRequestsTable.orderTotal,
         repasseTotal: filialPurchaseRequestsTable.repasseTotal,
@@ -204,6 +227,10 @@ router.get("/admin/filial-purchases", requirePrimaryAdmin, async (req, res) => {
         filialTenantName: row.tenantName || row.filialTenantId,
         orderId: row.orderId,
         status: row.status,
+        supplierBatchId: row.supplierBatchId || null,
+        supplierBatchLabel: row.supplierBatchLabel || null,
+        supplierBatchSentAt: row.supplierBatchSentAt?.toISOString() || null,
+        supplierBatchReceivedAt: row.supplierBatchReceivedAt?.toISOString() || null,
         clientName: row.clientName,
         orderTotal: Number(row.orderTotal || 0),
         repasseTotal: Number(row.repasseTotal || 0),
@@ -238,7 +265,7 @@ router.get("/admin/filial-purchases/my", requireAdminAuth, async (req, res) => {
     }
 
     const statusParam = String(req.query.status || "pending").trim().toLowerCase();
-    const pendingStatuses = ["pendente_pagamento_filial", "pago_na_filial", "aguardando_compra_loja1", "compra_registrada", "estoque_lancado_filial"];
+    const pendingStatuses = ["pendente_pagamento_filial", "pago_na_filial", "aguardando_compra_loja1", "lote_enviado_loja1", "lote_recebido_loja1", "compra_registrada", "estoque_lancado_filial"];
 
     const statusWhere = statusParam === "all"
       ? sql`1 = 1`
@@ -252,6 +279,10 @@ router.get("/admin/filial-purchases/my", requireAdminAuth, async (req, res) => {
         filialTenantId: filialPurchaseRequestsTable.filialTenantId,
         orderId: filialPurchaseRequestsTable.orderId,
         status: filialPurchaseRequestsTable.status,
+        supplierBatchId: filialPurchaseRequestsTable.supplierBatchId,
+        supplierBatchLabel: filialPurchaseRequestsTable.supplierBatchLabel,
+        supplierBatchSentAt: filialPurchaseRequestsTable.supplierBatchSentAt,
+        supplierBatchReceivedAt: filialPurchaseRequestsTable.supplierBatchReceivedAt,
         clientName: filialPurchaseRequestsTable.clientName,
         orderTotal: filialPurchaseRequestsTable.orderTotal,
         repasseTotal: filialPurchaseRequestsTable.repasseTotal,
@@ -303,6 +334,10 @@ router.get("/admin/filial-purchases/my", requireAdminAuth, async (req, res) => {
         filialTenantName: row.tenantName || row.filialTenantId,
         orderId: row.orderId,
         status: row.status,
+        supplierBatchId: row.supplierBatchId || null,
+        supplierBatchLabel: row.supplierBatchLabel || null,
+        supplierBatchSentAt: row.supplierBatchSentAt?.toISOString() || null,
+        supplierBatchReceivedAt: row.supplierBatchReceivedAt?.toISOString() || null,
         clientName: row.clientName,
         orderTotal: Number(row.orderTotal || 0),
         repasseTotal: Number(row.repasseTotal || 0),
@@ -321,6 +356,217 @@ router.get("/admin/filial-purchases/my", requireAdminAuth, async (req, res) => {
   } catch (err) {
     console.error("[FilialPurchases] my list error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao carregar pedidos de compra da filial." });
+  }
+});
+
+router.post("/admin/filial-purchases/my/launch-batch", requireAdminAuth, async (req, res) => {
+  try {
+    const scope = getAdminScope(req);
+    const tenantId = String(scope?.tenantId || "").trim() || DEFAULT_TENANT_ID;
+    if (!tenantId || tenantId === DEFAULT_TENANT_ID) {
+      res.status(403).json({
+        error: "FORBIDDEN",
+        message: "Somente a filial pode lançar lote para fornecedor.",
+      });
+      return;
+    }
+
+    const actorUsername = String(scope?.username || "").trim() || null;
+    const fromDate = parseDateInput(req.body?.fromDate);
+    const toDate = parseDateInput(req.body?.toDate);
+    const requestIdsInput = Array.isArray(req.body?.requestIds) ? req.body.requestIds : [];
+    const requestIds = Array.from(new Set(
+      requestIdsInput
+        .map((value) => String(value || "").trim())
+        .filter(Boolean),
+    ));
+
+    if (requestIds.length === 0) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Selecione ao menos um pedido pago para lançar no lote." });
+      return;
+    }
+
+    const rows = await db
+      .select({
+        id: filialPurchaseRequestsTable.id,
+        orderId: filialPurchaseRequestsTable.orderId,
+        status: filialPurchaseRequestsTable.status,
+        createdAt: filialPurchaseRequestsTable.createdAt,
+        supplierBatchId: filialPurchaseRequestsTable.supplierBatchId,
+      })
+      .from(filialPurchaseRequestsTable)
+      .where(and(
+        eq(filialPurchaseRequestsTable.filialTenantId, tenantId),
+        inArray(filialPurchaseRequestsTable.id, requestIds),
+      ));
+
+    if (rows.length !== requestIds.length) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Um ou mais pedidos selecionados não foram encontrados na filial." });
+      return;
+    }
+
+    const eligibleStatuses = new Set(["aguardando_compra_loja1", "pago_na_filial"]);
+    const invalidStatusRow = rows.find((row) => !eligibleStatuses.has(String(row.status || "").trim().toLowerCase()));
+    if (invalidStatusRow) {
+      res.status(409).json({
+        error: "INVALID_STATE",
+        message: `O pedido ${invalidStatusRow.orderId} não está elegível para lançamento em lote.`,
+      });
+      return;
+    }
+
+    const alreadyBatched = rows.find((row) => String(row.supplierBatchId || "").trim());
+    if (alreadyBatched) {
+      res.status(409).json({
+        error: "ALREADY_BATCHED",
+        message: `O pedido ${alreadyBatched.orderId} já foi lançado em lote.`,
+      });
+      return;
+    }
+
+    const fromTs = fromDate ? Date.parse(`${fromDate}T00:00:00.000Z`) : null;
+    const toTs = toDate ? Date.parse(`${toDate}T23:59:59.999Z`) : null;
+    const outOfRange = rows.find((row) => {
+      const createdAtTs = Date.parse(String(row.createdAt || ""));
+      if (!Number.isFinite(createdAtTs)) return false;
+      if (fromTs != null && createdAtTs < fromTs) return true;
+      if (toTs != null && createdAtTs > toTs) return true;
+      return false;
+    });
+
+    if (outOfRange) {
+      res.status(409).json({
+        error: "INVALID_RANGE",
+        message: `O pedido ${outOfRange.orderId} está fora do período selecionado.`,
+      });
+      return;
+    }
+
+    const batchId = randomId("fpl");
+    const batchLabel = buildSupplierBatchLabel(fromDate, toDate);
+    const now = new Date();
+
+    await db
+      .update(filialPurchaseRequestsTable)
+      .set({
+        status: "lote_enviado_loja1",
+        supplierBatchId: batchId,
+        supplierBatchLabel: batchLabel,
+        supplierBatchSentAt: now,
+        updatedByAdmin: actorUsername,
+        updatedAt: now,
+      })
+      .where(and(
+        eq(filialPurchaseRequestsTable.filialTenantId, tenantId),
+        inArray(filialPurchaseRequestsTable.id, requestIds),
+      ));
+
+    for (const row of rows) {
+      await addAudit({
+        requestId: row.id,
+        action: "lote_enviado_loja1",
+        actorUsername,
+        payload: {
+          filialTenantId: tenantId,
+          orderId: row.orderId,
+          batchId,
+          batchLabel,
+          fromDate,
+          toDate,
+        },
+      });
+    }
+
+    res.json({
+      ok: true,
+      batchId,
+      batchLabel,
+      status: "lote_enviado_loja1",
+      requestIds,
+      count: requestIds.length,
+    });
+  } catch (err) {
+    console.error("[FilialPurchases] launch-batch error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao lançar lote para fornecedor." });
+  }
+});
+
+router.post("/admin/filial-purchases/batches/:batchId/confirm-receipt", requirePrimaryAdmin, async (req, res) => {
+  try {
+    if (!ensureDefaultTenantScope(req, res)) return;
+
+    const batchId = String(req.params.batchId || "").trim();
+    if (!batchId) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Lote inválido." });
+      return;
+    }
+
+    const scope = getAdminScope(req);
+    const actorUsername = String(scope?.username || "").trim() || null;
+
+    const rows = await db
+      .select({
+        id: filialPurchaseRequestsTable.id,
+        orderId: filialPurchaseRequestsTable.orderId,
+        filialTenantId: filialPurchaseRequestsTable.filialTenantId,
+        status: filialPurchaseRequestsTable.status,
+        supplierBatchReceivedAt: filialPurchaseRequestsTable.supplierBatchReceivedAt,
+      })
+      .from(filialPurchaseRequestsTable)
+      .where(eq(filialPurchaseRequestsTable.supplierBatchId, batchId));
+
+    if (rows.length === 0) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Lote não encontrado." });
+      return;
+    }
+
+    const receivableStatuses = new Set(["lote_enviado_loja1", "aguardando_compra_loja1", "pago_na_filial"]);
+    const receivableRows = rows.filter((row) => {
+      const normalized = String(row.status || "").trim().toLowerCase();
+      return receivableStatuses.has(normalized) && !row.supplierBatchReceivedAt;
+    });
+
+    if (receivableRows.length === 0) {
+      res.json({ ok: true, idempotent: true, batchId, receivedCount: 0 });
+      return;
+    }
+
+    const receivableIds = receivableRows.map((row) => row.id);
+    const now = new Date();
+
+    await db
+      .update(filialPurchaseRequestsTable)
+      .set({
+        status: "lote_recebido_loja1",
+        supplierBatchReceivedAt: now,
+        updatedByAdmin: actorUsername,
+        updatedAt: now,
+      })
+      .where(inArray(filialPurchaseRequestsTable.id, receivableIds));
+
+    for (const row of receivableRows) {
+      await addAudit({
+        requestId: row.id,
+        action: "lote_recebido_loja1",
+        actorUsername,
+        payload: {
+          batchId,
+          filialTenantId: row.filialTenantId,
+          orderId: row.orderId,
+        },
+      });
+    }
+
+    res.json({
+      ok: true,
+      batchId,
+      status: "lote_recebido_loja1",
+      receivedCount: receivableRows.length,
+      requestIds: receivableIds,
+    });
+  } catch (err) {
+    console.error("[FilialPurchases] confirm-batch-receipt error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao confirmar recebimento do lote." });
   }
 });
 
@@ -801,7 +1047,13 @@ router.post("/admin/filial-purchases/:requestId/mark-paid", requirePrimaryAdmin,
       return;
     }
 
-    if (requestRow.status === "finalizado" || requestRow.status === "compra_registrada" || requestRow.status === "estoque_lancado_filial" || requestRow.status === "aguardando_compra_loja1" || requestRow.status === "pago_na_filial") {
+    if (requestRow.status === "finalizado"
+      || requestRow.status === "compra_registrada"
+      || requestRow.status === "estoque_lancado_filial"
+      || requestRow.status === "aguardando_compra_loja1"
+      || requestRow.status === "lote_enviado_loja1"
+      || requestRow.status === "lote_recebido_loja1"
+      || requestRow.status === "pago_na_filial") {
       res.json({ ok: true, idempotent: true, requestId, status: requestRow.status });
       return;
     }

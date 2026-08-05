@@ -970,6 +970,10 @@ async function ensureFilialPurchaseTables(databaseName: string): Promise<void> {
         filial_tenant_id VARCHAR(255) NOT NULL,
         order_id VARCHAR(255) NOT NULL,
         status VARCHAR(64) NOT NULL DEFAULT 'aguardando_compra_loja1',
+        supplier_batch_id VARCHAR(255) NULL,
+        supplier_batch_label VARCHAR(255) NULL,
+        supplier_batch_sent_at TIMESTAMP NULL,
+        supplier_batch_received_at TIMESTAMP NULL,
         client_name VARCHAR(255) NOT NULL,
         order_total DECIMAL(10,2) NOT NULL DEFAULT 0.00,
         repasse_total DECIMAL(10,2) NOT NULL DEFAULT 0.00,
@@ -985,11 +989,33 @@ async function ensureFilialPurchaseTables(databaseName: string): Promise<void> {
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY filial_purchase_requests_order_id_unique (order_id),
+        KEY filial_purchase_requests_supplier_batch_id_idx (supplier_batch_id),
         KEY filial_purchase_requests_tenant_status_idx (filial_tenant_id, status),
         KEY filial_purchase_requests_status_idx (status),
         KEY filial_purchase_requests_created_at_idx (created_at)
       )
     `);
+  }
+
+  const columnDefinitions = [
+    { name: "supplier_batch_id", sql: "ALTER TABLE filial_purchase_requests ADD COLUMN supplier_batch_id VARCHAR(255) NULL AFTER status" },
+    { name: "supplier_batch_label", sql: "ALTER TABLE filial_purchase_requests ADD COLUMN supplier_batch_label VARCHAR(255) NULL AFTER supplier_batch_id" },
+    { name: "supplier_batch_sent_at", sql: "ALTER TABLE filial_purchase_requests ADD COLUMN supplier_batch_sent_at TIMESTAMP NULL AFTER supplier_batch_label" },
+    { name: "supplier_batch_received_at", sql: "ALTER TABLE filial_purchase_requests ADD COLUMN supplier_batch_received_at TIMESTAMP NULL AFTER supplier_batch_sent_at" },
+  ];
+
+  for (const definition of columnDefinitions) {
+    if (!(await columnExists("filial_purchase_requests", definition.name, databaseName))) {
+      await pool.query(definition.sql);
+    }
+  }
+
+  if (!(await indexExists("filial_purchase_requests", "filial_purchase_requests_supplier_batch_id_idx", databaseName))) {
+    try {
+      await pool.query("ALTER TABLE filial_purchase_requests ADD KEY filial_purchase_requests_supplier_batch_id_idx (supplier_batch_id)");
+    } catch {
+      // Ignore duplicate or unsupported index creation issues.
+    }
   }
 
   if (!(await tableExists("filial_purchase_request_audits", databaseName))) {
