@@ -1102,14 +1102,6 @@ router.delete("/admin/filial-purchases/:requestId", requirePrimaryAdmin, async (
       return;
     }
 
-    if (requestRow.status === "finalizado") {
-      res.status(400).json({
-        error: "INVALID_STATE",
-        message: "Não é possível cancelar uma compra já finalizada.",
-      });
-      return;
-    }
-
     await db
       .update(filialPurchaseRequestsTable)
       .set({
