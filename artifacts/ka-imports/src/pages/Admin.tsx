@@ -3373,7 +3373,7 @@ export default function Admin() {
   const undoSupplierBatchReceipt = useCallback(async (batch: FilialSupplierBatchSummary) => {
     if (!canManageTenants) return;
     if (!batch?.batchId) return;
-    if (!window.confirm(`Desfazer "Fornecedor comprando na farmacia" do lote ${batch.batchLabel}?`)) return;
+    if (!window.confirm(`Desfazer recebimento do lote ${batch.batchLabel}?`)) return;
 
     setFilialBatchReceiptUndoingId(batch.batchId);
     try {
@@ -8411,7 +8411,7 @@ export default function Admin() {
                                   disabled={!batch.canUndoReceipt || filialBatchReceiptUndoingId === batch.batchId || filialBatchReceiptConfirmingId === batch.batchId}
                                 >
                                   {filialBatchReceiptUndoingId === batch.batchId ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
-                                  <span className="ml-2">Desfazer</span>
+                                  <span className="ml-2">Desfazer recebimento</span>
                                 </Button>
                               </div>
                             </div>
