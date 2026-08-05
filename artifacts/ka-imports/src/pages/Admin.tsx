@@ -3691,9 +3691,12 @@ export default function Admin() {
     if (!canManageTenants) return;
     const normalizedStatus = String(request.status || "").trim().toLowerCase();
     const isCancelled = normalizedStatus === "cancelado";
+    const isBatched = String(request.supplierBatchId || "").trim().length > 0;
 
     if (isCancelled) {
       if (!window.confirm(`Apagar definitivamente o rascunho cancelado do pedido ${request.orderId} (${request.filialTenantName})? Essa ação não pode ser desfeita.`)) return;
+    } else if (isBatched) {
+      if (!window.confirm(`Devolver o pedido ${request.orderId} (${request.filialTenantName}) para a filial lançar em um novo lote?`)) return;
     } else {
       if (!window.confirm(`Cancelar a compra do pedido ${request.orderId} (${request.filialTenantName})? O histórico será mantido.`)) return;
     }
@@ -3702,10 +3705,12 @@ export default function Admin() {
     try {
       const endpoint = isCancelled
         ? `${BASE}/api/admin/filial-purchases/${encodeURIComponent(request.id)}/purge`
+        : isBatched
+          ? `${BASE}/api/admin/filial-purchases/${encodeURIComponent(request.id)}/return-to-filial`
         : `${BASE}/api/admin/filial-purchases/${encodeURIComponent(request.id)}`;
 
       const res = await fetch(endpoint, {
-        method: "DELETE",
+        method: isBatched ? "POST" : "DELETE",
         headers: authHeaders(),
       });
 
@@ -3717,11 +3722,23 @@ export default function Admin() {
         return;
       }
 
-      toast.success(isCancelled ? "Rascunho apagado com sucesso." : "Compra da filial cancelada com sucesso.");
+      toast.success(
+        isCancelled
+          ? "Rascunho apagado com sucesso."
+          : isBatched
+            ? "Pedido devolvido para a filial lançar novamente."
+            : "Compra da filial cancelada com sucesso.",
+      );
       setFilialPurchaseOpenId((prev) => (prev === request.id ? null : prev));
       await fetchFilialPurchaseRequests(selectedFilialTenantId || undefined);
     } catch {
-      toast.error(isCancelled ? "Erro ao apagar rascunho da filial." : "Erro ao cancelar compra da filial.");
+      toast.error(
+        isCancelled
+          ? "Erro ao apagar rascunho da filial."
+          : isBatched
+            ? "Erro ao devolver pedido para a filial."
+            : "Erro ao cancelar compra da filial.",
+      );
     } finally {
       setFilialPurchaseDeletingId(null);
     }

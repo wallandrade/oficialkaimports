@@ -694,6 +694,86 @@ router.post("/admin/filial-purchases/batches/:batchId/revert-receipt", requirePr
   }
 });
 
+router.post("/admin/filial-purchases/:requestId/return-to-filial", requirePrimaryAdmin, async (req, res) => {
+  try {
+    if (!ensureDefaultTenantScope(req, res)) return;
+
+    const requestId = String(req.params.requestId || "").trim();
+    if (!requestId) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Compra inválida." });
+      return;
+    }
+
+    const scope = getAdminScope(req);
+    const actorUsername = String(scope?.username || "").trim() || null;
+
+    const rows = await db
+      .select({
+        id: filialPurchaseRequestsTable.id,
+        status: filialPurchaseRequestsTable.status,
+        orderId: filialPurchaseRequestsTable.orderId,
+        filialTenantId: filialPurchaseRequestsTable.filialTenantId,
+        supplierBatchId: filialPurchaseRequestsTable.supplierBatchId,
+      })
+      .from(filialPurchaseRequestsTable)
+      .where(eq(filialPurchaseRequestsTable.id, requestId))
+      .limit(1);
+
+    const requestRow = rows[0];
+    if (!requestRow) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Compra da filial não encontrada." });
+      return;
+    }
+
+    if (!String(requestRow.supplierBatchId || "").trim()) {
+      res.status(409).json({
+        error: "INVALID_STATE",
+        message: "Somente pedidos em lote podem ser devolvidos para a filial.",
+      });
+      return;
+    }
+
+    const normalizedStatus = String(requestRow.status || "").trim().toLowerCase();
+    const allowedStatuses = new Set(["lote_enviado_loja1", "lote_recebido_loja1"]);
+    if (!allowedStatuses.has(normalizedStatus)) {
+      res.status(409).json({
+        error: "INVALID_STATE",
+        message: "Esse pedido já avançou no fluxo e não pode ser devolvido para novo lançamento.",
+      });
+      return;
+    }
+
+    await db
+      .update(filialPurchaseRequestsTable)
+      .set({
+        status: "aguardando_compra_loja1",
+        supplierBatchId: null,
+        supplierBatchLabel: null,
+        supplierBatchSentAt: null,
+        supplierBatchReceivedAt: null,
+        updatedByAdmin: actorUsername,
+        updatedAt: new Date(),
+      })
+      .where(eq(filialPurchaseRequestsTable.id, requestId));
+
+    await addAudit({
+      requestId,
+      action: "devolvido_para_filial",
+      actorUsername,
+      payload: {
+        orderId: requestRow.orderId,
+        filialTenantId: requestRow.filialTenantId,
+        reason: "devolucao_loja1_para_novo_lote",
+      },
+    });
+
+    res.json({ ok: true, requestId, status: "aguardando_compra_loja1", returnedToFilial: true });
+  } catch (err) {
+    console.error("[FilialPurchases] return-to-filial error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao devolver pedido para a filial." });
+  }
+});
+
 router.post("/admin/filial-purchases/manual", requirePrimaryAdmin, async (req, res) => {
   try {
     if (!ensureDefaultTenantScope(req, res)) return;
