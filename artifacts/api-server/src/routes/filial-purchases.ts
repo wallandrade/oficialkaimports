@@ -10,10 +10,11 @@ import {
   productsTable,
   tenantsTable,
 } from "@workspace/db";
-import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { getAdminScope, requireAdminAuth, requirePrimaryAdmin } from "./admin-auth";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-context";
 import { registerInventoryEntry } from "../lib/reshipments";
+import { enqueueFilialOrderPurchaseRequest } from "../lib/filial-purchase-queue";
 
 const router: IRouter = Router();
 
@@ -131,6 +132,33 @@ function ensureDefaultTenantScope(req: Parameters<typeof router.get>[1] extends 
     return false;
   }
   return true;
+}
+
+async function backfillFilialPaidOrdersQueue(tenantId: string): Promise<void> {
+  const paidStatuses = ["paid", "completed", "pago", "finalizado"];
+  const candidates = await db
+    .select({
+      id: ordersTable.id,
+      updatedAt: ordersTable.updatedAt,
+      createdAt: ordersTable.createdAt,
+    })
+    .from(ordersTable)
+    .where(and(
+      eq(ordersTable.tenantId, tenantId),
+      inArray(ordersTable.status, paidStatuses),
+    ))
+    .orderBy(desc(ordersTable.updatedAt), desc(ordersTable.createdAt))
+    .limit(250);
+
+  for (const row of candidates) {
+    const orderId = String(row.id || "").trim();
+    if (!orderId) continue;
+    try {
+      await enqueueFilialOrderPurchaseRequest(orderId);
+    } catch (err) {
+      console.warn("[FilialPurchases] backfill enqueue failed:", orderId, err);
+    }
+  }
 }
 
 async function addAudit(params: {
@@ -284,6 +312,9 @@ router.get("/admin/filial-purchases/my", requireAdminAuth, async (req, res) => {
       });
       return;
     }
+
+    // Self-healing: ensure paid orders that missed prior enqueue become visible to the filial queue.
+    await backfillFilialPaidOrdersQueue(tenantId);
 
     const statusParam = String(req.query.status || "pending").trim().toLowerCase();
     const pendingStatuses = ["pendente_pagamento_filial", "pago_na_filial", "aguardando_compra_loja1", "lote_enviado_loja1", "lote_recebido_loja1", "compra_registrada", "estoque_lancado_filial"];
