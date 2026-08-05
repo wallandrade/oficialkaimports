@@ -1239,6 +1239,11 @@ function filialPurchaseStatusTagClass(status: string): string {
   return "border-amber-200 bg-amber-50 text-amber-700";
 }
 
+function isFilialPurchaseHistoryStatus(status: string): boolean {
+  const normalized = String(status || "").trim().toLowerCase();
+  return ["pago_na_filial", "compra_registrada", "estoque_lancado_filial", "finalizado", "cancelado"].includes(normalized);
+}
+
 function computeLoja1RepasseProfitFromItems(items: FilialPurchaseRequestItem[] | null | undefined): number | null {
   if (!Array.isArray(items) || items.length === 0) return null;
 
@@ -1695,6 +1700,17 @@ export default function Admin() {
     : filialPurchaseRequests;
   const sortedFilialPurchaseRequests = [...filteredFilialPurchaseRequests].sort(compareFilialPurchaseRequests);
   const sortedMyFilialPurchaseRequests = [...myFilialPurchaseRequests].sort(compareFilialPurchaseRequests);
+  const filteredMyFilialPurchaseRequests = React.useMemo(() => {
+    if (myFilialPurchaseStatusFilter === "all") return sortedMyFilialPurchaseRequests;
+    if (myFilialPurchaseStatusFilter === "finalized") {
+      return sortedMyFilialPurchaseRequests.filter((request) => isFilialPurchaseHistoryStatus(request.status));
+    }
+    return sortedMyFilialPurchaseRequests.filter((request) => !isFilialPurchaseHistoryStatus(request.status));
+  }, [myFilialPurchaseStatusFilter, sortedMyFilialPurchaseRequests]);
+  const myFilialPurchaseHistoryRequests = React.useMemo(
+    () => sortedMyFilialPurchaseRequests.filter((request) => isFilialPurchaseHistoryStatus(request.status)),
+    [sortedMyFilialPurchaseRequests],
+  );
   const selectedManualFilialProduct = filialStoreProducts.find((product) => product.id === manualFilialProductId) || null;
   const filialProductImageById = React.useMemo(() => {
     const map = new Map<string, string>();
@@ -3087,11 +3103,11 @@ export default function Admin() {
     }
   }, [canManageTenants, handleUnauthorized, selectedFilialTenantId]);
 
-  const fetchMyFilialPurchaseRequests = useCallback(async (status: "pending" | "all" | "finalized" = myFilialPurchaseStatusFilter) => {
+  const fetchMyFilialPurchaseRequests = useCallback(async (_status: "pending" | "all" | "finalized" = myFilialPurchaseStatusFilter) => {
     if (adminTenantId === "tenant_loja1") return;
     setMyFilialPurchaseLoading(true);
     try {
-      const params = new URLSearchParams({ status });
+      const params = new URLSearchParams({ status: "all" });
       const res = await fetch(`${BASE}/api/admin/filial-purchases/my?${params.toString()}`, { headers: authHeaders() });
       if (res.status === 401) { handleUnauthorized(); return; }
       if (!res.ok) {
@@ -8605,11 +8621,11 @@ export default function Admin() {
 
             {myFilialPurchaseLoading ? (
               <div className="text-sm text-muted-foreground">Carregando pedidos de compra...</div>
-            ) : sortedMyFilialPurchaseRequests.length === 0 ? (
+            ) : filteredMyFilialPurchaseRequests.length === 0 ? (
               <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">Nenhum pedido de compra encontrado para esta filial.</div>
             ) : (
               <div className="space-y-3">
-                {sortedMyFilialPurchaseRequests.map((request) => (
+                {filteredMyFilialPurchaseRequests.map((request) => (
                   <div key={`my-filial-purchase-${request.id}`} className="rounded-xl border border-border bg-card p-4">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div>
@@ -8688,6 +8704,37 @@ export default function Admin() {
                 ))}
               </div>
             )}
+
+            {myFilialPurchaseStatusFilter === "pending" ? (
+              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold text-slate-800 uppercase tracking-wide">Historico de compras</p>
+                    <p className="text-sm text-slate-600">Pedidos ja pagos/finalizados da filial.</p>
+                  </div>
+                  <span className="text-xs text-slate-500">{myFilialPurchaseHistoryRequests.length} registro(s)</span>
+                </div>
+
+                {myFilialPurchaseHistoryRequests.length === 0 ? (
+                  <p className="mt-3 text-sm text-slate-600">Nenhum pedido finalizado ainda.</p>
+                ) : (
+                  <div className="mt-3 space-y-2">
+                    {myFilialPurchaseHistoryRequests.slice(0, 20).map((request) => (
+                      <div key={`my-filial-history-${request.id}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-foreground truncate">{request.orderId}</p>
+                          <p className="text-xs text-muted-foreground truncate">{filialPurchaseStatusLabel(request.status)} · {formatDateBR(request.finalizedAt || request.updatedAt || request.createdAt) || "-"}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-muted-foreground">Total</p>
+                          <p className="text-sm font-semibold text-foreground">{formatCurrency(Number(request.orderTotal || 0))}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : null}
           </div>
         ) : tab === "webhook" ? (
           <WebhookPanel
