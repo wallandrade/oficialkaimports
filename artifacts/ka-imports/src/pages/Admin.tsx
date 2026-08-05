@@ -1170,12 +1170,20 @@ interface FilialPurchaseRequest {
   filialTenantId: string;
   filialTenantName: string;
   orderId: string;
+  orderNumber?: number | null;
   status: string;
   supplierBatchId?: string | null;
   supplierBatchLabel?: string | null;
   supplierBatchSentAt?: string | null;
   supplierBatchReceivedAt?: string | null;
   clientName: string;
+  addressStreet?: string | null;
+  addressNumber?: string | null;
+  addressNeighborhood?: string | null;
+  addressComplement?: string | null;
+  addressCity?: string | null;
+  addressState?: string | null;
+  addressCep?: string | null;
   orderTotal: number;
   repasseTotal: number;
   items: FilialPurchaseRequestItem[];
@@ -3367,24 +3375,36 @@ export default function Admin() {
       lines.push(`Pedidos: ${batch.totalOrders}`);
       lines.push(`Repasse total: ${formatCurrency(batch.totalRepasse)}`);
       lines.push(`Enviado em: ${formatDateBR(batch.sentAt) || "-"}`);
+      lines.push("_______________________________");
       lines.push("");
 
       for (const request of batch.requests) {
-        lines.push(`Pedido: ${request.orderId}`);
-        lines.push(`Cliente: ${request.clientName || "-"}`);
-        lines.push(`Status: ${filialPurchaseStatusLabel(request.status)}`);
-        lines.push(`Criado em: ${formatDateBR(request.createdAt) || "-"}`);
-        lines.push(`Total pago na filial: ${formatCurrency(Number(request.orderTotal || 0))}`);
-        lines.push(`Repasse para filial: ${formatCurrency(Number(request.repasseTotal || 0))}`);
-        lines.push("Itens:");
+        const orderNumber = Number(request.orderNumber);
+        const displayOrderNumber = Number.isFinite(orderNumber) && orderNumber > 0
+          ? String(Math.trunc(orderNumber))
+          : String(request.orderId || "-");
+        const addressStreet = String(request.addressStreet || "").trim();
+        const addressNumber = String(request.addressNumber || "").trim();
+        const streetLine = [addressStreet, addressNumber].filter(Boolean).join(", ") || "-";
+
+        lines.push(`Pedido numero: ${displayOrderNumber}`);
+        lines.push("");
+        lines.push(`Nome: ${request.clientName || "-"}`);
+        lines.push(`Rua: ${streetLine}`);
+        lines.push(`Bairro: ${String(request.addressNeighborhood || "").trim() || "-"}`);
+        lines.push(`Complemento: ${String(request.addressComplement || "").trim() || "-"}`);
+        lines.push(`Cidade: ${String(request.addressCity || "").trim() || "-"}`);
+        lines.push(`Estado: ${String(request.addressState || "").trim() || "-"}`);
+        lines.push(`Cep: ${String(request.addressCep || "").trim() || "-"}`);
+        lines.push("");
+        lines.push("Resumo pedido:");
 
         for (const item of request.items || []) {
           const qty = Number(item.quantity || 0);
-          const repasseUnit = Number(item.repasseUnitCost || 0);
-          const repasseTotal = qty * repasseUnit;
-          lines.push(`- ${qty}x ${item.productName} (${formatCurrency(repasseTotal)})`);
+          lines.push(`- ${qty}x ${item.productName}`);
         }
 
+        lines.push("_______________________________");
         lines.push("");
       }
 

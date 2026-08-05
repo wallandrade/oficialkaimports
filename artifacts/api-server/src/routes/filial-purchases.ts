@@ -5,6 +5,7 @@ import {
   filialPurchaseRequestAuditsTable,
   filialPurchaseRequestsTable,
   inventoryMovementsTable,
+  ordersTable,
   productCostHistoryTable,
   productsTable,
   tenantsTable,
@@ -171,12 +172,20 @@ router.get("/admin/filial-purchases", requirePrimaryAdmin, async (req, res) => {
         id: filialPurchaseRequestsTable.id,
         filialTenantId: filialPurchaseRequestsTable.filialTenantId,
         orderId: filialPurchaseRequestsTable.orderId,
+        orderNumber: ordersTable.orderNumber,
         status: filialPurchaseRequestsTable.status,
         supplierBatchId: filialPurchaseRequestsTable.supplierBatchId,
         supplierBatchLabel: filialPurchaseRequestsTable.supplierBatchLabel,
         supplierBatchSentAt: filialPurchaseRequestsTable.supplierBatchSentAt,
         supplierBatchReceivedAt: filialPurchaseRequestsTable.supplierBatchReceivedAt,
         clientName: filialPurchaseRequestsTable.clientName,
+        addressStreet: ordersTable.addressStreet,
+        addressNumber: ordersTable.addressNumber,
+        addressNeighborhood: ordersTable.addressNeighborhood,
+        addressComplement: ordersTable.addressComplement,
+        addressCity: ordersTable.addressCity,
+        addressState: ordersTable.addressState,
+        addressCep: ordersTable.addressCep,
         orderTotal: filialPurchaseRequestsTable.orderTotal,
         repasseTotal: filialPurchaseRequestsTable.repasseTotal,
         itemsSnapshot: filialPurchaseRequestsTable.itemsSnapshot,
@@ -192,6 +201,10 @@ router.get("/admin/filial-purchases", requirePrimaryAdmin, async (req, res) => {
       })
       .from(filialPurchaseRequestsTable)
       .leftJoin(tenantsTable, eq(tenantsTable.id, filialPurchaseRequestsTable.filialTenantId))
+      .leftJoin(ordersTable, and(
+        eq(ordersTable.id, filialPurchaseRequestsTable.orderId),
+        eq(ordersTable.tenantId, filialPurchaseRequestsTable.filialTenantId),
+      ))
       .where(listWhere)
       .orderBy(asc(filialPurchaseRequestsTable.createdAt));
 
@@ -226,12 +239,20 @@ router.get("/admin/filial-purchases", requirePrimaryAdmin, async (req, res) => {
         filialTenantId: row.filialTenantId,
         filialTenantName: row.tenantName || row.filialTenantId,
         orderId: row.orderId,
+        orderNumber: Number(row.orderNumber || 0) || null,
         status: row.status,
         supplierBatchId: row.supplierBatchId || null,
         supplierBatchLabel: row.supplierBatchLabel || null,
         supplierBatchSentAt: row.supplierBatchSentAt?.toISOString() || null,
         supplierBatchReceivedAt: row.supplierBatchReceivedAt?.toISOString() || null,
         clientName: row.clientName,
+        addressStreet: row.addressStreet || null,
+        addressNumber: row.addressNumber || null,
+        addressNeighborhood: row.addressNeighborhood || null,
+        addressComplement: row.addressComplement || null,
+        addressCity: row.addressCity || null,
+        addressState: row.addressState || null,
+        addressCep: row.addressCep || null,
         orderTotal: Number(row.orderTotal || 0),
         repasseTotal: Number(row.repasseTotal || 0),
         items: parseSnapshotItems(row.itemsSnapshot),
@@ -278,12 +299,20 @@ router.get("/admin/filial-purchases/my", requireAdminAuth, async (req, res) => {
         id: filialPurchaseRequestsTable.id,
         filialTenantId: filialPurchaseRequestsTable.filialTenantId,
         orderId: filialPurchaseRequestsTable.orderId,
+        orderNumber: ordersTable.orderNumber,
         status: filialPurchaseRequestsTable.status,
         supplierBatchId: filialPurchaseRequestsTable.supplierBatchId,
         supplierBatchLabel: filialPurchaseRequestsTable.supplierBatchLabel,
         supplierBatchSentAt: filialPurchaseRequestsTable.supplierBatchSentAt,
         supplierBatchReceivedAt: filialPurchaseRequestsTable.supplierBatchReceivedAt,
         clientName: filialPurchaseRequestsTable.clientName,
+        addressStreet: ordersTable.addressStreet,
+        addressNumber: ordersTable.addressNumber,
+        addressNeighborhood: ordersTable.addressNeighborhood,
+        addressComplement: ordersTable.addressComplement,
+        addressCity: ordersTable.addressCity,
+        addressState: ordersTable.addressState,
+        addressCep: ordersTable.addressCep,
         orderTotal: filialPurchaseRequestsTable.orderTotal,
         repasseTotal: filialPurchaseRequestsTable.repasseTotal,
         itemsSnapshot: filialPurchaseRequestsTable.itemsSnapshot,
@@ -299,6 +328,10 @@ router.get("/admin/filial-purchases/my", requireAdminAuth, async (req, res) => {
       })
       .from(filialPurchaseRequestsTable)
       .leftJoin(tenantsTable, eq(tenantsTable.id, filialPurchaseRequestsTable.filialTenantId))
+      .leftJoin(ordersTable, and(
+        eq(ordersTable.id, filialPurchaseRequestsTable.orderId),
+        eq(ordersTable.tenantId, filialPurchaseRequestsTable.filialTenantId),
+      ))
       .where(and(statusWhere, eq(filialPurchaseRequestsTable.filialTenantId, tenantId)))
       .orderBy(asc(filialPurchaseRequestsTable.createdAt));
 
@@ -333,12 +366,20 @@ router.get("/admin/filial-purchases/my", requireAdminAuth, async (req, res) => {
         filialTenantId: row.filialTenantId,
         filialTenantName: row.tenantName || row.filialTenantId,
         orderId: row.orderId,
+        orderNumber: Number(row.orderNumber || 0) || null,
         status: row.status,
         supplierBatchId: row.supplierBatchId || null,
         supplierBatchLabel: row.supplierBatchLabel || null,
         supplierBatchSentAt: row.supplierBatchSentAt?.toISOString() || null,
         supplierBatchReceivedAt: row.supplierBatchReceivedAt?.toISOString() || null,
         clientName: row.clientName,
+        addressStreet: row.addressStreet || null,
+        addressNumber: row.addressNumber || null,
+        addressNeighborhood: row.addressNeighborhood || null,
+        addressComplement: row.addressComplement || null,
+        addressCity: row.addressCity || null,
+        addressState: row.addressState || null,
+        addressCep: row.addressCep || null,
         orderTotal: Number(row.orderTotal || 0),
         repasseTotal: Number(row.repasseTotal || 0),
         items: parseSnapshotItems(row.itemsSnapshot),
