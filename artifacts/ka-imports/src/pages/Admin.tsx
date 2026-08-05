@@ -8906,23 +8906,23 @@ export default function Admin() {
                 <span className="text-xs text-blue-700">{myFilialBatchSelectedValidIds.length} selecionado(s)</span>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-[auto_auto_auto_auto_auto_auto_auto] gap-2 items-center">
+              <div className="flex flex-wrap gap-2 items-center">
                 <input
                   type="date"
                   value={myFilialBatchDateFrom}
                   onChange={(e) => setMyFilialBatchDateFrom(e.target.value)}
-                  className="h-9 px-3 rounded-lg border border-border bg-white text-sm"
+                  className="h-9 w-[140px] px-3 rounded-lg border border-border bg-white text-sm"
                 />
                 <input
                   type="date"
                   value={myFilialBatchDateTo}
                   onChange={(e) => setMyFilialBatchDateTo(e.target.value)}
-                  className="h-9 px-3 rounded-lg border border-border bg-white text-sm"
+                  className="h-9 w-[140px] px-3 rounded-lg border border-border bg-white text-sm"
                 />
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-9"
+                  className="h-9 whitespace-nowrap"
                   onClick={() => setMyFilialBatchQuickRange(1)}
                 >
                   <Calendar className="w-4 h-4" />
@@ -8931,7 +8931,7 @@ export default function Admin() {
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-9"
+                  className="h-9 whitespace-nowrap"
                   onClick={() => setMyFilialBatchQuickRange(7)}
                 >
                   <Calendar className="w-4 h-4" />
@@ -8940,7 +8940,7 @@ export default function Admin() {
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-9"
+                  className="h-9 whitespace-nowrap"
                   onClick={() => setMyFilialBatchSelectedIds(myFilialBatchEligibleRequests.map((request) => request.id))}
                   disabled={myFilialBatchEligibleRequests.length === 0}
                 >
@@ -8950,7 +8950,7 @@ export default function Admin() {
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-9"
+                  className="h-9 whitespace-nowrap"
                   onClick={() => setMyFilialBatchSelectedIds([])}
                   disabled={myFilialBatchSelectedValidIds.length === 0}
                 >
@@ -8959,7 +8959,7 @@ export default function Admin() {
                 </Button>
                 <Button
                   type="button"
-                  className="h-9"
+                  className="h-9 whitespace-nowrap"
                   onClick={() => { void launchMyFilialSupplierBatch(); }}
                   disabled={myFilialBatchLaunching || myFilialBatchSelectedValidIds.length === 0}
                 >
