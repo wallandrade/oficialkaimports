@@ -611,6 +611,89 @@ router.post("/admin/filial-purchases/batches/:batchId/confirm-receipt", requireP
   }
 });
 
+router.post("/admin/filial-purchases/batches/:batchId/revert-receipt", requirePrimaryAdmin, async (req, res) => {
+  try {
+    if (!ensureDefaultTenantScope(req, res)) return;
+
+    const batchId = String(req.params.batchId || "").trim();
+    if (!batchId) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Lote inválido." });
+      return;
+    }
+
+    const scope = getAdminScope(req);
+    const actorUsername = String(scope?.username || "").trim() || null;
+
+    const rows = await db
+      .select({
+        id: filialPurchaseRequestsTable.id,
+        orderId: filialPurchaseRequestsTable.orderId,
+        filialTenantId: filialPurchaseRequestsTable.filialTenantId,
+        status: filialPurchaseRequestsTable.status,
+      })
+      .from(filialPurchaseRequestsTable)
+      .where(eq(filialPurchaseRequestsTable.supplierBatchId, batchId));
+
+    if (rows.length === 0) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Lote não encontrado." });
+      return;
+    }
+
+    const blockedStatuses = new Set(["compra_registrada", "estoque_lancado_filial", "finalizado", "cancelado"]);
+    const blockedRow = rows.find((row) => blockedStatuses.has(String(row.status || "").trim().toLowerCase()));
+    if (blockedRow) {
+      res.status(409).json({
+        error: "INVALID_STATE",
+        message: `Não é possível desfazer porque o pedido ${blockedRow.orderId} já avançou no fluxo.`,
+      });
+      return;
+    }
+
+    const revertibleRows = rows.filter((row) => String(row.status || "").trim().toLowerCase() === "lote_recebido_loja1");
+    if (revertibleRows.length === 0) {
+      res.json({ ok: true, idempotent: true, batchId, revertedCount: 0 });
+      return;
+    }
+
+    const revertibleIds = revertibleRows.map((row) => row.id);
+    const now = new Date();
+
+    await db
+      .update(filialPurchaseRequestsTable)
+      .set({
+        status: "lote_enviado_loja1",
+        supplierBatchReceivedAt: null,
+        updatedByAdmin: actorUsername,
+        updatedAt: now,
+      })
+      .where(inArray(filialPurchaseRequestsTable.id, revertibleIds));
+
+    for (const row of revertibleRows) {
+      await addAudit({
+        requestId: row.id,
+        action: "lote_recebimento_desfeito_loja1",
+        actorUsername,
+        payload: {
+          batchId,
+          filialTenantId: row.filialTenantId,
+          orderId: row.orderId,
+        },
+      });
+    }
+
+    res.json({
+      ok: true,
+      batchId,
+      status: "lote_enviado_loja1",
+      revertedCount: revertibleRows.length,
+      requestIds: revertibleIds,
+    });
+  } catch (err) {
+    console.error("[FilialPurchases] revert-batch-receipt error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao desfazer confirmação do lote." });
+  }
+});
+
 router.post("/admin/filial-purchases/manual", requirePrimaryAdmin, async (req, res) => {
   try {
     if (!ensureDefaultTenantScope(req, res)) return;

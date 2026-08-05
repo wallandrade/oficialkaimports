@@ -1228,6 +1228,7 @@ interface FilialSupplierBatchSummary {
   totalRepasse: number;
   tenantNames: string[];
   canConfirmReceipt: boolean;
+  canUndoReceipt: boolean;
 }
 
 function filialPurchaseStatusLabel(status: string): string {
@@ -1684,6 +1685,7 @@ export default function Admin() {
   const [myFilialBatchSelectedIds, setMyFilialBatchSelectedIds] = useState<string[]>([]);
   const [myFilialBatchLaunching, setMyFilialBatchLaunching] = useState(false);
   const [filialBatchReceiptConfirmingId, setFilialBatchReceiptConfirmingId] = useState<string | null>(null);
+  const [filialBatchReceiptUndoingId, setFilialBatchReceiptUndoingId] = useState<string | null>(null);
   const [filialBatchCopyingId, setFilialBatchCopyingId] = useState<string | null>(null);
   const [manualFilialClientName, setManualFilialClientName] = useState("Compra manual da filial");
   const [manualFilialProductId, setManualFilialProductId] = useState("");
@@ -1842,6 +1844,7 @@ export default function Admin() {
           const normalized = String(request.status || "").trim().toLowerCase();
           return receivableStatuses.has(normalized) && !request.supplierBatchReceivedAt;
         });
+        const canUndoReceipt = requests.some((request) => String(request.status || "").trim().toLowerCase() === "lote_recebido_loja1");
 
         return {
           batchId,
@@ -1853,6 +1856,7 @@ export default function Admin() {
           totalRepasse,
           tenantNames,
           canConfirmReceipt,
+          canUndoReceipt,
         };
       })
       .sort((a, b) => {
@@ -3363,6 +3367,40 @@ export default function Admin() {
       toast.error("Erro ao marcar lote como comprando na farmacia.");
     } finally {
       setFilialBatchReceiptConfirmingId(null);
+    }
+  }, [BASE, canManageTenants, fetchFilialPurchaseRequests, handleUnauthorized, selectedFilialTenantId]);
+
+  const undoSupplierBatchReceipt = useCallback(async (batch: FilialSupplierBatchSummary) => {
+    if (!canManageTenants) return;
+    if (!batch?.batchId) return;
+    if (!window.confirm(`Desfazer "Fornecedor comprando na farmacia" do lote ${batch.batchLabel}?`)) return;
+
+    setFilialBatchReceiptUndoingId(batch.batchId);
+    try {
+      const res = await fetch(`${BASE}/api/admin/filial-purchases/batches/${encodeURIComponent(batch.batchId)}/revert-receipt`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+
+      if (res.status === 401) { handleUnauthorized(); return; }
+
+      const data = await res.json().catch(() => null) as { message?: string; revertedCount?: number; idempotent?: boolean } | null;
+      if (!res.ok) {
+        toast.error(data?.message || "Erro ao desfazer status de compra na farmacia.");
+        return;
+      }
+
+      if (data?.idempotent) {
+        toast.success("Lote ja estava no estado anterior.");
+      } else {
+        toast.success(`Status desfeito em ${data?.revertedCount || 0} pedido(s) do lote.`);
+      }
+
+      await fetchFilialPurchaseRequests(selectedFilialTenantId || undefined);
+    } catch {
+      toast.error("Erro ao desfazer status de compra na farmacia.");
+    } finally {
+      setFilialBatchReceiptUndoingId(null);
     }
   }, [BASE, canManageTenants, fetchFilialPurchaseRequests, handleUnauthorized, selectedFilialTenantId]);
 
@@ -8360,10 +8398,20 @@ export default function Admin() {
                                   variant="outline"
                                   className="h-8 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
                                   onClick={() => { void confirmSupplierBatchReceipt(batch); }}
-                                  disabled={!batch.canConfirmReceipt || filialBatchReceiptConfirmingId === batch.batchId}
+                                  disabled={!batch.canConfirmReceipt || filialBatchReceiptConfirmingId === batch.batchId || filialBatchReceiptUndoingId === batch.batchId}
                                 >
                                   {filialBatchReceiptConfirmingId === batch.batchId ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                                  <span className="ml-2">{batch.canConfirmReceipt ? "Comprando na farmacia" : "Fornecedor comprando na farmacia"}</span>
+                                  <span className="ml-2">Comprando na farmacia</span>
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="h-8 border-amber-200 text-amber-700 hover:bg-amber-50"
+                                  onClick={() => { void undoSupplierBatchReceipt(batch); }}
+                                  disabled={!batch.canUndoReceipt || filialBatchReceiptUndoingId === batch.batchId || filialBatchReceiptConfirmingId === batch.batchId}
+                                >
+                                  {filialBatchReceiptUndoingId === batch.batchId ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
+                                  <span className="ml-2">Desfazer</span>
                                 </Button>
                               </div>
                             </div>
