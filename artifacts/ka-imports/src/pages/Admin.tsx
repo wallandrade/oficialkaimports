@@ -1757,6 +1757,20 @@ export default function Admin() {
     () => visibleMyFilialPurchaseRequests.filter((request) => isFilialPurchaseHistoryStatus(request.status)),
     [visibleMyFilialPurchaseRequests],
   );
+  const filteredMyFilialPurchaseRequestsByDate = React.useMemo(() => {
+    const from = String(myFilialBatchDateFrom || "").trim();
+    const to = String(myFilialBatchDateTo || "").trim();
+    const fromTs = /^\d{4}-\d{2}-\d{2}$/.test(from) ? Date.parse(`${from}T00:00:00.000Z`) : null;
+    const toTs = /^\d{4}-\d{2}-\d{2}$/.test(to) ? Date.parse(`${to}T23:59:59.999Z`) : null;
+
+    return filteredMyFilialPurchaseRequests.filter((request) => {
+      const createdAtTs = Date.parse(String(request.createdAt || ""));
+      if (!Number.isFinite(createdAtTs)) return false;
+      if (fromTs != null && createdAtTs < fromTs) return false;
+      if (toTs != null && createdAtTs > toTs) return false;
+      return true;
+    });
+  }, [filteredMyFilialPurchaseRequests, myFilialBatchDateFrom, myFilialBatchDateTo]);
   const myFilialBatchEligibleRequests = React.useMemo(() => {
     const from = String(myFilialBatchDateFrom || "").trim();
     const to = String(myFilialBatchDateTo || "").trim();
@@ -8933,11 +8947,11 @@ export default function Admin() {
 
             {myFilialPurchaseLoading ? (
               <div className="text-sm text-muted-foreground">Carregando pedidos de compra...</div>
-            ) : filteredMyFilialPurchaseRequests.length === 0 ? (
+            ) : filteredMyFilialPurchaseRequestsByDate.length === 0 ? (
               <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">Nenhum pedido de compra encontrado para esta filial.</div>
             ) : (
               <div className="space-y-3">
-                {filteredMyFilialPurchaseRequests.map((request) => (
+                {filteredMyFilialPurchaseRequestsByDate.map((request) => (
                   <div key={`my-filial-purchase-${request.id}`} className="rounded-xl border border-border bg-card p-4">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="flex items-start gap-2">
