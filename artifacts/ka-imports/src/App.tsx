@@ -1,4 +1,4 @@
-import { lazy, Suspense, Component, ReactNode } from "react";
+import { lazy, Suspense, Component, ReactNode, type ComponentType } from "react";
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
@@ -109,7 +109,18 @@ const AdminLogin          = lazy(() => import("@/pages/AdminLogin"));
 const CustomerLogin       = lazy(() => import("@/pages/CustomerLogin"));
 const CustomerOrders      = lazy(() => import("@/pages/CustomerOrders"));
 const PaymentLink         = lazy(() => import("@/pages/PaymentLink"));
-const ProductDetail       = lazy(() => import("@/pages/ProductDetail"));
+const ProductDetail       = lazy(async () => {
+  const mod = await import("@/pages/ProductDetail");
+  const fallback = (mod as { ProductDetail?: unknown }).ProductDetail
+    ?? Object.values(mod).find((value) => typeof value === "function");
+
+  const resolvedDefault = (mod as { default?: unknown }).default ?? fallback;
+  if (typeof resolvedDefault !== "function") {
+    throw new Error(`LAZY_MODULE_INVALID:/pages/ProductDetail exports=[${Object.keys(mod).join(",")}]`);
+  }
+
+  return { default: resolvedDefault as ComponentType };
+});
 const SellerCheckoutPage  = lazy(() => import("@/pages/SellerCheckoutPage"));
 const KYCPolicy           = lazy(() => import("@/pages/KYCPolicy"));
 const KYCSubmit           = lazy(() => import("@/pages/KYCSubmit"));
