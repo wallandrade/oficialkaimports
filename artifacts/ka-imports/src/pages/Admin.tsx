@@ -8057,7 +8057,7 @@ export default function Admin() {
                                 <p className="font-semibold text-blue-700">{formatCurrency(request.repasseTotal)}</p>
                                 {(() => {
                                   const normalizedStatus = String(request.status || "").trim().toLowerCase();
-                                  const isClosed = normalizedStatus === "compra_registrada" || normalizedStatus === "estoque_lancado_filial" || normalizedStatus === "finalizado";
+                                  const isClosed = normalizedStatus === "pago_na_filial" || normalizedStatus === "compra_registrada" || normalizedStatus === "estoque_lancado_filial" || normalizedStatus === "finalizado";
                                   if (isClosed) {
                                     return (
                                       <>
