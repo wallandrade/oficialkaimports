@@ -227,7 +227,7 @@ router.get("/admin/filial-purchases", requirePrimaryAdmin, async (req, res) => {
 
     const statusParam = String(req.query.status || "pending").trim().toLowerCase();
     const filialTenantIdParam = String(req.query.filialTenantId || req.query.tenantId || "").trim();
-    const pendingStatuses = ["pendente_pagamento_filial", "pago_na_filial", "aguardando_compra_loja1", "lote_enviado_loja1", "lote_recebido_loja1", "compra_registrada", "estoque_lancado_filial"];
+    const pendingStatuses = ["pendente_pagamento_filial", "pago_na_filial", "aguardando_compra_loja1", "lote_enviado_loja1", "lote_recebido_loja1", "enviado_motoboy", "compra_registrada", "estoque_lancado_filial"];
 
     const statusWhere = statusParam === "all"
       ? sql`1 = 1`
@@ -364,7 +364,7 @@ router.get("/admin/filial-purchases/my", requireAdminAuth, async (req, res) => {
     await backfillFilialPaidOrdersQueue(tenantId);
 
     const statusParam = String(req.query.status || "pending").trim().toLowerCase();
-    const pendingStatuses = ["pendente_pagamento_filial", "pago_na_filial", "aguardando_compra_loja1", "lote_enviado_loja1", "lote_recebido_loja1", "compra_registrada", "estoque_lancado_filial"];
+    const pendingStatuses = ["pendente_pagamento_filial", "pago_na_filial", "aguardando_compra_loja1", "lote_enviado_loja1", "lote_recebido_loja1", "enviado_motoboy", "compra_registrada", "estoque_lancado_filial"];
 
     const statusWhere = statusParam === "all"
       ? sql`1 = 1`
@@ -607,6 +607,132 @@ router.post("/admin/filial-purchases/my/launch-batch", requireAdminAuth, async (
   } catch (err) {
     console.error("[FilialPurchases] launch-batch error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao lançar lote para fornecedor." });
+  }
+});
+
+router.post("/admin/filial-purchases/my/launch-motoboy", requireAdminAuth, async (req, res) => {
+  try {
+    const scope = getAdminScope(req);
+    const tenantId = String(scope?.tenantId || "").trim() || DEFAULT_TENANT_ID;
+    if (!tenantId || tenantId === DEFAULT_TENANT_ID) {
+      res.status(403).json({
+        error: "FORBIDDEN",
+        message: "Somente a filial pode enviar pedidos para motoboy.",
+      });
+      return;
+    }
+
+    const actorUsername = String(scope?.username || "").trim() || null;
+    const fromDate = parseDateInput(req.body?.fromDate);
+    const toDate = parseDateInput(req.body?.toDate);
+    const requestIdsInput = Array.isArray(req.body?.requestIds) ? req.body.requestIds : [];
+    const requestIds = Array.from(new Set(
+      requestIdsInput
+        .map((value) => String(value || "").trim())
+        .filter(Boolean),
+    ));
+
+    if (requestIds.length === 0) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Selecione ao menos um pedido elegível para enviar ao motoboy." });
+      return;
+    }
+
+    const rows = await db
+      .select({
+        id: filialPurchaseRequestsTable.id,
+        orderId: filialPurchaseRequestsTable.orderId,
+        status: filialPurchaseRequestsTable.status,
+        createdAt: filialPurchaseRequestsTable.createdAt,
+        supplierBatchId: filialPurchaseRequestsTable.supplierBatchId,
+      })
+      .from(filialPurchaseRequestsTable)
+      .where(and(
+        eq(filialPurchaseRequestsTable.filialTenantId, tenantId),
+        inArray(filialPurchaseRequestsTable.id, requestIds),
+      ));
+
+    if (rows.length !== requestIds.length) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Um ou mais pedidos selecionados não foram encontrados na filial." });
+      return;
+    }
+
+    const eligibleStatuses = new Set(["aguardando_compra_loja1", "pago_na_filial"]);
+    const invalidStatusRow = rows.find((row) => !eligibleStatuses.has(String(row.status || "").trim().toLowerCase()));
+    if (invalidStatusRow) {
+      res.status(409).json({
+        error: "INVALID_STATE",
+        message: `O pedido ${invalidStatusRow.orderId} não está elegível para envio ao motoboy.`,
+      });
+      return;
+    }
+
+    const alreadyBatched = rows.find((row) => String(row.supplierBatchId || "").trim());
+    if (alreadyBatched) {
+      res.status(409).json({
+        error: "ALREADY_BATCHED",
+        message: `O pedido ${alreadyBatched.orderId} já está em um lote da Loja 1.`,
+      });
+      return;
+    }
+
+    const fromTs = fromDate ? Date.parse(`${fromDate}T00:00:00.000Z`) : null;
+    const toTs = toDate ? Date.parse(`${toDate}T23:59:59.999Z`) : null;
+    const outOfRange = rows.find((row) => {
+      const createdAtTs = Date.parse(String(row.createdAt || ""));
+      if (!Number.isFinite(createdAtTs)) return false;
+      if (fromTs != null && createdAtTs < fromTs) return true;
+      if (toTs != null && createdAtTs > toTs) return true;
+      return false;
+    });
+
+    if (outOfRange) {
+      res.status(409).json({
+        error: "INVALID_RANGE",
+        message: `O pedido ${outOfRange.orderId} está fora do período selecionado.`,
+      });
+      return;
+    }
+
+    const now = new Date();
+    await db
+      .update(filialPurchaseRequestsTable)
+      .set({
+        status: "enviado_motoboy",
+        supplierBatchId: null,
+        supplierBatchLabel: null,
+        supplierBatchSentAt: null,
+        supplierBatchReceivedAt: null,
+        updatedByAdmin: actorUsername,
+        updatedAt: now,
+      })
+      .where(and(
+        eq(filialPurchaseRequestsTable.filialTenantId, tenantId),
+        inArray(filialPurchaseRequestsTable.id, requestIds),
+      ));
+
+    for (const row of rows) {
+      await addAudit({
+        requestId: row.id,
+        action: "enviado_motoboy",
+        actorUsername,
+        payload: {
+          filialTenantId: tenantId,
+          orderId: row.orderId,
+          fromDate,
+          toDate,
+        },
+      });
+    }
+
+    res.json({
+      ok: true,
+      status: "enviado_motoboy",
+      requestIds,
+      count: requestIds.length,
+    });
+  } catch (err) {
+    console.error("[FilialPurchases] launch-motoboy error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao enviar pedidos para motoboy." });
   }
 });
 

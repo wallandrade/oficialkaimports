@@ -1238,6 +1238,7 @@ function filialPurchaseStatusLabel(status: string): string {
   if (normalized === "aguardando_compra_loja1") return "Aguardando compra Loja 1";
   if (normalized === "lote_enviado_loja1") return "Lote enviado para Loja 1";
   if (normalized === "lote_recebido_loja1") return "Fornecedor comprando na farmacia (aguarde 48h para rastreio)";
+  if (normalized === "enviado_motoboy") return "Enviado para motoboy";
   if (normalized === "compra_registrada") return "Compra registrada";
   if (normalized === "estoque_lancado_filial") return "Estoque lançado na filial";
   if (normalized === "finalizado") return "Finalizado";
@@ -1248,7 +1249,7 @@ function filialPurchaseStatusLabel(status: string): string {
 function filialPurchaseStatusTag(status: string): "cancelado" | "pendente" | "pago" | "em_compra" {
   const normalized = String(status || "").trim().toLowerCase();
   if (normalized === "cancelado") return "cancelado";
-  if (normalized === "lote_recebido_loja1") return "em_compra";
+  if (normalized === "lote_recebido_loja1" || normalized === "enviado_motoboy") return "em_compra";
   if (normalized === "pago_na_filial" || normalized === "finalizado" || normalized === "estoque_lancado_filial") return "pago";
   return "pendente";
 }
@@ -1281,6 +1282,7 @@ function isVisibleForFilialSupplierTab(status: string): boolean {
     "aguardando_compra_loja1",
     "lote_enviado_loja1",
     "lote_recebido_loja1",
+    "enviado_motoboy",
     "compra_registrada",
     "estoque_lancado_filial",
     "finalizado",
@@ -1696,6 +1698,7 @@ export default function Admin() {
   const [myFilialPurchaseLoading, setMyFilialPurchaseLoading] = useState(false);
   const [myFilialPurchaseStatusFilter, setMyFilialPurchaseStatusFilter] = useState<"pending" | "all" | "finalized">("pending");
   const [myFilialPurchaseProductImages, setMyFilialPurchaseProductImages] = useState<Record<string, string>>({});
+  const [myFilialLaunchMode, setMyFilialLaunchMode] = useState<"fornecedor" | "motoboy">("fornecedor");
   const [myFilialBatchDateFrom, setMyFilialBatchDateFrom] = useState(todayStr());
   const [myFilialBatchDateTo, setMyFilialBatchDateTo] = useState(todayStr());
   const [myFilialBatchSelectedIds, setMyFilialBatchSelectedIds] = useState<string[]>([]);
@@ -3347,6 +3350,52 @@ export default function Admin() {
       await fetchMyFilialPurchaseRequests(myFilialPurchaseStatusFilter);
     } catch {
       toast.error("Erro ao lançar lote para fornecedor.");
+    } finally {
+      setMyFilialBatchLaunching(false);
+    }
+  }, [BASE, adminTenantId, fetchMyFilialPurchaseRequests, handleUnauthorized, myFilialBatchDateFrom, myFilialBatchDateTo, myFilialBatchSelectedValidIds, myFilialPurchaseStatusFilter]);
+
+  const launchMyFilialMotoboyBatch = useCallback(async () => {
+    if (adminTenantId === "tenant_loja1") return;
+
+    const selectedIds = myFilialBatchSelectedValidIds;
+    if (selectedIds.length === 0) {
+      toast.error("Selecione ao menos um pedido elegível para enviar ao motoboy.");
+      return;
+    }
+
+    if (myFilialBatchDateFrom && myFilialBatchDateTo && myFilialBatchDateTo < myFilialBatchDateFrom) {
+      toast.error("A data final deve ser igual ou posterior à data inicial.");
+      return;
+    }
+
+    if (!window.confirm(`Enviar ${selectedIds.length} pedido(s) para atendimento por motoboy?`)) return;
+
+    setMyFilialBatchLaunching(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/filial-purchases/my/launch-motoboy`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          fromDate: myFilialBatchDateFrom,
+          toDate: myFilialBatchDateTo,
+          requestIds: selectedIds,
+        }),
+      });
+
+      if (res.status === 401) { handleUnauthorized(); return; }
+
+      const data = await res.json().catch(() => null) as { message?: string; count?: number } | null;
+      if (!res.ok) {
+        toast.error(data?.message || "Erro ao enviar pedidos para motoboy.");
+        return;
+      }
+
+      toast.success(`Pedidos enviados para motoboy: ${data?.count || selectedIds.length}.`);
+      setMyFilialBatchSelectedIds([]);
+      await fetchMyFilialPurchaseRequests(myFilialPurchaseStatusFilter);
+    } catch {
+      toast.error("Erro ao enviar pedidos para motoboy.");
     } finally {
       setMyFilialBatchLaunching(false);
     }
@@ -9070,10 +9119,34 @@ export default function Admin() {
             <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-4 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <p className="text-xs font-semibold text-blue-900 uppercase tracking-wide">Lançamento em lote para Loja 1</p>
-                  <p className="text-sm text-blue-800">Selecione um período, marque pedidos pagos e envie no botão "Lançar para fornecedor".</p>
+                  <p className="text-xs font-semibold text-blue-900 uppercase tracking-wide">
+                    {myFilialLaunchMode === "fornecedor" ? "Lançamento em lote para Loja 1" : "Lançamento para motoboy"}
+                  </p>
+                  <p className="text-sm text-blue-800">
+                    {myFilialLaunchMode === "fornecedor"
+                      ? "Selecione um período, marque pedidos pagos e envie no botão \"Lançar para fornecedor\"."
+                      : "Selecione um período, marque pedidos pagos e envie no botão \"Lançar para motoboy\"."}
+                  </p>
                 </div>
-                <span className="text-xs text-blue-700">{myFilialBatchSelectedValidIds.length} selecionado(s)</span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant={myFilialLaunchMode === "fornecedor" ? "default" : "outline"}
+                    className="h-8"
+                    onClick={() => { setMyFilialLaunchMode("fornecedor"); setMyFilialBatchSelectedIds([]); }}
+                  >
+                    Fornecedor
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={myFilialLaunchMode === "motoboy" ? "default" : "outline"}
+                    className="h-8"
+                    onClick={() => { setMyFilialLaunchMode("motoboy"); setMyFilialBatchSelectedIds([]); }}
+                  >
+                    Motoboy
+                  </Button>
+                  <span className="text-xs text-blue-700">{myFilialBatchSelectedValidIds.length} selecionado(s)</span>
+                </div>
               </div>
 
               <div className="flex flex-wrap gap-2 items-center">
@@ -9130,11 +9203,17 @@ export default function Admin() {
                 <Button
                   type="button"
                   className="h-9 whitespace-nowrap"
-                  onClick={() => { void launchMyFilialSupplierBatch(); }}
+                  onClick={() => {
+                    if (myFilialLaunchMode === "fornecedor") {
+                      void launchMyFilialSupplierBatch();
+                    } else {
+                      void launchMyFilialMotoboyBatch();
+                    }
+                  }}
                   disabled={myFilialBatchLaunching || myFilialBatchSelectedValidIds.length === 0}
                 >
                   {myFilialBatchLaunching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                  <span className="ml-2">Lançar para fornecedor</span>
+                  <span className="ml-2">{myFilialLaunchMode === "fornecedor" ? "Lançar para fornecedor" : "Lançar para motoboy"}</span>
                 </Button>
               </div>
 
@@ -9187,7 +9266,9 @@ export default function Admin() {
                           <p className="text-xs text-blue-700 mt-1 font-semibold">Fornecedor recebeu e esta comprando na farmacia. Aguarde ate 48h para rastreio.</p>
                         ) : null}
                         {!myFilialBatchEligibleIdSet.has(request.id) ? (
-                          <p className="text-xs text-slate-500 mt-1">Não elegível para novo lote.</p>
+                          <p className="text-xs text-slate-500 mt-1">
+                            {myFilialLaunchMode === "fornecedor" ? "Não elegível para novo lote." : "Não elegível para envio ao motoboy."}
+                          </p>
                         ) : null}
                         </div>
                       </div>
