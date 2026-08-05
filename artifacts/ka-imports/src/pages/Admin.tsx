@@ -1741,6 +1741,10 @@ export default function Admin() {
     ? filialPurchaseRequests.filter((request) => request.filialTenantId === selectedFilialTenantId)
     : filialPurchaseRequests;
   const sortedFilialPurchaseRequests = [...filteredFilialPurchaseRequests].sort(compareFilialPurchaseRequests);
+  const batchedFilialPurchaseRequests = React.useMemo(
+    () => sortedFilialPurchaseRequests.filter((request) => String(request.supplierBatchId || "").trim().length > 0),
+    [sortedFilialPurchaseRequests],
+  );
   const sortedMyFilialPurchaseRequests = [...myFilialPurchaseRequests].sort(compareFilialPurchaseRequests);
   const visibleMyFilialPurchaseRequests = React.useMemo(
     () => sortedMyFilialPurchaseRequests.filter((request) => isVisibleForFilialSupplierTab(request.status)),
@@ -8288,11 +8292,11 @@ export default function Admin() {
 
                     {filialPurchaseLoading ? (
                       <div className="text-sm text-muted-foreground mb-4">Carregando pedidos da filial selecionada...</div>
-                    ) : sortedFilialPurchaseRequests.length === 0 ? (
-                      <div className="text-sm text-muted-foreground mb-4">Nenhum pedido encontrado para essa filial.</div>
+                    ) : batchedFilialPurchaseRequests.length === 0 ? (
+                      <div className="text-sm text-muted-foreground mb-4">Nenhum pedido em lote para esta filial. Aguarde o lançamento da filial.</div>
                     ) : (
                       <div className="space-y-3 mb-4">
-                        {sortedFilialPurchaseRequests.map((request) => (
+                        {batchedFilialPurchaseRequests.map((request) => (
                           <div key={request.id} className="rounded-xl border border-amber-200 bg-white p-3">
                             <div className="flex flex-wrap items-start justify-between gap-2">
                               <div>
