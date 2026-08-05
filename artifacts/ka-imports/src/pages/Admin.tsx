@@ -1236,7 +1236,7 @@ function filialPurchaseStatusLabel(status: string): string {
   if (normalized === "pago_na_filial") return "Pago na filial";
   if (normalized === "aguardando_compra_loja1") return "Aguardando compra Loja 1";
   if (normalized === "lote_enviado_loja1") return "Lote enviado para Loja 1";
-  if (normalized === "lote_recebido_loja1") return "Lote recebido pela Loja 1";
+  if (normalized === "lote_recebido_loja1") return "Fornecedor comprando na farmacia (aguarde 48h para rastreio)";
   if (normalized === "compra_registrada") return "Compra registrada";
   if (normalized === "estoque_lancado_filial") return "Estoque lançado na filial";
   if (normalized === "finalizado") return "Finalizado";
@@ -3332,7 +3332,7 @@ export default function Admin() {
   const confirmSupplierBatchReceipt = useCallback(async (batch: FilialSupplierBatchSummary) => {
     if (!canManageTenants) return;
     if (!batch?.batchId) return;
-    if (!window.confirm(`Confirmar recebimento do lote ${batch.batchLabel} (${batch.totalOrders} pedidos)?`)) return;
+    if (!window.confirm(`Marcar lote ${batch.batchLabel} (${batch.totalOrders} pedidos) como "Comprando na farmacia"?`)) return;
 
     setFilialBatchReceiptConfirmingId(batch.batchId);
     try {
@@ -3350,14 +3350,14 @@ export default function Admin() {
       }
 
       if (data?.idempotent) {
-        toast.success("Lote já estava confirmado anteriormente.");
+        toast.success("Lote ja estava em andamento de compra na farmacia.");
       } else {
-        toast.success(`Recebimento confirmado para ${data?.receivedCount || 0} pedido(s) do lote.`);
+        toast.success(`Fornecedor comprando na farmacia para ${data?.receivedCount || 0} pedido(s). Aguarde 48h para rastreio.`);
       }
 
       await fetchFilialPurchaseRequests(selectedFilialTenantId || undefined);
     } catch {
-      toast.error("Erro ao confirmar recebimento do lote.");
+      toast.error("Erro ao marcar lote como comprando na farmacia.");
     } finally {
       setFilialBatchReceiptConfirmingId(null);
     }
@@ -8360,7 +8360,7 @@ export default function Admin() {
                                   disabled={!batch.canConfirmReceipt || filialBatchReceiptConfirmingId === batch.batchId}
                                 >
                                   {filialBatchReceiptConfirmingId === batch.batchId ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                                  <span className="ml-2">{batch.canConfirmReceipt ? "Confirmar recebimento lote" : "Lote já recebido"}</span>
+                                  <span className="ml-2">{batch.canConfirmReceipt ? "Comprando na farmacia" : "Fornecedor comprando na farmacia"}</span>
                                 </Button>
                               </div>
                             </div>
@@ -8394,6 +8394,9 @@ export default function Admin() {
                                     {request.supplierBatchSentAt ? ` · Enviado em ${formatDateBR(request.supplierBatchSentAt)}` : ""}
                                     {request.supplierBatchReceivedAt ? ` · Recebido em ${formatDateBR(request.supplierBatchReceivedAt)}` : ""}
                                   </p>
+                                ) : null}
+                                {String(request.status || "").trim().toLowerCase() === "lote_recebido_loja1" ? (
+                                  <p className="text-xs text-indigo-700 mt-1">Fornecedor comprando na farmacia, aguarde 48h para recebimento do rastreio.</p>
                                 ) : null}
                                 <p className="text-xs mt-1">
                                   <span className="text-muted-foreground">Custo produto atualizado:</span>{" "}
