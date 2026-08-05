@@ -1262,6 +1262,19 @@ function isFilialPurchaseHistoryStatus(status: string): boolean {
   return ["pago_na_filial", "compra_registrada", "estoque_lancado_filial", "finalizado", "cancelado"].includes(normalized);
 }
 
+function isVisibleForFilialSupplierTab(status: string): boolean {
+  const normalized = String(status || "").trim().toLowerCase();
+  return [
+    "pago_na_filial",
+    "aguardando_compra_loja1",
+    "lote_enviado_loja1",
+    "lote_recebido_loja1",
+    "compra_registrada",
+    "estoque_lancado_filial",
+    "finalizado",
+  ].includes(normalized);
+}
+
 function isFilialPurchaseBatchLaunchEligible(request: FilialPurchaseRequest): boolean {
   const normalized = String(request.status || "").trim().toLowerCase();
   const alreadyInBatch = String(request.supplierBatchId || "").trim().length > 0;
@@ -1729,16 +1742,20 @@ export default function Admin() {
     : filialPurchaseRequests;
   const sortedFilialPurchaseRequests = [...filteredFilialPurchaseRequests].sort(compareFilialPurchaseRequests);
   const sortedMyFilialPurchaseRequests = [...myFilialPurchaseRequests].sort(compareFilialPurchaseRequests);
-  const filteredMyFilialPurchaseRequests = React.useMemo(() => {
-    if (myFilialPurchaseStatusFilter === "all") return sortedMyFilialPurchaseRequests;
-    if (myFilialPurchaseStatusFilter === "finalized") {
-      return sortedMyFilialPurchaseRequests.filter((request) => isFilialPurchaseHistoryStatus(request.status));
-    }
-    return sortedMyFilialPurchaseRequests.filter((request) => !isFilialPurchaseHistoryStatus(request.status));
-  }, [myFilialPurchaseStatusFilter, sortedMyFilialPurchaseRequests]);
-  const myFilialPurchaseHistoryRequests = React.useMemo(
-    () => sortedMyFilialPurchaseRequests.filter((request) => isFilialPurchaseHistoryStatus(request.status)),
+  const visibleMyFilialPurchaseRequests = React.useMemo(
+    () => sortedMyFilialPurchaseRequests.filter((request) => isVisibleForFilialSupplierTab(request.status)),
     [sortedMyFilialPurchaseRequests],
+  );
+  const filteredMyFilialPurchaseRequests = React.useMemo(() => {
+    if (myFilialPurchaseStatusFilter === "all") return visibleMyFilialPurchaseRequests;
+    if (myFilialPurchaseStatusFilter === "finalized") {
+      return visibleMyFilialPurchaseRequests.filter((request) => isFilialPurchaseHistoryStatus(request.status));
+    }
+    return visibleMyFilialPurchaseRequests.filter((request) => !isFilialPurchaseHistoryStatus(request.status));
+  }, [myFilialPurchaseStatusFilter, visibleMyFilialPurchaseRequests]);
+  const myFilialPurchaseHistoryRequests = React.useMemo(
+    () => visibleMyFilialPurchaseRequests.filter((request) => isFilialPurchaseHistoryStatus(request.status)),
+    [visibleMyFilialPurchaseRequests],
   );
   const myFilialBatchEligibleRequests = React.useMemo(() => {
     const from = String(myFilialBatchDateFrom || "").trim();
@@ -1746,7 +1763,7 @@ export default function Admin() {
     const fromTs = /^\d{4}-\d{2}-\d{2}$/.test(from) ? Date.parse(`${from}T00:00:00.000Z`) : null;
     const toTs = /^\d{4}-\d{2}-\d{2}$/.test(to) ? Date.parse(`${to}T23:59:59.999Z`) : null;
 
-    return sortedMyFilialPurchaseRequests.filter((request) => {
+    return visibleMyFilialPurchaseRequests.filter((request) => {
       if (!isFilialPurchaseBatchLaunchEligible(request)) return false;
       const createdAtTs = Date.parse(String(request.createdAt || ""));
       if (!Number.isFinite(createdAtTs)) return false;
@@ -1754,7 +1771,7 @@ export default function Admin() {
       if (toTs != null && createdAtTs > toTs) return false;
       return true;
     });
-  }, [myFilialBatchDateFrom, myFilialBatchDateTo, sortedMyFilialPurchaseRequests]);
+  }, [myFilialBatchDateFrom, myFilialBatchDateTo, visibleMyFilialPurchaseRequests]);
   const myFilialBatchEligibleIdSet = React.useMemo(
     () => new Set(myFilialBatchEligibleRequests.map((request) => request.id)),
     [myFilialBatchEligibleRequests],
