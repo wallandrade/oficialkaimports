@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -116,6 +116,7 @@ const checkoutSchema = z.object({
 });
 
 type CheckoutFormData = z.infer<typeof checkoutSchema>;
+type RetryAction = "pix" | "whatsapp" | "card";
 
 export default function Checkout() {
   const [, setLocation] = useLocation();
@@ -154,6 +155,8 @@ export default function Checkout() {
   const [useAffiliateCredit, setUseAffiliateCredit] = useState(false);
   const [paymentMethods, setPaymentMethods] = useState({ pix: true, card: true, whatsapp: false });
   const [freeShippingMinSubtotal, setFreeShippingMinSubtotal] = useState<number | null>(null);
+  const [pendingCheckoutRetry, setPendingCheckoutRetry] = useState<RetryAction | null>(null);
+  const priceSyncRetryCountRef = useRef<Record<RetryAction, number>>({ pix: 0, whatsapp: 0, card: 0 });
   const [productCategoryById, setProductCategoryById] = useState<Map<string, string>>(new Map());
   const [productCatalogById, setProductCatalogById] = useState<Map<string, { id: string; name: string; price: number; promoPrice?: number | null; promoEndsAt?: string | null; image?: string | null; unit?: string; category?: string; description?: string; isActive?: boolean; isSoldOut?: boolean; stock?: number }>>(new Map());
 
@@ -889,7 +892,10 @@ export default function Checkout() {
     );
   }
 
-  const handlePixPayment = async (data: CheckoutFormData) => {
+  const handlePixPayment = async (data: CheckoutFormData, autoRetry = false) => {
+    if (!autoRetry) {
+      priceSyncRetryCountRef.current.pix = 0;
+    }
     if (!paymentMethods.pix) {
       toast.error("Pagamento via PIX está desativado no momento.");
       return;
@@ -971,12 +977,20 @@ export default function Checkout() {
         if (result.error === "PRICE_CHANGED") {
           const synced = await syncCartWithLatestProducts();
           toast.error(result.message || "Os preços mudaram e o carrinho foi atualizado.");
+          if (synced && priceSyncRetryCountRef.current.pix < 1) {
+            priceSyncRetryCountRef.current.pix += 1;
+            toast.info("Valores atualizados. Tentando finalizar novamente...");
+            setPendingCheckoutRetry("pix");
+            return;
+          }
           if (synced) toast.info("Revise os novos valores e finalize novamente.");
           return;
         }
         toast.error(result.message || "Erro ao gerar pagamento PIX. Verifique os dados e tente novamente.");
         return;
       }
+
+      priceSyncRetryCountRef.current.pix = 0;
 
       if (result.coveredByAffiliateCredit) {
         const coveredOrderId = result.orderId || genId();
@@ -1127,7 +1141,10 @@ export default function Checkout() {
     })();
   };
 
-  const handleWhatsAppPayment = async (data: CheckoutFormData) => {
+  const handleWhatsAppPayment = async (data: CheckoutFormData, autoRetry = false) => {
+    if (!autoRetry) {
+      priceSyncRetryCountRef.current.whatsapp = 0;
+    }
     if (!paymentMethods.whatsapp) {
       toast.error("Pagamento via WhatsApp está desativado no momento.");
       return;
@@ -1222,6 +1239,7 @@ export default function Checkout() {
       // Store modal data to show confirmation dialog
       setWhatsappModalData({ url: waUrl, orderId: order.id });
       toast.success(`Pedido #${order.id} criado com sucesso!`);
+      priceSyncRetryCountRef.current.whatsapp = 0;
       clearCart();
       setIsOpen(false);
     } catch (error) {
@@ -1229,6 +1247,12 @@ export default function Checkout() {
       if (apiError?.data?.error === "PRICE_CHANGED") {
         const synced = await syncCartWithLatestProducts();
         toast.error(apiError?.data?.message || "Os preços mudaram e o carrinho foi atualizado.");
+        if (synced && priceSyncRetryCountRef.current.whatsapp < 1) {
+          priceSyncRetryCountRef.current.whatsapp += 1;
+          toast.info("Valores atualizados. Tentando finalizar novamente...");
+          setPendingCheckoutRetry("whatsapp");
+          return;
+        }
         if (synced) toast.info("Revise os novos valores e tente novamente.");
         return;
       }
@@ -1244,7 +1268,10 @@ export default function Checkout() {
     handleSubmit(handleWhatsAppPayment)();
   };
 
-  const finalizeCardPayment = async () => {
+  const finalizeCardPayment = async (autoRetry = false) => {
+    if (!autoRetry) {
+      priceSyncRetryCountRef.current.card = 0;
+    }
     if (!validateLanderGoldRule()) return;
 
     const data = getValues();
@@ -1330,17 +1357,45 @@ export default function Checkout() {
       setKycOrderId(order.id);
       setKycWhatsAppUrl(waUrl);
       setCardModalStep("kyc_link");
+      priceSyncRetryCountRef.current.card = 0;
     } catch (error) {
       const apiError = error as { data?: { error?: string; message?: string } };
       if (apiError?.data?.error === "PRICE_CHANGED") {
         const synced = await syncCartWithLatestProducts();
         toast.error(apiError?.data?.message || "Os preços mudaram e o carrinho foi atualizado.");
+        if (synced && priceSyncRetryCountRef.current.card < 1) {
+          priceSyncRetryCountRef.current.card += 1;
+          toast.info("Valores atualizados. Tentando finalizar novamente...");
+          setPendingCheckoutRetry("card");
+          return;
+        }
         if (synced) toast.info("Revise os novos valores e tente novamente.");
         return;
       }
       toast.error(apiError?.data?.message || "Erro ao registrar pedido. Tente novamente.");
     }
   };
+
+  useEffect(() => {
+    if (!pendingCheckoutRetry) return;
+
+    const action = pendingCheckoutRetry;
+    setPendingCheckoutRetry(null);
+
+    const timer = window.setTimeout(() => {
+      if (action === "pix") {
+        void handleSubmit((formData) => handlePixPayment(formData, true))();
+        return;
+      }
+      if (action === "whatsapp") {
+        void handleSubmit((formData) => handleWhatsAppPayment(formData, true))();
+        return;
+      }
+      void finalizeCardPayment(true);
+    }, 120);
+
+    return () => window.clearTimeout(timer);
+  }, [finalizeCardPayment, handleSubmit, handlePixPayment, handleWhatsAppPayment, pendingCheckoutRetry]);
 
   return (
     <CheckoutLayout>
