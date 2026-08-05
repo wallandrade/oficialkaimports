@@ -1794,6 +1794,16 @@ export default function Admin() {
     () => myFilialBatchSelectedIds.filter((id) => myFilialBatchEligibleIdSet.has(id)),
     [myFilialBatchEligibleIdSet, myFilialBatchSelectedIds],
   );
+  const setMyFilialBatchQuickRange = useCallback((days: number) => {
+    const endDate = todayStr();
+    const baseDate = new Date(`${endDate}T12:00:00`);
+    const safeDays = Number.isFinite(days) && days > 0 ? Math.floor(days) : 1;
+    baseDate.setDate(baseDate.getDate() - (safeDays - 1));
+    const startDate = baseDate.toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+    setMyFilialBatchDateFrom(startDate);
+    setMyFilialBatchDateTo(endDate);
+    setMyFilialBatchSelectedIds([]);
+  }, []);
   const filialSupplierBatches = React.useMemo<FilialSupplierBatchSummary[]>(() => {
     const grouped = new Map<string, FilialPurchaseRequest[]>();
     for (const request of sortedFilialPurchaseRequests) {
@@ -8896,7 +8906,7 @@ export default function Admin() {
                 <span className="text-xs text-blue-700">{myFilialBatchSelectedValidIds.length} selecionado(s)</span>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-[auto_auto_auto_auto_auto] gap-2 items-center">
+              <div className="grid grid-cols-1 md:grid-cols-[auto_auto_auto_auto_auto_auto_auto] gap-2 items-center">
                 <input
                   type="date"
                   value={myFilialBatchDateFrom}
@@ -8909,6 +8919,24 @@ export default function Admin() {
                   onChange={(e) => setMyFilialBatchDateTo(e.target.value)}
                   className="h-9 px-3 rounded-lg border border-border bg-white text-sm"
                 />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9"
+                  onClick={() => setMyFilialBatchQuickRange(1)}
+                >
+                  <Calendar className="w-4 h-4" />
+                  <span className="ml-2">Hoje</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9"
+                  onClick={() => setMyFilialBatchQuickRange(7)}
+                >
+                  <Calendar className="w-4 h-4" />
+                  <span className="ml-2">Últimos 7 dias</span>
+                </Button>
                 <Button
                   type="button"
                   variant="outline"
