@@ -1275,6 +1275,11 @@ function isFilialPurchaseHistoryStatus(status: string): boolean {
   return ["pago_na_filial", "compra_registrada", "estoque_lancado_filial", "finalizado", "cancelado"].includes(normalized);
 }
 
+function isFilialSupplierBatchClosed(requests: FilialPurchaseRequest[]): boolean {
+  if (!Array.isArray(requests) || requests.length === 0) return false;
+  return requests.every((request) => isFilialPurchaseHistoryStatus(request.status));
+}
+
 function isVisibleForFilialSupplierTab(status: string): boolean {
   const normalized = String(status || "").trim().toLowerCase();
   return [
@@ -1686,6 +1691,7 @@ export default function Admin() {
   const [tenantProfitLoading, setTenantProfitLoading] = useState(false);
   const [lojasSubTab, setLojasSubTab] = useState<LojasSubTab>("criar");
   const [filialScopeSubTab, setFilialScopeSubTab] = useState<FilialScopeSubTab>("pedidos");
+  const [filialPurchaseHistoryFilter, setFilialPurchaseHistoryFilter] = useState<"pending" | "all" | "finalized">("pending");
   const [selectedFilialTenantId, setSelectedFilialTenantId] = useState("");
   const [filialPurchaseRequests, setFilialPurchaseRequests] = useState<FilialPurchaseRequest[]>([]);
   const [filialPurchaseLoading, setFilialPurchaseLoading] = useState(false);
@@ -1778,6 +1784,13 @@ export default function Admin() {
     () => sortedFilialPurchaseRequests.filter((request) => String(request.supplierBatchId || "").trim().length > 0),
     [sortedFilialPurchaseRequests],
   );
+  const filteredBatchedFilialPurchaseRequests = React.useMemo(() => {
+    if (filialPurchaseHistoryFilter === "all") return batchedFilialPurchaseRequests;
+    if (filialPurchaseHistoryFilter === "finalized") {
+      return batchedFilialPurchaseRequests.filter((request) => isFilialPurchaseHistoryStatus(request.status));
+    }
+    return batchedFilialPurchaseRequests.filter((request) => !isFilialPurchaseHistoryStatus(request.status));
+  }, [batchedFilialPurchaseRequests, filialPurchaseHistoryFilter]);
   const sortedMyFilialPurchaseRequests = [...myFilialPurchaseRequests].sort(compareFilialPurchaseRequests);
   const visibleMyFilialPurchaseRequests = React.useMemo(
     () => sortedMyFilialPurchaseRequests.filter((request) => isVisibleForFilialSupplierTab(request.status)),
@@ -1886,6 +1899,13 @@ export default function Admin() {
         return safeB - safeA;
       });
   }, [sortedFilialPurchaseRequests]);
+  const filteredFilialSupplierBatches = React.useMemo(() => {
+    if (filialPurchaseHistoryFilter === "all") return filialSupplierBatches;
+    if (filialPurchaseHistoryFilter === "finalized") {
+      return filialSupplierBatches.filter((batch) => isFilialSupplierBatchClosed(batch.requests));
+    }
+    return filialSupplierBatches.filter((batch) => !isFilialSupplierBatchClosed(batch.requests));
+  }, [filialPurchaseHistoryFilter, filialSupplierBatches]);
   const selectedManualFilialProduct = filialStoreProducts.find((product) => product.id === manualFilialProductId) || null;
   const filialProductImageById = React.useMemo(() => {
     const map = new Map<string, string>();
@@ -8489,14 +8509,31 @@ export default function Admin() {
                           <p className="text-xs font-semibold text-indigo-900 uppercase tracking-wide">Lotes enviados pelas filiais</p>
                           <p className="text-xs text-indigo-800 mt-1">Cada lote fica pendente até a Loja 1 confirmar o recebimento.</p>
                         </div>
-                        <span className="text-xs text-indigo-700">{filialSupplierBatches.length} lote(s)</span>
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={filialPurchaseHistoryFilter}
+                            onChange={(e) => setFilialPurchaseHistoryFilter(e.target.value as "pending" | "all" | "finalized")}
+                            className="h-8 rounded-md border border-indigo-200 bg-white px-2 text-xs text-indigo-800"
+                          >
+                            <option value="pending">Abertos</option>
+                            <option value="finalized">Fechados</option>
+                            <option value="all">Todos</option>
+                          </select>
+                          <span className="text-xs text-indigo-700">{filteredFilialSupplierBatches.length} lote(s)</span>
+                        </div>
                       </div>
 
-                      {filialSupplierBatches.length === 0 ? (
-                        <p className="mt-2 text-xs text-indigo-800">Nenhum lote enviado no momento.</p>
+                      {filteredFilialSupplierBatches.length === 0 ? (
+                        <p className="mt-2 text-xs text-indigo-800">
+                          {filialPurchaseHistoryFilter === "finalized"
+                            ? "Nenhum lote fechado encontrado."
+                            : filialPurchaseHistoryFilter === "pending"
+                              ? "Nenhum lote aberto no momento."
+                              : "Nenhum lote enviado encontrado."}
+                        </p>
                       ) : (
                         <div className="mt-3 space-y-2">
-                          {filialSupplierBatches.slice(0, 15).map((batch) => (
+                          {filteredFilialSupplierBatches.slice(0, 30).map((batch) => (
                             <div key={`supplier-batch-${batch.batchId}`} className="rounded-lg border border-indigo-200 bg-white px-3 py-2 flex flex-wrap items-center justify-between gap-2">
                               <div className="min-w-0">
                                 <p className="text-sm font-semibold text-foreground truncate">{batch.batchLabel}</p>
@@ -8548,11 +8585,17 @@ export default function Admin() {
 
                     {filialPurchaseLoading ? (
                       <div className="text-sm text-muted-foreground mb-4">Carregando pedidos da filial selecionada...</div>
-                    ) : batchedFilialPurchaseRequests.length === 0 ? (
-                      <div className="text-sm text-muted-foreground mb-4">Nenhum pedido em lote para esta filial. Aguarde o lançamento da filial.</div>
+                    ) : filteredBatchedFilialPurchaseRequests.length === 0 ? (
+                      <div className="text-sm text-muted-foreground mb-4">
+                        {filialPurchaseHistoryFilter === "finalized"
+                          ? "Nenhum pedido fechado encontrado para esta filial."
+                          : filialPurchaseHistoryFilter === "pending"
+                            ? "Nenhum pedido em lote aberto para esta filial."
+                            : "Nenhum pedido em lote para esta filial."}
+                      </div>
                     ) : (
                       <div className="space-y-3 mb-4">
-                        {batchedFilialPurchaseRequests.map((request) => (
+                        {filteredBatchedFilialPurchaseRequests.map((request) => (
                           <div key={request.id} className="rounded-xl border border-amber-200 bg-white p-3">
                             <div className="flex flex-wrap items-start justify-between gap-2">
                               <div>
