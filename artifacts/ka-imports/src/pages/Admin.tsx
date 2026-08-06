@@ -1784,13 +1784,13 @@ export default function Admin() {
     () => sortedFilialPurchaseRequests.filter((request) => String(request.supplierBatchId || "").trim().length > 0),
     [sortedFilialPurchaseRequests],
   );
-  const filteredBatchedFilialPurchaseRequests = React.useMemo(() => {
-    if (filialPurchaseHistoryFilter === "all") return batchedFilialPurchaseRequests;
+  const filteredFilialPanelRequests = React.useMemo(() => {
+    if (filialPurchaseHistoryFilter === "all") return sortedFilialPurchaseRequests;
     if (filialPurchaseHistoryFilter === "finalized") {
-      return batchedFilialPurchaseRequests.filter((request) => isFilialPurchaseHistoryStatus(request.status));
+      return sortedFilialPurchaseRequests.filter((request) => isFilialPurchaseHistoryStatus(request.status));
     }
-    return batchedFilialPurchaseRequests.filter((request) => !isFilialPurchaseHistoryStatus(request.status));
-  }, [batchedFilialPurchaseRequests, filialPurchaseHistoryFilter]);
+    return sortedFilialPurchaseRequests.filter((request) => !isFilialPurchaseHistoryStatus(request.status));
+  }, [filialPurchaseHistoryFilter, sortedFilialPurchaseRequests]);
   const sortedMyFilialPurchaseRequests = [...myFilialPurchaseRequests].sort(compareFilialPurchaseRequests);
   const visibleMyFilialPurchaseRequests = React.useMemo(
     () => sortedMyFilialPurchaseRequests.filter((request) => isVisibleForFilialSupplierTab(request.status)),
@@ -8585,17 +8585,17 @@ export default function Admin() {
 
                     {filialPurchaseLoading ? (
                       <div className="text-sm text-muted-foreground mb-4">Carregando pedidos da filial selecionada...</div>
-                    ) : filteredBatchedFilialPurchaseRequests.length === 0 ? (
+                    ) : filteredFilialPanelRequests.length === 0 ? (
                       <div className="text-sm text-muted-foreground mb-4">
                         {filialPurchaseHistoryFilter === "finalized"
                           ? "Nenhum pedido fechado encontrado para esta filial."
                           : filialPurchaseHistoryFilter === "pending"
-                            ? "Nenhum pedido em lote aberto para esta filial."
-                            : "Nenhum pedido em lote para esta filial."}
+                            ? "Nenhum pedido aberto encontrado para esta filial."
+                            : "Nenhum pedido encontrado para esta filial."}
                       </div>
                     ) : (
                       <div className="space-y-3 mb-4">
-                        {filteredBatchedFilialPurchaseRequests.map((request) => (
+                        {filteredFilialPanelRequests.map((request) => (
                           <div key={request.id} className="rounded-xl border border-amber-200 bg-white p-3">
                             <div className="flex flex-wrap items-start justify-between gap-2">
                               <div>
