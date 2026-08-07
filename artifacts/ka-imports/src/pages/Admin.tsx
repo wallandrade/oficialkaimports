@@ -1231,13 +1231,77 @@ interface FilialSupplierBatchSummary {
   canUndoReceipt: boolean;
 }
 
+interface FilialPanelBatchGroup {
+  batchKey: string;
+  batchId: string | null;
+  batchLabel: string;
+  sentAt: string | null;
+  receivedAt: string | null;
+  totalOrders: number;
+  totalRepasse: number;
+  tenantNames: string[];
+  requests: FilialPurchaseRequest[];
+  canConfirmReceipt: boolean;
+  canUndoReceipt: boolean;
+  status: "open" | "in_progress" | "closed";
+  isOverdue: boolean;
+}
+
+interface FilialPanelDateGroup {
+  dateKey: string;
+  dateLabel: string;
+  dateTs: number;
+  totalOrders: number;
+  totalBatches: number;
+  totalRepasse: number;
+  hasOverdueBatches: boolean;
+  batches: FilialPanelBatchGroup[];
+}
+
+function dateKeySaoPaulo(value: string | Date | undefined | null): string {
+  if (!value) return "sem-data";
+  const d = typeof value === "string" ? new Date(value) : value;
+  if (isNaN(d.getTime())) return "sem-data";
+  return d.toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+}
+
+function dayTsFromDateKey(dateKey: string): number {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return 0;
+  const parsed = Date.parse(`${dateKey}T00:00:00.000Z`);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function filialBatchStatusFromRequests(requests: FilialPurchaseRequest[]): "open" | "in_progress" | "closed" {
+  if (!Array.isArray(requests) || requests.length === 0) return "open";
+  if (requests.every((request) => isFilialPurchaseHistoryStatus(request.status))) return "closed";
+  if (requests.some((request) => {
+    const normalized = String(request.status || "").trim().toLowerCase();
+    return normalized === "lote_recebido_loja1" || normalized === "enviado_motoboy";
+  })) {
+    return "in_progress";
+  }
+  return "open";
+}
+
+function filialBatchStatusLabel(status: "open" | "in_progress" | "closed"): string {
+  if (status === "closed") return "Fechado";
+  if (status === "in_progress") return "Compra em andamento";
+  return "Aberto";
+}
+
+function filialBatchStatusClass(status: "open" | "in_progress" | "closed"): string {
+  if (status === "closed") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "in_progress") return "border-blue-200 bg-blue-50 text-blue-700";
+  return "border-amber-200 bg-amber-50 text-amber-700";
+}
+
 function filialPurchaseStatusLabel(status: string): string {
   const normalized = String(status || "").trim().toLowerCase();
   if (normalized === "pendente_pagamento_filial") return "Pendente pagamento da filial";
   if (normalized === "pago_na_filial") return "Pago na filial";
   if (normalized === "aguardando_compra_loja1") return "Aguardando compra Loja 1";
   if (normalized === "lote_enviado_loja1") return "Lote enviado para Loja 1";
-  if (normalized === "lote_recebido_loja1") return "Fornecedor comprando na farmacia (aguarde 48h para rastreio)";
+  if (normalized === "lote_recebido_loja1") return "Compra em andamento (aguarde 48h para rastreio)";
   if (normalized === "enviado_motoboy") return "Enviado para motoboy";
   if (normalized === "compra_registrada") return "Compra registrada";
   if (normalized === "estoque_lancado_filial") return "Estoque lançado na filial";
@@ -1724,6 +1788,8 @@ export default function Admin() {
   const [filialPurchaseRepasseDrafts, setFilialPurchaseRepasseDrafts] = useState<Record<string, Record<string, string>>>({});
   const [filialPurchaseUpdateCostFlags, setFilialPurchaseUpdateCostFlags] = useState<Record<string, boolean>>({});
   const [filialPurchaseOpenId, setFilialPurchaseOpenId] = useState<string | null>(null);
+  const [filialExpandedDateKeys, setFilialExpandedDateKeys] = useState<string[]>([]);
+  const [filialExpandedBatchKeys, setFilialExpandedBatchKeys] = useState<string[]>([]);
   const [myFilialPurchaseRequests, setMyFilialPurchaseRequests] = useState<FilialPurchaseRequest[]>([]);
   const [myFilialPurchaseLoading, setMyFilialPurchaseLoading] = useState(false);
   const [myFilialPurchaseStatusFilter, setMyFilialPurchaseStatusFilter] = useState<"pending" | "all" | "finalized">("pending");
@@ -1930,6 +1996,149 @@ export default function Admin() {
     }
     return filialSupplierBatches.filter((batch) => !isFilialSupplierBatchClosed(batch.requests));
   }, [filialPurchaseHistoryFilter, filialSupplierBatches]);
+  const filteredFilialSupplierBatchById = React.useMemo(() => {
+    const map = new Map<string, FilialSupplierBatchSummary>();
+    for (const batch of filteredFilialSupplierBatches) {
+      const key = String(batch.batchId || "").trim();
+      if (!key) continue;
+      map.set(key, batch);
+    }
+    return map;
+  }, [filteredFilialSupplierBatches]);
+  const filialPanelDateGroups = React.useMemo<FilialPanelDateGroup[]>(() => {
+    const dateMap = new Map<string, FilialPurchaseRequest[]>();
+
+    for (const request of filteredFilialPanelRequests) {
+      const rawDate = request.supplierBatchSentAt || request.createdAt || request.updatedAt;
+      const dateKey = dateKeySaoPaulo(rawDate);
+      const current = dateMap.get(dateKey) || [];
+      current.push(request);
+      dateMap.set(dateKey, current);
+    }
+
+    const now = Date.now();
+    const overdueMs = 24 * 60 * 60 * 1000;
+
+    const groups: FilialPanelDateGroup[] = Array.from(dateMap.entries()).map(([dateKey, requests]) => {
+      const batchMap = new Map<string, FilialPurchaseRequest[]>();
+      for (const request of requests) {
+        const batchId = String(request.supplierBatchId || "").trim();
+        const batchKey = batchId ? `batch:${batchId}` : "batch:sem-lote";
+        const current = batchMap.get(batchKey) || [];
+        current.push(request);
+        batchMap.set(batchKey, current);
+      }
+
+      const batches: FilialPanelBatchGroup[] = Array.from(batchMap.entries()).map(([batchKey, batchRequests]) => {
+        const first = batchRequests[0];
+        const batchId = String(first?.supplierBatchId || "").trim() || null;
+        const summary = batchId ? filteredFilialSupplierBatchById.get(batchId) || null : null;
+        const status = filialBatchStatusFromRequests(batchRequests);
+        const sentAt = summary?.sentAt || first?.supplierBatchSentAt || null;
+        const receivedAt = summary?.receivedAt || first?.supplierBatchReceivedAt || null;
+        const fallbackSentTs = Date.parse(String(sentAt || first?.createdAt || first?.updatedAt || ""));
+        const sentTs = Number.isFinite(fallbackSentTs) ? fallbackSentTs : 0;
+        const isOverdue = status !== "closed" && sentTs > 0 && (now - sentTs) > overdueMs;
+        const tenantNames = summary?.tenantNames || Array.from(new Set(batchRequests.map((request) => String(request.filialTenantName || request.filialTenantId || "").trim()).filter(Boolean)));
+
+        const sortedRequests = [...batchRequests].sort((a, b) => {
+          const diffRepasse = Number(b.repasseTotal || 0) - Number(a.repasseTotal || 0);
+          if (diffRepasse !== 0) return diffRepasse;
+          const aTs = Date.parse(String(a.createdAt || ""));
+          const bTs = Date.parse(String(b.createdAt || ""));
+          const safeA = Number.isFinite(aTs) ? aTs : 0;
+          const safeB = Number.isFinite(bTs) ? bTs : 0;
+          return safeB - safeA;
+        });
+
+        return {
+          batchKey: batchId ? `batch:${batchId}` : `${batchKey}:${dateKey}`,
+          batchId,
+          batchLabel: String(summary?.batchLabel || first?.supplierBatchLabel || (batchId ? `Lote ${batchId}` : "Sem lote enviado")).trim() || "Sem lote enviado",
+          sentAt,
+          receivedAt,
+          totalOrders: sortedRequests.length,
+          totalRepasse: sortedRequests.reduce((sum, request) => sum + Number(request.repasseTotal || 0), 0),
+          tenantNames,
+          requests: sortedRequests,
+          canConfirmReceipt: Boolean(summary?.canConfirmReceipt),
+          canUndoReceipt: Boolean(summary?.canUndoReceipt),
+          status,
+          isOverdue,
+        };
+      });
+
+      batches.sort((a, b) => {
+        const rankA = a.status === "open" ? 0 : a.status === "in_progress" ? 1 : 2;
+        const rankB = b.status === "open" ? 0 : b.status === "in_progress" ? 1 : 2;
+        if (rankA !== rankB) return rankA - rankB;
+        const aTs = Date.parse(String(a.sentAt || ""));
+        const bTs = Date.parse(String(b.sentAt || ""));
+        const safeA = Number.isFinite(aTs) ? aTs : 0;
+        const safeB = Number.isFinite(bTs) ? bTs : 0;
+        if (safeA !== safeB) return safeB - safeA;
+        return Number(b.totalRepasse || 0) - Number(a.totalRepasse || 0);
+      });
+
+      return {
+        dateKey,
+        dateLabel: dateKey === "sem-data" ? "Sem data" : formatDateOnlyLocal(dateKey),
+        dateTs: dayTsFromDateKey(dateKey),
+        totalOrders: batches.reduce((sum, batch) => sum + batch.totalOrders, 0),
+        totalBatches: batches.length,
+        totalRepasse: batches.reduce((sum, batch) => sum + batch.totalRepasse, 0),
+        hasOverdueBatches: batches.some((batch) => batch.isOverdue),
+        batches,
+      };
+    });
+
+    groups.sort((a, b) => b.dateTs - a.dateTs);
+    return groups;
+  }, [filteredFilialPanelRequests, filteredFilialSupplierBatchById]);
+  const filialOverdueBatchCount = React.useMemo(
+    () => filialPanelDateGroups.reduce((sum, group) => sum + group.batches.filter((batch) => batch.isOverdue).length, 0),
+    [filialPanelDateGroups],
+  );
+  const filialOverdueOrderCount = React.useMemo(
+    () => filialPanelDateGroups.reduce(
+      (sum, group) => sum + group.batches.filter((batch) => batch.isOverdue).reduce((batchSum, batch) => batchSum + batch.totalOrders, 0),
+      0,
+    ),
+    [filialPanelDateGroups],
+  );
+  const expandFilialTodayDate = useCallback(() => {
+    const todayKey = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+    const todayGroup = filialPanelDateGroups.find((group) => group.dateKey === todayKey);
+    if (!todayGroup) return;
+    setFilialExpandedDateKeys((prev) => (prev.includes(todayKey) ? prev : [...prev, todayKey]));
+    setFilialExpandedBatchKeys((prev) => {
+      const next = new Set(prev);
+      for (const batch of todayGroup.batches) next.add(batch.batchKey);
+      return Array.from(next);
+    });
+  }, [filialPanelDateGroups]);
+  const expandFilialOverdueGroups = useCallback(() => {
+    const overdueGroups = filialPanelDateGroups.filter((group) => group.hasOverdueBatches);
+    if (overdueGroups.length === 0) return;
+
+    const overdueDateKeys = overdueGroups.map((group) => group.dateKey);
+    const overdueBatchKeys = overdueGroups.flatMap((group) => group.batches.filter((batch) => batch.isOverdue).map((batch) => batch.batchKey));
+
+    setFilialExpandedDateKeys((prev) => {
+      const next = new Set(prev);
+      for (const key of overdueDateKeys) next.add(key);
+      return Array.from(next);
+    });
+    setFilialExpandedBatchKeys((prev) => {
+      const next = new Set(prev);
+      for (const key of overdueBatchKeys) next.add(key);
+      return Array.from(next);
+    });
+  }, [filialPanelDateGroups]);
+  const collapseFilialDateAndBatchGroups = useCallback(() => {
+    setFilialExpandedDateKeys([]);
+    setFilialExpandedBatchKeys([]);
+  }, []);
   const selectedManualFilialProduct = filialStoreProducts.find((product) => product.id === manualFilialProductId) || null;
   const filialProductImageById = React.useMemo(() => {
     const map = new Map<string, string>();
@@ -1987,6 +2196,13 @@ export default function Admin() {
   useEffect(() => {
     setMyFilialBatchSelectedIds((prev) => prev.filter((id) => myFilialBatchEligibleIdSet.has(id)));
   }, [myFilialBatchEligibleIdSet]);
+
+  useEffect(() => {
+    const validDateKeys = new Set(filialPanelDateGroups.map((group) => group.dateKey));
+    const validBatchKeys = new Set(filialPanelDateGroups.flatMap((group) => group.batches.map((batch) => batch.batchKey)));
+    setFilialExpandedDateKeys((prev) => prev.filter((key) => validDateKeys.has(key)));
+    setFilialExpandedBatchKeys((prev) => prev.filter((key) => validBatchKeys.has(key)));
+  }, [filialPanelDateGroups]);
 
   // -------------------- FIM DOS useState --------------------
 
@@ -3462,7 +3678,7 @@ export default function Admin() {
   const confirmSupplierBatchReceipt = useCallback(async (batch: FilialSupplierBatchSummary) => {
     if (!canManageTenants) return;
     if (!batch?.batchId) return;
-    if (!window.confirm(`Marcar lote ${batch.batchLabel} (${batch.totalOrders} pedidos) como "Comprando na farmacia"?`)) return;
+    if (!window.confirm(`Marcar lote ${batch.batchLabel} (${batch.totalOrders} pedidos) como "Compra em andamento"?`)) return;
 
     setFilialBatchReceiptConfirmingId(batch.batchId);
     try {
@@ -3482,12 +3698,12 @@ export default function Admin() {
       if (data?.idempotent) {
         toast.success("Lote ja estava em andamento de compra na farmacia.");
       } else {
-        toast.success(`Fornecedor comprando na farmacia para ${data?.receivedCount || 0} pedido(s). Aguarde 48h para rastreio.`);
+        toast.success(`Compra em andamento para ${data?.receivedCount || 0} pedido(s). Aguarde 48h para rastreio.`);
       }
 
       await fetchFilialPurchaseRequests(selectedFilialTenantId || undefined);
     } catch {
-      toast.error("Erro ao marcar lote como comprando na farmacia.");
+      toast.error("Erro ao marcar lote como compra em andamento.");
     } finally {
       setFilialBatchReceiptConfirmingId(null);
     }
@@ -8562,86 +8778,6 @@ export default function Admin() {
                       </div>
                     </div>
 
-                    <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50/70 p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <p className="text-xs font-semibold text-indigo-900 uppercase tracking-wide">Lotes enviados pelas filiais</p>
-                          <p className="text-xs text-indigo-800 mt-1">Cada lote fica pendente até a Loja 1 confirmar o recebimento.</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <select
-                            value={filialPurchaseHistoryFilter}
-                            onChange={(e) => setFilialPurchaseHistoryFilter(e.target.value as "pending" | "all" | "finalized")}
-                            className="h-8 rounded-md border border-indigo-200 bg-white px-2 text-xs text-indigo-800"
-                          >
-                            <option value="pending">Abertos</option>
-                            <option value="finalized">Fechados</option>
-                            <option value="all">Todos</option>
-                          </select>
-                          <span className="text-xs text-indigo-700">{filteredFilialSupplierBatches.length} lote(s)</span>
-                        </div>
-                      </div>
-
-                      {filteredFilialSupplierBatches.length === 0 ? (
-                        <p className="mt-2 text-xs text-indigo-800">
-                          {filialPurchaseHistoryFilter === "finalized"
-                            ? "Nenhum lote fechado encontrado."
-                            : filialPurchaseHistoryFilter === "pending"
-                              ? "Nenhum lote aberto no momento."
-                              : "Nenhum lote enviado encontrado."}
-                        </p>
-                      ) : (
-                        <div className="mt-3 space-y-2">
-                          {filteredFilialSupplierBatches.slice(0, 30).map((batch) => (
-                            <div key={`supplier-batch-${batch.batchId}`} className="rounded-lg border border-indigo-200 bg-white px-3 py-2 flex flex-wrap items-center justify-between gap-2">
-                              <div className="min-w-0">
-                                <p className="text-sm font-semibold text-foreground truncate">{batch.batchLabel}</p>
-                                <p className="text-xs text-muted-foreground truncate">
-                                  Filial: {batch.tenantNames.join(", ") || "-"} · {batch.totalOrders} pedidos · Repasse {formatCurrency(batch.totalRepasse)}
-                                </p>
-                                <p className="text-xs text-indigo-700 truncate">
-                                  Enviado: {formatDateBR(batch.sentAt) || "-"}
-                                  {batch.receivedAt ? ` · Recebido: ${formatDateBR(batch.receivedAt)}` : " · Recebimento pendente"}
-                                </p>
-                              </div>
-                              <div className="flex flex-wrap items-center gap-2">
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="h-8 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                                  onClick={() => { void copySupplierBatchOrdersText(batch); }}
-                                  disabled={filialBatchCopyingId === batch.batchId}
-                                >
-                                  {filialBatchCopyingId === batch.batchId ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />}
-                                  <span className="ml-2">Copiar TXT do lote</span>
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="h-8 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                                  onClick={() => { void confirmSupplierBatchReceipt(batch); }}
-                                  disabled={!batch.canConfirmReceipt || filialBatchReceiptConfirmingId === batch.batchId || filialBatchReceiptUndoingId === batch.batchId}
-                                >
-                                  {filialBatchReceiptConfirmingId === batch.batchId ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                                  <span className="ml-2">Comprando na farmacia</span>
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="h-8 border-amber-200 text-amber-700 hover:bg-amber-50"
-                                  onClick={() => { void undoSupplierBatchReceipt(batch); }}
-                                  disabled={!batch.canUndoReceipt || filialBatchReceiptUndoingId === batch.batchId || filialBatchReceiptConfirmingId === batch.batchId}
-                                >
-                                  {filialBatchReceiptUndoingId === batch.batchId ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
-                                  <span className="ml-2">Desfazer recebimento</span>
-                                </Button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
                     {filialPurchaseLoading ? (
                       <div className="text-sm text-muted-foreground mb-4">Carregando pedidos da filial selecionada...</div>
                     ) : filteredFilialPanelRequests.length === 0 ? (
@@ -8654,220 +8790,373 @@ export default function Admin() {
                       </div>
                     ) : (
                       <div className="space-y-3 mb-4">
-                        {filteredFilialPanelRequests.map((request) => (
-                          <div key={request.id} className="rounded-xl border border-amber-200 bg-white p-3">
-                            <div className="flex flex-wrap items-start justify-between gap-2">
-                              <div>
-                                <p className="text-sm font-semibold text-foreground">{request.filialTenantName} · Pedido {request.orderId}</p>
-                                <p className="text-xs text-muted-foreground">Cliente: {request.clientName}</p>
-                                <p className="text-xs text-muted-foreground flex flex-wrap items-center gap-2">
-                                  <span>Status:</span>
-                                  <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${filialPurchaseStatusTagClass(request.status)}`}>{filialPurchaseStatusTagLabel(request.status)}</span>
-                                  <span>({filialPurchaseStatusLabel(request.status)})</span>
-                                  <span>·</span>
-                                  <span>Criado em {formatDateBR(request.createdAt) || "-"}</span>
-                                </p>
-                                {request.supplierBatchId ? (
-                                  <p className="text-xs text-blue-700 mt-1">
-                                    Lote: <span className="font-semibold">{request.supplierBatchLabel || request.supplierBatchId}</span>
-                                    {request.supplierBatchSentAt ? ` · Enviado em ${formatDateBR(request.supplierBatchSentAt)}` : ""}
-                                    {request.supplierBatchReceivedAt ? ` · Recebido em ${formatDateBR(request.supplierBatchReceivedAt)}` : ""}
-                                  </p>
-                                ) : null}
-                                {String(request.status || "").trim().toLowerCase() === "lote_recebido_loja1" ? (
-                                  <p className="text-xs text-indigo-700 mt-1">Fornecedor comprando na farmacia, aguarde 48h para recebimento do rastreio.</p>
-                                ) : null}
-                                <p className="text-xs mt-1">
-                                  <span className="text-muted-foreground">Custo produto atualizado:</span>{" "}
-                                  {request.updateProductCost == null ? (
-                                    <span className="font-semibold text-amber-700">Pendente</span>
-                                  ) : request.updateProductCost ? (
-                                    <span className="font-semibold text-emerald-700">Sim</span>
-                                  ) : (
-                                    <span className="font-semibold text-slate-600">Não</span>
-                                  )}
-                                </p>
-                              </div>
-                              <div className="text-right text-xs">
-                                <p className="text-muted-foreground">Total pago na filial</p>
-                                <p className="font-semibold text-foreground">{formatCurrency(request.orderTotal)}</p>
-                                <p className="text-muted-foreground mt-1">Repasse para filial</p>
-                                <p className="font-semibold text-blue-700">{formatCurrency(request.repasseTotal)}</p>
-                                {(() => {
-                                  const normalizedStatus = String(request.status || "").trim().toLowerCase();
-                                  const isClosed = normalizedStatus === "pago_na_filial" || normalizedStatus === "compra_registrada" || normalizedStatus === "estoque_lancado_filial" || normalizedStatus === "finalizado";
-                                  if (isClosed) {
-                                    return (
-                                      <>
-                                        <p className="text-muted-foreground mt-1">Custo pago Loja 1</p>
-                                        <p className="font-semibold text-foreground">{formatCurrency(Number(request.loja1RealCostTotal || 0))}</p>
-                                        <p className="text-muted-foreground mt-1">Lucro Loja 1 no repasse</p>
-                                        <p className={`font-semibold ${Number(request.loja1RealProfit || 0) < 0 ? "text-red-700" : "text-emerald-700"}`}>{formatCurrency(Number(request.loja1RealProfit || 0))}</p>
-                                      </>
-                                    );
-                                  }
-
-                                  const estimatedProfit = computeLoja1RepasseProfitFromItems(request.items);
-                                  if (estimatedProfit == null) return null;
-
-                                  return (
-                                    <>
-                                      <p className="text-muted-foreground mt-1">Lucro Loja 1 no repasse (estimado)</p>
-                                      <p className={`font-semibold ${estimatedProfit < 0 ? "text-red-700" : "text-emerald-700"}`}>{formatCurrency(estimatedProfit)}</p>
-                                    </>
-                                  );
-                                })()}
-                              </div>
-                            </div>
-
-                            <div className="mt-3 flex justify-end">
-                              <div className="flex gap-2">
-                                {String(request.status || "").trim().toLowerCase() === "pendente_pagamento_filial" ? (
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    className="h-9 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
-                                    onClick={() => { void markFilialPurchaseAsPaid(request); }}
-                                    disabled={filialPurchaseMarkPaidId === request.id || filialPurchaseDeletingId === request.id || filialPurchaseConfirmingId === request.id}
-                                  >
-                                    {filialPurchaseMarkPaidId === request.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                                    <span className="ml-2">Marcar pago na filial</span>
-                                  </Button>
-                                ) : null}
-                                {String(request.status || "").trim().toLowerCase() === "pendente_pagamento_filial"
-                                  && String(request.orderId || "").trim().toUpperCase().startsWith("MANUAL-") ? (
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    className="h-9 border-blue-200 text-blue-700 hover:bg-blue-50"
-                                    onClick={() => { void editManualFilialPurchaseQuick(request); }}
-                                    disabled={filialPurchaseDeletingId === request.id || filialPurchaseConfirmingId === request.id}
-                                  >
-                                    <Pencil className="w-4 h-4" />
-                                    <span className="ml-2">Editar pedido</span>
-                                  </Button>
-                                ) : null}
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="h-9 border-red-200 text-red-700 hover:bg-red-50"
-                                  onClick={() => { void deleteFilialPurchase(request); }}
-                                  disabled={filialPurchaseDeletingId === request.id || filialPurchaseConfirmingId === request.id}
-                                >
-                                  {filialPurchaseDeletingId === request.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                                  <span className="ml-2">{String(request.status || "").trim().toLowerCase() === "cancelado" ? "Apagar rascunho" : "Cancelar pedido"}</span>
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="h-9"
-                                  onClick={() => setFilialPurchaseOpenId((prev) => (prev === request.id ? null : request.id))}
-                                >
-                                  <span>{filialPurchaseOpenId === request.id ? "Fechar compra" : "Abrir compra"}</span>
-                                </Button>
-                              </div>
-                            </div>
-
-                            {filialPurchaseOpenId === request.id ? (
-                              <>
-                                <div className="mt-3 space-y-2">
-                                  {request.items.map((item) => (
-                                    <div key={`${request.id}-${item.productId}`} className="grid grid-cols-1 md:grid-cols-[1.6fr_auto_auto_auto] gap-2 items-center rounded-lg border border-border p-2">
-                                      <div className="flex items-center gap-2 min-w-0">
-                                        {(() => {
-                                          const image = String(
-                                            item.image
-                                            || filialProductImageById.get(String(item.productId || ""))
-                                            || myFilialPurchaseProductImages[String(item.productId || "")]
-                                            || "",
-                                          ).trim();
-                                          return image ? (
-                                            <img src={image} alt={item.productName} className="h-10 w-10 rounded-lg border border-border object-cover flex-shrink-0" loading="lazy" />
-                                          ) : (
-                                            <div className="h-10 w-10 rounded-lg border border-border bg-muted/40 flex items-center justify-center flex-shrink-0">
-                                              <ImageOff className="h-4 w-4 text-muted-foreground" />
-                                            </div>
-                                          );
-                                        })()}
-                                        <div className="min-w-0">
-                                          <p className="text-sm font-medium text-foreground truncate">{item.productName}</p>
-                                          <p className="text-xs text-muted-foreground truncate">ID: {item.productId}</p>
-                                        </div>
-                                      </div>
-                                      <p className="text-xs text-muted-foreground">Qtd: <span className="font-semibold text-foreground">{item.quantity}</span></p>
-                                      <input
-                                        type="text"
-                                        inputMode="decimal"
-                                        value={filialPurchaseRepasseDrafts[request.id]?.[item.productId] ?? String(Number(item.repasseUnitCost || 0))}
-                                        onChange={(e) => {
-                                          const sanitized = e.target.value.replace(/[^0-9.,]/g, "");
-                                          setFilialPurchaseRepasseDrafts((prev) => ({
-                                            ...prev,
-                                            [request.id]: {
-                                              ...(prev[request.id] || {}),
-                                              [item.productId]: sanitized,
-                                            },
-                                          }));
-                                        }}
-                                        placeholder="Repasse un."
-                                        className="h-9 px-2 rounded-lg border border-border bg-white focus:border-primary outline-none text-sm text-right"
-                                      />
-                                      <input
-                                        type="text"
-                                        inputMode="decimal"
-                                        value={filialPurchaseCostDrafts[request.id]?.[item.productId]
-                                          ?? String(
-                                            Number.isFinite(Number(item.baseUnitCost)) && Number(item.baseUnitCost) >= 0
-                                              ? Number(item.baseUnitCost)
-                                              : Number(item.repasseUnitCost || 0),
-                                          )}
-                                        onChange={(e) => {
-                                          const sanitized = e.target.value.replace(/[^0-9.,]/g, "");
-                                          setFilialPurchaseCostDrafts((prev) => ({
-                                            ...prev,
-                                            [request.id]: {
-                                              ...(prev[request.id] || {}),
-                                              [item.productId]: sanitized,
-                                            },
-                                          }));
-                                        }}
-                                        placeholder="Custo pago Loja 1 unit."
-                                        className="h-9 px-2 rounded-lg border border-border bg-white focus:border-primary outline-none text-sm text-right"
-                                      />
-                                    </div>
-                                  ))}
-                                </div>
-
-                                <div className="mt-3 flex justify-end">
-                                  <label className="mr-3 inline-flex items-center gap-2 rounded-lg border border-border bg-white px-3 py-2 text-xs text-muted-foreground">
-                                    <input
-                                      type="checkbox"
-                                      checked={!!filialPurchaseUpdateCostFlags[request.id]}
-                                      onChange={(e) => { void saveFilialPurchaseUpdateCostFlag(request, e.target.checked); }}
-                                      className="h-4 w-4 rounded border-border"
-                                    />
-                                    Atualizar custo do produto da filial com o repasse
-                                  </label>
-                                  <Button
-                                    type="button"
-                                    className="h-9"
-                                    onClick={() => confirmFilialPurchase(request)}
-                                    disabled={filialPurchaseConfirmingId === request.id || String(request.status || "").trim().toLowerCase() === "pendente_pagamento_filial"}
-                                  >
-                                    {filialPurchaseConfirmingId === request.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                                    <span className="ml-2">
-                                      {String(request.status || "").trim().toLowerCase() === "pendente_pagamento_filial"
-                                        ? "Aguardando pagamento da filial"
-                                        : String(request.status || "").trim().toLowerCase() === "finalizado"
-                                          ? "Atualizar valores do pedido finalizado"
-                                          : "Confirmar compra e lançar estoque"}
-                                    </span>
-                                  </Button>
-                                </div>
-                              </>
+                        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2">
+                          <div>
+                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Pedidos agrupados por data e lote</p>
+                            <p className="text-xs text-muted-foreground mt-1">Clique na data e no lote para abrir os pedidos que precisam de compra e repasse.</p>
+                            {filialOverdueBatchCount > 0 ? (
+                              <p className="text-xs text-red-700 mt-1 font-semibold">
+                                Prioridade: {filialOverdueBatchCount} lote(s) atrasado(s) · {filialOverdueOrderCount} pedido(s) aguardando ação.
+                              </p>
                             ) : null}
                           </div>
-                        ))}
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={filialPurchaseHistoryFilter}
+                              onChange={(e) => setFilialPurchaseHistoryFilter(e.target.value as "pending" | "all" | "finalized")}
+                              className="h-8 rounded-md border border-border bg-white px-2 text-xs text-foreground"
+                            >
+                              <option value="pending">Abertos</option>
+                              <option value="finalized">Fechados</option>
+                              <option value="all">Todos</option>
+                            </select>
+                            <span className="text-xs text-muted-foreground">{filteredFilialSupplierBatches.length} lote(s)</span>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="h-8 border-red-200 text-red-700 hover:bg-red-50"
+                              onClick={expandFilialOverdueGroups}
+                              disabled={filialOverdueBatchCount === 0}
+                            >
+                              Expandir atrasados
+                            </Button>
+                            <Button type="button" variant="outline" className="h-8" onClick={expandFilialTodayDate}>
+                              Expandir hoje
+                            </Button>
+                            <Button type="button" variant="outline" className="h-8" onClick={collapseFilialDateAndBatchGroups}>
+                              Recolher tudo
+                            </Button>
+                          </div>
+                        </div>
+
+                        {filialPanelDateGroups.map((dateGroup) => {
+                          const isDateExpanded = filialExpandedDateKeys.includes(dateGroup.dateKey);
+                          return (
+                            <div key={`filial-date-${dateGroup.dateKey}`} className="rounded-xl border border-border bg-white p-3">
+                              <button
+                                type="button"
+                                className="w-full flex flex-wrap items-center justify-between gap-2 text-left"
+                                onClick={() => {
+                                  setFilialExpandedDateKeys((prev) => (prev.includes(dateGroup.dateKey)
+                                    ? prev.filter((key) => key !== dateGroup.dateKey)
+                                    : [...prev, dateGroup.dateKey]));
+                                }}
+                              >
+                                <div className="min-w-0">
+                                  <p className="text-sm font-semibold text-foreground flex items-center gap-2">
+                                    {isDateExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+                                    {dateGroup.dateLabel}
+                                    {dateGroup.hasOverdueBatches ? (
+                                      <span className="inline-flex items-center rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700">Atrasado</span>
+                                    ) : null}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    {dateGroup.totalBatches} lote(s) · {dateGroup.totalOrders} pedido(s) · Repasse {formatCurrency(dateGroup.totalRepasse)}
+                                  </p>
+                                </div>
+                              </button>
+
+                              {isDateExpanded ? (
+                                <div className="mt-3 space-y-2">
+                                  {dateGroup.batches.map((batchGroup) => {
+                                    const isBatchExpanded = filialExpandedBatchKeys.includes(batchGroup.batchKey);
+                                    const batchStatusLabel = filialBatchStatusLabel(batchGroup.status);
+                                    const batchStatusClass = filialBatchStatusClass(batchGroup.status);
+                                    const batchSummary = batchGroup.batchId ? filteredFilialSupplierBatchById.get(batchGroup.batchId) || null : null;
+
+                                    return (
+                                      <div key={`filial-batch-group-${batchGroup.batchKey}`} className={`rounded-lg p-2 ${batchGroup.isOverdue ? "border-2 border-red-300 bg-red-50/60" : "border border-indigo-200 bg-indigo-50/40"}`}>
+                                        <button
+                                          type="button"
+                                          className="w-full flex flex-wrap items-center justify-between gap-2 text-left"
+                                          onClick={() => {
+                                            setFilialExpandedBatchKeys((prev) => (prev.includes(batchGroup.batchKey)
+                                              ? prev.filter((key) => key !== batchGroup.batchKey)
+                                              : [...prev, batchGroup.batchKey]));
+                                          }}
+                                        >
+                                          <div className="min-w-0">
+                                            <p className="text-sm font-semibold text-foreground flex items-center gap-2">
+                                              {isBatchExpanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+                                              {batchGroup.batchLabel}
+                                              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${batchStatusClass}`}>{batchStatusLabel}</span>
+                                            </p>
+                                            <p className="text-xs text-muted-foreground mt-1 truncate">
+                                              Filial: {batchGroup.tenantNames.join(", ") || "-"} · {batchGroup.totalOrders} pedidos · Repasse {formatCurrency(batchGroup.totalRepasse)}
+                                            </p>
+                                            <p className="text-xs text-indigo-700 truncate">
+                                              Enviado: {formatDateBR(batchGroup.sentAt) || "-"}
+                                              {batchGroup.receivedAt ? ` · Recebido: ${formatDateBR(batchGroup.receivedAt)}` : " · Recebimento pendente"}
+                                            </p>
+                                            {batchGroup.isOverdue ? (
+                                              <p className="text-xs text-red-700 font-semibold mt-1">
+                                                Lote atrasado ha {Math.max(1, daysSince(batchGroup.sentAt || batchGroup.requests[0]?.createdAt || null))} dia(s). Priorize este lote.
+                                              </p>
+                                            ) : null}
+                                          </div>
+                                        </button>
+
+                                        {isBatchExpanded ? (
+                                          <div className="mt-2 space-y-2">
+                                            {batchSummary ? (
+                                              <div className="flex flex-wrap items-center justify-end gap-2">
+                                                <Button
+                                                  type="button"
+                                                  variant="outline"
+                                                  className="h-8 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                                                  onClick={() => { void copySupplierBatchOrdersText(batchSummary); }}
+                                                  disabled={filialBatchCopyingId === batchSummary.batchId}
+                                                >
+                                                  {filialBatchCopyingId === batchSummary.batchId ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />}
+                                                  <span className="ml-2">Copiar TXT do lote</span>
+                                                </Button>
+                                                <Button
+                                                  type="button"
+                                                  variant="outline"
+                                                  className="h-8 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                                                  onClick={() => { void confirmSupplierBatchReceipt(batchSummary); }}
+                                                  disabled={!batchSummary.canConfirmReceipt || filialBatchReceiptConfirmingId === batchSummary.batchId || filialBatchReceiptUndoingId === batchSummary.batchId}
+                                                >
+                                                  {filialBatchReceiptConfirmingId === batchSummary.batchId ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                                                  <span className="ml-2">Compra em andamento</span>
+                                                </Button>
+                                                <Button
+                                                  type="button"
+                                                  variant="outline"
+                                                  className="h-8 border-amber-200 text-amber-700 hover:bg-amber-50"
+                                                  onClick={() => { void undoSupplierBatchReceipt(batchSummary); }}
+                                                  disabled={!batchSummary.canUndoReceipt || filialBatchReceiptUndoingId === batchSummary.batchId || filialBatchReceiptConfirmingId === batchSummary.batchId}
+                                                >
+                                                  {filialBatchReceiptUndoingId === batchSummary.batchId ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
+                                                  <span className="ml-2">Desfazer recebimento</span>
+                                                </Button>
+                                              </div>
+                                            ) : null}
+
+                                            {batchGroup.requests.map((request) => (
+                                              <div key={request.id} className="rounded-xl border border-amber-200 bg-white p-3">
+                                                <div className="flex flex-wrap items-start justify-between gap-2">
+                                                  <div>
+                                                    <p className="text-sm font-semibold text-foreground">{request.filialTenantName} · Pedido {request.orderId}</p>
+                                                    <p className="text-xs text-muted-foreground">Cliente: {request.clientName}</p>
+                                                    <p className="text-xs text-muted-foreground flex flex-wrap items-center gap-2">
+                                                      <span>Status:</span>
+                                                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${filialPurchaseStatusTagClass(request.status)}`}>{filialPurchaseStatusTagLabel(request.status)}</span>
+                                                      <span>({filialPurchaseStatusLabel(request.status)})</span>
+                                                      <span>·</span>
+                                                      <span>Criado em {formatDateBR(request.createdAt) || "-"}</span>
+                                                    </p>
+                                                    {request.supplierBatchId ? (
+                                                      <p className="text-xs text-blue-700 mt-1">
+                                                        Lote: <span className="font-semibold">{request.supplierBatchLabel || request.supplierBatchId}</span>
+                                                        {request.supplierBatchSentAt ? ` · Enviado em ${formatDateBR(request.supplierBatchSentAt)}` : ""}
+                                                        {request.supplierBatchReceivedAt ? ` · Recebido em ${formatDateBR(request.supplierBatchReceivedAt)}` : ""}
+                                                      </p>
+                                                    ) : null}
+                                                    {String(request.status || "").trim().toLowerCase() === "lote_recebido_loja1" ? (
+                                                      <p className="text-xs text-indigo-700 mt-1">Compra em andamento, aguarde 48h para recebimento do rastreio.</p>
+                                                    ) : null}
+                                                    <p className="text-xs mt-1">
+                                                      <span className="text-muted-foreground">Custo produto atualizado:</span>{" "}
+                                                      {request.updateProductCost == null ? (
+                                                        <span className="font-semibold text-amber-700">Pendente</span>
+                                                      ) : request.updateProductCost ? (
+                                                        <span className="font-semibold text-emerald-700">Sim</span>
+                                                      ) : (
+                                                        <span className="font-semibold text-slate-600">Não</span>
+                                                      )}
+                                                    </p>
+                                                  </div>
+                                                  <div className="text-right text-xs">
+                                                    <p className="text-muted-foreground">Total pago na filial</p>
+                                                    <p className="font-semibold text-foreground">{formatCurrency(request.orderTotal)}</p>
+                                                    <p className="text-muted-foreground mt-1">Repasse para filial</p>
+                                                    <p className="font-semibold text-blue-700">{formatCurrency(request.repasseTotal)}</p>
+                                                    {(() => {
+                                                      const normalizedStatus = String(request.status || "").trim().toLowerCase();
+                                                      const isClosed = normalizedStatus === "pago_na_filial" || normalizedStatus === "compra_registrada" || normalizedStatus === "estoque_lancado_filial" || normalizedStatus === "finalizado";
+                                                      if (isClosed) {
+                                                        return (
+                                                          <>
+                                                            <p className="text-muted-foreground mt-1">Custo pago Loja 1</p>
+                                                            <p className="font-semibold text-foreground">{formatCurrency(Number(request.loja1RealCostTotal || 0))}</p>
+                                                            <p className="text-muted-foreground mt-1">Lucro Loja 1 no repasse</p>
+                                                            <p className={`font-semibold ${Number(request.loja1RealProfit || 0) < 0 ? "text-red-700" : "text-emerald-700"}`}>{formatCurrency(Number(request.loja1RealProfit || 0))}</p>
+                                                          </>
+                                                        );
+                                                      }
+
+                                                      const estimatedProfit = computeLoja1RepasseProfitFromItems(request.items);
+                                                      if (estimatedProfit == null) return null;
+
+                                                      return (
+                                                        <>
+                                                          <p className="text-muted-foreground mt-1">Lucro Loja 1 no repasse (estimado)</p>
+                                                          <p className={`font-semibold ${estimatedProfit < 0 ? "text-red-700" : "text-emerald-700"}`}>{formatCurrency(estimatedProfit)}</p>
+                                                        </>
+                                                      );
+                                                    })()}
+                                                  </div>
+                                                </div>
+
+                                                <div className="mt-3 flex justify-end">
+                                                  <div className="flex gap-2">
+                                                    {String(request.status || "").trim().toLowerCase() === "pendente_pagamento_filial" ? (
+                                                      <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        className="h-9 border-emerald-200 text-emerald-700 hover:bg-emerald-50"
+                                                        onClick={() => { void markFilialPurchaseAsPaid(request); }}
+                                                        disabled={filialPurchaseMarkPaidId === request.id || filialPurchaseDeletingId === request.id || filialPurchaseConfirmingId === request.id}
+                                                      >
+                                                        {filialPurchaseMarkPaidId === request.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                                                        <span className="ml-2">Marcar pago na filial</span>
+                                                      </Button>
+                                                    ) : null}
+                                                    {String(request.status || "").trim().toLowerCase() === "pendente_pagamento_filial"
+                                                      && String(request.orderId || "").trim().toUpperCase().startsWith("MANUAL-") ? (
+                                                      <Button
+                                                        type="button"
+                                                        variant="outline"
+                                                        className="h-9 border-blue-200 text-blue-700 hover:bg-blue-50"
+                                                        onClick={() => { void editManualFilialPurchaseQuick(request); }}
+                                                        disabled={filialPurchaseDeletingId === request.id || filialPurchaseConfirmingId === request.id}
+                                                      >
+                                                        <Pencil className="w-4 h-4" />
+                                                        <span className="ml-2">Editar pedido</span>
+                                                      </Button>
+                                                    ) : null}
+                                                    <Button
+                                                      type="button"
+                                                      variant="outline"
+                                                      className="h-9 border-red-200 text-red-700 hover:bg-red-50"
+                                                      onClick={() => { void deleteFilialPurchase(request); }}
+                                                      disabled={filialPurchaseDeletingId === request.id || filialPurchaseConfirmingId === request.id}
+                                                    >
+                                                      {filialPurchaseDeletingId === request.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                                                      <span className="ml-2">{String(request.status || "").trim().toLowerCase() === "cancelado" ? "Apagar rascunho" : "Cancelar pedido"}</span>
+                                                    </Button>
+                                                    <Button
+                                                      type="button"
+                                                      variant="outline"
+                                                      className="h-9"
+                                                      onClick={() => setFilialPurchaseOpenId((prev) => (prev === request.id ? null : request.id))}
+                                                    >
+                                                      <span>{filialPurchaseOpenId === request.id ? "Fechar compra" : "Abrir compra"}</span>
+                                                    </Button>
+                                                  </div>
+                                                </div>
+
+                                                {filialPurchaseOpenId === request.id ? (
+                                                  <>
+                                                    <div className="mt-3 space-y-2">
+                                                      {request.items.map((item) => (
+                                                        <div key={`${request.id}-${item.productId}`} className="grid grid-cols-1 md:grid-cols-[1.6fr_auto_auto_auto] gap-2 items-center rounded-lg border border-border p-2">
+                                                          <div className="flex items-center gap-2 min-w-0">
+                                                            {(() => {
+                                                              const image = String(
+                                                                item.image
+                                                                || filialProductImageById.get(String(item.productId || ""))
+                                                                || myFilialPurchaseProductImages[String(item.productId || "")]
+                                                                || "",
+                                                              ).trim();
+                                                              return image ? (
+                                                                <img src={image} alt={item.productName} className="h-10 w-10 rounded-lg border border-border object-cover flex-shrink-0" loading="lazy" />
+                                                              ) : (
+                                                                <div className="h-10 w-10 rounded-lg border border-border bg-muted/40 flex items-center justify-center flex-shrink-0">
+                                                                  <ImageOff className="h-4 w-4 text-muted-foreground" />
+                                                                </div>
+                                                              );
+                                                            })()}
+                                                            <div className="min-w-0">
+                                                              <p className="text-sm font-medium text-foreground truncate">{item.productName}</p>
+                                                              <p className="text-xs text-muted-foreground truncate">ID: {item.productId}</p>
+                                                            </div>
+                                                          </div>
+                                                          <p className="text-xs text-muted-foreground">Qtd: <span className="font-semibold text-foreground">{item.quantity}</span></p>
+                                                          <input
+                                                            type="text"
+                                                            inputMode="decimal"
+                                                            value={filialPurchaseRepasseDrafts[request.id]?.[item.productId] ?? String(Number(item.repasseUnitCost || 0))}
+                                                            onChange={(e) => {
+                                                              const sanitized = e.target.value.replace(/[^0-9.,]/g, "");
+                                                              setFilialPurchaseRepasseDrafts((prev) => ({
+                                                                ...prev,
+                                                                [request.id]: {
+                                                                  ...(prev[request.id] || {}),
+                                                                  [item.productId]: sanitized,
+                                                                },
+                                                              }));
+                                                            }}
+                                                            placeholder="Repasse un."
+                                                            className="h-9 px-2 rounded-lg border border-border bg-white focus:border-primary outline-none text-sm text-right"
+                                                          />
+                                                          <input
+                                                            type="text"
+                                                            inputMode="decimal"
+                                                            value={filialPurchaseCostDrafts[request.id]?.[item.productId]
+                                                              ?? String(
+                                                                Number.isFinite(Number(item.baseUnitCost)) && Number(item.baseUnitCost) >= 0
+                                                                  ? Number(item.baseUnitCost)
+                                                                  : Number(item.repasseUnitCost || 0),
+                                                              )}
+                                                            onChange={(e) => {
+                                                              const sanitized = e.target.value.replace(/[^0-9.,]/g, "");
+                                                              setFilialPurchaseCostDrafts((prev) => ({
+                                                                ...prev,
+                                                                [request.id]: {
+                                                                  ...(prev[request.id] || {}),
+                                                                  [item.productId]: sanitized,
+                                                                },
+                                                              }));
+                                                            }}
+                                                            placeholder="Custo pago Loja 1 unit."
+                                                            className="h-9 px-2 rounded-lg border border-border bg-white focus:border-primary outline-none text-sm text-right"
+                                                          />
+                                                        </div>
+                                                      ))}
+                                                    </div>
+
+                                                    <div className="mt-3 flex justify-end">
+                                                      <label className="mr-3 inline-flex items-center gap-2 rounded-lg border border-border bg-white px-3 py-2 text-xs text-muted-foreground">
+                                                        <input
+                                                          type="checkbox"
+                                                          checked={!!filialPurchaseUpdateCostFlags[request.id]}
+                                                          onChange={(e) => { void saveFilialPurchaseUpdateCostFlag(request, e.target.checked); }}
+                                                          className="h-4 w-4 rounded border-border"
+                                                        />
+                                                        Atualizar custo do produto da filial com o repasse
+                                                      </label>
+                                                      <Button
+                                                        type="button"
+                                                        className="h-9"
+                                                        onClick={() => confirmFilialPurchase(request)}
+                                                        disabled={filialPurchaseConfirmingId === request.id || String(request.status || "").trim().toLowerCase() === "pendente_pagamento_filial"}
+                                                      >
+                                                        {filialPurchaseConfirmingId === request.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                                                        <span className="ml-2">
+                                                          {String(request.status || "").trim().toLowerCase() === "pendente_pagamento_filial"
+                                                            ? "Aguardando pagamento da filial"
+                                                            : String(request.status || "").trim().toLowerCase() === "finalizado"
+                                                              ? "Atualizar valores do pedido finalizado"
+                                                              : "Confirmar compra e lançar estoque"}
+                                                        </span>
+                                                      </Button>
+                                                    </div>
+                                                  </>
+                                                ) : null}
+                                              </div>
+                                            ))}
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </>
@@ -9427,7 +9716,7 @@ export default function Admin() {
                           </p>
                         ) : null}
                         {String(request.status || "").trim().toLowerCase() === "lote_recebido_loja1" ? (
-                          <p className="text-xs text-blue-700 mt-1 font-semibold">Fornecedor recebeu e esta comprando na farmacia. Aguarde ate 48h para rastreio.</p>
+                          <p className="text-xs text-blue-700 mt-1 font-semibold">Compra em andamento. Aguarde ate 48h para rastreio.</p>
                         ) : null}
                         {String(request.status || "").trim().toLowerCase() === "enviado_motoboy" ? (
                           <p className="text-xs text-indigo-700 mt-1 font-semibold">Pedido por motoboy para atendimento direto.</p>
