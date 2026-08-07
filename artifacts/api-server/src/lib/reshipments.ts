@@ -344,6 +344,92 @@ export async function ensureReshipmentSendDebit(params: {
   return { ok: true, missingProducts: [], debitedProducts };
 }
 
+export async function undoReshipmentSendDebit(params: {
+  tenantId?: string;
+  id: string;
+  source: ReshipmentSource;
+}): Promise<{
+  ok: boolean;
+  notFound?: boolean;
+  restoredProducts: Array<{ productId: string; productName: string; quantity: number }>;
+}> {
+  const tenantId = String(params.tenantId || "").trim() || DEFAULT_TENANT_ID;
+  const rows = params.source === "support"
+    ? await db
+        .select({
+          productsSnapshot: reshipmentsTable.productsSnapshot,
+          orderProducts: ordersTable.products,
+        })
+        .from(reshipmentsTable)
+        .leftJoin(ordersTable, eq(ordersTable.id, reshipmentsTable.orderId))
+        .where(eq(reshipmentsTable.id, params.id))
+        .limit(1)
+    : await db
+        .select({ productsSnapshot: manualReshipmentsTable.productsSnapshot })
+        .from(manualReshipmentsTable)
+        .where(and(eq(manualReshipmentsTable.tenantId, tenantId), eq(manualReshipmentsTable.id, params.id)))
+        .limit(1);
+
+  if (!rows[0]) {
+    return { ok: false, notFound: true, restoredProducts: [] };
+  }
+
+  const items = params.source === "support"
+    ? toProducts((rows[0] as { orderProducts?: unknown; productsSnapshot?: unknown }).orderProducts ?? rows[0].productsSnapshot)
+    : toProducts(rows[0].productsSnapshot);
+  const productNameById = new Map(items.map((item) => [item.id, item.name]));
+
+  const movementRows = await db
+    .select({
+      productId: inventoryMovementsTable.productId,
+      quantity: inventoryMovementsTable.quantity,
+      type: inventoryMovementsTable.type,
+      reason: inventoryMovementsTable.reason,
+    })
+    .from(inventoryMovementsTable)
+    .where(and(
+      eq(inventoryMovementsTable.tenantId, tenantId),
+      eq(inventoryMovementsTable.referenceId, params.id),
+      inArray(inventoryMovementsTable.type, ["exit", "entry"]),
+    ));
+
+  const netDebitedByProduct = new Map<string, number>();
+  for (const row of movementRows) {
+    const productId = String(row.productId || "").trim();
+    if (!productId) continue;
+    const qty = Number(row.quantity || 0);
+    if (row.type === "exit" && qty < 0) {
+      netDebitedByProduct.set(productId, (netDebitedByProduct.get(productId) || 0) + Math.abs(qty));
+      continue;
+    }
+    const normalizedReason = String(row.reason || "").trim().toLowerCase();
+    const isEstornoEntry = row.type === "entry" && qty > 0 && normalizedReason.startsWith("estorno de baixa do reenvio");
+    if (isEstornoEntry) {
+      netDebitedByProduct.set(productId, (netDebitedByProduct.get(productId) || 0) - qty);
+    }
+  }
+
+  const restoredProducts: Array<{ productId: string; productName: string; quantity: number }> = [];
+  for (const [productId, netDebited] of netDebitedByProduct.entries()) {
+    const qtyToRestore = Math.max(0, Number(netDebited || 0));
+    if (qtyToRestore <= 0) continue;
+    await registerInventoryEntry({
+      tenantId,
+      productId,
+      quantity: qtyToRestore,
+      reason: `Estorno de baixa do reenvio ${params.id}`,
+      referenceId: params.id,
+    });
+    restoredProducts.push({
+      productId,
+      productName: productNameById.get(productId) || productId,
+      quantity: qtyToRestore,
+    });
+  }
+
+  return { ok: true, restoredProducts };
+}
+
 export async function createOrRefreshReshipment(params: {
   tenantId?: string;
   orderId: string;

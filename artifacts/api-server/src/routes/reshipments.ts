@@ -13,6 +13,7 @@ import {
   releasePendingReshipments,
   setManualReshipmentStatus,
   setReshipmentStatus,
+  undoReshipmentSendDebit,
 } from "../lib/reshipments";
 import { broadcastNotification } from "./notifications";
 
@@ -499,6 +500,7 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
       }
 
       let debitSummary: Array<{ productId: string; productName: string; quantity: number }> = [];
+      let restoredSummary: Array<{ productId: string; productName: string; quantity: number }> = [];
       let alreadySent = false;
       if (status === "reenvio_pronto_para_envio" || status === "reenvio_enviado") {
         if (status === "reenvio_pronto_para_envio" && skipStockValidation) {
@@ -535,6 +537,15 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
         }
       }
 
+      if (status !== "reenvio_enviado" && rows[0].currentStatus === "reenvio_enviado") {
+        const undo = await undoReshipmentSendDebit({ id, source: "support", tenantId: scope.tenantId });
+        if (!undo.ok) {
+          res.status(404).json({ error: "NOT_FOUND", message: "Reenvio não encontrado." });
+          return;
+        }
+        restoredSummary = undo.restoredProducts || [];
+      }
+
       const nextStatus = status;
 
       const updated = await setReshipmentStatus(id, nextStatus);
@@ -544,7 +555,15 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
       }
 
       broadcastNotification({ type: "reshipment_updated", data: { id, status: nextStatus, tenantId: scope.tenantId } });
-      res.json({ ok: true, id, status: nextStatus, requestedStatus: status, debitedProducts: debitSummary, alreadySent });
+      res.json({
+        ok: true,
+        id,
+        status: nextStatus,
+        requestedStatus: status,
+        debitedProducts: debitSummary,
+        restoredProducts: restoredSummary,
+        alreadySent,
+      });
       return;
     } else {
       const manualRows = await db
@@ -568,6 +587,7 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
       }
 
       let debitSummary: Array<{ productId: string; productName: string; quantity: number }> = [];
+      let restoredSummary: Array<{ productId: string; productName: string; quantity: number }> = [];
       let alreadySent = false;
       if (status === "reenvio_pronto_para_envio" || status === "reenvio_enviado") {
         if (status === "reenvio_pronto_para_envio" && skipStockValidation) {
@@ -604,6 +624,15 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
         }
       }
 
+      if (status !== "reenvio_enviado" && manualRows[0].currentStatus === "reenvio_enviado") {
+        const undo = await undoReshipmentSendDebit({ id, source: "manual", tenantId: scope.tenantId });
+        if (!undo.ok) {
+          res.status(404).json({ error: "NOT_FOUND", message: "Reenvio não encontrado." });
+          return;
+        }
+        restoredSummary = undo.restoredProducts || [];
+      }
+
       const nextStatus = status;
 
       const updatedManual = await setManualReshipmentStatus(id, nextStatus);
@@ -613,7 +642,15 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
       }
 
       broadcastNotification({ type: "reshipment_updated", data: { id, status: nextStatus, tenantId: scope.tenantId } });
-      res.json({ ok: true, id, status: nextStatus, requestedStatus: status, debitedProducts: debitSummary, alreadySent });
+      res.json({
+        ok: true,
+        id,
+        status: nextStatus,
+        requestedStatus: status,
+        debitedProducts: debitSummary,
+        restoredProducts: restoredSummary,
+        alreadySent,
+      });
       return;
     }
   } catch (err) {

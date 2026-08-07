@@ -445,7 +445,7 @@ function formatRaffleDescriptionPreview(value: string | undefined | null): strin
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
-import { Loader2, Save, Plus, Trash2, X, CheckCircle, XCircle, Zap, Info, Pencil, MessageCircle, Tag, Bell, RefreshCw, Download, LogOut, QrCode, LinkIcon, Ticket, ShoppingBag, Clock, Upload, ChevronDown, ChevronUp, Copy, Users, Percent, Calendar, DollarSign, ShieldCheck, CreditCard, Truck, UserPlus, Eye, EyeOff, ToggleLeft, Webhook, ImageOff, Lock, AlertTriangle, Star, Send, Mail, Store, Bike } from "lucide-react";
+import { Loader2, Save, Plus, Trash2, X, CheckCircle, XCircle, Zap, Info, Pencil, MessageCircle, Tag, Bell, RefreshCw, Download, LogOut, QrCode, LinkIcon, Ticket, ShoppingBag, Clock, Upload, ChevronDown, ChevronUp, Copy, Users, Percent, Calendar, DollarSign, ShieldCheck, CreditCard, Truck, RotateCcw, UserPlus, Eye, EyeOff, ToggleLeft, Webhook, ImageOff, Lock, AlertTriangle, Star, Send, Mail, Store, Bike } from "lucide-react";
 import { IconLucide } from "@/components/ui/IconLucide";
 
 import { toast } from "sonner";
@@ -6262,6 +6262,7 @@ export default function Admin() {
                   requestedStatus?: string;
                   alreadySent?: boolean;
                   debitedProducts?: Array<{ productId?: string; productName?: string; quantity?: number }>;
+                  restoredProducts?: Array<{ productId?: string; productName?: string; quantity?: number }>;
                 };
                 if (!res.ok) {
                   if (data?.error === "INSUFFICIENT_STOCK" && Array.isArray(data?.missingProducts) && data.missingProducts.length > 0) {
@@ -6284,6 +6285,16 @@ export default function Admin() {
                     toast.success(`Baixa de estoque aplicada (${summary}). Reenvio marcado como enviado.`);
                   } else {
                     toast.success("Reenvio marcado como enviado.");
+                  }
+                } else if (status === "reenvio_aguardando_estoque") {
+                  const restored = Array.isArray(data?.restoredProducts) ? data.restoredProducts : [];
+                  if (restored.length > 0) {
+                    const summary = restored
+                      .map((item) => `${Number(item?.quantity || 0)}x ${String(item?.productName || item?.productId || "Produto")}`)
+                      .join(", ");
+                    toast.success(`Reenvio enviado cancelado. Estoque estornado (${summary}).`);
+                  } else {
+                    toast.success("Reenvio enviado cancelado.");
                   }
                 } else {
                   toast.success(status === "reenvio_enviado" ? "Reenvio marcado como enviado." : "Status do reenvio atualizado.");
@@ -11370,7 +11381,7 @@ function OrdersPanel({
   onSetOrderEnviado: (id: string, enviado: boolean) => void;
   onSetOrderPatched: (order: AdminOrder) => void;
   availableWhatsappGroups: string[];
-  onSetReshipmentStatus: (reshipmentId: string, status: "reenvio_aguardando_estoque" | "reenvio_pronto_para_envio" | "reenvio_enviado") => void;
+  onSetReshipmentStatus: (reshipmentId: string, status: "reenvio_aguardando_estoque" | "reenvio_pronto_para_envio" | "reenvio_resolvido_sem_entrada" | "reenvio_enviado") => void;
   onRemoveOrder: (id: string) => void;
 }) {
 
@@ -12899,6 +12910,16 @@ function OrdersPanel({
                     onClick={() => onSetReshipmentStatus((order as any).reshipment.id, "reenvio_enviado")}
                   >
                     <Truck className="w-3.5 h-3.5" />Marcar Reenvio Enviado
+                  </Button>
+                )}
+                {(order as any)?.reshipment?.id && String((order as any)?.reshipment?.status || "") === "reenvio_enviado" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 text-amber-700 border-amber-200 hover:bg-amber-50"
+                    onClick={() => onSetReshipmentStatus((order as any).reshipment.id, "reenvio_aguardando_estoque")}
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />Cancelar Reenvio Enviado
                   </Button>
                 )}
               </div>
