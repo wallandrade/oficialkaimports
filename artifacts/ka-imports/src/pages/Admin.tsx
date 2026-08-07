@@ -1698,6 +1698,7 @@ export default function Admin() {
   const [filialPurchaseConfirmingId, setFilialPurchaseConfirmingId] = useState<string | null>(null);
   const [filialPurchaseDeletingId, setFilialPurchaseDeletingId] = useState<string | null>(null);
   const [filialPurchaseCostDrafts, setFilialPurchaseCostDrafts] = useState<Record<string, Record<string, string>>>({});
+  const [filialPurchaseRepasseDrafts, setFilialPurchaseRepasseDrafts] = useState<Record<string, Record<string, string>>>({});
   const [filialPurchaseUpdateCostFlags, setFilialPurchaseUpdateCostFlags] = useState<Record<string, boolean>>({});
   const [filialPurchaseOpenId, setFilialPurchaseOpenId] = useState<string | null>(null);
   const [myFilialPurchaseRequests, setMyFilialPurchaseRequests] = useState<FilialPurchaseRequest[]>([]);
@@ -3300,6 +3301,20 @@ export default function Admin() {
         }
         return next;
       });
+
+      setFilialPurchaseRepasseDrafts((prev) => {
+        const next = { ...prev };
+        for (const request of requests) {
+          if (!next[request.id]) next[request.id] = {};
+          for (const item of request.items || []) {
+            if (next[request.id][item.productId] === undefined) {
+              const repasseUnit = Number(item.repasseUnitCost || 0);
+              next[request.id][item.productId] = String(Number.isFinite(repasseUnit) && repasseUnit >= 0 ? repasseUnit : 0);
+            }
+          }
+        }
+        return next;
+      });
     } catch {
       toast.error("Erro ao carregar fila de compras das filiais.");
     } finally {
@@ -3719,14 +3734,18 @@ export default function Admin() {
   const confirmFilialPurchase = useCallback(async (request: FilialPurchaseRequest) => {
     if (!canManageTenants) return;
 
-    const drafts = filialPurchaseCostDrafts[request.id] || {};
+    const costDrafts = filialPurchaseCostDrafts[request.id] || {};
+    const repasseDrafts = filialPurchaseRepasseDrafts[request.id] || {};
     const items = request.items.map((item) => {
-      const raw = String(drafts[item.productId] ?? "").replace(",", ".").trim();
-      const unitCost = Number(raw);
+      const unitCostRaw = String(costDrafts[item.productId] ?? "").replace(",", ".").trim();
+      const repasseUnitRaw = String(repasseDrafts[item.productId] ?? "").replace(",", ".").trim();
+      const unitCost = Number(unitCostRaw);
+      const repasseUnitCost = Number(repasseUnitRaw);
       return {
         productId: item.productId,
         unitCost,
-        valid: Number.isFinite(unitCost) && unitCost >= 0,
+        repasseUnitCost,
+        valid: Number.isFinite(unitCost) && unitCost >= 0 && Number.isFinite(repasseUnitCost) && repasseUnitCost >= 0,
       };
     });
 
@@ -3742,7 +3761,11 @@ export default function Admin() {
         method: "POST",
         headers: authHeaders(),
         body: JSON.stringify({
-          items: items.map((item) => ({ productId: item.productId, unitCost: item.unitCost })),
+          items: items.map((item) => ({
+            productId: item.productId,
+            unitCost: item.unitCost,
+            repasseUnitCost: item.repasseUnitCost,
+          })),
           updateProductCost: !!filialPurchaseUpdateCostFlags[request.id],
         }),
       });
@@ -3770,7 +3793,7 @@ export default function Admin() {
     } finally {
       setFilialPurchaseConfirmingId(null);
     }
-  }, [canManageTenants, fetchFilialPurchaseRequests, fetchFilialStoreProducts, filialPurchaseCostDrafts, filialPurchaseUpdateCostFlags, handleUnauthorized, selectedFilialTenantId]);
+  }, [canManageTenants, fetchFilialPurchaseRequests, fetchFilialStoreProducts, filialPurchaseCostDrafts, filialPurchaseRepasseDrafts, filialPurchaseUpdateCostFlags, handleUnauthorized, selectedFilialTenantId]);
 
   const deleteFilialPurchase = useCallback(async (request: FilialPurchaseRequest) => {
     if (!canManageTenants) return;
@@ -8736,7 +8759,23 @@ export default function Admin() {
                                         </div>
                                       </div>
                                       <p className="text-xs text-muted-foreground">Qtd: <span className="font-semibold text-foreground">{item.quantity}</span></p>
-                                      <p className="text-xs text-muted-foreground">Repasse un.: <span className="font-semibold text-foreground">{formatCurrency(item.repasseUnitCost)}</span></p>
+                                      <input
+                                        type="text"
+                                        inputMode="decimal"
+                                        value={filialPurchaseRepasseDrafts[request.id]?.[item.productId] ?? String(Number(item.repasseUnitCost || 0))}
+                                        onChange={(e) => {
+                                          const sanitized = e.target.value.replace(/[^0-9.,]/g, "");
+                                          setFilialPurchaseRepasseDrafts((prev) => ({
+                                            ...prev,
+                                            [request.id]: {
+                                              ...(prev[request.id] || {}),
+                                              [item.productId]: sanitized,
+                                            },
+                                          }));
+                                        }}
+                                        placeholder="Repasse un."
+                                        className="h-9 px-2 rounded-lg border border-border bg-white focus:border-primary outline-none text-sm text-right"
+                                      />
                                       <input
                                         type="text"
                                         inputMode="decimal"

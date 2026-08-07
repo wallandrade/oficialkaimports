@@ -30,6 +30,7 @@ type SnapshotItem = {
 type CostInput = {
   productId?: unknown;
   unitCost?: unknown;
+  repasseUnitCost?: unknown;
 };
 
 type ManualPurchaseItemInput = {
@@ -1675,15 +1676,20 @@ router.post("/admin/filial-purchases/:requestId/confirm", requirePrimaryAdmin, a
     const costInput = Array.isArray(req.body?.items) ? (req.body.items as CostInput[]) : [];
     const shouldUpdateProductCost = req.body?.updateProductCost === true;
     const costByProduct = new Map<string, number>();
+    const repasseByProduct = new Map<string, number>();
     for (const item of costInput) {
       const productId = String(item?.productId || "").trim();
       const unitCost = Number(item?.unitCost);
+      const repasseUnitCost = Number(item?.repasseUnitCost);
       if (!productId) continue;
       if (!Number.isFinite(unitCost) || unitCost < 0) {
         res.status(400).json({ error: "INVALID_INPUT", message: `Custo inválido para o produto ${productId}.` });
         return;
       }
       costByProduct.set(productId, unitCost);
+      if (Number.isFinite(repasseUnitCost) && repasseUnitCost >= 0) {
+        repasseByProduct.set(productId, repasseUnitCost);
+      }
     }
 
     for (const item of snapshotItems) {
@@ -1693,7 +1699,12 @@ router.post("/admin/filial-purchases/:requestId/confirm", requirePrimaryAdmin, a
       }
     }
 
-    const costsSnapshot = snapshotItems.map((item) => {
+    const normalizedSnapshotItems = snapshotItems.map((item) => ({
+      ...item,
+      repasseUnitCost: round2(Number(repasseByProduct.get(item.productId) ?? item.repasseUnitCost ?? 0)),
+    }));
+
+    const costsSnapshot = normalizedSnapshotItems.map((item) => {
       const unitCost = Number(costByProduct.get(item.productId) || 0);
       return {
         productId: item.productId,
@@ -1705,12 +1716,12 @@ router.post("/admin/filial-purchases/:requestId/confirm", requirePrimaryAdmin, a
     });
 
     const loja1RealCostTotal = round2(costsSnapshot.reduce((sum, item) => sum + item.totalCost, 0));
-    const repasseTotal = round2(Number(requestRow.repasseTotal || 0));
+    const repasseTotal = round2(normalizedSnapshotItems.reduce((sum, item) => sum + (Number(item.repasseUnitCost || 0) * item.quantity), 0));
     const loja1RealProfit = round2(repasseTotal - loja1RealCostTotal);
 
     if (shouldUpdateProductCost) {
       const repasseCostByProductId = new Map(
-        snapshotItems.map((item) => [item.productId, round2(Number(item.repasseUnitCost || 0))]),
+        normalizedSnapshotItems.map((item) => [item.productId, round2(Number(item.repasseUnitCost || 0))]),
       );
       const productIds = Array.from(new Set(costsSnapshot.map((item) => item.productId).filter(Boolean)));
       if (productIds.length > 0) {
@@ -1752,6 +1763,8 @@ router.post("/admin/filial-purchases/:requestId/confirm", requirePrimaryAdmin, a
       .update(filialPurchaseRequestsTable)
       .set({
         status: "compra_registrada",
+        itemsSnapshot: normalizedSnapshotItems,
+        repasseTotal: String(repasseTotal),
         costsSnapshot,
         loja1RealCostTotal: String(loja1RealCostTotal),
         loja1RealProfit: String(loja1RealProfit),
