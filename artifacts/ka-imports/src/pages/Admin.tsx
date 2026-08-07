@@ -1303,8 +1303,31 @@ function isFilialPurchaseBatchLaunchEligible(request: FilialPurchaseRequest): bo
 function filialPurchaseDateFilterTs(request: FilialPurchaseRequest): number | null {
   const normalized = String(request.status || "").trim().toLowerCase();
   const hasBatch = String(request.supplierBatchId || "").trim().length > 0;
+  const finalizedAtTs = Date.parse(String(request.finalizedAt || ""));
+  const purchaseRecordedAtTs = Date.parse(String(request.purchaseRecordedAt || ""));
+  const batchReceivedAtTs = Date.parse(String(request.supplierBatchReceivedAt || ""));
+  const batchSentAtTs = Date.parse(String(request.supplierBatchSentAt || ""));
   const createdAtTs = Date.parse(String(request.createdAt || ""));
   const updatedAtTs = Date.parse(String(request.updatedAt || ""));
+
+  // For closed/history statuses, filter by the most recent operational milestone.
+  if (isFilialPurchaseHistoryStatus(normalized)) {
+    if (Number.isFinite(finalizedAtTs)) return finalizedAtTs;
+    if (Number.isFinite(purchaseRecordedAtTs)) return purchaseRecordedAtTs;
+    if (Number.isFinite(updatedAtTs)) return updatedAtTs;
+  }
+
+  if (normalized === "compra_registrada" && Number.isFinite(purchaseRecordedAtTs)) {
+    return purchaseRecordedAtTs;
+  }
+
+  if (normalized === "lote_recebido_loja1" && Number.isFinite(batchReceivedAtTs)) {
+    return batchReceivedAtTs;
+  }
+
+  if (hasBatch && Number.isFinite(batchSentAtTs)) {
+    return batchSentAtTs;
+  }
 
   // When Loja 1 devolve o pedido para relancamento, use updatedAt para cair no filtro da data do dia.
   if (!hasBatch && normalized === "aguardando_compra_loja1" && Number.isFinite(updatedAtTs)) {
