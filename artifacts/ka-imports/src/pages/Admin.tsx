@@ -3772,13 +3772,15 @@ export default function Admin() {
 
       if (res.status === 401) { handleUnauthorized(); return; }
 
-      const data = await res.json().catch(() => null) as { message?: string; idempotent?: boolean } | null;
+      const data = await res.json().catch(() => null) as { message?: string; idempotent?: boolean; updatedAfterFinalized?: boolean } | null;
       if (!res.ok) {
         toast.error(data?.message || "Erro ao confirmar compra da filial.");
         return;
       }
 
-      if (data?.idempotent) {
+      if (data?.updatedAfterFinalized) {
+        toast.success("Pedido finalizado atualizado com os novos valores de custo e repasse.");
+      } else if (data?.idempotent) {
         toast.success("Compra já estava finalizada. Nenhum estoque duplicado foi lançado.");
       } else {
         toast.success(filialPurchaseUpdateCostFlags[request.id]
@@ -8822,7 +8824,9 @@ export default function Admin() {
                                     <span className="ml-2">
                                       {String(request.status || "").trim().toLowerCase() === "pendente_pagamento_filial"
                                         ? "Aguardando pagamento da filial"
-                                        : "Confirmar compra e lançar estoque"}
+                                        : String(request.status || "").trim().toLowerCase() === "finalizado"
+                                          ? "Atualizar valores do pedido finalizado"
+                                          : "Confirmar compra e lançar estoque"}
                                     </span>
                                   </Button>
                                 </div>

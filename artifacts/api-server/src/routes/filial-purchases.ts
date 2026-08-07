@@ -1652,10 +1652,7 @@ router.post("/admin/filial-purchases/:requestId/confirm", requirePrimaryAdmin, a
       return;
     }
 
-    if (requestRow.status === "finalizado") {
-      res.json({ ok: true, idempotent: true, message: "Compra já finalizada." });
-      return;
-    }
+    const wasFinalized = requestRow.status === "finalizado";
 
     if (requestRow.status === "cancelado") {
       res.status(400).json({ error: "INVALID_STATE", message: "Não é possível confirmar uma compra cancelada." });
@@ -1762,7 +1759,7 @@ router.post("/admin/filial-purchases/:requestId/confirm", requirePrimaryAdmin, a
     await db
       .update(filialPurchaseRequestsTable)
       .set({
-        status: "compra_registrada",
+        status: wasFinalized ? "finalizado" : "compra_registrada",
         itemsSnapshot: normalizedSnapshotItems,
         repasseTotal: String(repasseTotal),
         costsSnapshot,
@@ -1776,7 +1773,7 @@ router.post("/admin/filial-purchases/:requestId/confirm", requirePrimaryAdmin, a
 
     await addAudit({
       requestId,
-      action: "compra_registrada",
+      action: wasFinalized ? "ajuste_pos_finalizacao" : "compra_registrada",
       actorUsername,
       payload: {
         loja1RealCostTotal,
@@ -1785,6 +1782,18 @@ router.post("/admin/filial-purchases/:requestId/confirm", requirePrimaryAdmin, a
         updateProductCost: shouldUpdateProductCost,
       },
     });
+
+    if (wasFinalized) {
+      res.json({
+        ok: true,
+        requestId,
+        status: "finalizado",
+        updatedAfterFinalized: true,
+        loja1RealCostTotal,
+        loja1RealProfit,
+      });
+      return;
+    }
 
     const existingEntries = await db
       .select({
