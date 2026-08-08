@@ -1239,6 +1239,7 @@ interface FilialPanelBatchGroup {
   receivedAt: string | null;
   totalOrders: number;
   totalRepasse: number;
+  totalProfit: number;
   tenantNames: string[];
   requests: FilialPurchaseRequest[];
   canConfirmReceipt: boolean;
@@ -1254,6 +1255,8 @@ interface FilialPanelDateGroup {
   totalOrders: number;
   totalBatches: number;
   totalRepasse: number;
+  totalProfit: number;
+  hasClosedBatches: boolean;
   hasOverdueBatches: boolean;
   batches: FilialPanelBatchGroup[];
 }
@@ -2177,6 +2180,9 @@ export default function Admin() {
           receivedAt,
           totalOrders: sortedRequests.length,
           totalRepasse: sortedRequests.reduce((sum, request) => sum + Number(request.repasseTotal || 0), 0),
+          totalProfit: status === "closed"
+            ? sortedRequests.reduce((sum, request) => sum + Number(request.loja1RealProfit || 0), 0)
+            : 0,
           tenantNames,
           requests: sortedRequests,
           canConfirmReceipt: Boolean(summary?.canConfirmReceipt),
@@ -2205,6 +2211,8 @@ export default function Admin() {
         totalOrders: batches.reduce((sum, batch) => sum + batch.totalOrders, 0),
         totalBatches: batches.length,
         totalRepasse: batches.reduce((sum, batch) => sum + batch.totalRepasse, 0),
+        totalProfit: batches.reduce((sum, batch) => sum + batch.totalProfit, 0),
+        hasClosedBatches: batches.some((batch) => batch.status === "closed"),
         hasOverdueBatches: batches.some((batch) => batch.isOverdue),
         batches,
       };
@@ -8972,6 +8980,14 @@ export default function Admin() {
                                     {dateGroup.totalBatches} lote(s) · {dateGroup.totalOrders} pedido(s) · Repasse {formatCurrency(dateGroup.totalRepasse)}
                                   </p>
                                 </div>
+                                {dateGroup.hasClosedBatches ? (
+                                  <div className="text-right">
+                                    <p className="text-[11px] text-muted-foreground">Lucro do repasse no dia</p>
+                                    <p className={`text-sm font-bold ${dateGroup.totalProfit < 0 ? "text-red-700" : "text-emerald-700"}`}>
+                                      {formatCurrency(dateGroup.totalProfit)}
+                                    </p>
+                                  </div>
+                                ) : null}
                               </button>
 
                               {isDateExpanded ? (
@@ -9012,6 +9028,16 @@ export default function Admin() {
                                               </p>
                                             ) : null}
                                           </div>
+                                          {batchGroup.status === "closed" ? (
+                                            <div className="text-right">
+                                              <p className="text-[11px] text-muted-foreground">
+                                                Lucro do repasse para {batchGroup.tenantNames.join(", ") || "filial"}
+                                              </p>
+                                              <p className={`text-sm font-bold ${batchGroup.totalProfit < 0 ? "text-red-700" : "text-emerald-700"}`}>
+                                                {formatCurrency(batchGroup.totalProfit)}
+                                              </p>
+                                            </div>
+                                          ) : null}
                                         </button>
 
                                         {isBatchExpanded ? (
