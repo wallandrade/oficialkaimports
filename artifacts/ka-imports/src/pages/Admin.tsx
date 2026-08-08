@@ -1422,6 +1422,39 @@ function computeLoja1RepasseProfitFromItems(items: FilialPurchaseRequestItem[] |
   return hasAnyBase ? Number(totalProfit.toFixed(2)) : null;
 }
 
+function computeFilialPurchaseDraftTotals(
+  items: FilialPurchaseRequestItem[] | null | undefined,
+  costDrafts: Record<string, string> | undefined,
+  repasseDrafts: Record<string, string> | undefined,
+): { repasseTotal: number; profit: number } | null {
+  if (!Array.isArray(items) || items.length === 0) return null;
+
+  let repasseTotal = 0;
+  let profit = 0;
+  let hasValidItem = false;
+
+  for (const item of items) {
+    const quantity = Number(item.quantity || 0);
+    const savedRepasse = Number(item.repasseUnitCost || 0);
+    const savedCost = Number.isFinite(Number(item.baseUnitCost)) && Number(item.baseUnitCost) >= 0
+      ? Number(item.baseUnitCost)
+      : savedRepasse;
+    const repasseRaw = repasseDrafts?.[item.productId];
+    const costRaw = costDrafts?.[item.productId];
+    const repasse = repasseRaw == null ? savedRepasse : Number(String(repasseRaw).replace(",", "."));
+    const cost = costRaw == null ? savedCost : Number(String(costRaw).replace(",", "."));
+
+    if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(repasse) || !Number.isFinite(cost)) continue;
+    hasValidItem = true;
+    repasseTotal += repasse * quantity;
+    profit += (repasse - cost) * quantity;
+  }
+
+  return hasValidItem
+    ? { repasseTotal: Number(repasseTotal.toFixed(2)), profit: Number(profit.toFixed(2)) }
+    : null;
+}
+
 function filialPurchaseStatusOrder(status: string): number {
   const tag = filialPurchaseStatusTag(status);
   if (tag === "pendente") return 0;
@@ -9004,9 +9037,34 @@ export default function Admin() {
                                                     <p className="text-muted-foreground">Total pago na filial</p>
                                                     <p className="font-semibold text-foreground">{formatCurrency(request.orderTotal)}</p>
                                                     <p className="text-muted-foreground mt-1">Repasse para filial</p>
-                                                    <p className="font-semibold text-blue-700">{formatCurrency(request.repasseTotal)}</p>
+                                                    <p className="font-semibold text-blue-700">
+                                                      {formatCurrency(
+                                                        computeFilialPurchaseDraftTotals(
+                                                          request.items,
+                                                          filialPurchaseCostDrafts[request.id],
+                                                          filialPurchaseRepasseDrafts[request.id],
+                                                        )?.repasseTotal ?? request.repasseTotal,
+                                                      )}
+                                                    </p>
                                                     {(() => {
                                                       const normalizedStatus = String(request.status || "").trim().toLowerCase();
+                                                      const draftTotals = computeFilialPurchaseDraftTotals(
+                                                        request.items,
+                                                        filialPurchaseCostDrafts[request.id],
+                                                        filialPurchaseRepasseDrafts[request.id],
+                                                      );
+                                                      const hasDraftValues = Boolean(
+                                                        Object.keys(filialPurchaseCostDrafts[request.id] || {}).length
+                                                        || Object.keys(filialPurchaseRepasseDrafts[request.id] || {}).length,
+                                                      );
+                                                      if (hasDraftValues && draftTotals) {
+                                                        return (
+                                                          <>
+                                                            <p className="text-muted-foreground mt-1">Lucro Loja 1 no repasse (ao vivo)</p>
+                                                            <p className={`font-semibold ${draftTotals.profit < 0 ? "text-red-700" : "text-emerald-700"}`}>{formatCurrency(draftTotals.profit)}</p>
+                                                          </>
+                                                        );
+                                                      }
                                                       const isClosed = normalizedStatus === "pago_na_filial" || normalizedStatus === "compra_registrada" || normalizedStatus === "estoque_lancado_filial" || normalizedStatus === "finalizado";
                                                       if (isClosed) {
                                                         return (
