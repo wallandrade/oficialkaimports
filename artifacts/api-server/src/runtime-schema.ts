@@ -1,4 +1,5 @@
 import { pool } from "@workspace/db";
+import { DEFAULT_MOTOBOY_NEIGHBORHOODS } from "./lib/default-motoboy-neighborhoods";
 
 const DEFAULT_TENANT_ID = "tenant_loja1";
 const DEFAULT_TENANT_SLUG = "loja-1";
@@ -1056,6 +1057,51 @@ async function ensureMotoboyNeighborhoodsTable(databaseName: string): Promise<vo
   `);
 }
 
+function normalizeMotoboySeedValue(value: unknown): string {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+async function seedDefaultMotoboyNeighborhoods(): Promise<void> {
+  const [rows] = await pool.query(
+    "SELECT neighborhood_name AS neighborhoodName, city FROM motoboy_neighborhoods WHERE tenant_id = ?",
+    [DEFAULT_TENANT_ID],
+  );
+  const existingKeys = new Set(
+    (rows as Array<{ neighborhoodName?: unknown; city?: unknown }>).map((row) => (
+      `${normalizeMotoboySeedValue(row.city)}|${normalizeMotoboySeedValue(row.neighborhoodName)}`
+    )),
+  );
+  const pending = [];
+
+  for (const neighborhood of DEFAULT_MOTOBOY_NEIGHBORHOODS) {
+    const key = `${normalizeMotoboySeedValue(neighborhood.city)}|${normalizeMotoboySeedValue(neighborhood.neighborhoodName)}`;
+    if (existingKeys.has(key)) continue;
+    existingKeys.add(key);
+    pending.push(neighborhood);
+  }
+
+  if (pending.length === 0) return;
+
+  const placeholders = pending.map(() => "(?, ?, ?, ?, ?, ?, TRUE, NULL)").join(", ");
+  const values = pending.flatMap((neighborhood) => [
+    neighborhood.id,
+    DEFAULT_TENANT_ID,
+    neighborhood.neighborhoodName,
+    neighborhood.city,
+    neighborhood.price.toFixed(2),
+    neighborhood.sortOrder,
+  ]);
+  await pool.query(
+    `INSERT IGNORE INTO motoboy_neighborhoods (id, tenant_id, neighborhood_name, city, price, sort_order, is_active, notes) VALUES ${placeholders}`,
+    values,
+  );
+  console.log(`[RuntimeSchema] Seeded ${pending.length} motoboy neighborhood(s).`);
+}
+
 export async function ensureRuntimeSchema(): Promise<void> {
   try {
     const databaseName = getDatabaseName();
@@ -1088,6 +1134,7 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureTenantSettingsTable(databaseName);
     await ensureMotoboyNeighborhoodsTable(databaseName);
     await seedDefaultTenantAndBackfill(databaseName);
+    await seedDefaultMotoboyNeighborhoods();
 
     console.log("[RuntimeSchema] Schema sync completed.");
   } catch (error) {

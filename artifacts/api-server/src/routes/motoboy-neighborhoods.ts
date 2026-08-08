@@ -25,6 +25,7 @@ function parsePrice(value: unknown): number | null {
 router.get("/motoboy-neighborhoods/lookup", async (req, res) => {
   try {
     const lookupName = normalizeNeighborhoodName(req.query.bairro);
+    const lookupCity = normalizeNeighborhoodName(req.query.cidade);
     if (!lookupName) {
       res.json({ neighborhood: null });
       return;
@@ -42,6 +43,7 @@ router.get("/motoboy-neighborhoods/lookup", async (req, res) => {
 
     const neighborhood = neighborhoods.find((item) => (
       normalizeNeighborhoodName(item.neighborhoodName) === lookupName
+      && (!lookupCity || normalizeNeighborhoodName(item.city) === lookupCity)
     )) || null;
 
     res.json({ neighborhood });

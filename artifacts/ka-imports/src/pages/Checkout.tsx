@@ -815,7 +815,9 @@ export default function Checkout() {
           }
           if (data.bairro) {
             try {
-              const lookupRes = await fetch(`${BASE}/api/motoboy-neighborhoods/lookup?bairro=${encodeURIComponent(data.bairro)}`);
+              const lookupParams = new URLSearchParams({ bairro: data.bairro });
+              if (data.localidade) lookupParams.set("cidade", data.localidade);
+              const lookupRes = await fetch(`${BASE}/api/motoboy-neighborhoods/lookup?${lookupParams}`);
               const lookupData = await lookupRes.json() as {
                 neighborhood?: {
                   id: string;
