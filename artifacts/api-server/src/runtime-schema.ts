@@ -283,6 +283,9 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
     { name: "tracking_label_text", sql: "ALTER TABLE orders ADD COLUMN tracking_label_text MEDIUMTEXT NULL" },
     { name: "tracking_detected_name", sql: "ALTER TABLE orders ADD COLUMN tracking_detected_name VARCHAR(255) NULL" },
     { name: "tracking_detected_address", sql: "ALTER TABLE orders ADD COLUMN tracking_detected_address TEXT NULL" },
+    { name: "motoboy_delivery_date", sql: "ALTER TABLE orders ADD COLUMN motoboy_delivery_date DATE NULL" },
+    { name: "motoboy_delivery_time", sql: "ALTER TABLE orders ADD COLUMN motoboy_delivery_time VARCHAR(5) NULL" },
+    { name: "motoboy_delivery_duration_hours", sql: "ALTER TABLE orders ADD COLUMN motoboy_delivery_duration_hours INT NULL" },
   ];
 
   for (const definition of definitions) {
@@ -1057,6 +1060,28 @@ async function ensureMotoboyNeighborhoodsTable(databaseName: string): Promise<vo
   `);
 }
 
+async function ensureMotoboyDeliveryReservationsTable(databaseName: string): Promise<void> {
+  if (await tableExists("motoboy_delivery_reservations", databaseName)) return;
+
+  await pool.query(`
+    CREATE TABLE motoboy_delivery_reservations (
+      id VARCHAR(255) NOT NULL PRIMARY KEY,
+      tenant_id VARCHAR(255) NOT NULL,
+      order_id VARCHAR(255) NOT NULL,
+      neighborhood_id VARCHAR(255) NOT NULL,
+      neighborhood_name VARCHAR(255) NOT NULL,
+      city VARCHAR(255) NULL,
+      delivery_date DATE NOT NULL,
+      slot_hour INT NOT NULL,
+      start_time VARCHAR(5) NOT NULL,
+      duration_hours INT NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY motoboy_delivery_reservations_slot_unique (tenant_id, delivery_date, slot_hour),
+      KEY motoboy_delivery_reservations_order_idx (order_id)
+    )
+  `);
+}
+
 function normalizeMotoboySeedValue(value: unknown): string {
   return String(value || "")
     .normalize("NFD")
@@ -1133,6 +1158,7 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureTenantColumns(databaseName);
     await ensureTenantSettingsTable(databaseName);
     await ensureMotoboyNeighborhoodsTable(databaseName);
+    await ensureMotoboyDeliveryReservationsTable(databaseName);
     await seedDefaultTenantAndBackfill(databaseName);
     await seedDefaultMotoboyNeighborhoods();
 

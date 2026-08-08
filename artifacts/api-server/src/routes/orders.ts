@@ -1,6 +1,6 @@
 import { enqueueFilialOrderPurchaseRequest } from "../lib/filial-purchase-queue";
 import { Router, type IRouter, type Request, type Response } from "express";
-import { db, pool, ordersTable, customChargesTable, sellersTable, productsTable, siteSettingsTable, tenantSettingsTable, reshipmentsTable, couponsTable, inventoryBalancesTable } from "@workspace/db";
+import { db, pool, ordersTable, customChargesTable, sellersTable, productsTable, siteSettingsTable, tenantSettingsTable, reshipmentsTable, couponsTable, inventoryBalancesTable, motoboyDeliveryReservationsTable } from "@workspace/db";
 import { desc, and, gte, lte, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { getAdminScope, requireAdminAuth, verifyCurrentAdminPassword } from "./admin-auth";
@@ -27,6 +27,7 @@ import { sendOutboundWebhook } from "../lib/outbound-webhook";
 import { parseFreeShippingMinSubtotalSetting, resolveShippingCostWithFreeThreshold } from "../lib/free-shipping";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 import { reserveNextOrderNumber } from "../lib/order-number";
+import { MotoboyScheduleError, reserveMotoboySchedule } from "../lib/motoboy-delivery-schedule";
 
 const router: IRouter = Router();
 
@@ -1241,6 +1242,9 @@ router.post("/orders", async (req, res) => {
     let assignedOrderNumber = 0;
     await db.transaction(async (tx) => {
       assignedOrderNumber = await reserveNextOrderNumber(tx, tenantId);
+      const motoboySchedule = String(shippingType).trim().toLowerCase() === "motoboy"
+        ? await reserveMotoboySchedule(tx, tenantId, id, req.body?.motoboySchedule || {})
+        : null;
 
       await tx.insert(ordersTable).values({
         id,
@@ -1264,6 +1268,9 @@ router.post("/orders", async (req, res) => {
         addressState:        address?.state        || null,
         products: orderProducts,
         shippingType,
+        motoboyDeliveryDate: motoboySchedule?.date || null,
+        motoboyDeliveryTime: motoboySchedule?.time || null,
+        motoboyDeliveryDurationHours: motoboySchedule?.durationHours || null,
         includeInsurance:  Boolean(includeInsurance),
         subtotal:          String(computedSubtotal),
         shippingCost:      String(computedShippingCost),
@@ -1334,6 +1341,10 @@ router.post("/orders", async (req, res) => {
       createdAt:     new Date().toISOString(),
     });
   } catch (err) {
+    if (err instanceof MotoboyScheduleError) {
+      res.status(err.code === "DELIVERY_SLOT_UNAVAILABLE" ? 409 : 400).json({ error: err.code, message: err.message });
+      return;
+    }
     console.error("Create order error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao criar pedido. Tente novamente." });
   }
@@ -1667,6 +1678,13 @@ router.patch("/admin/orders/:id/status", requireAdminAuth, async (req, res) => {
     if ((updateResult as any).rowsAffected === 0) {
       res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
       return;
+    }
+
+    if (nextStatus === "cancelled") {
+      await db.delete(motoboyDeliveryReservationsTable).where(and(
+        eq(motoboyDeliveryReservationsTable.orderId, id),
+        eq(motoboyDeliveryReservationsTable.tenantId, adminScope.tenantId),
+      ));
     }
 
     if (couponCodeToIncrement) {
@@ -2240,6 +2258,9 @@ function mapOrder(o: typeof ordersTable.$inferSelect) {
     addressState:        o.addressState,
     products,
     shippingType:        o.shippingType,
+    motoboyDeliveryDate: o.motoboyDeliveryDate,
+    motoboyDeliveryTime: o.motoboyDeliveryTime,
+    motoboyDeliveryDurationHours: o.motoboyDeliveryDurationHours,
     includeInsurance:    o.includeInsurance,
     subtotal:            Number(o.subtotal),
     shippingCost:        Number(o.shippingCost),
@@ -2491,6 +2512,13 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
     await db.update(ordersTable)
       .set({ enviado, updatedAt: new Date() })
       .where(buildAdminOrderWhere(id, adminScope));
+
+    if (enviado && !wasEnviado) {
+      await db.delete(motoboyDeliveryReservationsTable).where(and(
+        eq(motoboyDeliveryReservationsTable.orderId, id),
+        eq(motoboyDeliveryReservationsTable.tenantId, adminScope.tenantId),
+      ));
+    }
 
     const persisted = await db
       .select({ enviado: ordersTable.enviado })

@@ -3,6 +3,7 @@ import { Router, type IRouter } from "express";
 import { and, asc, eq } from "drizzle-orm";
 import { db, motoboyNeighborhoodsTable } from "@workspace/db";
 import { resolvePublicTenantId } from "../lib/tenant-context";
+import { getMotoboyAvailability, MotoboyScheduleError } from "../lib/motoboy-delivery-schedule";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 
 const router: IRouter = Router();
@@ -50,6 +51,24 @@ router.get("/motoboy-neighborhoods/lookup", async (req, res) => {
   } catch (error) {
     console.error("[MotoboyNeighborhoods] lookup error:", error);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao consultar entrega por motoboy." });
+  }
+});
+
+router.get("/motoboy-delivery/availability", async (req, res) => {
+  try {
+    const tenantId = await resolvePublicTenantId(req);
+    const availability = await getMotoboyAvailability(tenantId, {
+      neighborhoodId: req.query.neighborhoodId,
+      date: req.query.date,
+    });
+    res.json(availability);
+  } catch (error) {
+    if (error instanceof MotoboyScheduleError) {
+      res.status(400).json({ error: error.code, message: error.message });
+      return;
+    }
+    console.error("[MotoboyDelivery] availability error:", error);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao consultar horários de entrega." });
   }
 });
 

@@ -1,4 +1,4 @@
-import { mysqlTable, varchar, text, mediumtext, decimal, boolean, timestamp, json, int } from "drizzle-orm/mysql-core";
+import { mysqlTable, varchar, text, mediumtext, decimal, boolean, timestamp, json, int, date } from "drizzle-orm/mysql-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -28,6 +28,9 @@ export const ordersTable = mysqlTable("orders", {
   addressState: varchar("address_state", { length: 2 }),
   products: json("products").notNull(),
   shippingType: varchar("shipping_type", { length: 50 }).notNull(),
+  motoboyDeliveryDate: date("motoboy_delivery_date", { mode: "string" }),
+  motoboyDeliveryTime: varchar("motoboy_delivery_time", { length: 5 }),
+  motoboyDeliveryDurationHours: int("motoboy_delivery_duration_hours"),
   includeInsurance: boolean("include_insurance").notNull().default(false),
   subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
   shippingCost: decimal("shipping_cost", { precision: 10, scale: 2 }).notNull(),

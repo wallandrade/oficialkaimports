@@ -13179,6 +13179,12 @@ function OrdersPanel({
           const reshipmentTrackingCode = String(order?.reshipment?.ticketTrackingCode || "").trim();
           const previewProducts = orderProducts.slice(0, 5);
           const hiddenProductsCount = Math.max(0, orderProducts.length - previewProducts.length);
+          const motoboySchedule = order as unknown as {
+            motoboyDeliveryDate?: string | null;
+            motoboyDeliveryTime?: string | null;
+            motoboyDeliveryDurationHours?: number | null;
+          };
+          const hasMotoboySchedule = Boolean(motoboySchedule.motoboyDeliveryDate && motoboySchedule.motoboyDeliveryTime);
           // Definir isReshipment no escopo correto
           const isReshipment = Boolean(order?.reshipment?.id) && !["reenvio_enviado", "reenvio_resolvido_sem_entrada"].includes(String(order?.reshipment?.status || ""));
           const isSupportTicketReshipmentChild = String(order?.observation || "").toUpperCase().includes("REENVIO DO PEDIDO");
@@ -13357,6 +13363,26 @@ function OrdersPanel({
                   </p>
                 </div>
               </div>
+
+              {hasMotoboySchedule && (
+                <div className={`mt-4 flex flex-col gap-2 rounded-xl border p-3 sm:flex-row sm:items-center sm:justify-between ${enviados[order.id] ? "border-slate-200 bg-slate-50" : "border-emerald-200 bg-emerald-50"}`}>
+                  <div className="flex items-center gap-3">
+                    <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${enviados[order.id] ? "bg-slate-200 text-slate-700" : "bg-emerald-600 text-white"}`}>
+                      <Bike className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <p className={`text-xs font-semibold uppercase ${enviados[order.id] ? "text-slate-600" : "text-emerald-700"}`}>Entrega por motoboy</p>
+                      <p className="font-bold text-foreground">
+                        {formatDateOnlyLocal(motoboySchedule.motoboyDeliveryDate)} às {motoboySchedule.motoboyDeliveryTime}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Intervalo de {motoboySchedule.motoboyDeliveryDurationHours || 1}h
+                    {enviados[order.id] ? " · horário liberado" : " · horário reservado"}
+                  </span>
+                </div>
+              )}
 
               {/* Order management controls — shown for all orders */}
               <div className={`mt-4 p-4 rounded-xl border ${isCard ? "bg-purple-50 border-purple-100" : "bg-blue-50/50 border-blue-100/50"}`}>

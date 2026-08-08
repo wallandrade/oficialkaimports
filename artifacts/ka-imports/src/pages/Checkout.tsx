@@ -5,7 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import {
   ShieldCheck, Truck, CreditCard, QrCode, ArrowLeft,
-  MessageCircle, AlertTriangle, MapPin, Loader2, Tag, X, CheckCircle2, Zap, Minus, Plus, ExternalLink, Camera, IdCard, FileText, Clock, Bike
+  MessageCircle, AlertTriangle, MapPin, Loader2, Tag, X, CheckCircle2, Zap, Minus, Plus, ExternalLink, Camera, IdCard, FileText, Clock, Bike, CalendarDays
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -101,6 +101,17 @@ function formatCEP(value: string) {
   return `${d.slice(0, 5)}-${d.slice(5)}`;
 }
 
+function getSaoPauloDateKey() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
+}
+
 const checkoutSchema = z.object({
   name: z.string().min(3, "Nome completo é obrigatório"),
   email: z.string().email("E-mail inválido"),
@@ -132,6 +143,11 @@ export default function Checkout() {
   const [motoboyShippingOption, setMotoboyShippingOption] = useState<ShippingOption | null>(null);
   const [shippingLoading, setShippingLoading] = useState(true);
   const [selectedShippingId, setSelectedShippingId] = useState<string | null>(null);
+  const [motoboyDeliveryDate, setMotoboyDeliveryDate] = useState("");
+  const [motoboyDeliveryTime, setMotoboyDeliveryTime] = useState("");
+  const [motoboyAvailableSlots, setMotoboyAvailableSlots] = useState<string[]>([]);
+  const [motoboyDurationHours, setMotoboyDurationHours] = useState(1);
+  const [motoboySlotsLoading, setMotoboySlotsLoading] = useState(false);
   const [includeInsurance, setIncludeInsurance] = useState(false);
   const [showCardModal, setShowCardModal] = useState(false);
   const [whatsappModalData, setWhatsappModalData] = useState<{ url: string; orderId: string } | null>(null);
@@ -655,6 +671,54 @@ export default function Checkout() {
     [motoboyShippingOption, shippingOptions],
   );
   const selectedShipping = availableShippingOptions.find((o) => o.id === selectedShippingId) ?? null;
+  const isMotoboySelected = Boolean(selectedShippingId?.startsWith("motoboy_"));
+  const motoboyNeighborhoodId = isMotoboySelected ? selectedShippingId!.slice("motoboy_".length) : "";
+  const motoboySchedulePayload = isMotoboySelected
+    ? { neighborhoodId: motoboyNeighborhoodId, date: motoboyDeliveryDate, time: motoboyDeliveryTime }
+    : undefined;
+
+  useEffect(() => {
+    if (!isMotoboySelected) {
+      setMotoboyDeliveryDate("");
+      setMotoboyDeliveryTime("");
+      setMotoboyAvailableSlots([]);
+      return;
+    }
+    setMotoboyDeliveryDate((current) => current || getSaoPauloDateKey());
+  }, [isMotoboySelected]);
+
+  useEffect(() => {
+    if (!isMotoboySelected || !motoboyNeighborhoodId || !motoboyDeliveryDate) return;
+    const controller = new AbortController();
+    setMotoboySlotsLoading(true);
+    setMotoboyDeliveryTime("");
+
+    fetch(`${BASE}/api/motoboy-delivery/availability?neighborhoodId=${encodeURIComponent(motoboyNeighborhoodId)}&date=${encodeURIComponent(motoboyDeliveryDate)}`, {
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const result = await response.json() as { slots?: string[]; durationHours?: number; message?: string };
+        if (!response.ok) throw new Error(result.message || "Erro ao carregar horários.");
+        setMotoboyAvailableSlots(result.slots || []);
+        setMotoboyDurationHours(result.durationHours || 1);
+      })
+      .catch((error: Error) => {
+        if (error.name === "AbortError") return;
+        setMotoboyAvailableSlots([]);
+        toast.error(error.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setMotoboySlotsLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [isMotoboySelected, motoboyDeliveryDate, motoboyNeighborhoodId]);
+
+  const validateMotoboySchedule = useCallback(() => {
+    if (!isMotoboySelected || (motoboyDeliveryDate && motoboyDeliveryTime)) return true;
+    toast.error("Selecione a data e o horário da entrega por motoboy.");
+    return false;
+  }, [isMotoboySelected, motoboyDeliveryDate, motoboyDeliveryTime]);
   const shippingBaseCost = selectedShipping ? Number(selectedShipping.price) : 0;
   const isFreeShippingEligible = freeShippingMinSubtotal != null && subtotal >= freeShippingMinSubtotal;
   const shippingCost = isFreeShippingEligible ? 0 : shippingBaseCost;
@@ -972,6 +1036,7 @@ export default function Checkout() {
     }
 
     if (!validateLanderGoldRule()) return;
+    if (!validateMotoboySchedule()) return;
 
     const cartAvailable = await validateCartAvailability();
     if (!cartAvailable) return;
@@ -1025,6 +1090,7 @@ export default function Checkout() {
           useAffiliateCredit,
           couponCode:      appliedCoupon?.code,
           discountAmount:  discountAmount > 0 ? discountAmount : undefined,
+          motoboySchedule: motoboySchedulePayload,
         }),
       });
 
@@ -1221,6 +1287,7 @@ export default function Checkout() {
     }
 
     if (!validateLanderGoldRule()) return;
+    if (!validateMotoboySchedule()) return;
 
     const cartAvailable = await validateCartAvailability();
     if (!cartAvailable) return;
@@ -1261,6 +1328,7 @@ export default function Checkout() {
         affiliateCode: affiliateCode || undefined,
         couponCode: appliedCoupon?.code,
         discountAmount: discountAmount > 0 ? discountAmount : undefined,
+        motoboySchedule: motoboySchedulePayload,
       });
 
       const itemsText = productsPayload
@@ -1296,6 +1364,7 @@ export default function Checkout() {
           `📍 *Endereço:* ${data.street}, ${data.number}${data.complement ? ` – ${data.complement}` : ""}\n` +
           `🏘️ *Bairro:* ${data.neighborhood}\n` +
           `📮 *CEP:* ${data.cep}\n\n` +
+          `📅 *Agendamento:* ${motoboyDeliveryDate.split("-").reverse().join("/")} às ${motoboyDeliveryTime}\n\n` +
           `📦 *Itens:*\n${motoboyItemsText}\n\n` +
           `💰 *Produtos:* ${formatCurrency(subtotal)}\n` +
           `🏍️ *Motoboy:* ${formatCurrency(shippingCost)}\n` +
@@ -1365,6 +1434,7 @@ export default function Checkout() {
       priceSyncRetryCountRef.current.card = 0;
     }
     if (!validateLanderGoldRule()) return;
+    if (!validateMotoboySchedule()) return;
 
     const data = getValues();
     const cardFee = installments <= 3 ? 100 : 0;
@@ -1406,6 +1476,7 @@ export default function Checkout() {
         affiliateCode: affiliateCode || undefined,
         couponCode: appliedCoupon?.code,
         discountAmount: cardDiscountAmount > 0 ? cardDiscountAmount : undefined,
+        motoboySchedule: motoboySchedulePayload,
       });
 
       const itemsText = cardProductsPayload
@@ -1909,6 +1980,61 @@ export default function Checkout() {
                         </div>
                       </div>
                     ))}
+                  </div>
+                )}
+                {isMotoboySelected && (
+                  <div className="mt-4 border border-emerald-200 bg-emerald-50/70 rounded-xl p-4 space-y-4">
+                    <div className="flex items-start gap-3">
+                      <CalendarDays className="w-5 h-5 text-emerald-700 mt-0.5 shrink-0" />
+                      <div>
+                        <p className="font-semibold text-emerald-950">Agende a entrega</p>
+                        <p className="text-sm text-emerald-800 mt-0.5">
+                          Entregas a partir das 10h. Este bairro ocupa um intervalo de {motoboyDurationHours}h.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label htmlFor="motoboy-delivery-date" className="text-sm font-medium text-foreground mb-1.5 block">
+                        Data da entrega
+                      </label>
+                      <Input
+                        id="motoboy-delivery-date"
+                        type="date"
+                        min={getSaoPauloDateKey()}
+                        value={motoboyDeliveryDate}
+                        onChange={(event) => setMotoboyDeliveryDate(event.target.value)}
+                        className="bg-white"
+                      />
+                    </div>
+
+                    {motoboyDeliveryDate && (
+                      <div>
+                        <p className="text-sm font-medium text-foreground mb-2">Horário disponível</p>
+                        {motoboySlotsLoading ? (
+                          <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
+                            <Loader2 className="w-4 h-4 animate-spin" /> Consultando agenda...
+                          </div>
+                        ) : motoboyAvailableSlots.length === 0 ? (
+                          <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
+                            Não há horários disponíveis nesta data. Selecione outro dia.
+                          </p>
+                        ) : (
+                          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                            {motoboyAvailableSlots.map((slot) => (
+                              <button
+                                key={slot}
+                                type="button"
+                                onClick={() => setMotoboyDeliveryTime(slot)}
+                                className={`h-10 rounded-lg border text-sm font-semibold transition-colors ${motoboyDeliveryTime === slot ? "border-emerald-700 bg-emerald-700 text-white" : "border-emerald-200 bg-white text-emerald-900 hover:border-emerald-500"}`}
+                              >
+                                {slot}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
                 {freeShippingMinSubtotal != null && (

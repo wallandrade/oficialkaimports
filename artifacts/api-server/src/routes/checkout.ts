@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, ordersTable, sellersTable, productsTable, siteSettingsTable, tenantSettingsTable, couponsTable } from "@workspace/db";
+import { db, ordersTable, sellersTable, productsTable, siteSettingsTable, tenantSettingsTable, couponsTable, motoboyDeliveryReservationsTable } from "@workspace/db";
 import { and, eq, inArray } from "drizzle-orm";
 import crypto from "crypto";
 import { broadcastNotification } from "./notifications";
@@ -19,6 +19,7 @@ import { parseFreeShippingMinSubtotalSetting, resolveShippingCostWithFreeThresho
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 import { enqueueFilialOrderPurchaseRequest } from "../lib/filial-purchase-queue";
 import { reserveNextOrderNumber } from "../lib/order-number";
+import { MotoboyScheduleError, type MotoboyScheduleInput, reserveMotoboySchedule } from "../lib/motoboy-delivery-schedule";
 
 const router: IRouter = Router();
 
@@ -245,6 +246,7 @@ router.post("/checkout/pix", async (req, res) => {
       shippingCost, insuranceAmount,
       sellerCode, couponCode,
       useAffiliateCredit,
+      motoboySchedule,
     } = req.body as {
       client: { name: string; email: string; phone: string; document: string };
       address?: {
@@ -259,6 +261,7 @@ router.post("/checkout/pix", async (req, res) => {
       sellerCode?: string;
       couponCode?: string;
       useAffiliateCredit?: boolean;
+      motoboySchedule?: MotoboyScheduleInput;
     };
 
     const normalizedAffiliateCode = normalizeAffiliateCode(req.body?.affiliateCode);
@@ -433,6 +436,9 @@ router.post("/checkout/pix", async (req, res) => {
     let assignedOrderNumber = 0;
     await db.transaction(async (tx) => {
       assignedOrderNumber = await reserveNextOrderNumber(tx, tenantId);
+      const reservedMotoboySchedule = String(shippingType || "").trim().toLowerCase() === "motoboy"
+        ? await reserveMotoboySchedule(tx, tenantId, orderId, motoboySchedule || {})
+        : null;
 
       await tx.insert(ordersTable).values({
         id:                  orderId,
@@ -456,6 +462,9 @@ router.post("/checkout/pix", async (req, res) => {
         addressState:        address?.state        || null,
         products:            orderProducts,
         shippingType:        shippingType || "Frete",
+        motoboyDeliveryDate: reservedMotoboySchedule?.date || null,
+        motoboyDeliveryTime: reservedMotoboySchedule?.time || null,
+        motoboyDeliveryDurationHours: reservedMotoboySchedule?.durationHours || null,
         includeInsurance:    Boolean(includeInsurance),
         subtotal:            String(computedSubtotal),
         shippingCost:        String(computedShippingCost),
@@ -599,6 +608,12 @@ router.post("/checkout/pix", async (req, res) => {
         .set({ status: "cancelled", updatedAt: new Date() })
         .where(and(eq(ordersTable.id, orderId), eq(ordersTable.tenantId, tenantId)))
         .catch(() => {});
+      await db.delete(motoboyDeliveryReservationsTable)
+        .where(and(
+          eq(motoboyDeliveryReservationsTable.orderId, orderId),
+          eq(motoboyDeliveryReservationsTable.tenantId, tenantId),
+        ))
+        .catch(() => {});
       res.status(400).json({ error: "GATEWAY_ERROR", message: msg });
       return;
     }
@@ -632,6 +647,10 @@ router.post("/checkout/pix", async (req, res) => {
       expiresAt,
     });
   } catch (err) {
+    if (err instanceof MotoboyScheduleError) {
+      res.status(err.code === "DELIVERY_SLOT_UNAVAILABLE" ? 409 : 400).json({ error: err.code, message: err.message });
+      return;
+    }
     console.error(`[CHECKOUT/PIX:${requestId}] Unexpected error:`, err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro interno ao processar pedido. Tente novamente." });
   }
