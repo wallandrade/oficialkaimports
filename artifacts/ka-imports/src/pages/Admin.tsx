@@ -1258,6 +1258,27 @@ interface FilialPanelDateGroup {
   batches: FilialPanelBatchGroup[];
 }
 
+interface MyFilialBatchGroup {
+  batchKey: string;
+  batchLabel: string;
+  sentAt: string | null;
+  receivedAt: string | null;
+  totalPaid: number;
+  totalRepasse: number;
+  status: "open" | "in_progress" | "closed";
+  requests: FilialPurchaseRequest[];
+}
+
+interface MyFilialDateGroup {
+  dateKey: string;
+  dateLabel: string;
+  dateTs: number;
+  totalPaid: number;
+  totalRepasse: number;
+  totalOrders: number;
+  batches: MyFilialBatchGroup[];
+}
+
 function dateKeySaoPaulo(value: string | Date | undefined | null): string {
   if (!value) return "sem-data";
   const d = typeof value === "string" ? new Date(value) : value;
@@ -1827,6 +1848,8 @@ export default function Admin() {
   const [myFilialPurchaseLoading, setMyFilialPurchaseLoading] = useState(false);
   const [myFilialPurchaseStatusFilter, setMyFilialPurchaseStatusFilter] = useState<"pending" | "all" | "finalized">("pending");
   const [myFilialPurchaseProductImages, setMyFilialPurchaseProductImages] = useState<Record<string, string>>({});
+  const [myFilialExpandedDateKeys, setMyFilialExpandedDateKeys] = useState<string[]>([]);
+  const [myFilialExpandedBatchKeys, setMyFilialExpandedBatchKeys] = useState<string[]>([]);
   const [myFilialLaunchMode, setMyFilialLaunchMode] = useState<"fornecedor" | "motoboy">("fornecedor");
   const [myFilialBatchDateFrom, setMyFilialBatchDateFrom] = useState(todayStr());
   const [myFilialBatchDateTo, setMyFilialBatchDateTo] = useState(todayStr());
@@ -1944,6 +1967,69 @@ export default function Admin() {
       return true;
     });
   }, [filteredMyFilialPurchaseRequests, myFilialBatchDateFrom, myFilialBatchDateTo]);
+  const myFilialPurchaseDateGroups = React.useMemo<MyFilialDateGroup[]>(() => {
+    const dateMap = new Map<string, FilialPurchaseRequest[]>();
+    for (const request of filteredMyFilialPurchaseRequestsByDate) {
+      const dateKey = dateKeySaoPaulo(request.supplierBatchSentAt || request.createdAt || request.updatedAt);
+      const current = dateMap.get(dateKey) || [];
+      current.push(request);
+      dateMap.set(dateKey, current);
+    }
+
+    const groups = Array.from(dateMap.entries()).map(([dateKey, requests]) => {
+      const batchMap = new Map<string, FilialPurchaseRequest[]>();
+      for (const request of requests) {
+        const batchId = String(request.supplierBatchId || "").trim();
+        const batchKey = batchId ? `my-batch:${batchId}` : `my-batch:sem-lote:${dateKey}`;
+        const current = batchMap.get(batchKey) || [];
+        current.push(request);
+        batchMap.set(batchKey, current);
+      }
+
+      const batches = Array.from(batchMap.entries()).map(([batchKey, batchRequests]): MyFilialBatchGroup => {
+        const first = batchRequests[0];
+        return {
+          batchKey,
+          batchLabel: String(first?.supplierBatchLabel || (first?.supplierBatchId ? `Lote ${first.supplierBatchId}` : "Pedidos ainda sem lote")).trim(),
+          sentAt: first?.supplierBatchSentAt || null,
+          receivedAt: first?.supplierBatchReceivedAt || null,
+          totalPaid: batchRequests.reduce((sum, request) => sum + Number(request.orderTotal || 0), 0),
+          totalRepasse: batchRequests.reduce((sum, request) => sum + Number(request.repasseTotal || 0), 0),
+          status: filialBatchStatusFromRequests(batchRequests),
+          requests: [...batchRequests].sort(compareFilialPurchaseRequests),
+        };
+      });
+
+      batches.sort((a, b) => {
+        const rankA = a.status === "open" ? 0 : a.status === "in_progress" ? 1 : 2;
+        const rankB = b.status === "open" ? 0 : b.status === "in_progress" ? 1 : 2;
+        return rankA - rankB;
+      });
+
+      return {
+        dateKey,
+        dateLabel: dateKey === "sem-data" ? "Sem data" : formatDateOnlyLocal(dateKey),
+        dateTs: dayTsFromDateKey(dateKey),
+        totalPaid: batches.reduce((sum, batch) => sum + batch.totalPaid, 0),
+        totalRepasse: batches.reduce((sum, batch) => sum + batch.totalRepasse, 0),
+        totalOrders: requests.length,
+        batches,
+      };
+    });
+
+    return groups.sort((a, b) => b.dateTs - a.dateTs);
+  }, [filteredMyFilialPurchaseRequestsByDate]);
+  const expandMyFilialTodayGroups = useCallback(() => {
+    const todayKey = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+    const todayGroup = myFilialPurchaseDateGroups.find((group) => group.dateKey === todayKey);
+    if (!todayGroup) return;
+    setMyFilialExpandedDateKeys((prev) => Array.from(new Set([...prev, todayKey])));
+    setMyFilialExpandedBatchKeys((prev) => Array.from(new Set([...prev, ...todayGroup.batches.map((batch) => batch.batchKey)])));
+  }, [myFilialPurchaseDateGroups]);
+  const collapseMyFilialGroups = useCallback(() => {
+    setMyFilialExpandedDateKeys([]);
+    setMyFilialExpandedBatchKeys([]);
+  }, []);
   const myFilialBatchEligibleRequests = React.useMemo(() => {
     const from = String(myFilialBatchDateFrom || "").trim();
     const to = String(myFilialBatchDateTo || "").trim();
@@ -9782,7 +9868,84 @@ export default function Admin() {
               <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">Nenhum pedido de compra encontrado para esta filial.</div>
             ) : (
               <div className="space-y-3">
-                {filteredMyFilialPurchaseRequestsByDate.map((request) => (
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card px-4 py-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pedidos organizados por data e lote</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Clique na data e depois no lote para visualizar os pedidos.</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-muted-foreground">{filteredMyFilialPurchaseRequestsByDate.length} pedido(s)</span>
+                    <Button type="button" variant="outline" className="h-8" onClick={expandMyFilialTodayGroups}>
+                      Expandir hoje
+                    </Button>
+                    <Button type="button" variant="outline" className="h-8" onClick={collapseMyFilialGroups}>
+                      Recolher tudo
+                    </Button>
+                  </div>
+                </div>
+
+                {myFilialPurchaseDateGroups.map((dateGroup) => {
+                  const isDateExpanded = myFilialExpandedDateKeys.includes(dateGroup.dateKey);
+                  return (
+                    <div key={`my-filial-date-${dateGroup.dateKey}`} className="rounded-xl border border-border bg-card p-3">
+                      <button
+                        type="button"
+                        className="flex w-full flex-wrap items-center justify-between gap-2 text-left"
+                        onClick={() => setMyFilialExpandedDateKeys((prev) => (prev.includes(dateGroup.dateKey)
+                          ? prev.filter((key) => key !== dateGroup.dateKey)
+                          : [...prev, dateGroup.dateKey]))}
+                      >
+                        <div>
+                          <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                            {isDateExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                            {dateGroup.dateLabel}
+                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {dateGroup.batches.length} lote(s) · {dateGroup.totalOrders} pedido(s)
+                          </p>
+                        </div>
+                        <div className="text-right text-xs">
+                          <p className="text-muted-foreground">Total pago {formatCurrency(dateGroup.totalPaid)}</p>
+                          <p className="font-semibold text-blue-700">Repasse {formatCurrency(dateGroup.totalRepasse)}</p>
+                        </div>
+                      </button>
+
+                      {isDateExpanded ? (
+                        <div className="mt-3 space-y-2">
+                          {dateGroup.batches.map((batchGroup) => {
+                            const isBatchExpanded = myFilialExpandedBatchKeys.includes(batchGroup.batchKey);
+                            return (
+                              <div key={batchGroup.batchKey} className="rounded-lg border border-blue-200 bg-blue-50/40 p-3">
+                                <button
+                                  type="button"
+                                  className="flex w-full flex-wrap items-center justify-between gap-2 text-left"
+                                  onClick={() => setMyFilialExpandedBatchKeys((prev) => (prev.includes(batchGroup.batchKey)
+                                    ? prev.filter((key) => key !== batchGroup.batchKey)
+                                    : [...prev, batchGroup.batchKey]))}
+                                >
+                                  <div className="min-w-0">
+                                    <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                                      {isBatchExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                                      <span className="truncate">{batchGroup.batchLabel}</span>
+                                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${filialBatchStatusClass(batchGroup.status)}`}>
+                                        {filialBatchStatusLabel(batchGroup.status)}
+                                      </span>
+                                    </p>
+                                    <p className="mt-1 text-xs text-muted-foreground">
+                                      {batchGroup.requests.length} pedido(s)
+                                      {batchGroup.sentAt ? ` · Enviado em ${formatDateBR(batchGroup.sentAt)}` : " · Aguardando lançamento"}
+                                      {batchGroup.receivedAt ? ` · Recebido em ${formatDateBR(batchGroup.receivedAt)}` : ""}
+                                    </p>
+                                  </div>
+                                  <div className="text-right text-xs">
+                                    <p className="text-muted-foreground">Total pago {formatCurrency(batchGroup.totalPaid)}</p>
+                                    <p className="font-semibold text-blue-700">Repasse {formatCurrency(batchGroup.totalRepasse)}</p>
+                                  </div>
+                                </button>
+
+                                {isBatchExpanded ? (
+                                  <div className="mt-3 space-y-3">
+                                    {batchGroup.requests.map((request) => (
                   <div key={`my-filial-purchase-${request.id}`} className="rounded-xl border border-border bg-card p-4">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div className="flex items-start gap-2">
@@ -9891,7 +10054,17 @@ export default function Admin() {
                       ))}
                     </div>
                   </div>
-                ))}
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             )}
 
