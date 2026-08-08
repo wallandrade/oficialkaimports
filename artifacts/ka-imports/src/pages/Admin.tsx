@@ -3995,13 +3995,14 @@ export default function Admin() {
         return;
       }
 
-      await fetchFilialStoreProducts(selectedFilialTenantId || undefined);
-      toast.success(checked ? "Opção de atualizar custo salva." : "Opção de atualizar custo removida.");
+      toast.success(checked
+        ? "Opção marcada. Os custos serão atualizados ao confirmar a compra."
+        : "Opção de atualizar custos removida.");
     } catch {
       setFilialPurchaseUpdateCostFlags((current) => ({ ...current, [request.id]: previous }));
       toast.error("Erro ao salvar a opção de atualizar custo.");
     }
-  }, [BASE, canManageTenants, fetchFilialStoreProducts, filialPurchaseUpdateCostFlags, handleUnauthorized, selectedFilialTenantId]);
+  }, [BASE, canManageTenants, filialPurchaseUpdateCostFlags, handleUnauthorized]);
 
   const confirmFilialPurchase = useCallback(async (request: FilialPurchaseRequest) => {
     if (!canManageTenants) return;
@@ -4044,7 +4045,14 @@ export default function Admin() {
 
       if (res.status === 401) { handleUnauthorized(); return; }
 
-      const data = await res.json().catch(() => null) as { message?: string; idempotent?: boolean; updatedAfterFinalized?: boolean } | null;
+      const data = await res.json().catch(() => null) as {
+        message?: string;
+        idempotent?: boolean;
+        updatedAfterFinalized?: boolean;
+        filialProductsUpdated?: number;
+        loja1ProductsUpdated?: number;
+        openRequestsUpdated?: number;
+      } | null;
       if (!res.ok) {
         toast.error(data?.message || "Erro ao confirmar compra da filial.");
         return;
@@ -4056,10 +4064,12 @@ export default function Admin() {
         toast.success("Compra já estava finalizada. Nenhum estoque duplicado foi lançado.");
       } else {
         toast.success(filialPurchaseUpdateCostFlags[request.id]
-          ? "Compra confirmada, estoque lançado e custo dos produtos atualizado na filial."
+          ? `Compra confirmada. ${data?.filialProductsUpdated || 0} produto(s) da filial, ${data?.loja1ProductsUpdated || 0} da Loja 1 e ${data?.openRequestsUpdated || 0} pedido(s) aberto(s) atualizados.`
           : "Compra confirmada e estoque lançado na filial.");
       }
 
+      setFilialPurchaseCostDrafts({});
+      setFilialPurchaseRepasseDrafts({});
       await fetchFilialPurchaseRequests(selectedFilialTenantId || undefined);
       await fetchFilialStoreProducts(selectedFilialTenantId || undefined);
     } catch {
@@ -9216,7 +9226,7 @@ export default function Admin() {
                                                           onChange={(e) => { void saveFilialPurchaseUpdateCostFlag(request, e.target.checked); }}
                                                           className="h-4 w-4 rounded border-border"
                                                         />
-                                                        Atualizar custo do produto da filial com o repasse
+                                                        Ao confirmar, atualizar custos na filial, Loja 1 e pedidos abertos
                                                       </label>
                                                       <Button
                                                         type="button"

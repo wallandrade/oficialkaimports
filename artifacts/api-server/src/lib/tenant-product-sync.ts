@@ -193,7 +193,6 @@ async function upsertReplicatedProduct(
         description: sourceProduct.description,
         category: sourceProduct.category,
         unit: sourceProduct.unit,
-        costPrice: formatMoney(baseCostPrice),
         variantGroups: sourceProduct.variantGroups,
         image: sourceProduct.image,
         brand: sourceProduct.brand,

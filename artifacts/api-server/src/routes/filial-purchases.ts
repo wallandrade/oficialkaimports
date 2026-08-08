@@ -48,6 +48,11 @@ function buildProductsTenantWhere(tenantId: string) {
   return eq(productsTable.tenantId, tenantId);
 }
 
+function getLoja1SourceProductId(productId: string, filialTenantId: string): string | null {
+  const prefix = `loja1sync_${filialTenantId}_`;
+  return productId.startsWith(prefix) ? productId.slice(prefix.length).trim() || null : null;
+}
+
 function parseSnapshotItems(raw: unknown): SnapshotItem[] {
   const list = Array.isArray(raw)
     ? raw
@@ -1479,64 +1484,19 @@ router.post("/admin/filial-purchases/:requestId/update-cost-flag", requirePrimar
       return;
     }
 
-    let appliedProductCostUpdates = 0;
-    if (updateProductCost) {
-      const snapshotItems = parseSnapshotItems((requestRow as { itemsSnapshot?: unknown }).itemsSnapshot);
-      const repasseCostByProductId = new Map(
-        snapshotItems.map((item) => [item.productId, round2(Number(item.repasseUnitCost || 0))]),
-      );
-      const productIds = Array.from(new Set(snapshotItems.map((item) => item.productId).filter(Boolean)));
-
-      if (productIds.length > 0) {
-        const productRows = await db
-          .select({
-            id: productsTable.id,
-            costPrice: productsTable.costPrice,
-          })
-          .from(productsTable)
-          .where(and(buildProductsTenantWhere(requestRow.filialTenantId), inArray(productsTable.id, productIds)));
-
-        const currentCostByProductId = new Map(productRows.map((row) => [row.id, Number(row.costPrice || 0)]));
-
-        for (const item of snapshotItems) {
-          const currentCost = currentCostByProductId.get(item.productId);
-          if (currentCost == null) continue;
-
-          const nextCost = Number(repasseCostByProductId.get(item.productId) ?? item.repasseUnitCost ?? 0);
-          if (!Number.isFinite(nextCost)) continue;
-          if (round2(currentCost) === nextCost) continue;
-
-          await db
-            .update(productsTable)
-            .set({
-              costPrice: String(nextCost),
-              updatedAt: new Date(),
-            })
-            .where(and(buildProductsTenantWhere(requestRow.filialTenantId), eq(productsTable.id, item.productId)));
-
-          await db.insert(productCostHistoryTable).values({
-            productId: item.productId,
-            costPrice: String(nextCost),
-          });
-
-          appliedProductCostUpdates += 1;
-        }
-      }
-    }
-
     await addAudit({
       requestId,
       action: "update_product_cost_flag",
       actorUsername,
       payload: {
         updateProductCost,
-        appliedProductCostUpdates,
+        appliedProductCostUpdates: 0,
         filialTenantId: requestRow.filialTenantId,
         orderId: requestRow.orderId,
       },
     });
 
-    res.json({ ok: true, requestId, updateProductCost, appliedProductCostUpdates });
+    res.json({ ok: true, requestId, updateProductCost, appliedProductCostUpdates: 0 });
   } catch (err) {
     console.error("[FilialPurchases] update-cost-flag error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao salvar opção de atualizar custo do produto." });
@@ -1698,6 +1658,7 @@ router.post("/admin/filial-purchases/:requestId/confirm", requirePrimaryAdmin, a
 
     const normalizedSnapshotItems = snapshotItems.map((item) => ({
       ...item,
+      baseUnitCost: round2(Number(costByProduct.get(item.productId) ?? item.baseUnitCost ?? 0)),
       repasseUnitCost: round2(Number(repasseByProduct.get(item.productId) ?? item.repasseUnitCost ?? 0)),
     }));
 
@@ -1716,6 +1677,9 @@ router.post("/admin/filial-purchases/:requestId/confirm", requirePrimaryAdmin, a
     const repasseTotal = round2(normalizedSnapshotItems.reduce((sum, item) => sum + (Number(item.repasseUnitCost || 0) * item.quantity), 0));
     const loja1RealProfit = round2(repasseTotal - loja1RealCostTotal);
 
+    let filialProductsUpdated = 0;
+    let loja1ProductsUpdated = 0;
+    let openRequestsUpdated = 0;
     if (shouldUpdateProductCost) {
       const repasseCostByProductId = new Map(
         normalizedSnapshotItems.map((item) => [item.productId, round2(Number(item.repasseUnitCost || 0))]),
@@ -1752,6 +1716,94 @@ router.post("/admin/filial-purchases/:requestId/confirm", requirePrimaryAdmin, a
             productId: item.productId,
             costPrice: String(nextCost),
           });
+
+          filialProductsUpdated += 1;
+        }
+
+        for (const item of costsSnapshot) {
+          const sourceProductId = getLoja1SourceProductId(item.productId, requestRow.filialTenantId);
+          if (!sourceProductId) continue;
+
+          const sourceRows = await db
+            .select({ costPrice: productsTable.costPrice })
+            .from(productsTable)
+            .where(and(buildProductsTenantWhere(DEFAULT_TENANT_ID), eq(productsTable.id, sourceProductId)))
+            .limit(1);
+          if (sourceRows.length === 0 || round2(Number(sourceRows[0].costPrice || 0)) === round2(item.unitCost)) continue;
+
+          await db
+            .update(productsTable)
+            .set({ costPrice: String(round2(item.unitCost)), updatedAt: new Date() })
+            .where(and(buildProductsTenantWhere(DEFAULT_TENANT_ID), eq(productsTable.id, sourceProductId)));
+
+          await db.insert(productCostHistoryTable).values({
+            productId: sourceProductId,
+            costPrice: String(round2(item.unitCost)),
+          });
+
+          loja1ProductsUpdated += 1;
+        }
+
+        const propagatableStatuses = [
+          "pendente_pagamento_filial",
+          "pago_na_filial",
+          "aguardando_compra_loja1",
+          "lote_enviado_loja1",
+          "lote_recebido_loja1",
+          "enviado_motoboy",
+        ];
+        const siblingRequests = await db
+          .select({
+            id: filialPurchaseRequestsTable.id,
+            itemsSnapshot: filialPurchaseRequestsTable.itemsSnapshot,
+          })
+          .from(filialPurchaseRequestsTable)
+          .where(and(
+            eq(filialPurchaseRequestsTable.filialTenantId, requestRow.filialTenantId),
+            inArray(filialPurchaseRequestsTable.status, propagatableStatuses),
+          ));
+
+        const updatedValuesByProductId = new Map(normalizedSnapshotItems.map((item) => [item.productId, {
+          baseUnitCost: round2(Number(item.baseUnitCost || 0)),
+          repasseUnitCost: round2(Number(item.repasseUnitCost || 0)),
+        }]));
+
+        for (const sibling of siblingRequests) {
+          if (sibling.id === requestId) continue;
+          const siblingItems = parseSnapshotItems(sibling.itemsSnapshot);
+          let changed = false;
+          const nextItems = siblingItems.map((item) => {
+            const nextValues = updatedValuesByProductId.get(item.productId);
+            if (!nextValues) return item;
+            changed = true;
+            return { ...item, ...nextValues };
+          });
+          if (!changed) continue;
+
+          const nextRepasseTotal = round2(nextItems.reduce(
+            (sum, item) => sum + (Number(item.repasseUnitCost || 0) * Number(item.quantity || 0)),
+            0,
+          ));
+          await db
+            .update(filialPurchaseRequestsTable)
+            .set({
+              itemsSnapshot: nextItems,
+              repasseTotal: String(nextRepasseTotal),
+              updatedByAdmin: actorUsername,
+              updatedAt: new Date(),
+            })
+            .where(eq(filialPurchaseRequestsTable.id, sibling.id));
+
+          await addAudit({
+            requestId: sibling.id,
+            action: "product_cost_propagated",
+            actorUsername,
+            payload: {
+              sourceRequestId: requestId,
+              productIds: nextItems.filter((item) => updatedValuesByProductId.has(item.productId)).map((item) => item.productId),
+            },
+          });
+          openRequestsUpdated += 1;
         }
       }
     }
@@ -1780,6 +1832,9 @@ router.post("/admin/filial-purchases/:requestId/confirm", requirePrimaryAdmin, a
         loja1RealProfit,
         repasseTotal,
         updateProductCost: shouldUpdateProductCost,
+        filialProductsUpdated,
+        loja1ProductsUpdated,
+        openRequestsUpdated,
       },
     });
 
@@ -1791,6 +1846,9 @@ router.post("/admin/filial-purchases/:requestId/confirm", requirePrimaryAdmin, a
         updatedAfterFinalized: true,
         loja1RealCostTotal,
         loja1RealProfit,
+        filialProductsUpdated,
+        loja1ProductsUpdated,
+        openRequestsUpdated,
       });
       return;
     }
@@ -1866,6 +1924,9 @@ router.post("/admin/filial-purchases/:requestId/confirm", requirePrimaryAdmin, a
       status: "finalizado",
       loja1RealCostTotal,
       loja1RealProfit,
+      filialProductsUpdated,
+      loja1ProductsUpdated,
+      openRequestsUpdated,
     });
   } catch (err) {
     console.error("[FilialPurchases] confirm error:", err);
