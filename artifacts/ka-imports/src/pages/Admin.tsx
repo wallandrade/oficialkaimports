@@ -8966,6 +8966,39 @@ export default function Admin() {
                                                         <span className="font-semibold text-slate-600">Não</span>
                                                       )}
                                                     </p>
+                                                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                                                      {request.items.slice(0, 4).map((item) => {
+                                                        const image = String(
+                                                          item.image
+                                                          || filialProductImageById.get(String(item.productId || ""))
+                                                          || myFilialPurchaseProductImages[String(item.productId || "")]
+                                                          || "",
+                                                        ).trim();
+
+                                                        return (
+                                                          <div key={`request-preview-${request.id}-${item.productId}`} className="flex items-center gap-1.5" title={`${item.quantity}x ${item.productName}`}>
+                                                            <div className="relative h-11 w-11 flex-shrink-0 overflow-hidden rounded-md border border-border bg-muted/40">
+                                                              {image ? (
+                                                                <img src={image} alt={item.productName} className="h-full w-full object-cover" loading="lazy" />
+                                                              ) : (
+                                                                <div className="flex h-full w-full items-center justify-center">
+                                                                  <ImageOff className="h-4 w-4 text-muted-foreground" />
+                                                                </div>
+                                                              )}
+                                                              <span className="absolute bottom-0 right-0 min-w-4 bg-slate-900/85 px-1 text-center text-[10px] font-semibold text-white">
+                                                                {item.quantity}x
+                                                              </span>
+                                                            </div>
+                                                            <span className="max-w-28 text-xs text-muted-foreground line-clamp-2">{item.productName}</span>
+                                                          </div>
+                                                        );
+                                                      })}
+                                                      {request.items.length > 4 ? (
+                                                        <span className="inline-flex h-8 items-center rounded-md border border-border bg-muted/30 px-2 text-xs font-semibold text-muted-foreground">
+                                                          +{request.items.length - 4} produto(s)
+                                                        </span>
+                                                      ) : null}
+                                                    </div>
                                                   </div>
                                                   <div className="text-right text-xs">
                                                     <p className="text-muted-foreground">Total pago na filial</p>
