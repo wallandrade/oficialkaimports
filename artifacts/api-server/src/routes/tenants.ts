@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { db, adminUserTenantsTable, adminUsersTable, ordersTable, tenantSettingsTable, tenantsTable } from "@workspace/db";
+import { db, adminUserTenantsTable, adminUsersTable, motoboyNeighborhoodsTable, ordersTable, tenantSettingsTable, tenantsTable } from "@workspace/db";
 import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
 import dns from "node:dns/promises";
 import crypto from "node:crypto";
@@ -13,6 +13,7 @@ import {
   removeAllLoja1ProductsFromTenant,
   syncAllLoja1ProductsToTenant,
 } from "../lib/tenant-product-sync";
+import { DEFAULT_MOTOBOY_NEIGHBORHOODS } from "../lib/default-motoboy-neighborhoods";
 
 const router: IRouter = Router();
 const TENANT_DNS_TARGET_HOST_KEY = "tenant_dns_target_host";
@@ -1094,6 +1095,26 @@ router.post("/admin/tenants", requirePrimaryAdmin, async (req, res) => {
         createdAt: new Date(),
         updatedAt: new Date(),
       });
+
+      const motoboyNeighborhoodKeys = new Set<string>();
+      const filialMotoboyNeighborhoods = DEFAULT_MOTOBOY_NEIGHBORHOODS.filter((neighborhood) => {
+        const key = `${neighborhood.city.trim().toLowerCase()}|${neighborhood.neighborhoodName.trim().toLowerCase()}`;
+        if (motoboyNeighborhoodKeys.has(key)) return false;
+        motoboyNeighborhoodKeys.add(key);
+        return true;
+      });
+      await tx.insert(motoboyNeighborhoodsTable).values(
+        filialMotoboyNeighborhoods.map((neighborhood) => ({
+          id: `seed_motoboy_${crypto.createHash("sha256").update(`${tenantId}|${neighborhood.id}`).digest("hex").slice(0, 24)}`,
+          tenantId,
+          neighborhoodName: neighborhood.neighborhoodName,
+          city: neighborhood.city,
+          price: neighborhood.price.toFixed(2),
+          sortOrder: neighborhood.sortOrder,
+          isActive: true,
+          notes: null,
+        })),
+      );
 
       if (shouldCreateAdminUser) {
         const salt = generateSalt();

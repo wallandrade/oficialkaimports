@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { pool } from "@workspace/db";
 import { DEFAULT_MOTOBOY_NEIGHBORHOODS } from "./lib/default-motoboy-neighborhoods";
 
@@ -1091,40 +1092,47 @@ function normalizeMotoboySeedValue(value: unknown): string {
 }
 
 async function seedDefaultMotoboyNeighborhoods(): Promise<void> {
-  const [rows] = await pool.query(
-    "SELECT neighborhood_name AS neighborhoodName, city FROM motoboy_neighborhoods WHERE tenant_id = ?",
-    [DEFAULT_TENANT_ID],
-  );
-  const existingKeys = new Set(
-    (rows as Array<{ neighborhoodName?: unknown; city?: unknown }>).map((row) => (
-      `${normalizeMotoboySeedValue(row.city)}|${normalizeMotoboySeedValue(row.neighborhoodName)}`
-    )),
-  );
-  const pending = [];
+  const [tenantRows] = await pool.query("SELECT id FROM tenants WHERE status = 'active'");
+  const tenantIds = (tenantRows as Array<{ id?: unknown }>)
+    .map((row) => String(row.id || "").trim())
+    .filter(Boolean);
 
-  for (const neighborhood of DEFAULT_MOTOBOY_NEIGHBORHOODS) {
-    const key = `${normalizeMotoboySeedValue(neighborhood.city)}|${normalizeMotoboySeedValue(neighborhood.neighborhoodName)}`;
-    if (existingKeys.has(key)) continue;
-    existingKeys.add(key);
-    pending.push(neighborhood);
+  for (const tenantId of tenantIds) {
+    const [rows] = await pool.query(
+      "SELECT neighborhood_name AS neighborhoodName, city FROM motoboy_neighborhoods WHERE tenant_id = ?",
+      [tenantId],
+    );
+    const existingKeys = new Set(
+      (rows as Array<{ neighborhoodName?: unknown; city?: unknown }>).map((row) => (
+        `${normalizeMotoboySeedValue(row.city)}|${normalizeMotoboySeedValue(row.neighborhoodName)}`
+      )),
+    );
+    const pending = [];
+
+    for (const neighborhood of DEFAULT_MOTOBOY_NEIGHBORHOODS) {
+      const key = `${normalizeMotoboySeedValue(neighborhood.city)}|${normalizeMotoboySeedValue(neighborhood.neighborhoodName)}`;
+      if (existingKeys.has(key)) continue;
+      existingKeys.add(key);
+      pending.push(neighborhood);
+    }
+
+    if (pending.length === 0) continue;
+
+    const placeholders = pending.map(() => "(?, ?, ?, ?, ?, ?, TRUE, NULL)").join(", ");
+    const values = pending.flatMap((neighborhood) => [
+      `seed_motoboy_${crypto.createHash("sha256").update(`${tenantId}|${neighborhood.id}`).digest("hex").slice(0, 24)}`,
+      tenantId,
+      neighborhood.neighborhoodName,
+      neighborhood.city,
+      neighborhood.price.toFixed(2),
+      neighborhood.sortOrder,
+    ]);
+    await pool.query(
+      `INSERT IGNORE INTO motoboy_neighborhoods (id, tenant_id, neighborhood_name, city, price, sort_order, is_active, notes) VALUES ${placeholders}`,
+      values,
+    );
+    console.log(`[RuntimeSchema] Seeded ${pending.length} motoboy neighborhood(s) for tenant ${tenantId}.`);
   }
-
-  if (pending.length === 0) return;
-
-  const placeholders = pending.map(() => "(?, ?, ?, ?, ?, ?, TRUE, NULL)").join(", ");
-  const values = pending.flatMap((neighborhood) => [
-    neighborhood.id,
-    DEFAULT_TENANT_ID,
-    neighborhood.neighborhoodName,
-    neighborhood.city,
-    neighborhood.price.toFixed(2),
-    neighborhood.sortOrder,
-  ]);
-  await pool.query(
-    `INSERT IGNORE INTO motoboy_neighborhoods (id, tenant_id, neighborhood_name, city, price, sort_order, is_active, notes) VALUES ${placeholders}`,
-    values,
-  );
-  console.log(`[RuntimeSchema] Seeded ${pending.length} motoboy neighborhood(s).`);
 }
 
 export async function ensureRuntimeSchema(): Promise<void> {
