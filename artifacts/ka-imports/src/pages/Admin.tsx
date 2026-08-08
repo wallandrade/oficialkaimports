@@ -445,7 +445,7 @@ function formatRaffleDescriptionPreview(value: string | undefined | null): strin
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
-import { Loader2, Save, Plus, Trash2, X, CheckCircle, XCircle, Zap, Info, Pencil, MessageCircle, Tag, Bell, RefreshCw, Download, LogOut, QrCode, LinkIcon, Ticket, ShoppingBag, Clock, Upload, ChevronDown, ChevronUp, Copy, Users, Percent, Calendar, DollarSign, ShieldCheck, CreditCard, Truck, RotateCcw, UserPlus, Eye, EyeOff, ToggleLeft, Webhook, ImageOff, Lock, AlertTriangle, Star, Send, Mail, Store, Bike } from "lucide-react";
+import { Loader2, Save, Plus, Trash2, X, CheckCircle, XCircle, Zap, Info, Pencil, MessageCircle, Tag, Bell, RefreshCw, Download, LogOut, QrCode, LinkIcon, Ticket, ShoppingBag, Clock, Upload, ChevronDown, ChevronUp, Copy, Users, Percent, Calendar, DollarSign, ShieldCheck, CreditCard, Truck, RotateCcw, UserPlus, Eye, EyeOff, ToggleLeft, Webhook, ImageOff, Lock, AlertTriangle, Star, Send, Mail, Store, Bike, MapPin } from "lucide-react";
 import { IconLucide } from "@/components/ui/IconLucide";
 
 import { toast } from "sonner";
@@ -1794,6 +1794,12 @@ export default function Admin() {
   const [shippingDeleting, setShippingDeleting] = useState<string | null>(null);
   const [shippingEditing, setShippingEditing] = useState<ShippingOption | null>(null);
   const [shippingUpdating, setShippingUpdating] = useState<string | null>(null);
+  const [motoboyNeighborhoods, setMotoboyNeighborhoods] = useState<MotoboyNeighborhood[]>([]);
+  const [motoboyForm, setMotoboyForm] = useState<MotoboyNeighborhoodForm>(EMPTY_MOTOBOY_NEIGHBORHOOD_FORM);
+  const [motoboyCreating, setMotoboyCreating] = useState(false);
+  const [motoboyDeleting, setMotoboyDeleting] = useState<string | null>(null);
+  const [motoboyEditing, setMotoboyEditing] = useState<MotoboyNeighborhood | null>(null);
+  const [motoboyUpdating, setMotoboyUpdating] = useState<string | null>(null);
   // Order Bumps
   const [orderBumps, setOrderBumps] = useState<OrderBump[]>([]);
   const [bumpForm, setBumpForm] = useState<BumpFormType>(EMPTY_BUMP_FORM);
@@ -4425,6 +4431,14 @@ export default function Admin() {
     finally { setLoading(false); }
   }, []);
 
+  const fetchMotoboyNeighborhoods = useCallback(async () => {
+    try {
+      const res = await fetch(`${BASE}/api/admin/motoboy-neighborhoods`, { headers: authHeaders() });
+      const data = await res.json() as { neighborhoods?: MotoboyNeighborhood[] };
+      if (res.ok) setMotoboyNeighborhoods(data.neighborhoods || []);
+    } catch { /* ignore */ }
+  }, []);
+
   const fetchOrderBumpsData = useCallback(async () => {
     try {
       const res = await fetch(`${BASE}/api/admin/order-bumps`, { headers: authHeaders() });
@@ -4660,7 +4674,7 @@ export default function Admin() {
     else if (tab === "products")   fetchProducts();
     else if (tab === "configuracoes") { fetchSettings(); fetchClientErrors(); fetchBrevoStatus(); }
     else if (tab === "sellers")    { fetchSellers(); fetchSellerData(); }
-    else if (tab === "fretes")     fetchShippingOptions();
+    else if (tab === "fretes")     { fetchShippingOptions(); fetchMotoboyNeighborhoods(); }
     else if (tab === "orderBumps") { fetchProducts(); fetchOrderBumpsData(); }
     else if (tab === "kyc")        fetchKycList();
     else if (tab === "commissions") { fetchCommissionPayments(); }
@@ -4669,7 +4683,7 @@ export default function Admin() {
     else if (tab === "lojas")      { fetchTenants(); fetchDnsGuide(dnsDomainInput); fetchTenantProfitSummary(); fetchFilialPurchaseRequests(selectedFilialTenantId || undefined); }
     else if (tab === "supplierPurchases") { fetchMyFilialPurchaseRequests(); fetchMyFilialPurchaseProductImages(); }
     else setLoading(false);
-  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchSellers, fetchSellerData, fetchShippingOptions, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchCommissionPayments, fetchSocialProof, fetchRaffles, fetchTenants, fetchDnsGuide, fetchTenantProfitSummary, fetchFilialPurchaseRequests, fetchMyFilialPurchaseRequests, fetchMyFilialPurchaseProductImages, dnsDomainInput, selectedFilialTenantId]);
+  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchSellers, fetchSellerData, fetchShippingOptions, fetchMotoboyNeighborhoods, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchCommissionPayments, fetchSocialProof, fetchRaffles, fetchTenants, fetchDnsGuide, fetchTenantProfitSummary, fetchFilialPurchaseRequests, fetchMyFilialPurchaseRequests, fetchMyFilialPurchaseProductImages, dnsDomainInput, selectedFilialTenantId]);
 
   // -------------------------------------------------------------------------
   // SSE
@@ -7106,6 +7120,62 @@ export default function Admin() {
                 fetchShippingOptions();
               } catch { toast.error("Erro ao excluir."); }
               finally { setShippingDeleting(null); }
+            }}
+            motoboyNeighborhoods={motoboyNeighborhoods}
+            motoboyForm={motoboyForm}
+            setMotoboyForm={setMotoboyForm}
+            motoboyCreating={motoboyCreating}
+            motoboyDeleting={motoboyDeleting}
+            motoboyEditing={motoboyEditing}
+            setMotoboyEditing={setMotoboyEditing}
+            motoboyUpdating={motoboyUpdating}
+            onCreateMotoboy={async () => {
+              if (!motoboyForm.neighborhoodName.trim()) { toast.error("Bairro é obrigatório."); return; }
+              if (motoboyForm.price === "" || Number(motoboyForm.price) < 0) { toast.error("Valor da entrega inválido."); return; }
+              setMotoboyCreating(true);
+              try {
+                const res = await fetch(`${BASE}/api/admin/motoboy-neighborhoods`, {
+                  method: "POST",
+                  headers: { ...authHeaders(), "Content-Type": "application/json" },
+                  body: JSON.stringify({ ...motoboyForm, price: Number(motoboyForm.price), sortOrder: Number(motoboyForm.sortOrder) }),
+                });
+                const data = await res.json().catch(() => null) as { message?: string } | null;
+                if (!res.ok) toast.error(data?.message || "Erro ao cadastrar bairro.");
+                else {
+                  toast.success("Bairro cadastrado!");
+                  setMotoboyForm(EMPTY_MOTOBOY_NEIGHBORHOOD_FORM);
+                  await fetchMotoboyNeighborhoods();
+                }
+              } catch { toast.error("Erro ao cadastrar bairro."); }
+              finally { setMotoboyCreating(false); }
+            }}
+            onUpdateMotoboy={async (id, patch) => {
+              setMotoboyUpdating(id);
+              try {
+                const res = await fetch(`${BASE}/api/admin/motoboy-neighborhoods/${id}`, {
+                  method: "PATCH",
+                  headers: { ...authHeaders(), "Content-Type": "application/json" },
+                  body: JSON.stringify(patch),
+                });
+                const data = await res.json().catch(() => null) as { message?: string } | null;
+                if (!res.ok) toast.error(data?.message || "Erro ao atualizar bairro.");
+                else {
+                  toast.success("Bairro atualizado!");
+                  setMotoboyEditing(null);
+                  await fetchMotoboyNeighborhoods();
+                }
+              } catch { toast.error("Erro ao atualizar bairro."); }
+              finally { setMotoboyUpdating(null); }
+            }}
+            onDeleteMotoboy={async (id) => {
+              if (!confirm("Excluir este bairro atendido?")) return;
+              setMotoboyDeleting(id);
+              try {
+                const res = await fetch(`${BASE}/api/admin/motoboy-neighborhoods/${id}`, { method: "DELETE", headers: authHeaders() });
+                if (!res.ok) toast.error("Erro ao excluir bairro.");
+                else { toast.success("Bairro excluído!"); await fetchMotoboyNeighborhoods(); }
+              } catch { toast.error("Erro ao excluir bairro."); }
+              finally { setMotoboyDeleting(null); }
             }}
           />
         ) : tab === "orderBumps" ? (
@@ -18544,6 +18614,32 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
 // ---------------------------------------------------------------------------
 // FretePanel
 // ---------------------------------------------------------------------------
+interface MotoboyNeighborhood {
+  id: string;
+  neighborhoodName: string;
+  city: string | null;
+  price: string | number;
+  sortOrder: number;
+  isActive: boolean;
+  notes: string | null;
+}
+
+interface MotoboyNeighborhoodForm {
+  neighborhoodName: string;
+  city: string;
+  price: string;
+  sortOrder: string;
+  notes: string;
+}
+
+const EMPTY_MOTOBOY_NEIGHBORHOOD_FORM: MotoboyNeighborhoodForm = {
+  neighborhoodName: "",
+  city: "",
+  price: "",
+  sortOrder: "0",
+  notes: "",
+};
+
 interface FretePanelProps {
   options: ShippingOption[];
   form: { name: string; description: string; price: string; sortOrder: string };
@@ -18556,14 +18652,41 @@ interface FretePanelProps {
   onCreate: () => void;
   onUpdate: (id: string, patch: Partial<ShippingOption>) => void;
   onDelete: (id: string) => void;
+  motoboyNeighborhoods: MotoboyNeighborhood[];
+  motoboyForm: MotoboyNeighborhoodForm;
+  setMotoboyForm: (form: MotoboyNeighborhoodForm) => void;
+  motoboyCreating: boolean;
+  motoboyDeleting: string | null;
+  motoboyEditing: MotoboyNeighborhood | null;
+  setMotoboyEditing: (neighborhood: MotoboyNeighborhood | null) => void;
+  motoboyUpdating: string | null;
+  onCreateMotoboy: () => void;
+  onUpdateMotoboy: (id: string, patch: Partial<MotoboyNeighborhood>) => void;
+  onDeleteMotoboy: (id: string) => void;
 }
 
-function FretePanel({ options, form, setForm, creating, deleting, editing, setEditing, updating, onCreate, onUpdate, onDelete }: FretePanelProps) {
+function FretePanel({
+  options, form, setForm, creating, deleting, editing, setEditing, updating, onCreate, onUpdate, onDelete,
+  motoboyNeighborhoods, motoboyForm, setMotoboyForm, motoboyCreating, motoboyDeleting,
+  motoboyEditing, setMotoboyEditing, motoboyUpdating, onCreateMotoboy, onUpdateMotoboy, onDeleteMotoboy,
+}: FretePanelProps) {
   const [editForm, setEditForm] = useState({ name: "", description: "", price: "", sortOrder: "0" });
+  const [motoboyEditForm, setMotoboyEditForm] = useState<MotoboyNeighborhoodForm>(EMPTY_MOTOBOY_NEIGHBORHOOD_FORM);
 
   const startEdit = (o: ShippingOption) => {
     setEditing(o);
     setEditForm({ name: o.name, description: o.description ?? "", price: String(o.price), sortOrder: String(o.sortOrder) });
+  };
+
+  const startMotoboyEdit = (neighborhood: MotoboyNeighborhood) => {
+    setMotoboyEditing(neighborhood);
+    setMotoboyEditForm({
+      neighborhoodName: neighborhood.neighborhoodName,
+      city: neighborhood.city || "",
+      price: String(neighborhood.price),
+      sortOrder: String(neighborhood.sortOrder),
+      notes: neighborhood.notes || "",
+    });
   };
 
   return (
@@ -18721,6 +18844,135 @@ function FretePanel({ options, form, setForm, creating, deleting, editing, setEd
           <li>Use a ordem de exibição para controlar qual frete aparece primeiro.</li>
           <li>O valor do frete é somado ao total do pedido e exibido no QR Code PIX.</li>
         </ul>
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-sm border border-border p-6">
+        <h3 className="font-semibold text-base flex items-center gap-2">
+          <Bike className="w-4 h-4 text-primary" />
+          Entrega por Motoboy — Bairros Atendidos
+        </h3>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Cadastre o nome exatamente como a ViaCEP retorna para liberar esta opção no checkout.
+        </p>
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium mb-1">Bairro *</label>
+            <input
+              value={motoboyForm.neighborhoodName}
+              onChange={(event) => setMotoboyForm({ ...motoboyForm, neighborhoodName: event.target.value })}
+              placeholder="Ex: Centro, Vila Nova, Jardim..."
+              className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">Cidade (opcional)</label>
+            <input
+              value={motoboyForm.city}
+              onChange={(event) => setMotoboyForm({ ...motoboyForm, city: event.target.value })}
+              placeholder="Ex: São Paulo"
+              className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">Valor da entrega (R$) *</label>
+            <input
+              type="number" min="0" step="0.01"
+              value={motoboyForm.price}
+              onChange={(event) => setMotoboyForm({ ...motoboyForm, price: event.target.value })}
+              placeholder="Ex: 15.00"
+              className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">Ordem de exibição</label>
+            <input
+              type="number" min="0"
+              value={motoboyForm.sortOrder}
+              onChange={(event) => setMotoboyForm({ ...motoboyForm, sortOrder: event.target.value })}
+              className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-medium mb-1">Observação (opcional)</label>
+            <input
+              value={motoboyForm.notes}
+              onChange={(event) => setMotoboyForm({ ...motoboyForm, notes: event.target.value })}
+              placeholder="Ex: Entrega em até 2h"
+              className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm"
+            />
+          </div>
+        </div>
+        <Button className="mt-4" onClick={onCreateMotoboy} disabled={motoboyCreating}>
+          {motoboyCreating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
+          Adicionar Bairro
+        </Button>
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-sm border border-border overflow-hidden">
+        <div className="px-6 py-4 border-b">
+          <h3 className="font-semibold text-base flex items-center gap-2">
+            <MapPin className="w-4 h-4 text-primary" />
+            Bairros Cadastrados ({motoboyNeighborhoods.length})
+          </h3>
+        </div>
+        {motoboyNeighborhoods.length === 0 ? (
+          <div className="p-8 text-center text-muted-foreground text-sm">Nenhum bairro atendido cadastrado.</div>
+        ) : (
+          <div className="divide-y divide-border">
+            {motoboyNeighborhoods.map((neighborhood) => (
+              <div key={neighborhood.id} className="px-6 py-4">
+                {motoboyEditing?.id === neighborhood.id ? (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <input value={motoboyEditForm.neighborhoodName} onChange={(event) => setMotoboyEditForm({ ...motoboyEditForm, neighborhoodName: event.target.value })} placeholder="Bairro" className="w-full h-9 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm" />
+                      <input value={motoboyEditForm.city} onChange={(event) => setMotoboyEditForm({ ...motoboyEditForm, city: event.target.value })} placeholder="Cidade" className="w-full h-9 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm" />
+                      <input type="number" min="0" step="0.01" value={motoboyEditForm.price} onChange={(event) => setMotoboyEditForm({ ...motoboyEditForm, price: event.target.value })} placeholder="Valor" className="w-full h-9 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm" />
+                      <input type="number" min="0" value={motoboyEditForm.sortOrder} onChange={(event) => setMotoboyEditForm({ ...motoboyEditForm, sortOrder: event.target.value })} placeholder="Ordem" className="w-full h-9 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm" />
+                      <input value={motoboyEditForm.notes} onChange={(event) => setMotoboyEditForm({ ...motoboyEditForm, notes: event.target.value })} placeholder="Observação" className="w-full h-9 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm sm:col-span-2" />
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="sm" disabled={motoboyUpdating === neighborhood.id} onClick={() => onUpdateMotoboy(neighborhood.id, {
+                        neighborhoodName: motoboyEditForm.neighborhoodName,
+                        city: motoboyEditForm.city,
+                        price: Number(motoboyEditForm.price),
+                        sortOrder: Number(motoboyEditForm.sortOrder),
+                        notes: motoboyEditForm.notes,
+                      })}>
+                        {motoboyUpdating === neighborhood.id ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <CheckCircle className="w-3 h-3 mr-1" />}
+                        Salvar
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setMotoboyEditing(null)}>Cancelar</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold text-sm">{neighborhood.neighborhoodName}</span>
+                        {neighborhood.city ? <span className="text-xs text-muted-foreground">{neighborhood.city}</span> : null}
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${neighborhood.isActive ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+                          {neighborhood.isActive ? "Ativo" : "Inativo"}
+                        </span>
+                        <span className="text-xs text-muted-foreground">Ordem: {neighborhood.sortOrder}</span>
+                      </div>
+                      {neighborhood.notes ? <p className="text-xs text-muted-foreground mt-1">{neighborhood.notes}</p> : null}
+                      <p className="text-lg font-bold text-primary mt-1">{formatCurrency(Number(neighborhood.price))}</p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button onClick={() => onUpdateMotoboy(neighborhood.id, { isActive: !neighborhood.isActive })} disabled={motoboyUpdating === neighborhood.id} className="text-muted-foreground hover:text-primary transition-colors p-1.5" title={neighborhood.isActive ? "Desativar" : "Ativar"}>
+                        {neighborhood.isActive ? <IconLucide name="ToggleRight" className="w-5 h-5 text-green-600" /> : <ToggleLeft className="w-5 h-5" />}
+                      </button>
+                      <button onClick={() => startMotoboyEdit(neighborhood)} className="text-muted-foreground hover:text-primary transition-colors p-1.5" title="Editar"><Pencil className="w-4 h-4" /></button>
+                      <button onClick={() => onDeleteMotoboy(neighborhood.id)} disabled={motoboyDeleting === neighborhood.id} className="text-muted-foreground hover:text-destructive transition-colors p-1.5" title="Excluir">
+                        {motoboyDeleting === neighborhood.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

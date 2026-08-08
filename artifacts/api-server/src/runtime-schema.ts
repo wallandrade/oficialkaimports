@@ -1035,6 +1035,27 @@ async function ensureFilialPurchaseTables(databaseName: string): Promise<void> {
   }
 }
 
+async function ensureMotoboyNeighborhoodsTable(databaseName: string): Promise<void> {
+  if (await tableExists("motoboy_neighborhoods", databaseName)) return;
+
+  await pool.query(`
+    CREATE TABLE motoboy_neighborhoods (
+      id VARCHAR(255) NOT NULL PRIMARY KEY,
+      tenant_id VARCHAR(255) NOT NULL,
+      neighborhood_name VARCHAR(255) NOT NULL,
+      city VARCHAR(255) NULL,
+      price DECIMAL(10,2) NOT NULL,
+      sort_order INT NOT NULL DEFAULT 0,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      notes TEXT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY motoboy_neighborhoods_tenant_id_idx (tenant_id),
+      KEY motoboy_neighborhoods_lookup_idx (tenant_id, is_active, sort_order)
+    )
+  `);
+}
+
 export async function ensureRuntimeSchema(): Promise<void> {
   try {
     const databaseName = getDatabaseName();
@@ -1065,6 +1086,7 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureAdminSessionsTenantColumn(databaseName);
     await ensureTenantColumns(databaseName);
     await ensureTenantSettingsTable(databaseName);
+    await ensureMotoboyNeighborhoodsTable(databaseName);
     await seedDefaultTenantAndBackfill(databaseName);
 
     console.log("[RuntimeSchema] Schema sync completed.");

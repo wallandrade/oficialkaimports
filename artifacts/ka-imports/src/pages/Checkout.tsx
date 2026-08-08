@@ -5,7 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import {
   ShieldCheck, Truck, CreditCard, QrCode, ArrowLeft,
-  MessageCircle, AlertTriangle, MapPin, Loader2, Tag, X, CheckCircle2, Zap, Minus, Plus, ExternalLink, Camera, IdCard, FileText, Clock
+  MessageCircle, AlertTriangle, MapPin, Loader2, Tag, X, CheckCircle2, Zap, Minus, Plus, ExternalLink, Camera, IdCard, FileText, Clock, Bike
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -129,6 +129,7 @@ export default function Checkout() {
 
   const [pendingCheck, setPendingCheck] = useState(() => !!sessionStorage.getItem("ka_pending_product"));
   const [shippingOptions, setShippingOptions] = useState<ShippingOption[]>([]);
+  const [motoboyShippingOption, setMotoboyShippingOption] = useState<ShippingOption | null>(null);
   const [shippingLoading, setShippingLoading] = useState(true);
   const [selectedShippingId, setSelectedShippingId] = useState<string | null>(null);
   const [includeInsurance, setIncludeInsurance] = useState(false);
@@ -649,7 +650,11 @@ export default function Checkout() {
       eligibleSet.has(p.id) ? acc + p.regularPrice * p.quantity : acc
     ), 0);
   }, [appliedCoupon, couponProductsPayload]);
-  const selectedShipping = shippingOptions.find((o) => o.id === selectedShippingId) ?? null;
+  const availableShippingOptions = useMemo(
+    () => motoboyShippingOption ? [...shippingOptions, motoboyShippingOption] : shippingOptions,
+    [motoboyShippingOption, shippingOptions],
+  );
+  const selectedShipping = availableShippingOptions.find((o) => o.id === selectedShippingId) ?? null;
   const shippingBaseCost = selectedShipping ? Number(selectedShipping.price) : 0;
   const isFreeShippingEligible = freeShippingMinSubtotal != null && subtotal >= freeShippingMinSubtotal;
   const shippingCost = isFreeShippingEligible ? 0 : shippingBaseCost;
@@ -785,6 +790,10 @@ export default function Checkout() {
     setValue("cep", formatted, { shouldValidate: false });
 
     const rawCep = formatted.replace(/\D/g, "");
+    if (rawCep.length < 8) {
+      setMotoboyShippingOption(null);
+      setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
+    }
     if (rawCep.length === 8) {
       setCepLoading(true);
       try {
@@ -804,16 +813,54 @@ export default function Checkout() {
           if (!data.logradouro) {
             toast.info("CEP encontrado, mas sem rua cadastrada. Preencha o endereço manualmente.");
           }
+          if (data.bairro) {
+            try {
+              const lookupRes = await fetch(`${BASE}/api/motoboy-neighborhoods/lookup?bairro=${encodeURIComponent(data.bairro)}`);
+              const lookupData = await lookupRes.json() as {
+                neighborhood?: {
+                  id: string;
+                  neighborhoodName: string;
+                  price: string | number;
+                  sortOrder: number;
+                  notes?: string | null;
+                } | null;
+              };
+              const neighborhood = lookupRes.ok ? lookupData.neighborhood : null;
+              if (neighborhood) {
+                setMotoboyShippingOption({
+                  id: `motoboy_${neighborhood.id}`,
+                  name: "Motoboy",
+                  description: neighborhood.notes || `Entrega em ${neighborhood.neighborhoodName}`,
+                  price: Number(neighborhood.price),
+                  sortOrder: neighborhood.sortOrder,
+                  isActive: true,
+                });
+              } else {
+                setMotoboyShippingOption(null);
+                setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
+              }
+            } catch {
+              setMotoboyShippingOption(null);
+              setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
+            }
+          } else {
+            setMotoboyShippingOption(null);
+            setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
+          }
         } else {
+          setMotoboyShippingOption(null);
+          setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
           toast.error("CEP não encontrado. Preencha o endereço manualmente.");
         }
       } catch {
+        setMotoboyShippingOption(null);
+        setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
         toast.error("Erro ao consultar CEP. Preencha o endereço manualmente.");
       } finally {
         setCepLoading(false);
       }
     }
-  }, [setValue]);
+  }, [setValue, shippingOptions]);
 
   useEffect(() => {
     if (!pendingCheckoutRetry) return;
@@ -1807,13 +1854,13 @@ export default function Checkout() {
                     <Loader2 className="w-4 h-4 animate-spin" />
                     Carregando opções de frete...
                   </div>
-                ) : shippingOptions.length === 0 ? (
+                ) : availableShippingOptions.length === 0 ? (
                   <div className="py-4 text-muted-foreground text-sm text-center rounded-xl border-2 border-border">
                     Nenhuma opção de frete disponível no momento.
                   </div>
                 ) : (
-                  <div className={`grid grid-cols-1 ${shippingOptions.length > 1 ? "sm:grid-cols-2" : ""} gap-4`}>
-                    {shippingOptions.map((opt) => (
+                  <div className={`grid grid-cols-1 ${availableShippingOptions.length > 1 ? "sm:grid-cols-2" : ""} gap-4`}>
+                    {availableShippingOptions.map((opt) => (
                       <div
                         key={opt.id}
                         onClick={() => setSelectedShippingId(opt.id)}
@@ -1824,7 +1871,7 @@ export default function Checkout() {
                         </div>
                         <div>
                           <p className="font-bold text-foreground flex items-center gap-2">
-                            <Truck className="w-4 h-4" />
+                            {opt.id.startsWith("motoboy_") ? <Bike className="w-4 h-4" /> : <Truck className="w-4 h-4" />}
                             {opt.name}
                           </p>
                           {opt.description && (

@@ -8,6 +8,7 @@ export * from "./products";
 export * from "./settings";
 export * from "./sellers";
 export * from "./shipping-options";
+export * from "./motoboy-neighborhoods";
 export * from "./order-bumps";
 export * from "./kyc";
 export * from "./social-proof";
