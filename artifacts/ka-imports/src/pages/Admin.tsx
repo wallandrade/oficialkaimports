@@ -448,6 +448,19 @@ function logisticsOrderBlock(order: any): string {
   ].filter(Boolean).join("\n\n");
 }
 
+function motoboyOrderBlock(order: any): string {
+  const { addressBlock, resumoPedido, reshipmentLines } = supplierOrderContent(order);
+  return [
+    `MOTOBOY - PEDIDO #KA-${getOrderDisplayId(order)}`,
+    `Entrega: ${formatDateOnlyLocal(order?.motoboyDeliveryDate) || "-"} às ${order?.motoboyDeliveryTime || "-"}`,
+    `Intervalo reservado: ${Number(order?.motoboyDeliveryDurationHours) || 1}h`,
+    ...reshipmentLines,
+    addressBlock,
+    `Resumo pedido:\n${resumoPedido}`,
+    "_______________________________",
+  ].filter(Boolean).join("\n\n");
+}
+
 function legacySupplierOrderBlock(order: any, sequence: number): string {
   const { addressBlock, resumoPedido, reshipmentLines } = supplierOrderContent(order);
   return [
@@ -5949,8 +5962,13 @@ export default function Admin() {
   const logisticsCopyGroups = (() => {
     const byPromisedHours = new Map<number, { promisedHours: number; orders: AdminOrder[] }>();
     const otherOrders: AdminOrder[] = [];
+    const motoboyOrders: AdminOrder[] = [];
 
     for (const order of ordersParaEnviarCopyBase) {
+      if (order.motoboyDeliveryDate && order.motoboyDeliveryTime) {
+        motoboyOrders.push(order);
+        continue;
+      }
       const allocation = (order as any)?.logisticsAllocation;
       const promisedHours = Number(allocation?.promisedHours);
       if (!allocation || allocation.status !== "allocated" || !allocation.deadlineAt || !Number.isFinite(promisedHours)) {
@@ -5965,6 +5983,7 @@ export default function Admin() {
     return {
       deadlineGroups: [...byPromisedHours.values()].sort((left, right) => left.promisedHours - right.promisedHours),
       otherOrders,
+      motoboyOrders,
     };
   })();
 
@@ -6131,6 +6150,20 @@ export default function Admin() {
       toast.success(mode === "manual" ? "Texto aberto para copia manual." : "Outros pedidos copiados.");
     } catch {
       toast.error("Nao foi possivel copiar os outros pedidos.");
+    }
+  };
+
+  const copyMotoboyOrders = async (event?: React.MouseEvent<HTMLButtonElement>) => {
+    event?.preventDefault();
+    event?.stopPropagation();
+    const text = logisticsCopyGroups.motoboyOrders
+      .map(motoboyOrderBlock)
+      .join("\n\n");
+    try {
+      const mode = await copyText(text);
+      toast.success(mode === "manual" ? "Texto aberto para copia manual." : "Pedidos de motoboy copiados.");
+    } catch {
+      toast.error("Nao foi possivel copiar os pedidos de motoboy.");
     }
   };
 
@@ -6487,7 +6520,7 @@ export default function Admin() {
               <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide flex items-center gap-1.5">
                 <Truck className="w-4 h-4" /> Pedidos para Enviar
               </p>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={copyShoppingList}
@@ -6506,6 +6539,16 @@ export default function Admin() {
                     <Copy className="w-3.5 h-3.5" /> {group.promisedHours}h ({group.orders.length})
                   </button>
                 ))}
+                {logisticsCopyGroups.motoboyOrders.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={(event) => { void copyMotoboyOrders(event); }}
+                    className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100"
+                    title="Copiar pedidos com entrega por motoboy"
+                  >
+                    <Bike className="w-3.5 h-3.5" /> Motoboy ({logisticsCopyGroups.motoboyOrders.length})
+                  </button>
+                )}
                 {logisticsCopyGroups.otherOrders.length > 0 && (
                   <button
                     type="button"
