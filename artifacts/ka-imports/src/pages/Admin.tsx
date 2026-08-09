@@ -399,9 +399,8 @@ export function chargeToText(charge: any): string {
     .join("\n");
 }
 
-function supplierOrderBlock(order: any, _sequence: number): string {
+function supplierOrderContent(order: any): { addressBlock: string; resumoPedido: string; reshipmentLines: string[] } {
   const products = getOrderProducts(order?.products);
-  const prioridadeLine = order?.isPrioridade ? "🚨 PRIORIDADE URGENTE" : "";
   const resumoPedido = products.length
     ? products
         .map((p) => {
@@ -427,12 +426,34 @@ function supplierOrderBlock(order: any, _sequence: number): string {
     `CEP: ${order?.addressCep || "-"}`,
   ].join("\n");
 
+  return {
+    addressBlock,
+    resumoPedido,
+    reshipmentLines: [
+      isReshipment ? "🚨 ATENCAO REENVIO - ABATER NO PAGAMENTO" : "",
+      isReshipment ? `Data do pedido original: ${firstOrderDate}` : "",
+      isReshipment ? `Motivo do reenvio: ${reshipmentReasonText}` : "",
+    ].filter(Boolean),
+  };
+}
+
+function logisticsOrderBlock(order: any): string {
+  const { addressBlock, resumoPedido, reshipmentLines } = supplierOrderContent(order);
   return [
     `PEDIDO #KA-${getOrderDisplayId(order)}`,
-    prioridadeLine,
-    isReshipment ? "🚨 ATENCAO REENVIO - ABATER NO PAGAMENTO" : "",
-    isReshipment ? `Data do pedido original: ${firstOrderDate}` : "",
-    isReshipment ? `Motivo do reenvio: ${reshipmentReasonText}` : "",
+    ...reshipmentLines,
+    addressBlock,
+    `Resumo pedido:\n${resumoPedido}`,
+    "_______________________________",
+  ].filter(Boolean).join("\n\n");
+}
+
+function legacySupplierOrderBlock(order: any, sequence: number): string {
+  const { addressBlock, resumoPedido, reshipmentLines } = supplierOrderContent(order);
+  return [
+    order?.isPrioridade ? "🚨 PRIORIDADE URGENTE" : "",
+    ...reshipmentLines,
+    `Pedido numero: ${sequence}`,
     addressBlock,
     `Resumo pedido:\n${resumoPedido}`,
     "_______________________________",
@@ -5925,6 +5946,27 @@ export default function Admin() {
     return isPendingNormalShipment || isActiveReshipment;
   });
   const ordersParaEnviarCopyBase = ordersParaEnviarDedupForCopy(ordersParaEnviar);
+  const logisticsCopyGroups = (() => {
+    const byPromisedHours = new Map<number, { promisedHours: number; orders: AdminOrder[] }>();
+    const otherOrders: AdminOrder[] = [];
+
+    for (const order of ordersParaEnviarCopyBase) {
+      const allocation = (order as any)?.logisticsAllocation;
+      const promisedHours = Number(allocation?.promisedHours);
+      if (!allocation || allocation.status !== "allocated" || !allocation.deadlineAt || !Number.isFinite(promisedHours)) {
+        otherOrders.push(order);
+        continue;
+      }
+      const group = byPromisedHours.get(promisedHours) || { promisedHours, orders: [] };
+      group.orders.push(order);
+      byPromisedHours.set(promisedHours, group);
+    }
+
+    return {
+      deadlineGroups: [...byPromisedHours.values()].sort((left, right) => left.promisedHours - right.promisedHours),
+      otherOrders,
+    };
+  })();
 
   const copyShoppingList = async (event?: React.MouseEvent<HTMLButtonElement>) => {
     event?.preventDefault();
@@ -6041,31 +6083,22 @@ export default function Admin() {
     }
   };
 
-  const copyOrdersParaEnviar = async (event?: React.MouseEvent<HTMLButtonElement>) => {
+  const copyLogisticsDeadlineGroup = async (
+    group: { promisedHours: number; orders: AdminOrder[] },
+    event?: React.MouseEvent<HTMLButtonElement>,
+  ) => {
     event?.preventDefault();
     event?.stopPropagation();
-
-    if (ordersParaEnviarCopyBase.length === 0) {
-      toast.info("Nao ha pedidos pendentes para copiar.");
-      return;
+    const byDeadline = new Map<string, { allocation: any; orders: AdminOrder[] }>();
+    for (const order of group.orders) {
+      const allocation = (order as any).logisticsAllocation;
+      const key = String(allocation.deadlineAt);
+      const deadlineGroup = byDeadline.get(key) || { allocation, orders: [] };
+      deadlineGroup.orders.push(order);
+      byDeadline.set(key, deadlineGroup);
     }
 
-    const logisticsGroups = new Map<string, { allocation: any; orders: AdminOrder[] }>();
-    const ordersWithoutLogistics: AdminOrder[] = [];
-
-    for (const order of ordersParaEnviarCopyBase) {
-      const allocation = (order as any)?.logisticsAllocation;
-      if (!allocation || allocation.status !== "allocated" || !allocation.deadlineAt) {
-        ordersWithoutLogistics.push(order);
-        continue;
-      }
-      const key = `${allocation.deadlineAt}|${allocation.promisedHours}|${allocation.capacity}`;
-      const group = logisticsGroups.get(key) || { allocation, orders: [] };
-      group.orders.push(order);
-      logisticsGroups.set(key, group);
-    }
-
-    const groupedBlocks = [...logisticsGroups.values()]
+    const text = [...byDeadline.values()]
       .sort((left, right) => Date.parse(left.allocation.deadlineAt) - Date.parse(right.allocation.deadlineAt))
       .map(({ allocation, orders: groupedOrders }) => {
         const sortedOrders = [...groupedOrders].sort((left, right) => (
@@ -6077,19 +6110,27 @@ export default function Admin() {
           `Lote de expedição: ${groupedOrders.length} pedido${groupedOrders.length !== 1 ? "s" : ""} de ${allocation.capacity} vagas`,
           `Prazo de postagem: até ${allocation.promisedHours} horas`,
         ].join("\n");
-        return `${header}\n\n${sortedOrders.map((order, index) => supplierOrderBlock(order, index + 1)).join("\n\n")}`;
-      });
-
-    if (ordersWithoutLogistics.length > 0) {
-      groupedBlocks.push(ordersWithoutLogistics.map((order, index) => supplierOrderBlock(order, index + 1)).join("\n\n"));
-    }
-
-    const text = groupedBlocks.join("\n\n");
+        return `${header}\n\n${sortedOrders.map(logisticsOrderBlock).join("\n\n")}`;
+      }).join("\n\n");
     try {
       const mode = await copyText(text);
-      toast.success(mode === "manual" ? "Texto aberto para copia manual." : "Pedidos copiados com sucesso.");
+      toast.success(mode === "manual" ? "Texto aberto para copia manual." : `Lote de ${group.promisedHours}h copiado.`);
     } catch {
-      toast.error("Nao foi possivel copiar os pedidos.");
+      toast.error("Nao foi possivel copiar este lote.");
+    }
+  };
+
+  const copyOtherShippingOrders = async (event?: React.MouseEvent<HTMLButtonElement>) => {
+    event?.preventDefault();
+    event?.stopPropagation();
+    const text = logisticsCopyGroups.otherOrders
+      .map((order, index) => legacySupplierOrderBlock(order, index + 1))
+      .join("\n\n");
+    try {
+      const mode = await copyText(text);
+      toast.success(mode === "manual" ? "Texto aberto para copia manual." : "Outros pedidos copiados.");
+    } catch {
+      toast.error("Nao foi possivel copiar os outros pedidos.");
     }
   };
 
@@ -6454,13 +6495,27 @@ export default function Admin() {
                 >
                   <ShoppingBag className="w-3.5 h-3.5" /> Lista de Compra
                 </button>
-                <button
-                  type="button"
-                  onClick={copyOrdersParaEnviar}
-                  className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-white/90 px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-white"
-                >
-                  <Copy className="w-3.5 h-3.5" /> Copiar Pedido
-                </button>
+                {logisticsCopyGroups.deadlineGroups.map((group) => (
+                  <button
+                    key={group.promisedHours}
+                    type="button"
+                    onClick={(event) => { void copyLogisticsDeadlineGroup(group, event); }}
+                    className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-white/90 px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-white"
+                    title={`Copiar ${group.orders.length} pedido${group.orders.length !== 1 ? "s" : ""} com prazo de ${group.promisedHours} horas`}
+                  >
+                    <Copy className="w-3.5 h-3.5" /> {group.promisedHours}h ({group.orders.length})
+                  </button>
+                ))}
+                {logisticsCopyGroups.otherOrders.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={(event) => { void copyOtherShippingOrders(event); }}
+                    className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-white/90 px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-white"
+                    title="Copiar pedidos sem lote de expedição"
+                  >
+                    <Copy className="w-3.5 h-3.5" /> Outros ({logisticsCopyGroups.otherOrders.length})
+                  </button>
+                )}
                 <span className="text-[10px] bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-bold">
                   {ordersParaEnviarCopyBase.length}
                 </span>
