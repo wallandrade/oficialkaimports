@@ -428,12 +428,11 @@ function supplierOrderBlock(order: any, _sequence: number): string {
   ].join("\n");
 
   return [
-    getOrderLogisticsBlock(order),
+    `PEDIDO #KA-${getOrderDisplayId(order)}`,
     prioridadeLine,
     isReshipment ? "🚨 ATENCAO REENVIO - ABATER NO PAGAMENTO" : "",
     isReshipment ? `Data do pedido original: ${firstOrderDate}` : "",
     isReshipment ? `Motivo do reenvio: ${reshipmentReasonText}` : "",
-    `PEDIDO #KA-${getOrderDisplayId(order)}`,
     addressBlock,
     `Resumo pedido:\n${resumoPedido}`,
     "_______________________________",
@@ -6051,7 +6050,41 @@ export default function Admin() {
       return;
     }
 
-    const text = ordersParaEnviarCopyBase.map((order, index) => supplierOrderBlock(order, index + 1)).join("\n\n");
+    const logisticsGroups = new Map<string, { allocation: any; orders: AdminOrder[] }>();
+    const ordersWithoutLogistics: AdminOrder[] = [];
+
+    for (const order of ordersParaEnviarCopyBase) {
+      const allocation = (order as any)?.logisticsAllocation;
+      if (!allocation || allocation.status !== "allocated" || !allocation.deadlineAt) {
+        ordersWithoutLogistics.push(order);
+        continue;
+      }
+      const key = `${allocation.deadlineAt}|${allocation.promisedHours}|${allocation.capacity}`;
+      const group = logisticsGroups.get(key) || { allocation, orders: [] };
+      group.orders.push(order);
+      logisticsGroups.set(key, group);
+    }
+
+    const groupedBlocks = [...logisticsGroups.values()]
+      .sort((left, right) => Date.parse(left.allocation.deadlineAt) - Date.parse(right.allocation.deadlineAt))
+      .map(({ allocation, orders: groupedOrders }) => {
+        const sortedOrders = [...groupedOrders].sort((left, right) => (
+          Number((left as any)?.logisticsAllocation?.slotPosition || 0)
+          - Number((right as any)?.logisticsAllocation?.slotPosition || 0)
+        ));
+        const header = [
+          `🚨 POSTAR ATÉ: ${formatDateBR(allocation.deadlineAt) || "-"} às ${formatTimeBR(allocation.deadlineAt) || "18:00"}`,
+          `Lote de expedição: ${groupedOrders.length} pedido${groupedOrders.length !== 1 ? "s" : ""} de ${allocation.capacity} vagas`,
+          `Prazo de postagem: até ${allocation.promisedHours} horas`,
+        ].join("\n");
+        return `${header}\n\n${sortedOrders.map((order, index) => supplierOrderBlock(order, index + 1)).join("\n\n")}`;
+      });
+
+    if (ordersWithoutLogistics.length > 0) {
+      groupedBlocks.push(ordersWithoutLogistics.map((order, index) => supplierOrderBlock(order, index + 1)).join("\n\n"));
+    }
+
+    const text = groupedBlocks.join("\n\n");
     try {
       const mode = await copyText(text);
       toast.success(mode === "manual" ? "Texto aberto para copia manual." : "Pedidos copiados com sucesso.");
