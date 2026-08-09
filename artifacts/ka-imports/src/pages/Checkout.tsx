@@ -171,6 +171,10 @@ export default function Checkout() {
   const [affiliateCreditLoading, setAffiliateCreditLoading] = useState(false);
   const [useAffiliateCredit, setUseAffiliateCredit] = useState(false);
   const [paymentMethods, setPaymentMethods] = useState({ pix: true, card: true, whatsapp: false });
+  const [checkoutMode, setCheckoutMode] = useState<"standard" | "fast">("standard");
+  const [checkoutModeLoaded, setCheckoutModeLoaded] = useState(false);
+  const [fastLookupStatus, setFastLookupStatus] = useState<"idle" | "checking" | "motoboy" | "unsupported">("idle");
+  const [fastWhatsappOpening, setFastWhatsappOpening] = useState(false);
   const [freeShippingMinSubtotal, setFreeShippingMinSubtotal] = useState<number | null>(null);
   const [pendingCheckoutRetry, setPendingCheckoutRetry] = useState<RetryAction | null>(null);
   const priceSyncRetryCountRef = useRef<Record<RetryAction, number>>({ pix: 0, whatsapp: 0, card: 0 });
@@ -462,10 +466,13 @@ export default function Checkout() {
             card: parseEnabled(data["checkout_enable_card"]),
             whatsapp: parseEnabled(data["checkout_enable_whatsapp"], false),
           });
+          setCheckoutMode(data["checkout_mode"] === "fast" ? "fast" : "standard");
           setFreeShippingMinSubtotal(parseCurrency(data["checkout_free_shipping_min_subtotal"]));
         }
       } catch {
         // Keep defaults enabled on network errors.
+      } finally {
+        if (!cancelled) setCheckoutModeLoaded(true);
       }
     })();
 
@@ -855,10 +862,12 @@ export default function Checkout() {
 
     const rawCep = formatted.replace(/\D/g, "");
     if (rawCep.length < 8) {
+      setFastLookupStatus("idle");
       setMotoboyShippingOption(null);
       setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
     }
     if (rawCep.length === 8) {
+      setFastLookupStatus("checking");
       setCepLoading(true);
       try {
         const res = await fetch(`https://viacep.com.br/ws/${rawCep}/json/`);
@@ -893,32 +902,41 @@ export default function Checkout() {
               };
               const neighborhood = lookupRes.ok ? lookupData.neighborhood : null;
               if (neighborhood) {
-                setMotoboyShippingOption({
+                const option = {
                   id: `motoboy_${neighborhood.id}`,
                   name: "Motoboy",
                   description: neighborhood.notes || `Entrega em ${neighborhood.neighborhoodName}`,
                   price: Number(neighborhood.price),
                   sortOrder: neighborhood.sortOrder,
                   isActive: true,
-                });
+                };
+                setMotoboyShippingOption(option);
+                if (checkoutMode === "fast") setSelectedShippingId(option.id);
+                setFastLookupStatus("motoboy");
               } else {
                 setMotoboyShippingOption(null);
                 setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
+                setFastLookupStatus("unsupported");
               }
             } catch {
               setMotoboyShippingOption(null);
               setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
+              setFastLookupStatus("idle");
+              toast.error("Erro ao consultar a disponibilidade do motoboy. Tente novamente.");
             }
           } else {
             setMotoboyShippingOption(null);
             setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
+            setFastLookupStatus("unsupported");
           }
         } else {
+          setFastLookupStatus("idle");
           setMotoboyShippingOption(null);
           setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
           toast.error("CEP não encontrado. Preencha o endereço manualmente.");
         }
       } catch {
+        setFastLookupStatus("idle");
         setMotoboyShippingOption(null);
         setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
         toast.error("Erro ao consultar CEP. Preencha o endereço manualmente.");
@@ -926,7 +944,48 @@ export default function Checkout() {
         setCepLoading(false);
       }
     }
-  }, [setValue, shippingOptions]);
+  }, [checkoutMode, setValue, shippingOptions]);
+
+  const handleFastWhatsApp = useCallback(async () => {
+    const name = String(getValues("name") || "").trim();
+    const cep = String(getValues("cep") || cepDisplay).trim();
+    if (name.length < 3) {
+      toast.error("Informe seu nome completo.");
+      return;
+    }
+    if (cep.replace(/\D/g, "").length !== 8) {
+      toast.error("Informe um CEP válido.");
+      return;
+    }
+    if (!validateLanderGoldRule()) return;
+    if (!(await validateCartAvailability())) return;
+
+    const whatsappWindow = window.open("", "_blank");
+    if (whatsappWindow) whatsappWindow.opener = null;
+    setFastWhatsappOpening(true);
+    try {
+      const sellerWhatsApp = await resolveSellerWhatsAppStrict();
+      if (!sellerWhatsApp) {
+        whatsappWindow?.close();
+        toast.error("Não foi possível confirmar o WhatsApp da loja. Tente novamente.");
+        return;
+      }
+      const itemsText = items
+        .map((item) => `- ${item.quantity}x ${item.name} — ${formatCurrency(item.price * item.quantity)}`)
+        .join("\n");
+      const message =
+        `Olá! Quero finalizar meu pedido via WhatsApp.\n\n` +
+        `Cliente: ${name}\n` +
+        `CEP: ${cep}\n\n` +
+        `Itens:\n${itemsText}\n\n` +
+        `Total dos produtos: ${formatCurrency(subtotal)}`;
+      const whatsappUrl = `https://wa.me/${sellerWhatsApp}?text=${encodeURIComponent(message)}`;
+      if (whatsappWindow) whatsappWindow.location.href = whatsappUrl;
+      else window.location.href = whatsappUrl;
+    } finally {
+      setFastWhatsappOpening(false);
+    }
+  }, [cepDisplay, getValues, items, resolveSellerWhatsAppStrict, subtotal, validateCartAvailability, validateLanderGoldRule]);
 
   useEffect(() => {
     if (!pendingCheckoutRetry) return;
@@ -950,6 +1009,16 @@ export default function Checkout() {
   }, [finalizeCardPayment, handleSubmit, handlePixPayment, handleWhatsAppPayment, pendingCheckoutRetry]);
 
   if (pendingCheck) {
+    return (
+      <CheckoutLayout>
+        <div className="flex-1 flex items-center justify-center">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      </CheckoutLayout>
+    );
+  }
+
+  if (!checkoutModeLoaded) {
     return (
       <CheckoutLayout>
         <div className="flex-1 flex items-center justify-center">
@@ -1551,6 +1620,87 @@ export default function Checkout() {
         </button>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12">
+          {checkoutMode === "fast" && fastLookupStatus !== "motoboy" ? (
+            <div className="lg:col-span-12 mx-auto w-full max-w-3xl">
+              <div className="border border-border bg-card p-6 shadow-sm sm:p-8">
+                <div className="mb-6 flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center bg-emerald-600 text-white">
+                    <Zap className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h1 className="text-xl font-bold text-foreground">Checkout Rápido</h1>
+                    <p className="text-sm text-muted-foreground">Informe seu nome e CEP para verificar a entrega.</p>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Input
+                    label="Nome Completo *"
+                    placeholder="João da Silva"
+                    {...register("name")}
+                    error={errors.name?.message}
+                  />
+                  <div className="w-full space-y-1.5">
+                    <label className="ml-1 text-sm font-medium text-foreground">CEP *</label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={cepDisplay}
+                        onChange={handleCEPChange}
+                        placeholder="00000-000"
+                        maxLength={9}
+                        className="flex h-12 w-full border-2 border-border bg-white px-4 py-2 pr-10 text-base outline-none transition-colors focus:border-primary"
+                      />
+                      {(cepLoading || fastLookupStatus === "checking") && (
+                        <Loader2 className="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 animate-spin text-primary" />
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {fastLookupStatus === "checking" && (
+                  <p className="mt-4 text-sm text-muted-foreground">Consultando endereço e disponibilidade de entrega...</p>
+                )}
+
+                {fastLookupStatus === "unsupported" && (
+                  <div className="mt-7 border-t border-border pt-6">
+                    <div className="mb-5 flex items-start gap-3 border border-amber-200 bg-amber-50 p-4">
+                      <MessageCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+                      <div>
+                        <p className="font-semibold text-amber-950">Entrega a combinar pelo WhatsApp</p>
+                        <p className="mt-1 text-sm text-amber-800">Este bairro não está na rota de motoboy. Envie o pedido para confirmarmos outra forma de entrega.</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      {items.map((item) => (
+                        <div key={item.id} className="flex items-center justify-between gap-4 text-sm">
+                          <span className="min-w-0 truncate">{item.quantity}x {item.name}</span>
+                          <span className="shrink-0 font-semibold">{formatCurrency(item.price * item.quantity)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="my-5 flex items-center justify-between border-t border-border pt-4">
+                      <span className="font-medium">Total dos produtos</span>
+                      <span className="text-2xl font-bold text-primary">{formatCurrency(subtotal)}</span>
+                    </div>
+                    <Button
+                      type="button"
+                      size="lg"
+                      className="w-full bg-emerald-600 text-base text-white hover:bg-emerald-700"
+                      disabled={fastWhatsappOpening}
+                      onClick={() => { void handleFastWhatsApp(); }}
+                    >
+                      {fastWhatsappOpening ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <MessageCircle className="mr-2 h-5 w-5" />}
+                      Finalizar via WhatsApp
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+          <>
           {/* Left Column */}
           <div className="lg:col-span-7 space-y-8">
 
@@ -2441,6 +2591,8 @@ export default function Checkout() {
               </div>
             </div>
           </div>
+          </>
+          )}
         </div>
       </div>
 

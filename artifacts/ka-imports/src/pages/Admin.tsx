@@ -919,7 +919,7 @@ function OrderBumpsPanel({ bumps, products, form, setForm, creating, toggling, d
   );
 }
 
-type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "socialProof" | "raffles" | "lojas" | "supplierPurchases";
+type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "checkout" | "socialProof" | "raffles" | "lojas" | "supplierPurchases";
 type LojasSubTab = "criar" | "pedidos" | "cadastradas";
 type FilialScopeSubTab = "pedidos" | "produtos" | "estoque";
 
@@ -927,6 +927,7 @@ const PRIMARY_ONLY_TABS = new Set<TabType>([
   "users",
   "coupons",
   "orderBumps",
+  "checkout",
   "socialProof",
   "raffles",
   "lojas",
@@ -4673,6 +4674,7 @@ export default function Admin() {
     else if (tab === "coupons")    { fetchCoupons(); fetchProducts(); }
     else if (tab === "products")   fetchProducts();
     else if (tab === "configuracoes") { fetchSettings(); fetchClientErrors(); fetchBrevoStatus(); }
+    else if (tab === "checkout") { fetchSettings(); }
     else if (tab === "sellers")    { fetchSellers(); fetchSellerData(); }
     else if (tab === "fretes")     { fetchShippingOptions(); fetchMotoboyNeighborhoods(); }
     else if (tab === "orderBumps") { fetchProducts(); fetchOrderBumpsData(); }
@@ -6482,6 +6484,7 @@ export default function Admin() {
               { key: "supplierPurchases" as TabType, label: "Compra fornecedor", icon: "ShoppingBag", count: myFilialPurchaseRequests.length || undefined },
             ] : []),
             ...(isPrimary ? [
+              { key: "checkout",      label: "Checkout",         icon: "Zap" },
               { key: "coupons",       label: "Cupons",           icon: "Ticket",      count: coupons.length },
               { key: "orderBumps",    label: "Order Bumps",      icon: "Zap",         count: orderBumps.length },
               { key: "users",         label: "Usuários",         icon: "User" },
@@ -7008,6 +7011,50 @@ export default function Admin() {
               }
             }}
           />
+        ) : tab === "checkout" && isPrimary ? (
+          <div className="space-y-5">
+            <div>
+              <h2 className="text-xl font-bold text-foreground">Modo do Checkout</h2>
+              <p className="mt-1 text-sm text-muted-foreground">Escolha a experiência exibida aos clientes desta loja.</p>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              {([
+                {
+                  value: "standard",
+                  title: "Checkout Padrão",
+                  description: "Exibe todos os dados, endereço, entrega e formas de pagamento desde o início.",
+                  icon: "ShoppingBag",
+                },
+                {
+                  value: "fast",
+                  title: "Checkout Rápido",
+                  description: "Começa com nome e CEP, priorizando entregas por motoboy e finalização rápida.",
+                  icon: "Zap",
+                },
+              ] as const).map((mode) => {
+                const activeMode = (settings.checkout_mode || "standard") === mode.value;
+                return (
+                  <button
+                    key={mode.value}
+                    type="button"
+                    disabled={!!settingsLoading.checkout_mode}
+                    onClick={() => { void saveSetting("checkout_mode", mode.value); }}
+                    className={`relative min-h-40 border p-5 text-left transition-colors ${activeMode ? "border-emerald-500 bg-emerald-50" : "border-border bg-white hover:border-primary/40"}`}
+                  >
+                    {activeMode && (
+                      <span className="absolute right-4 top-4 inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white">
+                        <CheckCircle className="h-3.5 w-3.5" /> Ativo
+                      </span>
+                    )}
+                    <IconLucide name={mode.icon} className={`mb-4 h-6 w-6 ${activeMode ? "text-emerald-700" : "text-muted-foreground"}`} />
+                    <p className="font-bold text-foreground">{mode.title}</p>
+                    <p className="mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">{mode.description}</p>
+                    {settingsLoading.checkout_mode && activeMode && <Loader2 className="absolute bottom-4 right-4 h-4 w-4 animate-spin" />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         ) : tab === "users" && isPrimary ? (
           <UsersPanel
             users={adminUsers}
