@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { Router, type IRouter } from "express";
-import { and, asc, eq, gte, lte } from "drizzle-orm";
+import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
 import { db, motoboyCepRangesTable } from "@workspace/db";
 import { resolvePublicTenantId } from "../lib/tenant-context";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
@@ -31,16 +31,25 @@ function parseSortOrder(value: unknown): number | null {
   return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
 }
 
+function normalizeCity(value: unknown): string {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
 router.get("/motoboy-cep-ranges/lookup", async (req, res) => {
   try {
     const cep = parseCep(req.query.cep);
-    if (cep == null) {
-      res.status(400).json({ error: "INVALID_CEP", message: "CEP deve conter 8 dígitos." });
+    const city = normalizeCity(req.query.cidade);
+    if (cep == null || !city) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "CEP e cidade são obrigatórios." });
       return;
     }
 
     const tenantId = await resolvePublicTenantId(req);
-    const [cepRange] = await db
+    const candidates = await db
       .select()
       .from(motoboyCepRangesTable)
       .where(and(
@@ -49,10 +58,13 @@ router.get("/motoboy-cep-ranges/lookup", async (req, res) => {
         lte(motoboyCepRangesTable.cepStart, cep),
         gte(motoboyCepRangesTable.cepEnd, cep),
       ))
-      .orderBy(asc(motoboyCepRangesTable.sortOrder), asc(motoboyCepRangesTable.cepEnd))
-      .limit(1);
+      .orderBy(
+        sql`${motoboyCepRangesTable.cepEnd} - ${motoboyCepRangesTable.cepStart} asc`,
+        asc(motoboyCepRangesTable.sortOrder),
+      );
+    const cepRange = candidates.find((candidate) => normalizeCity(candidate.city) === city) || null;
 
-    res.json({ cepRange: cepRange || null });
+    res.json({ cepRange });
   } catch (error) {
     console.error("[MotoboyCepRanges] lookup error:", error);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao consultar faixa de CEP." });

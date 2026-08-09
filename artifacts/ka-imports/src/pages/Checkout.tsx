@@ -170,6 +170,7 @@ export default function Checkout() {
   const [cpfDisplay, setCpfDisplay] = useState("");
   const [phoneDisplay, setPhoneDisplay] = useState("");
   const [cepDisplay, setCepDisplay] = useState("");
+  const [cepCity, setCepCity] = useState("");
   const [cepLoading, setCepLoading] = useState(false);
   const [couponInput, setCouponInput] = useState("");
   const [couponLoading, setCouponLoading] = useState(false);
@@ -708,7 +709,7 @@ export default function Checkout() {
     : "";
   const motoboyDeliveryAreaType = selectedShipping?.motoboyAreaType || "neighborhood";
   const motoboySchedulePayload = isMotoboySelected
-    ? { neighborhoodId: motoboyNeighborhoodId, deliveryAreaType: motoboyDeliveryAreaType, deliveryCep: cepDisplay, date: motoboyDeliveryDate, time: motoboyDeliveryTime }
+    ? { neighborhoodId: motoboyNeighborhoodId, deliveryAreaType: motoboyDeliveryAreaType, deliveryCep: cepDisplay, deliveryCity: cepCity, date: motoboyDeliveryDate, time: motoboyDeliveryTime }
     : undefined;
 
   useEffect(() => {
@@ -889,11 +890,13 @@ export default function Checkout() {
 
     const rawCep = formatted.replace(/\D/g, "");
     if (rawCep.length < 8) {
+      setCepCity("");
       setFastLookupStatus("idle");
       setMotoboyShippingOption(null);
       setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
     }
     if (rawCep.length === 8) {
+      setCepCity("");
       setFastLookupStatus("checking");
       setCepLoading(true);
       try {
@@ -908,7 +911,10 @@ export default function Checkout() {
         if (!data.erro) {
           if (data.logradouro) setValue("street", data.logradouro, { shouldValidate: false });
           if (data.bairro) setValue("neighborhood", data.bairro, { shouldValidate: false });
-          if (data.localidade) setValue("city", data.localidade, { shouldValidate: false });
+          if (data.localidade) {
+            setValue("city", data.localidade, { shouldValidate: false });
+            setCepCity(data.localidade);
+          }
           if (data.uf) setValue("state", data.uf, { shouldValidate: false });
           if (!data.logradouro) {
             toast.info("CEP encontrado, mas sem rua cadastrada. Preencha o endereço manualmente.");
@@ -944,7 +950,8 @@ export default function Checkout() {
             }
 
             if (!option) {
-              const rangeRes = await fetch(`${BASE}/api/motoboy-cep-ranges/lookup?cep=${encodeURIComponent(rawCep)}`);
+              const rangeParams = new URLSearchParams({ cep: rawCep, cidade: data.localidade || "" });
+              const rangeRes = await fetch(`${BASE}/api/motoboy-cep-ranges/lookup?${rangeParams}`);
               const rangeData = await rangeRes.json() as {
                 cepRange?: {
                   id: string;

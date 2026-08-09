@@ -1188,21 +1188,83 @@ async function seedDefaultMotoboyCepRanges(): Promise<void> {
     .map((row) => String(row.id || "").trim())
     .filter(Boolean);
 
-  for (const tenantId of tenantIds) {
-    const [existingRows] = await pool.query(
-      "SELECT 1 FROM motoboy_cep_ranges WHERE tenant_id = ? AND cep_start <= ? AND cep_end >= ? LIMIT 1",
-      [tenantId, 5144085, 5144085],
-    );
-    if (Array.isArray(existingRows) && existingRows.length > 0) continue;
+  const defaults = [
+    {
+      key: "pirituba",
+      label: "Pirituba",
+      city: "São Paulo",
+      cepStart: 5100000,
+      cepEnd: 5299999,
+      price: "80.00",
+      intervalHours: 2,
+      sortOrder: 1000,
+      notes: "Entrega por motoboy na região de Pirituba",
+    },
+    {
+      key: "sao-paulo-geral",
+      label: "São Paulo - Faixa Geral",
+      city: "São Paulo",
+      cepStart: 1000000,
+      cepEnd: 8999999,
+      price: "70.00",
+      intervalHours: 1,
+      sortOrder: 10000,
+      notes: "Fallback geral de entrega por motoboy em São Paulo",
+    },
+    {
+      key: "santo-andre-geral",
+      label: "Santo André - Faixa Geral",
+      city: "Santo André",
+      cepStart: 9010000,
+      cepEnd: 9399999,
+      price: "80.00",
+      intervalHours: 2,
+      sortOrder: 10000,
+      notes: "Fallback geral de entrega por motoboy em Santo André",
+    },
+    {
+      key: "sao-bernardo-geral",
+      label: "São Bernardo do Campo - Faixa Geral",
+      city: "São Bernardo do Campo",
+      cepStart: 9600000,
+      cepEnd: 9899999,
+      price: "90.00",
+      intervalHours: 2,
+      sortOrder: 10000,
+      notes: "Fallback geral de entrega por motoboy em São Bernardo do Campo",
+    },
+  ];
 
-    const id = `seed_motoboy_range_${crypto.createHash("sha256").update(`${tenantId}|pirituba`).digest("hex").slice(0, 24)}`;
-    await pool.query(
-      `INSERT IGNORE INTO motoboy_cep_ranges
-        (id, tenant_id, label, city, cep_start, cep_end, price, interval_hours, is_active, sort_order, notes)
-       VALUES (?, ?, 'Pirituba', 'São Paulo', 5100000, 5299999, '80.00', 2, TRUE, 1000, 'Entrega por motoboy na região de Pirituba')`,
-      [id, tenantId],
-    );
-    console.log(`[RuntimeSchema] Seeded Pirituba CEP range for tenant ${tenantId}.`);
+  for (const tenantId of tenantIds) {
+    let seeded = 0;
+    for (const definition of defaults) {
+      const [existingRows] = await pool.query(
+        "SELECT 1 FROM motoboy_cep_ranges WHERE tenant_id = ? AND city = ? AND cep_start = ? AND cep_end = ? LIMIT 1",
+        [tenantId, definition.city, definition.cepStart, definition.cepEnd],
+      );
+      if (Array.isArray(existingRows) && existingRows.length > 0) continue;
+
+      const id = `seed_motoboy_range_${crypto.createHash("sha256").update(`${tenantId}|${definition.key}`).digest("hex").slice(0, 24)}`;
+      await pool.query(
+        `INSERT IGNORE INTO motoboy_cep_ranges
+          (id, tenant_id, label, city, cep_start, cep_end, price, interval_hours, is_active, sort_order, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?, ?)`,
+        [
+          id,
+          tenantId,
+          definition.label,
+          definition.city,
+          definition.cepStart,
+          definition.cepEnd,
+          definition.price,
+          definition.intervalHours,
+          definition.sortOrder,
+          definition.notes,
+        ],
+      );
+      seeded += 1;
+    }
+    if (seeded > 0) console.log(`[RuntimeSchema] Seeded ${seeded} motoboy CEP range(s) for tenant ${tenantId}.`);
   }
 }
 

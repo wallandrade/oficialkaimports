@@ -17,6 +17,7 @@ export type MotoboyScheduleInput = {
   neighborhoodId?: unknown;
   deliveryAreaType?: unknown;
   deliveryCep?: unknown;
+  deliveryCity?: unknown;
   date?: unknown;
   time?: unknown;
 };
@@ -28,6 +29,14 @@ export class MotoboyScheduleError extends Error {
   ) {
     super(message);
   }
+}
+
+function normalizeCity(value: unknown): string {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
 }
 
 function getSaoPauloNow(): { date: string; hour: number } {
@@ -129,8 +138,9 @@ export async function reserveMotoboySchedule(
   const { neighborhoodId, deliveryAreaType, date, hour, time } = parseSchedule(input);
   const deliveryCepDigits = String(input.deliveryCep || "").replace(/\D/g, "");
   const deliveryCep = deliveryCepDigits.length === 8 ? Number(deliveryCepDigits) : null;
-  if (deliveryAreaType === "cepRange" && deliveryCep == null) {
-    throw new MotoboyScheduleError("INVALID_MOTOBOY_SCHEDULE", "CEP inválido para a faixa de entrega selecionada.");
+  const deliveryCity = normalizeCity(input.deliveryCity);
+  if (deliveryAreaType === "cepRange" && (deliveryCep == null || !deliveryCity)) {
+    throw new MotoboyScheduleError("INVALID_MOTOBOY_SCHEDULE", "CEP ou cidade inválidos para a faixa de entrega selecionada.");
   }
   const [deliveryArea] = deliveryAreaType === "cepRange"
     ? await tx.select({
@@ -158,6 +168,9 @@ export async function reserveMotoboySchedule(
 
   if (!deliveryArea) {
     throw new MotoboyScheduleError("INVALID_MOTOBOY_SCHEDULE", "Área não disponível para entrega por motoboy.");
+  }
+  if (deliveryAreaType === "cepRange" && normalizeCity(deliveryArea.city) !== deliveryCity) {
+    throw new MotoboyScheduleError("INVALID_MOTOBOY_SCHEDULE", "A faixa de CEP não pertence à cidade informada.");
   }
 
   const durationHours = "durationHours" in deliveryArea
