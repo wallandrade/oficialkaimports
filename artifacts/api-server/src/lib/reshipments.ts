@@ -45,6 +45,11 @@ function buildProductsTenantWhere(tenantId: string) {
   return eq(productsTable.tenantId, tenantId);
 }
 
+function buildInventoryProductsTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) return buildProductsTenantWhere(tenantId);
+  return or(buildProductsTenantWhere(tenantId), buildProductsTenantWhere(DEFAULT_TENANT_ID));
+}
+
 function buildReshipmentsTenantWhere(tenantId: string) {
   if (tenantId === DEFAULT_TENANT_ID) {
     return or(eq(reshipmentsTable.tenantId, tenantId), isNull(reshipmentsTable.tenantId), eq(reshipmentsTable.tenantId, ""));
@@ -843,7 +848,7 @@ export async function getInventoryOverview(tenantId = DEFAULT_TENANT_ID): Promis
     db
       .select({ id: productsTable.id, name: productsTable.name })
       .from(productsTable)
-      .where(buildProductsTenantWhere(tenantId)),
+      .where(buildInventoryProductsTenantWhere(tenantId)),
     db
       .select()
       .from(inventoryMovementsTable)
