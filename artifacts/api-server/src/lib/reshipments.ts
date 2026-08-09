@@ -851,7 +851,14 @@ export async function getInventoryOverview(tenantId = DEFAULT_TENANT_ID): Promis
       .orderBy(asc(inventoryMovementsTable.createdAt)),
   ]);
 
-  const productNameMap = new Map(productsRows.map((row) => [row.id, row.name]));
+  const productNameMap = new Map<string, string>();
+  const replicatedProductPrefix = `loja1sync_${tenantId}_`;
+  for (const product of productsRows) {
+    productNameMap.set(product.id, product.name);
+    if (product.id.startsWith(replicatedProductPrefix)) {
+      productNameMap.set(product.id.slice(replicatedProductPrefix.length), product.name);
+    }
+  }
 
   return {
     balances: balancesRows
