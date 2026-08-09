@@ -55,6 +55,11 @@ function getSaoPauloNow(): { date: string; hour: number } {
   };
 }
 
+function isSunday(date: string): boolean {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay() === 0;
+}
+
 function parseSchedule(input: MotoboyScheduleInput): { neighborhoodId: string; deliveryAreaType: "neighborhood" | "cepRange"; date: string; hour: number; time: string } {
   const neighborhoodId = String(input?.neighborhoodId || "").trim();
   const deliveryAreaType = input?.deliveryAreaType === "cepRange" ? "cepRange" : "neighborhood";
@@ -108,6 +113,9 @@ export async function getMotoboyAvailability(tenantId: string, input: MotoboySch
   const durationHours = "durationHours" in deliveryArea
     ? deliveryArea.durationHours
     : getMotoboyDurationHours(deliveryArea.price);
+  if (isSunday(date)) {
+    return { slots: [], durationHours, deliveryArea };
+  }
   const reservations = await db
     .select({ slotHour: motoboyDeliveryReservationsTable.slotHour })
     .from(motoboyDeliveryReservationsTable)
@@ -177,6 +185,9 @@ export async function reserveMotoboySchedule(
     ? deliveryArea.durationHours
     : getMotoboyDurationHours(deliveryArea.price);
   const saoPauloNow = getSaoPauloNow();
+  if (isSunday(date)) {
+    throw new MotoboyScheduleError("DELIVERY_SLOT_UNAVAILABLE", "Não realizamos entregas por motoboy aos domingos.");
+  }
   if (hour < FIRST_SLOT_HOUR || hour + durationHours > END_OF_DAY_HOUR) {
     throw new MotoboyScheduleError("INVALID_MOTOBOY_SCHEDULE", "O horário selecionado está fora do período de entregas.");
   }

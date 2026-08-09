@@ -114,6 +114,11 @@ function getSaoPauloDateKey() {
   return `${value.year}-${value.month}-${value.day}`;
 }
 
+function isSunday(date: string) {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay() === 0;
+}
+
 const checkoutSchema = z.object({
   name: z.string().min(3, "Nome completo é obrigatório"),
   email: z.string().email("E-mail inválido"),
@@ -2236,7 +2241,9 @@ export default function Checkout() {
                           </div>
                         ) : motoboyAvailableSlots.length === 0 ? (
                           <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
-                            Não há horários disponíveis nesta data. Selecione outro dia.
+                            {isSunday(motoboyDeliveryDate)
+                              ? "Não realizamos entregas por motoboy aos domingos. Selecione outro dia."
+                              : "Não há horários disponíveis nesta data. Selecione outro dia."}
                           </p>
                         ) : (
                           <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
