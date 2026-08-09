@@ -5894,9 +5894,26 @@ export default function Admin() {
   }
 
   const filteredOrders  = orders.filter((o) => {
-    const q = search.toLowerCase();
-    return !q || o.id.toLowerCase().includes(q) || o.clientName.toLowerCase().includes(q) ||
-      o.clientPhone.includes(q) || o.clientEmail.toLowerCase().includes(q);
+    const query = search.trim().toLowerCase();
+    if (!query) return true;
+
+    const isNumericQuery = /^[\d.\-\s]+$/.test(query);
+    const queryDigits = isNumericQuery ? query.replace(/\D/g, "") : "";
+    const orderNumber = getOrderDisplayId(o);
+    const productNames = getOrderProducts(o.products).map((product) => product.name).join(" ");
+    const searchableText = [
+      o.id,
+      orderNumber,
+      `ka-${orderNumber}`,
+      o.clientName,
+      o.clientPhone,
+      o.clientEmail,
+      o.addressCep,
+      productNames,
+    ].map((value) => String(value || "").toLowerCase()).join(" ");
+
+    return searchableText.includes(query)
+      || Boolean(queryDigits && String(o.addressCep || "").replace(/\D/g, "").includes(queryDigits));
   });
   const filteredCharges = charges.filter((c) => {
     const q = search.toLowerCase();
@@ -6669,7 +6686,7 @@ export default function Admin() {
             <div className="relative flex-1">
               <IconLucide name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-                placeholder="Buscar por nome, e-mail, telefone ou ID..."
+                placeholder={tab === "orders" ? "Buscar por nome, CEP, pedido ou produto..." : "Buscar por nome, e-mail, telefone ou ID..."}
                 className="w-full h-11 pl-10 pr-4 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm" />
             </div>
             <div className="flex gap-2 flex-wrap">
