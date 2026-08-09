@@ -857,6 +857,18 @@ function buildOrderTenantWhere(tenantId: string) {
   return eq(ordersTable.tenantId, tenantId);
 }
 
+function buildInventoryBalanceTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(
+      eq(inventoryBalancesTable.tenantId, tenantId),
+      isNull(inventoryBalancesTable.tenantId),
+      eq(inventoryBalancesTable.tenantId, ""),
+    );
+  }
+
+  return eq(inventoryBalancesTable.tenantId, tenantId);
+}
+
 function buildAdminOrderWhere(orderId: string, scope: { hasGlobalAccess: boolean; sellerCode: string | null; tenantId: string }) {
   if (scope.hasGlobalAccess) return and(eq(ordersTable.id, orderId), buildOrderTenantWhere(scope.tenantId));
   return and(eq(ordersTable.id, orderId), buildOrderTenantWhere(scope.tenantId), eq(ordersTable.sellerCode, scope.sellerCode!));
@@ -2491,7 +2503,10 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
           ? await db
               .select({ productId: inventoryBalancesTable.productId, quantity: inventoryBalancesTable.quantity })
               .from(inventoryBalancesTable)
-              .where(inArray(inventoryBalancesTable.productId, productIds))
+              .where(and(
+                buildInventoryBalanceTenantWhere(adminScope.tenantId),
+                inArray(inventoryBalancesTable.productId, productIds),
+              ))
           : [];
 
         const stockByProduct = new Map<string, number>();
@@ -2519,6 +2534,7 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
           }
           const qty = enviado ? -item.quantity : item.quantity;
           await registerInventoryEntry({
+            tenantId: adminScope.tenantId,
             productId: item.productId!,
             quantity: qty,
             reason: enviado
