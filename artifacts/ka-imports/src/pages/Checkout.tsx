@@ -760,7 +760,12 @@ export default function Checkout() {
     return false;
   }, [isMotoboySelected, motoboyDeliveryDate, motoboyDeliveryTime]);
   const shippingBaseCost = selectedShipping ? Number(selectedShipping.price) : 0;
-  const isFreeShippingEligible = freeShippingMinSubtotal != null && subtotal >= freeShippingMinSubtotal;
+  const isFreeByMinimumSubtotal = freeShippingMinSubtotal != null && subtotal >= freeShippingMinSubtotal;
+  const isSelectedShippingFree = selectedShipping != null && shippingBaseCost <= 0;
+  const isFreeShippingEligible = isFreeByMinimumSubtotal || isSelectedShippingFree;
+  const freeShippingProgress = isFreeShippingEligible
+    ? 100
+    : Math.min(100, (subtotal / freeShippingMinSubtotal!) * 100);
   const shippingCost = isFreeShippingEligible ? 0 : shippingBaseCost;
   const shippingSavings = isFreeShippingEligible ? shippingBaseCost : 0;
   const missingForFreeShipping = isFreeShippingEligible || freeShippingMinSubtotal == null
@@ -2197,7 +2202,7 @@ export default function Checkout() {
                             <p className="text-sm text-muted-foreground mt-1">{opt.description}</p>
                           )}
                           <p className="font-semibold text-primary mt-2">
-                            {isFreeShippingEligible
+                            {isFreeByMinimumSubtotal || Number(opt.price) <= 0
                               ? "Gratis"
                               : formatCurrency(Number(opt.price))}
                           </p>
@@ -2276,7 +2281,7 @@ export default function Checkout() {
                     <div className="w-full h-2 rounded-full bg-black/10 overflow-hidden">
                       <div
                         className={`h-full rounded-full transition-all duration-500 ${isFreeShippingEligible ? "bg-emerald-500" : "bg-amber-500"}`}
-                        style={{ width: `${Math.min(100, (subtotal / freeShippingMinSubtotal) * 100)}%` }}
+                        style={{ width: `${freeShippingProgress}%` }}
                       />
                     </div>
                   </div>
@@ -2460,7 +2465,7 @@ export default function Checkout() {
                   <div className="w-full h-2 rounded-full bg-black/10 overflow-hidden">
                     <div
                       className={`h-full rounded-full transition-all duration-500 ${isFreeShippingEligible ? "bg-emerald-500" : "bg-amber-500"}`}
-                      style={{ width: `${Math.min(100, (subtotal / freeShippingMinSubtotal) * 100)}%` }}
+                      style={{ width: `${freeShippingProgress}%` }}
                     />
                   </div>
                   {!isFreeShippingEligible && (
