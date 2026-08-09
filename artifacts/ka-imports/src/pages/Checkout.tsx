@@ -35,6 +35,8 @@ function isLanderGoldCategory(value: string): boolean {
 interface ShippingOption {
   id: string; name: string; description: string | null; price: number;
   sortOrder: number; isActive: boolean;
+  motoboyAreaId?: string;
+  motoboyAreaType?: "neighborhood" | "cepRange";
 }
 
 function genId() {
@@ -679,9 +681,12 @@ export default function Checkout() {
   );
   const selectedShipping = availableShippingOptions.find((o) => o.id === selectedShippingId) ?? null;
   const isMotoboySelected = Boolean(selectedShippingId?.startsWith("motoboy_"));
-  const motoboyNeighborhoodId = isMotoboySelected ? selectedShippingId!.slice("motoboy_".length) : "";
+  const motoboyNeighborhoodId = isMotoboySelected
+    ? selectedShipping?.motoboyAreaId || selectedShippingId!.slice("motoboy_".length)
+    : "";
+  const motoboyDeliveryAreaType = selectedShipping?.motoboyAreaType || "neighborhood";
   const motoboySchedulePayload = isMotoboySelected
-    ? { neighborhoodId: motoboyNeighborhoodId, date: motoboyDeliveryDate, time: motoboyDeliveryTime }
+    ? { neighborhoodId: motoboyNeighborhoodId, deliveryAreaType: motoboyDeliveryAreaType, deliveryCep: cepDisplay, date: motoboyDeliveryDate, time: motoboyDeliveryTime }
     : undefined;
 
   useEffect(() => {
@@ -700,7 +705,7 @@ export default function Checkout() {
     setMotoboySlotsLoading(true);
     setMotoboyDeliveryTime("");
 
-    fetch(`${BASE}/api/motoboy-delivery/availability?neighborhoodId=${encodeURIComponent(motoboyNeighborhoodId)}&date=${encodeURIComponent(motoboyDeliveryDate)}`, {
+    fetch(`${BASE}/api/motoboy-delivery/availability?neighborhoodId=${encodeURIComponent(motoboyNeighborhoodId)}&deliveryAreaType=${encodeURIComponent(motoboyDeliveryAreaType)}&date=${encodeURIComponent(motoboyDeliveryDate)}`, {
       signal: controller.signal,
     })
       .then(async (response) => {
@@ -719,7 +724,7 @@ export default function Checkout() {
       });
 
     return () => controller.abort();
-  }, [isMotoboySelected, motoboyDeliveryDate, motoboyNeighborhoodId]);
+  }, [isMotoboySelected, motoboyDeliveryAreaType, motoboyDeliveryDate, motoboyNeighborhoodId]);
 
   const validateMotoboySchedule = useCallback(() => {
     if (!isMotoboySelected || (motoboyDeliveryDate && motoboyDeliveryTime)) return true;
@@ -886,8 +891,9 @@ export default function Checkout() {
           if (!data.logradouro) {
             toast.info("CEP encontrado, mas sem rua cadastrada. Preencha o endereço manualmente.");
           }
-          if (data.bairro) {
-            try {
+          try {
+            let option: ShippingOption | null = null;
+            if (data.bairro) {
               const lookupParams = new URLSearchParams({ bairro: data.bairro });
               if (data.localidade) lookupParams.set("cidade", data.localidade);
               const lookupRes = await fetch(`${BASE}/api/motoboy-neighborhoods/lookup?${lookupParams}`);
@@ -902,32 +908,60 @@ export default function Checkout() {
               };
               const neighborhood = lookupRes.ok ? lookupData.neighborhood : null;
               if (neighborhood) {
-                const option = {
+                option = {
                   id: `motoboy_${neighborhood.id}`,
                   name: "Motoboy",
                   description: neighborhood.notes || `Entrega em ${neighborhood.neighborhoodName}`,
                   price: Number(neighborhood.price),
                   sortOrder: neighborhood.sortOrder,
                   isActive: true,
+                  motoboyAreaId: neighborhood.id,
+                  motoboyAreaType: "neighborhood",
                 };
-                setMotoboyShippingOption(option);
-                if (checkoutMode === "fast") setSelectedShippingId(option.id);
-                setFastLookupStatus("motoboy");
-              } else {
-                setMotoboyShippingOption(null);
-                setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
-                setFastLookupStatus("unsupported");
               }
-            } catch {
+            }
+
+            if (!option) {
+              const rangeRes = await fetch(`${BASE}/api/motoboy-cep-ranges/lookup?cep=${encodeURIComponent(rawCep)}`);
+              const rangeData = await rangeRes.json() as {
+                cepRange?: {
+                  id: string;
+                  label: string;
+                  price: string | number;
+                  intervalHours: number;
+                  sortOrder: number;
+                  notes?: string | null;
+                } | null;
+              };
+              const cepRange = rangeRes.ok ? rangeData.cepRange : null;
+              if (cepRange) {
+                option = {
+                  id: `motoboy_range_${cepRange.id}`,
+                  name: "Motoboy",
+                  description: cepRange.notes || `Entrega em ${cepRange.label}`,
+                  price: Number(cepRange.price),
+                  sortOrder: cepRange.sortOrder,
+                  isActive: true,
+                  motoboyAreaId: cepRange.id,
+                  motoboyAreaType: "cepRange",
+                };
+              }
+            }
+
+            if (option) {
+              setMotoboyShippingOption(option);
+              if (checkoutMode === "fast") setSelectedShippingId(option.id);
+              setFastLookupStatus("motoboy");
+            } else {
               setMotoboyShippingOption(null);
               setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
-              setFastLookupStatus("idle");
-              toast.error("Erro ao consultar a disponibilidade do motoboy. Tente novamente.");
+              setFastLookupStatus("unsupported");
             }
-          } else {
+          } catch {
             setMotoboyShippingOption(null);
             setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
-            setFastLookupStatus("unsupported");
+            setFastLookupStatus("idle");
+            toast.error("Erro ao consultar a disponibilidade do motoboy. Tente novamente.");
           }
         } else {
           setFastLookupStatus("idle");

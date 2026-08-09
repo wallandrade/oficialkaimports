@@ -1801,6 +1801,11 @@ export default function Admin() {
   const [motoboyDeleting, setMotoboyDeleting] = useState<string | null>(null);
   const [motoboyEditing, setMotoboyEditing] = useState<MotoboyNeighborhood | null>(null);
   const [motoboyUpdating, setMotoboyUpdating] = useState<string | null>(null);
+  const [motoboyCepRanges, setMotoboyCepRanges] = useState<MotoboyCepRange[]>([]);
+  const [motoboyCepRangeForm, setMotoboyCepRangeForm] = useState<MotoboyCepRangeForm>(EMPTY_MOTOBOY_CEP_RANGE_FORM);
+  const [motoboyCepRangeCreating, setMotoboyCepRangeCreating] = useState(false);
+  const [motoboyCepRangeUpdating, setMotoboyCepRangeUpdating] = useState<string | null>(null);
+  const [motoboyCepRangeDeleting, setMotoboyCepRangeDeleting] = useState<string | null>(null);
   // Order Bumps
   const [orderBumps, setOrderBumps] = useState<OrderBump[]>([]);
   const [bumpForm, setBumpForm] = useState<BumpFormType>(EMPTY_BUMP_FORM);
@@ -4440,6 +4445,14 @@ export default function Admin() {
     } catch { /* ignore */ }
   }, []);
 
+  const fetchMotoboyCepRanges = useCallback(async () => {
+    try {
+      const res = await fetch(`${BASE}/api/admin/motoboy-cep-ranges`, { headers: authHeaders() });
+      const data = await res.json() as { cepRanges?: MotoboyCepRange[] };
+      if (res.ok) setMotoboyCepRanges(data.cepRanges || []);
+    } catch { /* ignore */ }
+  }, []);
+
   const fetchOrderBumpsData = useCallback(async () => {
     try {
       const res = await fetch(`${BASE}/api/admin/order-bumps`, { headers: authHeaders() });
@@ -4676,7 +4689,7 @@ export default function Admin() {
     else if (tab === "configuracoes") { fetchSettings(); fetchClientErrors(); fetchBrevoStatus(); }
     else if (tab === "checkout") { fetchSettings(); }
     else if (tab === "sellers")    { fetchSellers(); fetchSellerData(); }
-    else if (tab === "fretes")     { fetchShippingOptions(); fetchMotoboyNeighborhoods(); }
+    else if (tab === "fretes")     { fetchShippingOptions(); fetchMotoboyNeighborhoods(); fetchMotoboyCepRanges(); }
     else if (tab === "orderBumps") { fetchProducts(); fetchOrderBumpsData(); }
     else if (tab === "kyc")        fetchKycList();
     else if (tab === "commissions") { fetchCommissionPayments(); }
@@ -4685,7 +4698,7 @@ export default function Admin() {
     else if (tab === "lojas")      { fetchTenants(); fetchDnsGuide(dnsDomainInput); fetchTenantProfitSummary(); fetchFilialPurchaseRequests(selectedFilialTenantId || undefined); }
     else if (tab === "supplierPurchases") { fetchMyFilialPurchaseRequests(); fetchMyFilialPurchaseProductImages(); }
     else setLoading(false);
-  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchSellers, fetchSellerData, fetchShippingOptions, fetchMotoboyNeighborhoods, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchCommissionPayments, fetchSocialProof, fetchRaffles, fetchTenants, fetchDnsGuide, fetchTenantProfitSummary, fetchFilialPurchaseRequests, fetchMyFilialPurchaseRequests, fetchMyFilialPurchaseProductImages, dnsDomainInput, selectedFilialTenantId]);
+  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchSellers, fetchSellerData, fetchShippingOptions, fetchMotoboyNeighborhoods, fetchMotoboyCepRanges, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchCommissionPayments, fetchSocialProof, fetchRaffles, fetchTenants, fetchDnsGuide, fetchTenantProfitSummary, fetchFilialPurchaseRequests, fetchMyFilialPurchaseRequests, fetchMyFilialPurchaseProductImages, dnsDomainInput, selectedFilialTenantId]);
 
   // -------------------------------------------------------------------------
   // SSE
@@ -7223,6 +7236,64 @@ export default function Admin() {
                 else { toast.success("Bairro excluído!"); await fetchMotoboyNeighborhoods(); }
               } catch { toast.error("Erro ao excluir bairro."); }
               finally { setMotoboyDeleting(null); }
+            }}
+            motoboyCepRanges={motoboyCepRanges}
+            motoboyCepRangeForm={motoboyCepRangeForm}
+            setMotoboyCepRangeForm={setMotoboyCepRangeForm}
+            motoboyCepRangeCreating={motoboyCepRangeCreating}
+            motoboyCepRangeUpdating={motoboyCepRangeUpdating}
+            motoboyCepRangeDeleting={motoboyCepRangeDeleting}
+            onCreateMotoboyCepRange={async () => {
+              const cepStart = motoboyCepRangeForm.cepStart.replace(/\D/g, "");
+              const cepEnd = motoboyCepRangeForm.cepEnd.replace(/\D/g, "");
+              if (!motoboyCepRangeForm.label.trim() || cepStart.length !== 8 || cepEnd.length !== 8 || Number(cepStart) > Number(cepEnd)) {
+                toast.error("Confira a descrição e os CEPs inicial e final com 8 dígitos.");
+                return;
+              }
+              setMotoboyCepRangeCreating(true);
+              try {
+                const res = await fetch(`${BASE}/api/admin/motoboy-cep-ranges`, {
+                  method: "POST",
+                  headers: authHeaders(),
+                  body: JSON.stringify({
+                    ...motoboyCepRangeForm,
+                    cepStart,
+                    cepEnd,
+                    price: Number(motoboyCepRangeForm.price),
+                    intervalHours: Number(motoboyCepRangeForm.intervalHours),
+                    sortOrder: Number(motoboyCepRangeForm.sortOrder),
+                  }),
+                });
+                const data = await res.json().catch(() => ({})) as { message?: string };
+                if (!res.ok) toast.error(data.message || "Erro ao cadastrar faixa de CEP.");
+                else {
+                  toast.success("Faixa de CEP cadastrada!");
+                  setMotoboyCepRangeForm(EMPTY_MOTOBOY_CEP_RANGE_FORM);
+                  await fetchMotoboyCepRanges();
+                }
+              } catch { toast.error("Erro ao cadastrar faixa de CEP."); }
+              finally { setMotoboyCepRangeCreating(false); }
+            }}
+            onUpdateMotoboyCepRange={async (id, patch) => {
+              setMotoboyCepRangeUpdating(id);
+              try {
+                const res = await fetch(`${BASE}/api/admin/motoboy-cep-ranges/${id}`, {
+                  method: "PATCH", headers: authHeaders(), body: JSON.stringify(patch),
+                });
+                if (!res.ok) toast.error("Erro ao atualizar faixa de CEP.");
+                else { await fetchMotoboyCepRanges(); }
+              } catch { toast.error("Erro ao atualizar faixa de CEP."); }
+              finally { setMotoboyCepRangeUpdating(null); }
+            }}
+            onDeleteMotoboyCepRange={async (id) => {
+              if (!confirm("Excluir esta faixa de CEP?")) return;
+              setMotoboyCepRangeDeleting(id);
+              try {
+                const res = await fetch(`${BASE}/api/admin/motoboy-cep-ranges/${id}`, { method: "DELETE", headers: authHeaders() });
+                if (!res.ok) toast.error("Erro ao excluir faixa de CEP.");
+                else { toast.success("Faixa de CEP excluída!"); await fetchMotoboyCepRanges(); }
+              } catch { toast.error("Erro ao excluir faixa de CEP."); }
+              finally { setMotoboyCepRangeDeleting(null); }
             }}
           />
         ) : tab === "orderBumps" ? (
@@ -18713,6 +18784,41 @@ const EMPTY_MOTOBOY_NEIGHBORHOOD_FORM: MotoboyNeighborhoodForm = {
   notes: "",
 };
 
+interface MotoboyCepRange {
+  id: string;
+  label: string;
+  city: string | null;
+  cepStart: number;
+  cepEnd: number;
+  price: string | number;
+  intervalHours: number;
+  isActive: boolean;
+  sortOrder: number;
+  notes: string | null;
+}
+
+interface MotoboyCepRangeForm {
+  label: string;
+  city: string;
+  cepStart: string;
+  cepEnd: string;
+  price: string;
+  intervalHours: string;
+  sortOrder: string;
+  notes: string;
+}
+
+const EMPTY_MOTOBOY_CEP_RANGE_FORM: MotoboyCepRangeForm = {
+  label: "",
+  city: "",
+  cepStart: "",
+  cepEnd: "",
+  price: "",
+  intervalHours: "1",
+  sortOrder: "0",
+  notes: "",
+};
+
 interface FretePanelProps {
   options: ShippingOption[];
   form: { name: string; description: string; price: string; sortOrder: string };
@@ -18736,15 +18842,27 @@ interface FretePanelProps {
   onCreateMotoboy: () => void;
   onUpdateMotoboy: (id: string, patch: Partial<MotoboyNeighborhood>) => void;
   onDeleteMotoboy: (id: string) => void;
+  motoboyCepRanges: MotoboyCepRange[];
+  motoboyCepRangeForm: MotoboyCepRangeForm;
+  setMotoboyCepRangeForm: (form: MotoboyCepRangeForm) => void;
+  motoboyCepRangeCreating: boolean;
+  motoboyCepRangeUpdating: string | null;
+  motoboyCepRangeDeleting: string | null;
+  onCreateMotoboyCepRange: () => void;
+  onUpdateMotoboyCepRange: (id: string, patch: Partial<MotoboyCepRange>) => void;
+  onDeleteMotoboyCepRange: (id: string) => void;
 }
 
 function FretePanel({
   options, form, setForm, creating, deleting, editing, setEditing, updating, onCreate, onUpdate, onDelete,
   motoboyNeighborhoods, motoboyForm, setMotoboyForm, motoboyCreating, motoboyDeleting,
   motoboyEditing, setMotoboyEditing, motoboyUpdating, onCreateMotoboy, onUpdateMotoboy, onDeleteMotoboy,
+  motoboyCepRanges, motoboyCepRangeForm, setMotoboyCepRangeForm, motoboyCepRangeCreating,
+  motoboyCepRangeUpdating, motoboyCepRangeDeleting, onCreateMotoboyCepRange, onUpdateMotoboyCepRange, onDeleteMotoboyCepRange,
 }: FretePanelProps) {
   const [editForm, setEditForm] = useState({ name: "", description: "", price: "", sortOrder: "0" });
   const [motoboyEditForm, setMotoboyEditForm] = useState<MotoboyNeighborhoodForm>(EMPTY_MOTOBOY_NEIGHBORHOOD_FORM);
+  const formatCepRangeValue = (value: number) => String(value).padStart(8, "0").replace(/^(\d{5})(\d{3})$/, "$1-$2");
 
   const startEdit = (o: ShippingOption) => {
     setEditing(o);
@@ -19042,6 +19160,93 @@ function FretePanel({
                     </div>
                   </div>
                 )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-sm border border-border p-6">
+        <h3 className="font-semibold text-base flex items-center gap-2">
+          <MapPin className="w-4 h-4 text-primary" />
+          Faixas de CEP (Fallback)
+        </h3>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Usadas quando o sub-bairro retornado pela ViaCEP não corresponde a um bairro cadastrado.
+        </p>
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div>
+            <label className="block text-xs font-medium mb-1">Descrição da região *</label>
+            <input value={motoboyCepRangeForm.label} onChange={(event) => setMotoboyCepRangeForm({ ...motoboyCepRangeForm, label: event.target.value })} placeholder="Ex: Pirituba" className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">Cidade</label>
+            <input value={motoboyCepRangeForm.city} onChange={(event) => setMotoboyCepRangeForm({ ...motoboyCepRangeForm, city: event.target.value })} placeholder="Ex: São Paulo" className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">CEP inicial *</label>
+            <input inputMode="numeric" maxLength={8} value={motoboyCepRangeForm.cepStart} onChange={(event) => setMotoboyCepRangeForm({ ...motoboyCepRangeForm, cepStart: event.target.value.replace(/\D/g, "").slice(0, 8) })} placeholder="05100000" className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm font-mono" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">CEP final *</label>
+            <input inputMode="numeric" maxLength={8} value={motoboyCepRangeForm.cepEnd} onChange={(event) => setMotoboyCepRangeForm({ ...motoboyCepRangeForm, cepEnd: event.target.value.replace(/\D/g, "").slice(0, 8) })} placeholder="05299999" className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm font-mono" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">Valor (R$) *</label>
+            <input type="number" min="0" step="0.01" value={motoboyCepRangeForm.price} onChange={(event) => setMotoboyCepRangeForm({ ...motoboyCepRangeForm, price: event.target.value })} placeholder="Ex: 80.00" className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">Intervalo de horas *</label>
+            <select value={motoboyCepRangeForm.intervalHours} onChange={(event) => setMotoboyCepRangeForm({ ...motoboyCepRangeForm, intervalHours: event.target.value })} className="w-full h-10 px-3 rounded-xl border-2 border-border bg-white outline-none focus:border-primary text-sm">
+              <option value="1">1 hora</option>
+              <option value="2">2 horas</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">Ordem</label>
+            <input type="number" min="0" value={motoboyCepRangeForm.sortOrder} onChange={(event) => setMotoboyCepRangeForm({ ...motoboyCepRangeForm, sortOrder: event.target.value })} className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm" />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-medium mb-1">Observação</label>
+            <input value={motoboyCepRangeForm.notes} onChange={(event) => setMotoboyCepRangeForm({ ...motoboyCepRangeForm, notes: event.target.value })} placeholder="Informação exibida no checkout" className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm" />
+          </div>
+        </div>
+        <Button className="mt-4" onClick={onCreateMotoboyCepRange} disabled={motoboyCepRangeCreating}>
+          {motoboyCepRangeCreating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
+          Adicionar Faixa
+        </Button>
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-sm border border-border overflow-hidden">
+        <div className="px-6 py-4 border-b">
+          <h3 className="font-semibold text-base flex items-center gap-2">
+            <MapPin className="w-4 h-4 text-primary" /> Faixas Cadastradas ({motoboyCepRanges.length})
+          </h3>
+        </div>
+        {motoboyCepRanges.length === 0 ? (
+          <div className="p-8 text-center text-muted-foreground text-sm">Nenhuma faixa de CEP cadastrada.</div>
+        ) : (
+          <div className="divide-y divide-border">
+            {motoboyCepRanges.map((cepRange) => (
+              <div key={cepRange.id} className="px-6 py-4 flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold text-sm">{cepRange.label}</span>
+                    {cepRange.city && <span className="text-xs text-muted-foreground">{cepRange.city}</span>}
+                    <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${cepRange.isActive ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>{cepRange.isActive ? "Ativa" : "Inativa"}</span>
+                  </div>
+                  <p className="mt-1 font-mono text-xs text-muted-foreground">{formatCepRangeValue(cepRange.cepStart)} até {formatCepRangeValue(cepRange.cepEnd)}</p>
+                  <p className="mt-1 text-sm"><strong className="text-primary">{formatCurrency(Number(cepRange.price))}</strong> · intervalo de {cepRange.intervalHours}h · ordem {cepRange.sortOrder}</p>
+                  {cepRange.notes && <p className="mt-1 text-xs text-muted-foreground">{cepRange.notes}</p>}
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button onClick={() => onUpdateMotoboyCepRange(cepRange.id, { isActive: !cepRange.isActive })} disabled={motoboyCepRangeUpdating === cepRange.id} className="p-1.5 text-muted-foreground hover:text-primary" title={cepRange.isActive ? "Desativar" : "Ativar"}>
+                    {cepRange.isActive ? <IconLucide name="ToggleRight" className="w-5 h-5 text-green-600" /> : <ToggleLeft className="w-5 h-5" />}
+                  </button>
+                  <button onClick={() => onDeleteMotoboyCepRange(cepRange.id)} disabled={motoboyCepRangeDeleting === cepRange.id} className="p-1.5 text-muted-foreground hover:text-destructive" title="Excluir">
+                    {motoboyCepRangeDeleting === cepRange.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
             ))}
           </div>

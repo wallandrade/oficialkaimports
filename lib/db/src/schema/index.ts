@@ -9,6 +9,7 @@ export * from "./settings";
 export * from "./sellers";
 export * from "./shipping-options";
 export * from "./motoboy-neighborhoods";
+export * from "./motoboy-cep-ranges";
 export * from "./motoboy-delivery-reservations";
 export * from "./order-bumps";
 export * from "./kyc";

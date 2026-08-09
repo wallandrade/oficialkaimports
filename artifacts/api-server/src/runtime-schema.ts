@@ -1083,6 +1083,29 @@ async function ensureMotoboyDeliveryReservationsTable(databaseName: string): Pro
   `);
 }
 
+async function ensureMotoboyCepRangesTable(databaseName: string): Promise<void> {
+  if (await tableExists("motoboy_cep_ranges", databaseName)) return;
+
+  await pool.query(`
+    CREATE TABLE motoboy_cep_ranges (
+      id VARCHAR(255) NOT NULL PRIMARY KEY,
+      tenant_id VARCHAR(255) NOT NULL,
+      label VARCHAR(255) NOT NULL,
+      city VARCHAR(255) NULL,
+      cep_start INT NOT NULL,
+      cep_end INT NOT NULL,
+      price DECIMAL(10,2) NOT NULL,
+      interval_hours INT NOT NULL DEFAULT 1,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      sort_order INT NOT NULL DEFAULT 0,
+      notes TEXT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY motoboy_cep_ranges_lookup_idx (tenant_id, is_active, cep_start, cep_end)
+    )
+  `);
+}
+
 function normalizeMotoboySeedValue(value: unknown): string {
   return String(value || "")
     .normalize("NFD")
@@ -1135,6 +1158,30 @@ async function seedDefaultMotoboyNeighborhoods(): Promise<void> {
   }
 }
 
+async function seedDefaultMotoboyCepRanges(): Promise<void> {
+  const [tenantRows] = await pool.query("SELECT id FROM tenants WHERE status = 'active'");
+  const tenantIds = (tenantRows as Array<{ id?: unknown }>)
+    .map((row) => String(row.id || "").trim())
+    .filter(Boolean);
+
+  for (const tenantId of tenantIds) {
+    const [existingRows] = await pool.query(
+      "SELECT 1 FROM motoboy_cep_ranges WHERE tenant_id = ? AND cep_start <= ? AND cep_end >= ? LIMIT 1",
+      [tenantId, 5144085, 5144085],
+    );
+    if (Array.isArray(existingRows) && existingRows.length > 0) continue;
+
+    const id = `seed_motoboy_range_${crypto.createHash("sha256").update(`${tenantId}|pirituba`).digest("hex").slice(0, 24)}`;
+    await pool.query(
+      `INSERT IGNORE INTO motoboy_cep_ranges
+        (id, tenant_id, label, city, cep_start, cep_end, price, interval_hours, is_active, sort_order, notes)
+       VALUES (?, ?, 'Pirituba', 'São Paulo', 5100000, 5299999, '80.00', 2, TRUE, 1000, 'Entrega por motoboy na região de Pirituba')`,
+      [id, tenantId],
+    );
+    console.log(`[RuntimeSchema] Seeded Pirituba CEP range for tenant ${tenantId}.`);
+  }
+}
+
 export async function ensureRuntimeSchema(): Promise<void> {
   try {
     const databaseName = getDatabaseName();
@@ -1166,9 +1213,11 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureTenantColumns(databaseName);
     await ensureTenantSettingsTable(databaseName);
     await ensureMotoboyNeighborhoodsTable(databaseName);
+    await ensureMotoboyCepRangesTable(databaseName);
     await ensureMotoboyDeliveryReservationsTable(databaseName);
     await seedDefaultTenantAndBackfill(databaseName);
     await seedDefaultMotoboyNeighborhoods();
+    await seedDefaultMotoboyCepRanges();
 
     console.log("[RuntimeSchema] Schema sync completed.");
   } catch (error) {

@@ -59,6 +59,7 @@ router.get("/motoboy-delivery/availability", async (req, res) => {
     const tenantId = await resolvePublicTenantId(req);
     const availability = await getMotoboyAvailability(tenantId, {
       neighborhoodId: req.query.neighborhoodId,
+      deliveryAreaType: req.query.deliveryAreaType,
       date: req.query.date,
     });
     res.json(availability);
