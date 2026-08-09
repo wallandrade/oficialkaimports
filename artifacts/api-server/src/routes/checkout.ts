@@ -19,6 +19,7 @@ import { parseFreeShippingMinSubtotalSetting, resolveShippingCostWithFreeThresho
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 import { enqueueFilialOrderPurchaseRequest } from "../lib/filial-purchase-queue";
 import { reserveNextOrderNumber } from "../lib/order-number";
+import { allocateOrderLogistics } from "../lib/order-logistics";
 import { MotoboyScheduleError, type MotoboyScheduleInput, reserveMotoboySchedule } from "../lib/motoboy-delivery-schedule";
 
 const router: IRouter = Router();
@@ -551,6 +552,7 @@ router.post("/checkout/pix", async (req, res) => {
     const payableAmount = Math.max(0, amount - affiliateCreditUsed);
     if (payableAmount <= 0) {
       await ensureOrderCommission(orderId);
+      await allocateOrderLogistics(orderId);
       await enqueueFilialOrderPurchaseRequest(orderId);
       broadcastNotification({ type: "order_paid", data: { id: orderId, status: "paid", tenantId } });
       void sendOutboundWebhook("order_paid", {

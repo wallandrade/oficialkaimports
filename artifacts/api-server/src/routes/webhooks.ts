@@ -22,6 +22,7 @@ import { ensureOrderCommission } from "../lib/affiliates";
 import { sendOutboundWebhook } from "../lib/outbound-webhook";
 import { requirePrimaryAdmin } from "./admin-auth";
 import { enqueueFilialOrderPurchaseRequest } from "../lib/filial-purchase-queue";
+import { allocateOrderLogistics, releaseOrderLogistics } from "../lib/order-logistics";
 
 const router: IRouter = Router();
 
@@ -125,6 +126,11 @@ async function handleCallback(body: GatewayCallback) {
 
           console.log(`[WEBHOOK] Order ${row.id} updated to ${newStatus}`);
         }
+      }
+      if (confirmed) {
+        await allocateOrderLogistics(row.id);
+      } else if (cancelled) {
+        await releaseOrderLogistics(row.id, row.tenantId || "tenant_loja1");
       }
       orderUpdated = true;
     }
@@ -480,6 +486,7 @@ router.post("/webhook/pix/order/:token/:orderId", async (req, res) => {
         }, { tenantId: rows[0]!.tenantId || "tenant_loja1" });
         console.log(`[WEBHOOK] Order ${orderId} paid via direct URL`);
       }
+      if (rows.length > 0) await allocateOrderLogistics(orderId);
     }
 
     res.json({ ok: true });

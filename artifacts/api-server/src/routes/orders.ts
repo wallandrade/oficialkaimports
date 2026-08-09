@@ -1,6 +1,6 @@
 import { enqueueFilialOrderPurchaseRequest } from "../lib/filial-purchase-queue";
 import { Router, type IRouter, type Request, type Response } from "express";
-import { db, pool, ordersTable, customChargesTable, sellersTable, productsTable, siteSettingsTable, tenantSettingsTable, reshipmentsTable, couponsTable, inventoryBalancesTable, motoboyDeliveryReservationsTable } from "@workspace/db";
+import { db, pool, ordersTable, customChargesTable, sellersTable, productsTable, siteSettingsTable, tenantSettingsTable, reshipmentsTable, couponsTable, inventoryBalancesTable, motoboyDeliveryReservationsTable, orderLogisticsAllocationsTable } from "@workspace/db";
 import { desc, and, gte, lte, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { getAdminScope, requireAdminAuth, verifyCurrentAdminPassword } from "./admin-auth";
@@ -28,6 +28,7 @@ import { parseFreeShippingMinSubtotalSetting, resolveShippingCostWithFreeThresho
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 import { reserveNextOrderNumber } from "../lib/order-number";
 import { MotoboyScheduleError, reserveMotoboySchedule } from "../lib/motoboy-delivery-schedule";
+import { allocateOrderLogistics, completeOrderLogistics, releaseOrderLogistics } from "../lib/order-logistics";
 
 const router: IRouter = Router();
 
@@ -1523,6 +1524,15 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
 
     const reshipmentByOrder = await getReshipmentByOrderIds(orders.map((o) => o.id), adminScope.tenantId);
     const priorityByOrder = await loadOrderPriorityMap(orders.map((o) => o.id));
+    const orderIds = orders.map((order) => order.id);
+    const logisticsAllocations = orderIds.length > 0
+      ? await db.select().from(orderLogisticsAllocationsTable).where(and(
+          eq(orderLogisticsAllocationsTable.tenantId, adminScope.tenantId),
+          eq(orderLogisticsAllocationsTable.status, "allocated"),
+          inArray(orderLogisticsAllocationsTable.orderId, orderIds),
+        ))
+      : [];
+    const logisticsByOrder = new Map(logisticsAllocations.map((allocation) => [allocation.orderId, allocation] as const));
 
     const enriched = orders.map((order) => {
       const manualPriority = priorityByOrder.get(order.id) ?? false;
@@ -1565,6 +1575,7 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
 
       return {
         ...mapOrder(order),
+        logisticsAllocation: logisticsByOrder.get(order.id) || null,
         isPrioridade: manualPriority || automaticPriority,
         priorityManual: manualPriority,
         priorityAutomatic: automaticPriority,
@@ -1686,6 +1697,9 @@ router.patch("/admin/orders/:id/status", requireAdminAuth, async (req, res) => {
         eq(motoboyDeliveryReservationsTable.tenantId, adminScope.tenantId),
       ));
     }
+    if (!isBeingPaid) {
+      await releaseOrderLogistics(id, adminScope.tenantId);
+    }
 
     if (couponCodeToIncrement) {
       await incrementCouponUse(couponCodeToIncrement, adminScope.tenantId);
@@ -1693,6 +1707,7 @@ router.patch("/admin/orders/:id/status", requireAdminAuth, async (req, res) => {
 
     if (isBeingPaid) {
       await ensureOrderCommission(id);
+      await allocateOrderLogistics(id);
       if (!wasAlreadyPaid) {
         await enqueueFilialOrderPurchaseRequest(id);
       }
@@ -1821,6 +1836,7 @@ router.patch("/admin/orders/:id/proof", requireAdminAuth, async (req, res) => {
       .where(buildAdminOrderWhere(id, adminScope));
 
     await ensureOrderCommission(id);
+    await allocateOrderLogistics(id);
     const priorStatus = String(existing[0]?.status || "").trim().toLowerCase();
     if (priorStatus !== "paid" && priorStatus !== "completed") {
       await enqueueFilialOrderPurchaseRequest(id);
@@ -1955,6 +1971,12 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
     await db.update(ordersTable)
       .set(updates)
       .where(buildAdminOrderWhere(id, adminScope));
+
+    if (newStatus === "paid" || newStatus === "completed") {
+      await allocateOrderLogistics(id);
+    } else if (isPaid) {
+      await releaseOrderLogistics(id, adminScope.tenantId);
+    }
 
     const updated = await db.select().from(ordersTable).where(buildAdminOrderWhere(id, adminScope)).limit(1);
     if (!updated[0]) { res.status(404).json({ error: "NOT_FOUND" }); return; }
@@ -2518,6 +2540,9 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
         eq(motoboyDeliveryReservationsTable.orderId, id),
         eq(motoboyDeliveryReservationsTable.tenantId, adminScope.tenantId),
       ));
+      await completeOrderLogistics(id, adminScope.tenantId);
+    } else if (!enviado && wasEnviado) {
+      await allocateOrderLogistics(id);
     }
 
     const persisted = await db

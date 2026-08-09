@@ -1083,6 +1083,30 @@ async function ensureMotoboyDeliveryReservationsTable(databaseName: string): Pro
   `);
 }
 
+async function ensureOrderLogisticsAllocationsTable(databaseName: string): Promise<void> {
+  if (await tableExists("order_logistics_allocations", databaseName)) return;
+
+  await pool.query(`
+    CREATE TABLE order_logistics_allocations (
+      id VARCHAR(255) NOT NULL PRIMARY KEY,
+      tenant_id VARCHAR(255) NOT NULL,
+      order_id VARCHAR(255) NOT NULL,
+      dispatch_date DATE NOT NULL,
+      slot_position INT NOT NULL,
+      capacity INT NOT NULL DEFAULT 20,
+      promised_hours INT NOT NULL,
+      deadline_at TIMESTAMP NOT NULL,
+      status VARCHAR(32) NOT NULL DEFAULT 'allocated',
+      active_slot_key VARCHAR(255) NULL,
+      allocated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      released_at TIMESTAMP NULL,
+      UNIQUE KEY order_logistics_allocations_order_unique (order_id),
+      UNIQUE KEY order_logistics_allocations_active_slot_unique (active_slot_key),
+      KEY order_logistics_allocations_schedule_idx (tenant_id, dispatch_date, status)
+    )
+  `);
+}
+
 async function ensureMotoboyCepRangesTable(databaseName: string): Promise<void> {
   if (await tableExists("motoboy_cep_ranges", databaseName)) return;
 
@@ -1215,6 +1239,7 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureMotoboyNeighborhoodsTable(databaseName);
     await ensureMotoboyCepRangesTable(databaseName);
     await ensureMotoboyDeliveryReservationsTable(databaseName);
+    await ensureOrderLogisticsAllocationsTable(databaseName);
     await seedDefaultTenantAndBackfill(databaseName);
     await seedDefaultMotoboyNeighborhoods();
     await seedDefaultMotoboyCepRanges();

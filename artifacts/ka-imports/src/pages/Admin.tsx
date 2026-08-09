@@ -127,6 +127,18 @@ function getOrderDisplayId(order: any): string {
   return String(order?.id || "-");
 }
 
+function getOrderLogisticsBlock(order: any): string {
+  const allocation = order?.logisticsAllocation;
+  if (!allocation || allocation.status !== "allocated") return "";
+  const deadlineDate = formatDateBR(allocation.deadlineAt) || "-";
+  const deadlineTime = formatTimeBR(allocation.deadlineAt) || "18:00";
+  return [
+    `🚨 POSTAR ATÉ: ${deadlineDate} às ${deadlineTime}`,
+    `Fila de expedição: posição ${allocation.slotPosition} de ${allocation.capacity}`,
+    `Prazo de postagem: até ${allocation.promisedHours} horas`,
+  ].join("\n");
+}
+
 export function orderToText(order: any): string {
   const products = getOrderProducts(order?.products);
   const prioridadeLine = order?.isPrioridade ? "PRIORIDADE URGENTE" : "";
@@ -177,25 +189,24 @@ export function orderToText(order: any): string {
       .join("\n");
   }
 
-  return [
-    prioridadeLine,
-    `Pedido numero: ${getOrderDisplayId(order)}`,
-    "",
+  const addressBlock = [
     `Nome: ${order?.clientName || "-"}`,
     `Rua: ${rua}`,
     `Bairro: ${order?.addressNeighborhood || "-"}`,
     `Complemento: ${order?.addressComplement || "-"}`,
     `Cidade: ${order?.addressCity || "-"}`,
     `Estado: ${order?.addressState || "-"}`,
-    `Cep: ${order?.addressCep || "-"}`,
-    "",
-    "Resumo pedido:",
-    productsText,
-    order?.observation ? "" : "",
+    `CEP: ${order?.addressCep || "-"}`,
+  ].join("\n");
+
+  return [
+    getOrderLogisticsBlock(order),
+    `PEDIDO #KA-${getOrderDisplayId(order)}`,
+    prioridadeLine,
+    addressBlock,
+    `Resumo pedido:\n${productsText}`,
     order?.observation ? `Observacao: ${order.observation}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
+  ].filter(Boolean).join("\n\n");
 }
 
 export function orderToFullText(order: any): string {
@@ -388,7 +399,7 @@ export function chargeToText(charge: any): string {
     .join("\n");
 }
 
-function supplierOrderBlock(order: any, sequence: number): string {
+function supplierOrderBlock(order: any, _sequence: number): string {
   const products = getOrderProducts(order?.products);
   const prioridadeLine = order?.isPrioridade ? "🚨 PRIORIDADE URGENTE" : "";
   const resumoPedido = products.length
@@ -406,26 +417,27 @@ function supplierOrderBlock(order: any, sequence: number): string {
   const reshipmentReason = String(order?.reshipment?.ticketDescription || "").trim();
   const reshipmentReasonText = reshipmentReason || "Nao informado no chamado";
 
-  return [
-    prioridadeLine,
-    isReshipment ? "🚨 ATENCAO REENVIO - ABATER NO PAGAMENTO" : "",
-    isReshipment ? `Data do pedido original: ${firstOrderDate}` : "",
-    isReshipment ? `Motivo do reenvio: ${reshipmentReasonText}` : "",
-    isReshipment ? "" : "",
-    `Pedido numero: ${sequence}`,
-    "",
+  const addressBlock = [
     `Nome: ${order?.clientName || "-"}`,
     `Rua: ${rua}`,
     `Bairro: ${order?.addressNeighborhood || "-"}`,
     `Complemento: ${order?.addressComplement || "-"}`,
     `Cidade: ${order?.addressCity || "-"}`,
     `Estado: ${order?.addressState || "-"}`,
-    `Cep: ${order?.addressCep || "-"}`,
-    "",
-    "Resumo pedido:",
-    resumoPedido,
-    "_______________________________",
+    `CEP: ${order?.addressCep || "-"}`,
   ].join("\n");
+
+  return [
+    getOrderLogisticsBlock(order),
+    prioridadeLine,
+    isReshipment ? "🚨 ATENCAO REENVIO - ABATER NO PAGAMENTO" : "",
+    isReshipment ? `Data do pedido original: ${firstOrderDate}` : "",
+    isReshipment ? `Motivo do reenvio: ${reshipmentReasonText}` : "",
+    `PEDIDO #KA-${getOrderDisplayId(order)}`,
+    addressBlock,
+    `Resumo pedido:\n${resumoPedido}`,
+    "_______________________________",
+  ].filter(Boolean).join("\n\n");
 }
 
 function formatRaffleDescriptionPreview(value: string | undefined | null): string {
@@ -13303,6 +13315,15 @@ function OrdersPanel({
             motoboyDeliveryDurationHours?: number | null;
           };
           const hasMotoboySchedule = Boolean(motoboySchedule.motoboyDeliveryDate && motoboySchedule.motoboyDeliveryTime);
+          const logisticsAllocation = (order as any)?.logisticsAllocation as {
+            status?: string;
+            deadlineAt?: string;
+            slotPosition?: number;
+            capacity?: number;
+            promisedHours?: number;
+          } | null;
+          const hasLogisticsAllocation = logisticsAllocation?.status === "allocated" && Boolean(logisticsAllocation.deadlineAt);
+          const logisticsIsLate = hasLogisticsAllocation && Date.parse(logisticsAllocation!.deadlineAt!) < Date.now();
           // Definir isReshipment no escopo correto
           const isReshipment = Boolean(order?.reshipment?.id) && !["reenvio_enviado", "reenvio_resolvido_sem_entrada"].includes(String(order?.reshipment?.status || ""));
           const isSupportTicketReshipmentChild = String(order?.observation || "").toUpperCase().includes("REENVIO DO PEDIDO");
@@ -13621,6 +13642,20 @@ function OrdersPanel({
                   )}
                 </div>
               </div>
+
+              {hasLogisticsAllocation && (
+                <div className={`mt-4 flex items-start gap-3 rounded-lg border p-3 ${logisticsIsLate ? "border-red-300 bg-red-50 text-red-900" : "border-amber-300 bg-amber-50 text-amber-950"}`}>
+                  <Clock className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div>
+                    <p className="text-sm font-bold">
+                      {logisticsIsLate ? "POSTAGEM ATRASADA" : "POSTAR ATÉ"}: {formatDateBR(logisticsAllocation!.deadlineAt)} às {formatTimeBR(logisticsAllocation!.deadlineAt)}
+                    </p>
+                    <p className="mt-0.5 text-xs">
+                      Fila de expedição: posição {logisticsAllocation!.slotPosition} de {logisticsAllocation!.capacity} · Prazo de até {logisticsAllocation!.promisedHours} horas
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Actions */}
               <div className="flex gap-2 mt-4 flex-wrap">

@@ -11,6 +11,7 @@ export * from "./shipping-options";
 export * from "./motoboy-neighborhoods";
 export * from "./motoboy-cep-ranges";
 export * from "./motoboy-delivery-reservations";
+export * from "./order-logistics-allocations";
 export * from "./order-bumps";
 export * from "./kyc";
 export * from "./social-proof";

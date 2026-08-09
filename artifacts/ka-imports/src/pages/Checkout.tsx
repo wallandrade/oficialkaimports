@@ -130,6 +130,13 @@ const checkoutSchema = z.object({
 
 type CheckoutFormData = z.infer<typeof checkoutSchema>;
 type RetryAction = "pix" | "whatsapp" | "card";
+type LogisticsForecast = {
+  availableSlots: number;
+  promisedHours: number;
+  dispatchDate: string;
+  dispatchDeadline: string;
+  capacity: number;
+};
 
 export default function Checkout() {
   const [, setLocation] = useLocation();
@@ -144,6 +151,7 @@ export default function Checkout() {
   const [shippingOptions, setShippingOptions] = useState<ShippingOption[]>([]);
   const [motoboyShippingOption, setMotoboyShippingOption] = useState<ShippingOption | null>(null);
   const [shippingLoading, setShippingLoading] = useState(true);
+  const [logisticsForecast, setLogisticsForecast] = useState<LogisticsForecast | null>(null);
   const [selectedShippingId, setSelectedShippingId] = useState<string | null>(null);
   const [motoboyDeliveryDate, setMotoboyDeliveryDate] = useState("");
   const [motoboyDeliveryTime, setMotoboyDeliveryTime] = useState("");
@@ -597,6 +605,20 @@ export default function Checkout() {
       .catch(() => {})
       .finally(() => setShippingLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`${BASE}/api/shipping-logistics/forecast`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Forecast unavailable");
+        return response.json() as Promise<LogisticsForecast>;
+      })
+      .then(setLogisticsForecast)
+      .catch((error: Error) => {
+        if (error.name !== "AbortError") setLogisticsForecast(null);
+      });
+    return () => controller.abort();
   }, []);
 
   // Handle pending product added via seller checkout link (/{seller}?product={id})
@@ -2115,16 +2137,22 @@ export default function Checkout() {
             <div className="bg-card p-6 rounded-2xl shadow-sm border border-border/50 space-y-6">
               <h2 className="text-2xl font-bold">Entrega e Opções</h2>
 
-              {/* Tracking deadline notice */}
-              <div className="bg-gradient-to-r from-orange-50 to-red-50 border border-orange-200 rounded-xl p-4 flex items-start gap-3">
-                <Clock className="w-5 h-5 text-orange-600 mt-0.5 shrink-0" />
-                <div>
-                  <p className="font-semibold text-orange-900">Prazo para Rastreio</p>
-                  <p className="text-sm text-orange-800 mt-1">
-                    Enviamos o código de rastreio em até <span className="font-bold">48 horas</span> após a confirmação do pagamento. Acompanhe seu pedido em tempo real!
-                  </p>
+              {!isMotoboySelected && logisticsForecast && (
+                <div className="bg-gradient-to-r from-orange-50 to-red-50 border border-orange-200 rounded-xl p-4 flex items-start gap-3">
+                  <Clock className="w-5 h-5 text-orange-600 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="font-semibold text-orange-900">
+                      Postagem em até {logisticsForecast.promisedHours} horas
+                    </p>
+                    <p className="text-sm text-orange-800 mt-1">
+                      Restam <span className="font-bold">{logisticsForecast.availableSlots} de {logisticsForecast.capacity} vagas</span> neste prazo. Finalize sua compra para aproveitar.
+                    </p>
+                    <p className="text-xs text-orange-700 mt-1.5">
+                      A vaga é confirmada após a aprovação do pagamento. O prazo de transporte começa depois da postagem.
+                    </p>
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div>
                 <label className="text-sm font-medium text-foreground mb-3 block">Tipo de Frete</label>

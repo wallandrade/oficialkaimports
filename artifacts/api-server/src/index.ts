@@ -2,6 +2,7 @@ import app from "./app";
 import { startReconciliationJob } from "./reconciliation";
 import { ensureRuntimeSchema } from "./runtime-schema";
 import { startRaffleExpiryJob } from "./raffle-expiry";
+import { reconcilePendingOrderLogistics } from "./lib/order-logistics";
 
 const rawPort = process.env["PORT"];
 
@@ -30,6 +31,7 @@ process.on("uncaughtException", (err) => {
 
 async function bootstrap(): Promise<void> {
   await ensureRuntimeSchema();
+  await reconcilePendingOrderLogistics();
 
   app.listen(port, "0.0.0.0", () => {
     console.log(`Server listening on port ${port}`);

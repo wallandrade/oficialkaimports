@@ -16,6 +16,7 @@ import { ensureOrderCommission } from "../lib/affiliates";
 import { sendOutboundWebhook } from "../lib/outbound-webhook";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 import { enqueueFilialOrderPurchaseRequest } from "../lib/filial-purchase-queue";
+import { allocateOrderLogistics } from "../lib/order-logistics";
 
 const router: IRouter = Router();
 
@@ -262,6 +263,7 @@ router.post("/pix/callback/:token", async (req, res) => {
         await ensureOrderCommission(existing[0].id);
         await enqueueFilialOrderPurchaseRequest(existing[0].id);
       }
+      if (existing[0]) await allocateOrderLogistics(existing[0].id);
 
       broadcastNotification({
         type: "order_paid",
