@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addBusinessDays, getSaoPauloDate, isStandardShipping } from "./order-logistics-calendar";
+import { addBusinessDays, consumesLogisticsCapacity, getSaoPauloDate, isStandardShipping } from "./order-logistics-calendar";
 
 test("adds logistics lead time in business days", () => {
   assert.equal(addBusinessDays("2026-08-10", 2), "2026-08-12");
@@ -16,4 +16,10 @@ test("keeps motoboy and pickup orders outside standard logistics", () => {
   assert.equal(isStandardShipping("Motoboy"), false);
   assert.equal(isStandardShipping("Retirada"), false);
   assert.equal(isStandardShipping("Retirada na loja"), false);
+});
+
+test("keeps shipped orders consuming their original daily capacity", () => {
+  assert.equal(consumesLogisticsCapacity("allocated"), true);
+  assert.equal(consumesLogisticsCapacity("shipped"), true);
+  assert.equal(consumesLogisticsCapacity("released"), false);
 });

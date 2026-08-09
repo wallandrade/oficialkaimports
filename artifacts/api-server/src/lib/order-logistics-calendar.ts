@@ -1,6 +1,11 @@
 export const LOGISTICS_DAILY_CAPACITY = 20;
 export const LOGISTICS_BASE_HOURS = 48;
+export const LOGISTICS_CAPACITY_STATUSES = ["allocated", "shipped"] as const;
 const LOGISTICS_DEADLINE_HOUR = 18;
+
+export function consumesLogisticsCapacity(status: unknown): boolean {
+  return LOGISTICS_CAPACITY_STATUSES.includes(String(status || "") as (typeof LOGISTICS_CAPACITY_STATUSES)[number]);
+}
 
 export function isStandardShipping(shippingType: unknown): boolean {
   const normalized = String(shippingType || "")

@@ -7,6 +7,7 @@ import {
   getSaoPauloDate,
   isStandardShipping,
   LOGISTICS_BASE_HOURS,
+  LOGISTICS_CAPACITY_STATUSES,
   LOGISTICS_DAILY_CAPACITY,
 } from "./order-logistics-calendar";
 
@@ -27,7 +28,7 @@ async function findForecast(executor: QueryExecutor, tenantId: string, now = new
       .where(and(
         eq(orderLogisticsAllocationsTable.tenantId, tenantId),
         eq(orderLogisticsAllocationsTable.dispatchDate, dispatchDate),
-        eq(orderLogisticsAllocationsTable.status, "allocated"),
+        inArray(orderLogisticsAllocationsTable.status, [...LOGISTICS_CAPACITY_STATUSES]),
       ));
     const occupiedPositions = new Set(occupied.map((row) => row.slotPosition));
     const slotPosition = Array.from({ length: LOGISTICS_DAILY_CAPACITY }, (_, index) => index + 1)
@@ -73,7 +74,22 @@ export async function allocateOrderLogistics(orderId: string) {
           .from(ordersTable)
           .where(eq(ordersTable.id, orderId))
           .limit(1);
-        if (!order || !["paid", "completed"].includes(order.status) || order.enviado || !isStandardShipping(order.shippingType)) return null;
+        if (!order || !["paid", "completed"].includes(order.status) || !isStandardShipping(order.shippingType)) return null;
+
+        if (existing?.status === "shipped") {
+          if (order.enviado) return existing;
+          await tx.update(orderLogisticsAllocationsTable).set({
+            status: "allocated",
+          }).where(eq(orderLogisticsAllocationsTable.id, existing.id));
+          const [restored] = await tx
+            .select()
+            .from(orderLogisticsAllocationsTable)
+            .where(eq(orderLogisticsAllocationsTable.id, existing.id))
+            .limit(1);
+          return restored || existing;
+        }
+
+        if (order.enviado) return null;
 
         const tenantId = order.tenantId || "tenant_loja1";
         const forecast = await findForecast(tx, tenantId);
@@ -131,14 +147,13 @@ export async function releaseOrderLogistics(orderId: string, tenantId: string): 
   }).where(and(
     eq(orderLogisticsAllocationsTable.orderId, orderId),
     eq(orderLogisticsAllocationsTable.tenantId, tenantId),
-    eq(orderLogisticsAllocationsTable.status, "allocated"),
+    inArray(orderLogisticsAllocationsTable.status, [...LOGISTICS_CAPACITY_STATUSES]),
   ));
 }
 
 export async function completeOrderLogistics(orderId: string, tenantId: string): Promise<void> {
   await db.update(orderLogisticsAllocationsTable).set({
     status: "shipped",
-    activeSlotKey: null,
   }).where(and(
     eq(orderLogisticsAllocationsTable.orderId, orderId),
     eq(orderLogisticsAllocationsTable.tenantId, tenantId),
