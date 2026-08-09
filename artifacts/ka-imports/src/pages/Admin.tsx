@@ -343,6 +343,8 @@ function orderToPostPaymentText(order: any): string {
   const cidadeUf = `${order?.addressCity || "-"}${order?.addressState ? `/${order.addressState}` : ""}`;
   const cep = String(order?.addressCep || "-");
   const cliente = String(order?.clientName || "Cliente").trim() || "Cliente";
+  const allocatedHours = Number(order?.logisticsAllocation?.promisedHours);
+  const trackingReleaseHours = Number.isFinite(allocatedHours) && allocatedHours > 0 ? allocatedHours : 48;
 
   return [
     `🎉 **Parabéns, ${cliente}! Sua compra foi confirmada com sucesso!** ✅📦`,
@@ -359,7 +361,7 @@ function orderToPostPaymentText(order: any): string {
     cidadeUf,
     `CEP: ${cep}`,
     "",
-    "⏳ Pedimos que aguarde até **48 horas úteis** para a liberação do código de rastreio. Esse prazo é necessário para organização do envio e para conseguirmos manter um atendimento mais rápido e eficiente para todos os clientes. 🙏",
+    `⏳ Pedimos que aguarde até **${trackingReleaseHours} horas úteis** para a liberação do código de rastreio. Esse prazo é necessário para organização do envio e para conseguirmos manter um atendimento mais rápido e eficiente para todos os clientes. 🙏`,
     "",
     "Assim que o rastreio estiver disponível, você poderá acompanhar a movimentação do seu pedido. 📲",
     "",
