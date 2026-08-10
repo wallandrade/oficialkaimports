@@ -5203,20 +5203,21 @@ export default function Admin() {
     finally { setProofUploading(false); }
   };
 
-  const deleteOrderProof = async (proofIndex: number) => {
-    if (!proofModal || !window.confirm("Remover este comprovante?")) return;
+  const deleteOrderProof = async (orderId: string, proofIndex: number) => {
+    if (!window.confirm("Remover este comprovante?")) return false;
     setProofDeletingIndex(proofIndex);
     try {
-      const res = await fetch(`${BASE}/api/admin/orders/${proofModal}/proof/${proofIndex}`, {
+      const res = await fetch(`${BASE}/api/admin/orders/${orderId}/proof/${proofIndex}`, {
         method: "DELETE", headers: authHeaders(),
       });
-      if (!res.ok) { toast.error("Erro ao remover comprovante."); return; }
+      if (!res.ok) { toast.error("Erro ao remover comprovante."); return false; }
       const data = await res.json() as { proofUrl: string | null; proofUrls: string[] };
-      setOrders((prev) => prev.map((order) => order.id === proofModal
+      setOrders((prev) => prev.map((order) => order.id === orderId
         ? { ...order, proofUrl: data.proofUrl, proofUrls: data.proofUrls }
         : order));
       toast.success("Comprovante removido!");
-    } catch { toast.error("Erro ao remover comprovante."); }
+      return true;
+    } catch { toast.error("Erro ao remover comprovante."); return false; }
     finally { setProofDeletingIndex(null); }
   };
 
@@ -10723,6 +10724,29 @@ export default function Admin() {
                         <Download className="w-4 h-4" />Download
                       </Button>
                     </a>
+                    {(() => {
+                      const order = orders.find((item) => item.proofUrls?.includes(proofViewer) || item.proofUrl === proofViewer);
+                      if (!order) return null;
+                      const proofUrls = order.proofUrls?.length ? order.proofUrls : order.proofUrl ? [order.proofUrl] : [];
+                      const proofIndex = proofUrls.indexOf(proofViewer);
+                      if (proofIndex < 0) return null;
+                      return (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1.5 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                          disabled={proofDeletingIndex !== null}
+                          onClick={async () => {
+                            if (await deleteOrderProof(order.id, proofIndex)) setProofViewer(null);
+                          }}
+                        >
+                          {proofDeletingIndex === proofIndex
+                            ? <Loader2 className="h-4 w-4 animate-spin" />
+                            : <Trash2 className="h-4 w-4" />}
+                          Excluir
+                        </Button>
+                      );
+                    })()}
                     <Button size="icon" variant="ghost" onClick={() => setProofViewer(null)}><X className="w-5 h-5" /></Button>
                   </div>
                 </div>
@@ -10783,7 +10807,7 @@ export default function Admin() {
                               className="shrink-0 text-red-600 hover:bg-red-50 hover:text-red-700"
                               title={`Remover comprovante ${index + 1}`}
                               disabled={proofDeletingIndex !== null}
-                              onClick={() => void deleteOrderProof(index)}
+                              onClick={() => void deleteOrderProof(order!.id, index)}
                             >
                               {proofDeletingIndex === index
                                 ? <Loader2 className="h-4 w-4 animate-spin" />
