@@ -1,14 +1,17 @@
 export const LOGISTICS_DAILY_CAPACITY = 20;
 export const LOGISTICS_BASE_HOURS = 48;
-export const LOGISTICS_CAPACITY_STATUSES = ["allocated", "shipped"] as const;
+export const LOGISTICS_CAPACITY_STATUSES = ["allocated"] as const;
 const LOGISTICS_DEADLINE_HOUR = 18;
 
-export function calculateLogisticsPromisedHours(dayOffset: number, backlogDays: number): number {
-  return LOGISTICS_BASE_HOURS + ((Math.max(0, dayOffset) + Math.max(0, backlogDays)) * 24);
-}
-
-export function isPendingBacklogDate(dispatchDate: string, nextSlotDate: string): boolean {
-  return dispatchDate < nextSlotDate;
+export function getLogisticsQueueSlot(queueIndex: number) {
+  const normalizedIndex = Math.max(0, Math.trunc(queueIndex));
+  const groupIndex = Math.floor(normalizedIndex / LOGISTICS_DAILY_CAPACITY);
+  return {
+    groupIndex,
+    promisedHours: LOGISTICS_BASE_HOURS + (groupIndex * 24),
+    slotPosition: (normalizedIndex % LOGISTICS_DAILY_CAPACITY) + 1,
+    availableSlots: LOGISTICS_DAILY_CAPACITY - (normalizedIndex % LOGISTICS_DAILY_CAPACITY),
+  };
 }
 
 export function consumesLogisticsCapacity(status: unknown): boolean {
@@ -36,11 +39,16 @@ export function getSaoPauloDate(now = new Date()): string {
 }
 
 export function addBusinessDays(date: string, amount: number): string {
+  return shiftBusinessDays(date, Math.max(0, amount));
+}
+
+export function shiftBusinessDays(date: string, amount: number): string {
   const [year, month, day] = date.split("-").map(Number);
   const cursor = new Date(Date.UTC(year, month - 1, day));
-  let remaining = Math.max(0, Math.trunc(amount));
+  const direction = amount < 0 ? -1 : 1;
+  let remaining = Math.abs(Math.trunc(amount));
   while (remaining > 0) {
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    cursor.setUTCDate(cursor.getUTCDate() + direction);
     const weekday = cursor.getUTCDay();
     if (weekday !== 0 && weekday !== 6) remaining -= 1;
   }

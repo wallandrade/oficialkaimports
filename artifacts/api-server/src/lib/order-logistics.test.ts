@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addBusinessDays, calculateLogisticsPromisedHours, consumesLogisticsCapacity, getSaoPauloDate, isPendingBacklogDate, isStandardShipping } from "./order-logistics-calendar";
+import { addBusinessDays, consumesLogisticsCapacity, getLogisticsQueueSlot, getSaoPauloDate, isStandardShipping, shiftBusinessDays } from "./order-logistics-calendar";
 
 test("adds logistics lead time in business days", () => {
   assert.equal(addBusinessDays("2026-08-10", 2), "2026-08-12");
   assert.equal(addBusinessDays("2026-08-14", 2), "2026-08-18");
+  assert.equal(shiftBusinessDays("2026-08-17", -1), "2026-08-14");
 });
 
 test("reads the current calendar date in Sao Paulo", () => {
@@ -18,21 +19,26 @@ test("keeps motoboy and pickup orders outside standard logistics", () => {
   assert.equal(isStandardShipping("Retirada na loja"), false);
 });
 
-test("keeps shipped orders consuming their original daily capacity", () => {
+test("releases capacity after an order is shipped", () => {
   assert.equal(consumesLogisticsCapacity("allocated"), true);
-  assert.equal(consumesLogisticsCapacity("shipped"), true);
+  assert.equal(consumesLogisticsCapacity("shipped"), false);
   assert.equal(consumesLogisticsCapacity("released"), false);
 });
 
-test("adds one day to the promise for each pending backlog date", () => {
-  assert.equal(calculateLogisticsPromisedHours(0, 0), 48);
-  assert.equal(calculateLogisticsPromisedHours(0, 1), 72);
-  assert.equal(calculateLogisticsPromisedHours(0, 2), 96);
-  assert.equal(calculateLogisticsPromisedHours(1, 2), 120);
+test("starts the queue at 48 hours", () => {
+  assert.deepEqual(getLogisticsQueueSlot(0), { groupIndex: 0, promisedHours: 48, slotPosition: 1, availableSlots: 20 });
 });
 
-test("counts pending dates before the next available slot", () => {
-  assert.equal(isPendingBacklogDate("2026-08-11", "2026-08-12"), true);
-  assert.equal(isPendingBacklogDate("2026-08-12", "2026-08-12"), false);
-  assert.equal(isPendingBacklogDate("2026-08-09", "2026-08-12"), true);
+test("keeps the fourteenth queued order at 48 hours", () => {
+  assert.deepEqual(getLogisticsQueueSlot(13), { groupIndex: 0, promisedHours: 48, slotPosition: 14, availableSlots: 7 });
+});
+
+test("opens 72 hours only after filling 48 hours", () => {
+  assert.deepEqual(getLogisticsQueueSlot(19), { groupIndex: 0, promisedHours: 48, slotPosition: 20, availableSlots: 1 });
+  assert.deepEqual(getLogisticsQueueSlot(20), { groupIndex: 1, promisedHours: 72, slotPosition: 1, availableSlots: 20 });
+});
+
+test("compacts later orders when earlier capacity is released", () => {
+  assert.equal(getLogisticsQueueSlot(40).promisedHours, 96);
+  assert.equal(getLogisticsQueueSlot(39).promisedHours, 72);
 });

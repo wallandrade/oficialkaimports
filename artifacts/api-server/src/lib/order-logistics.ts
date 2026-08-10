@@ -1,12 +1,13 @@
 import crypto from "crypto";
-import { and, asc, eq, inArray, lt } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { db, orderLogisticsAllocationsTable, ordersTable } from "@workspace/db";
 import {
   addBusinessDays,
   buildLogisticsDeadline,
-  calculateLogisticsPromisedHours,
+  getLogisticsQueueSlot,
   getSaoPauloDate,
   isStandardShipping,
+  shiftBusinessDays,
   LOGISTICS_BASE_HOURS,
   LOGISTICS_CAPACITY_STATUSES,
   LOGISTICS_DAILY_CAPACITY,
@@ -18,55 +19,74 @@ const MAX_ALLOCATION_RETRIES = 64;
 type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type QueryExecutor = typeof db | DbTransaction;
 
-async function countPendingBacklogDays(
-  executor: QueryExecutor,
-  tenantId: string,
-  nextSlotDate: string,
-): Promise<number> {
+async function compactTenantOrderLogistics(executor: QueryExecutor, tenantId: string) {
   const pending = await executor
-    .select({ dispatchDate: orderLogisticsAllocationsTable.dispatchDate })
+    .select()
     .from(orderLogisticsAllocationsTable)
     .where(and(
       eq(orderLogisticsAllocationsTable.tenantId, tenantId),
       eq(orderLogisticsAllocationsTable.status, "allocated"),
-      lt(orderLogisticsAllocationsTable.dispatchDate, nextSlotDate),
+    ))
+    .orderBy(asc(orderLogisticsAllocationsTable.allocatedAt), asc(orderLogisticsAllocationsTable.id));
+
+  await executor
+    .update(orderLogisticsAllocationsTable)
+    .set({ activeSlotKey: null })
+    .where(and(
+      eq(orderLogisticsAllocationsTable.tenantId, tenantId),
+      eq(orderLogisticsAllocationsTable.status, "shipped"),
     ));
 
-  return new Set(pending.map((row) => row.dispatchDate)).size;
+  await executor
+    .update(orderLogisticsAllocationsTable)
+    .set({ activeSlotKey: null })
+    .where(and(
+      eq(orderLogisticsAllocationsTable.tenantId, tenantId),
+      eq(orderLogisticsAllocationsTable.status, "allocated"),
+    ));
+
+  if (pending.length === 0) return;
+
+  for (const [queueIndex, allocation] of pending.entries()) {
+    const queueSlot = getLogisticsQueueSlot(queueIndex);
+    const promiseShift = Math.trunc((queueSlot.promisedHours - allocation.promisedHours) / 24);
+    const dispatchDate = shiftBusinessDays(allocation.dispatchDate, promiseShift);
+    await executor
+      .update(orderLogisticsAllocationsTable)
+      .set({
+        dispatchDate,
+        slotPosition: queueSlot.slotPosition,
+        capacity: LOGISTICS_DAILY_CAPACITY,
+        promisedHours: queueSlot.promisedHours,
+        deadlineAt: buildLogisticsDeadline(dispatchDate),
+        activeSlotKey: `${tenantId}|${dispatchDate}|${queueSlot.slotPosition}`,
+      })
+      .where(eq(orderLogisticsAllocationsTable.id, allocation.id));
+  }
+}
+
+async function compactTenantOrderLogisticsInTransaction(tenantId: string): Promise<void> {
+  await db.transaction(async (tx) => compactTenantOrderLogistics(tx, tenantId));
 }
 
 async function findForecast(executor: QueryExecutor, tenantId: string, now = new Date()) {
-  const currentDate = getSaoPauloDate(now);
-  const firstDispatchDate = addBusinessDays(currentDate, 2);
-
-  for (let dayOffset = 0; dayOffset < 366; dayOffset += 1) {
-    const dispatchDate = addBusinessDays(firstDispatchDate, dayOffset);
-    const occupied = await executor
-      .select({ slotPosition: orderLogisticsAllocationsTable.slotPosition })
-      .from(orderLogisticsAllocationsTable)
-      .where(and(
-        eq(orderLogisticsAllocationsTable.tenantId, tenantId),
-        eq(orderLogisticsAllocationsTable.dispatchDate, dispatchDate),
-        inArray(orderLogisticsAllocationsTable.status, [...LOGISTICS_CAPACITY_STATUSES]),
-      ));
-    const occupiedPositions = new Set(occupied.map((row) => row.slotPosition));
-    const slotPosition = Array.from({ length: LOGISTICS_DAILY_CAPACITY }, (_, index) => index + 1)
-      .find((position) => !occupiedPositions.has(position));
-    if (slotPosition) {
-      const backlogDays = await countPendingBacklogDays(executor, tenantId, dispatchDate);
-      const effectiveDispatchDate = addBusinessDays(dispatchDate, backlogDays);
-      return {
-        dispatchDate,
-        deadlineAt: buildLogisticsDeadline(effectiveDispatchDate),
-        promisedHours: calculateLogisticsPromisedHours(dayOffset, backlogDays),
-        slotPosition,
-        capacity: LOGISTICS_DAILY_CAPACITY,
-        availableSlots: LOGISTICS_DAILY_CAPACITY - occupiedPositions.size,
-      };
-    }
-  }
-
-  throw new Error("Não foi possível encontrar uma data disponível para expedição.");
+  const pending = await executor
+    .select({ id: orderLogisticsAllocationsTable.id })
+    .from(orderLogisticsAllocationsTable)
+    .where(and(
+      eq(orderLogisticsAllocationsTable.tenantId, tenantId),
+      eq(orderLogisticsAllocationsTable.status, "allocated"),
+    ));
+  const queueSlot = getLogisticsQueueSlot(pending.length);
+  const dispatchDate = addBusinessDays(getSaoPauloDate(now), 2 + queueSlot.groupIndex);
+  return {
+    dispatchDate,
+    deadlineAt: buildLogisticsDeadline(dispatchDate),
+    promisedHours: queueSlot.promisedHours,
+    slotPosition: queueSlot.slotPosition,
+    capacity: LOGISTICS_DAILY_CAPACITY,
+    availableSlots: queueSlot.availableSlots,
+  };
 }
 
 export async function getOrderLogisticsForecast(tenantId: string, now = new Date()) {
@@ -102,6 +122,7 @@ export async function allocateOrderLogistics(orderId: string) {
           await tx.update(orderLogisticsAllocationsTable).set({
             status: "allocated",
           }).where(eq(orderLogisticsAllocationsTable.id, existing.id));
+          await compactTenantOrderLogistics(tx, order.tenantId || "tenant_loja1");
           const [restored] = await tx
             .select()
             .from(orderLogisticsAllocationsTable)
@@ -113,6 +134,7 @@ export async function allocateOrderLogistics(orderId: string) {
         if (order.enviado) return null;
 
         const tenantId = order.tenantId || "tenant_loja1";
+        await compactTenantOrderLogistics(tx, tenantId);
         const forecast = await findForecast(tx, tenantId);
         const activeSlotKey = `${tenantId}|${forecast.dispatchDate}|${forecast.slotPosition}`;
 
@@ -161,25 +183,32 @@ export async function allocateOrderLogistics(orderId: string) {
 }
 
 export async function releaseOrderLogistics(orderId: string, tenantId: string): Promise<void> {
-  await db.update(orderLogisticsAllocationsTable).set({
-    status: "released",
-    activeSlotKey: null,
-    releasedAt: new Date(),
-  }).where(and(
-    eq(orderLogisticsAllocationsTable.orderId, orderId),
-    eq(orderLogisticsAllocationsTable.tenantId, tenantId),
-    inArray(orderLogisticsAllocationsTable.status, [...LOGISTICS_CAPACITY_STATUSES]),
-  ));
+  await db.transaction(async (tx) => {
+    await tx.update(orderLogisticsAllocationsTable).set({
+      status: "released",
+      activeSlotKey: null,
+      releasedAt: new Date(),
+    }).where(and(
+      eq(orderLogisticsAllocationsTable.orderId, orderId),
+      eq(orderLogisticsAllocationsTable.tenantId, tenantId),
+      inArray(orderLogisticsAllocationsTable.status, [...LOGISTICS_CAPACITY_STATUSES]),
+    ));
+    await compactTenantOrderLogistics(tx, tenantId);
+  });
 }
 
 export async function completeOrderLogistics(orderId: string, tenantId: string): Promise<void> {
-  await db.update(orderLogisticsAllocationsTable).set({
-    status: "shipped",
-  }).where(and(
-    eq(orderLogisticsAllocationsTable.orderId, orderId),
-    eq(orderLogisticsAllocationsTable.tenantId, tenantId),
-    eq(orderLogisticsAllocationsTable.status, "allocated"),
-  ));
+  await db.transaction(async (tx) => {
+    await tx.update(orderLogisticsAllocationsTable).set({
+      status: "shipped",
+      activeSlotKey: null,
+    }).where(and(
+      eq(orderLogisticsAllocationsTable.orderId, orderId),
+      eq(orderLogisticsAllocationsTable.tenantId, tenantId),
+      eq(orderLogisticsAllocationsTable.status, "allocated"),
+    ));
+    await compactTenantOrderLogistics(tx, tenantId);
+  });
 }
 
 export async function reconcilePendingOrderLogistics(): Promise<void> {
@@ -193,10 +222,15 @@ export async function reconcilePendingOrderLogistics(): Promise<void> {
     .orderBy(asc(ordersTable.createdAt));
 
   let allocated = 0;
+  const tenantIds = new Set<string>();
   for (const order of paidOrders) {
     if (!isStandardShipping(order.shippingType)) continue;
     const result = await allocateOrderLogistics(order.id);
-    if (result) allocated += 1;
+    if (result) {
+      allocated += 1;
+      tenantIds.add(result.tenantId);
+    }
   }
+  for (const tenantId of tenantIds) await compactTenantOrderLogisticsInTransaction(tenantId);
   console.log(`[OrderLogistics] Reconciled ${allocated} paid standard-shipping order(s).`);
 }
