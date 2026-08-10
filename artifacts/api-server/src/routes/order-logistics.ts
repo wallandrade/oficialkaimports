@@ -6,6 +6,7 @@ const router: IRouter = Router();
 
 router.get("/shipping-logistics/forecast", async (req, res) => {
   try {
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate");
     const tenantId = await resolvePublicTenantId(req);
     const forecast = await getOrderLogisticsForecast(tenantId);
     res.json({

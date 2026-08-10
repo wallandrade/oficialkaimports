@@ -18,22 +18,26 @@ const MAX_ALLOCATION_RETRIES = 64;
 type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type QueryExecutor = typeof db | DbTransaction;
 
-async function countOverdueBacklogDays(executor: QueryExecutor, tenantId: string, now: Date): Promise<number> {
-  const overdue = await executor
+async function countPendingBacklogDays(
+  executor: QueryExecutor,
+  tenantId: string,
+  nextSlotDate: string,
+): Promise<number> {
+  const pending = await executor
     .select({ dispatchDate: orderLogisticsAllocationsTable.dispatchDate })
     .from(orderLogisticsAllocationsTable)
     .where(and(
       eq(orderLogisticsAllocationsTable.tenantId, tenantId),
       eq(orderLogisticsAllocationsTable.status, "allocated"),
-      lt(orderLogisticsAllocationsTable.deadlineAt, now),
+      lt(orderLogisticsAllocationsTable.dispatchDate, nextSlotDate),
     ));
 
-  return new Set(overdue.map((row) => row.dispatchDate)).size;
+  return new Set(pending.map((row) => row.dispatchDate)).size;
 }
 
 async function findForecast(executor: QueryExecutor, tenantId: string, now = new Date()) {
-  const firstDispatchDate = addBusinessDays(getSaoPauloDate(now), 2);
-  const backlogDays = await countOverdueBacklogDays(executor, tenantId, now);
+  const currentDate = getSaoPauloDate(now);
+  const firstDispatchDate = addBusinessDays(currentDate, 2);
 
   for (let dayOffset = 0; dayOffset < 366; dayOffset += 1) {
     const dispatchDate = addBusinessDays(firstDispatchDate, dayOffset);
@@ -49,6 +53,7 @@ async function findForecast(executor: QueryExecutor, tenantId: string, now = new
     const slotPosition = Array.from({ length: LOGISTICS_DAILY_CAPACITY }, (_, index) => index + 1)
       .find((position) => !occupiedPositions.has(position));
     if (slotPosition) {
+      const backlogDays = await countPendingBacklogDays(executor, tenantId, dispatchDate);
       const effectiveDispatchDate = addBusinessDays(dispatchDate, backlogDays);
       return {
         dispatchDate,

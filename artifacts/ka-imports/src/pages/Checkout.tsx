@@ -615,7 +615,7 @@ export default function Checkout() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch(`${BASE}/api/shipping-logistics/forecast`, { signal: controller.signal })
+    fetch(`${BASE}/api/shipping-logistics/forecast`, { signal: controller.signal, cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error("Forecast unavailable");
         return response.json() as Promise<LogisticsForecast>;

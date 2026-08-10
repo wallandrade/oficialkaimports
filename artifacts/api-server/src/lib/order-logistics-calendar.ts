@@ -7,6 +7,10 @@ export function calculateLogisticsPromisedHours(dayOffset: number, backlogDays: 
   return LOGISTICS_BASE_HOURS + ((Math.max(0, dayOffset) + Math.max(0, backlogDays)) * 24);
 }
 
+export function isPendingBacklogDate(dispatchDate: string, nextSlotDate: string): boolean {
+  return dispatchDate < nextSlotDate;
+}
+
 export function consumesLogisticsCapacity(status: unknown): boolean {
   return LOGISTICS_CAPACITY_STATUSES.includes(String(status || "") as (typeof LOGISTICS_CAPACITY_STATUSES)[number]);
 }
