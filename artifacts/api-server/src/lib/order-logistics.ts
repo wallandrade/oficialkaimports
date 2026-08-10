@@ -32,18 +32,7 @@ async function compactTenantOrderLogistics(executor: QueryExecutor, tenantId: st
   await executor
     .update(orderLogisticsAllocationsTable)
     .set({ activeSlotKey: null })
-    .where(and(
-      eq(orderLogisticsAllocationsTable.tenantId, tenantId),
-      eq(orderLogisticsAllocationsTable.status, "shipped"),
-    ));
-
-  await executor
-    .update(orderLogisticsAllocationsTable)
-    .set({ activeSlotKey: null })
-    .where(and(
-      eq(orderLogisticsAllocationsTable.tenantId, tenantId),
-      eq(orderLogisticsAllocationsTable.status, "allocated"),
-    ));
+    .where(eq(orderLogisticsAllocationsTable.tenantId, tenantId));
 
   if (pending.length === 0) return;
 
@@ -59,7 +48,7 @@ async function compactTenantOrderLogistics(executor: QueryExecutor, tenantId: st
         capacity: LOGISTICS_DAILY_CAPACITY,
         promisedHours: queueSlot.promisedHours,
         deadlineAt: buildLogisticsDeadline(dispatchDate),
-        activeSlotKey: `${tenantId}|${dispatchDate}|${queueSlot.slotPosition}`,
+        activeSlotKey: `${tenantId}|${queueSlot.promisedHours}|${queueSlot.slotPosition}`,
       })
       .where(eq(orderLogisticsAllocationsTable.id, allocation.id));
   }
@@ -136,7 +125,7 @@ export async function allocateOrderLogistics(orderId: string, compactQueue = tru
         const tenantId = order.tenantId || "tenant_loja1";
           if (compactQueue) await compactTenantOrderLogistics(tx, tenantId);
         const forecast = await findForecast(tx, tenantId);
-        const activeSlotKey = `${tenantId}|${forecast.dispatchDate}|${forecast.slotPosition}`;
+        const activeSlotKey = `${tenantId}|${forecast.promisedHours}|${forecast.slotPosition}`;
 
         if (existing) {
           await tx.update(orderLogisticsAllocationsTable).set({
