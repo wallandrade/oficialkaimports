@@ -3,6 +3,10 @@ export const LOGISTICS_BASE_HOURS = 48;
 export const LOGISTICS_CAPACITY_STATUSES = ["allocated", "shipped"] as const;
 const LOGISTICS_DEADLINE_HOUR = 18;
 
+export function calculateLogisticsPromisedHours(dayOffset: number, backlogDays: number): number {
+  return LOGISTICS_BASE_HOURS + ((Math.max(0, dayOffset) + Math.max(0, backlogDays)) * 24);
+}
+
 export function consumesLogisticsCapacity(status: unknown): boolean {
   return LOGISTICS_CAPACITY_STATUSES.includes(String(status || "") as (typeof LOGISTICS_CAPACITY_STATUSES)[number]);
 }

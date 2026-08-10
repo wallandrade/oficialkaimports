@@ -1,9 +1,10 @@
 import crypto from "crypto";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, lt } from "drizzle-orm";
 import { db, orderLogisticsAllocationsTable, ordersTable } from "@workspace/db";
 import {
   addBusinessDays,
   buildLogisticsDeadline,
+  calculateLogisticsPromisedHours,
   getSaoPauloDate,
   isStandardShipping,
   LOGISTICS_BASE_HOURS,
@@ -17,8 +18,22 @@ const MAX_ALLOCATION_RETRIES = 64;
 type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type QueryExecutor = typeof db | DbTransaction;
 
+async function countOverdueBacklogDays(executor: QueryExecutor, tenantId: string, now: Date): Promise<number> {
+  const overdue = await executor
+    .select({ dispatchDate: orderLogisticsAllocationsTable.dispatchDate })
+    .from(orderLogisticsAllocationsTable)
+    .where(and(
+      eq(orderLogisticsAllocationsTable.tenantId, tenantId),
+      eq(orderLogisticsAllocationsTable.status, "allocated"),
+      lt(orderLogisticsAllocationsTable.deadlineAt, now),
+    ));
+
+  return new Set(overdue.map((row) => row.dispatchDate)).size;
+}
+
 async function findForecast(executor: QueryExecutor, tenantId: string, now = new Date()) {
   const firstDispatchDate = addBusinessDays(getSaoPauloDate(now), 2);
+  const backlogDays = await countOverdueBacklogDays(executor, tenantId, now);
 
   for (let dayOffset = 0; dayOffset < 366; dayOffset += 1) {
     const dispatchDate = addBusinessDays(firstDispatchDate, dayOffset);
@@ -34,10 +49,11 @@ async function findForecast(executor: QueryExecutor, tenantId: string, now = new
     const slotPosition = Array.from({ length: LOGISTICS_DAILY_CAPACITY }, (_, index) => index + 1)
       .find((position) => !occupiedPositions.has(position));
     if (slotPosition) {
+      const effectiveDispatchDate = addBusinessDays(dispatchDate, backlogDays);
       return {
         dispatchDate,
-        deadlineAt: buildLogisticsDeadline(dispatchDate),
-        promisedHours: LOGISTICS_BASE_HOURS + (dayOffset * 24),
+        deadlineAt: buildLogisticsDeadline(effectiveDispatchDate),
+        promisedHours: calculateLogisticsPromisedHours(dayOffset, backlogDays),
         slotPosition,
         capacity: LOGISTICS_DAILY_CAPACITY,
         availableSlots: LOGISTICS_DAILY_CAPACITY - occupiedPositions.size,
