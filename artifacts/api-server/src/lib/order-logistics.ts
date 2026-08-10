@@ -99,7 +99,7 @@ function isDuplicateEntry(error: unknown): boolean {
   return "cause" in error && isDuplicateEntry(error.cause);
 }
 
-export async function allocateOrderLogistics(orderId: string) {
+export async function allocateOrderLogistics(orderId: string, compactQueue = true) {
   for (let attempt = 0; attempt < MAX_ALLOCATION_RETRIES; attempt += 1) {
     try {
       return await db.transaction(async (tx) => {
@@ -122,7 +122,7 @@ export async function allocateOrderLogistics(orderId: string) {
           await tx.update(orderLogisticsAllocationsTable).set({
             status: "allocated",
           }).where(eq(orderLogisticsAllocationsTable.id, existing.id));
-          await compactTenantOrderLogistics(tx, order.tenantId || "tenant_loja1");
+          if (compactQueue) await compactTenantOrderLogistics(tx, order.tenantId || "tenant_loja1");
           const [restored] = await tx
             .select()
             .from(orderLogisticsAllocationsTable)
@@ -134,7 +134,7 @@ export async function allocateOrderLogistics(orderId: string) {
         if (order.enviado) return null;
 
         const tenantId = order.tenantId || "tenant_loja1";
-        await compactTenantOrderLogistics(tx, tenantId);
+          if (compactQueue) await compactTenantOrderLogistics(tx, tenantId);
         const forecast = await findForecast(tx, tenantId);
         const activeSlotKey = `${tenantId}|${forecast.dispatchDate}|${forecast.slotPosition}`;
 
@@ -225,7 +225,7 @@ export async function reconcilePendingOrderLogistics(): Promise<void> {
   const tenantIds = new Set<string>();
   for (const order of paidOrders) {
     if (!isStandardShipping(order.shippingType)) continue;
-    const result = await allocateOrderLogistics(order.id);
+    const result = await allocateOrderLogistics(order.id, false);
     if (result) {
       allocated += 1;
       tenantIds.add(result.tenantId);

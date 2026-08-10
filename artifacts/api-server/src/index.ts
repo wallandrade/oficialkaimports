@@ -31,12 +31,14 @@ process.on("uncaughtException", (err) => {
 
 async function bootstrap(): Promise<void> {
   await ensureRuntimeSchema();
-  await reconcilePendingOrderLogistics();
 
   app.listen(port, "0.0.0.0", () => {
     console.log(`Server listening on port ${port}`);
     startReconciliationJob();
     startRaffleExpiryJob();
+    void reconcilePendingOrderLogistics().catch((error) => {
+      console.error("[OrderLogistics] Startup reconciliation failed:", error);
+    });
   });
 }
 
