@@ -212,6 +212,13 @@ export async function completeOrderLogistics(orderId: string, tenantId: string):
 }
 
 export async function reconcilePendingOrderLogistics(): Promise<void> {
+  const activeAllocations = await db
+    .select({ tenantId: orderLogisticsAllocationsTable.tenantId })
+    .from(orderLogisticsAllocationsTable)
+    .where(eq(orderLogisticsAllocationsTable.status, "allocated"));
+  const tenantIds = new Set(activeAllocations.map((allocation) => allocation.tenantId));
+  for (const tenantId of tenantIds) await compactTenantOrderLogisticsInTransaction(tenantId);
+
   const paidOrders = await db
     .select({ id: ordersTable.id, shippingType: ordersTable.shippingType })
     .from(ordersTable)
@@ -222,15 +229,15 @@ export async function reconcilePendingOrderLogistics(): Promise<void> {
     .orderBy(asc(ordersTable.createdAt));
 
   let allocated = 0;
-  const tenantIds = new Set<string>();
+  const tenantsWithNewAllocations = new Set<string>();
   for (const order of paidOrders) {
     if (!isStandardShipping(order.shippingType)) continue;
     const result = await allocateOrderLogistics(order.id, false);
     if (result) {
       allocated += 1;
-      tenantIds.add(result.tenantId);
+      tenantsWithNewAllocations.add(result.tenantId);
     }
   }
-  for (const tenantId of tenantIds) await compactTenantOrderLogisticsInTransaction(tenantId);
-  console.log(`[OrderLogistics] Reconciled ${allocated} paid standard-shipping order(s).`);
+  for (const tenantId of tenantsWithNewAllocations) await compactTenantOrderLogisticsInTransaction(tenantId);
+  console.log(`[OrderLogistics] Compacted ${tenantIds.size} tenant queue(s) and reconciled ${allocated} paid standard-shipping order(s).`);
 }
