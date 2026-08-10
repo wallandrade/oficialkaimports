@@ -1863,6 +1863,55 @@ router.patch("/admin/orders/:id/proof", requireAdminAuth, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// DELETE /api/admin/orders/:id/proof/:index  (protected)
+// ---------------------------------------------------------------------------
+router.delete("/admin/orders/:id/proof/:index", requireAdminAuth, async (req, res) => {
+  try {
+    const adminScope = ensureSellerScopeOnOrderQuery(req, res);
+    if (!adminScope) return;
+
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const proofIndex = Number(Array.isArray(req.params.index) ? req.params.index[0] : req.params.index);
+    if (!Number.isInteger(proofIndex) || proofIndex < 0) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Comprovante inválido." });
+      return;
+    }
+
+    const [existing] = await db
+      .select({ proofUrl: ordersTable.proofUrl, proofUrls: ordersTable.proofUrls })
+      .from(ordersTable)
+      .where(buildAdminOrderWhere(id, adminScope))
+      .limit(1);
+    if (!existing) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
+
+    let urls: string[] = [];
+    if (existing.proofUrls) {
+      try { urls = JSON.parse(existing.proofUrls); } catch { urls = []; }
+    }
+    if (existing.proofUrl && !urls.includes(existing.proofUrl)) urls.unshift(existing.proofUrl);
+    if (proofIndex >= urls.length) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Comprovante não encontrado." });
+      return;
+    }
+
+    urls.splice(proofIndex, 1);
+    const proofUrl = urls.at(-1) || null;
+    await db
+      .update(ordersTable)
+      .set({ proofUrl, proofUrls: JSON.stringify(urls), updatedAt: new Date() })
+      .where(buildAdminOrderWhere(id, adminScope));
+
+    res.json({ ok: true, proofUrl, proofUrls: urls });
+  } catch (err) {
+    console.error("Delete proof error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao remover comprovante." });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // PATCH /api/admin/orders/:id/edit  (protected, full-access only)
 // ---------------------------------------------------------------------------
 router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {

@@ -1715,6 +1715,7 @@ export default function Admin() {
   const [proofModal, setProofModal] = useState<string | null>(null);
   const [proofFile, setProofFile] = useState<string | null>(null);
   const [proofUploading, setProofUploading] = useState(false);
+  const [proofDeletingIndex, setProofDeletingIndex] = useState<number | null>(null);
   // Charge management
   const [chargeStatusUpdating, setChargeStatusUpdating] = useState<string | null>(null);
   const [chargeProofModal, setChargeProofModal] = useState<string | null>(null);
@@ -5200,6 +5201,23 @@ export default function Admin() {
       setProofModal(null); setProofFile(null);
     } catch { toast.error("Erro ao enviar comprovante."); }
     finally { setProofUploading(false); }
+  };
+
+  const deleteOrderProof = async (proofIndex: number) => {
+    if (!proofModal || !window.confirm("Remover este comprovante?")) return;
+    setProofDeletingIndex(proofIndex);
+    try {
+      const res = await fetch(`${BASE}/api/admin/orders/${proofModal}/proof/${proofIndex}`, {
+        method: "DELETE", headers: authHeaders(),
+      });
+      if (!res.ok) { toast.error("Erro ao remover comprovante."); return; }
+      const data = await res.json() as { proofUrl: string | null; proofUrls: string[] };
+      setOrders((prev) => prev.map((order) => order.id === proofModal
+        ? { ...order, proofUrl: data.proofUrl, proofUrls: data.proofUrls }
+        : order));
+      toast.success("Comprovante removido!");
+    } catch { toast.error("Erro ao remover comprovante."); }
+    finally { setProofDeletingIndex(null); }
   };
 
   const updateChargeStatus = async (id: string, status: string) => {
@@ -10727,9 +10745,56 @@ export default function Admin() {
               className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
               onClick={(e) => { if (e.target === e.currentTarget) { setProofModal(null); setProofFile(null); } }}>
               <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
-                className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md">
+                className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-3xl bg-white p-8 shadow-2xl">
                 <h3 className="text-xl font-bold mb-2">Adicionar Comprovante</h3>
                 <p className="text-muted-foreground text-sm mb-6">Envie um comprovante de pagamento. Múltiplos comprovantes são suportados.</p>
+                {(() => {
+                  const order = orders.find((item) => item.id === proofModal);
+                  const proofUrls = order?.proofUrls?.length
+                    ? order.proofUrls
+                    : order?.proofUrl ? [order.proofUrl] : [];
+                  if (proofUrls.length === 0) return null;
+                  return (
+                    <div className="mb-5">
+                      <p className="mb-2 text-sm font-semibold">Comprovantes anexados</p>
+                      <div className="space-y-2">
+                        {proofUrls.map((url, index) => (
+                          <div key={`${index}-${url.slice(0, 32)}`} className="flex items-center gap-3 rounded-xl border bg-muted/20 p-2">
+                            <button
+                              type="button"
+                              className="h-12 w-12 shrink-0 overflow-hidden rounded-lg border bg-white"
+                              title={`Abrir comprovante ${index + 1}`}
+                              onClick={() => setProofViewer(url)}
+                            >
+                              {url.startsWith("data:image") ? (
+                                <img src={url} alt={`Comprovante ${index + 1}`} className="h-full w-full object-cover" />
+                              ) : (
+                                <span className="flex h-full w-full items-center justify-center text-[10px] font-bold text-muted-foreground">PDF</span>
+                              )}
+                            </button>
+                            <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setProofViewer(url)}>
+                              <span className="block text-sm font-semibold">Comprovante {index + 1}</span>
+                              <span className="block text-xs text-muted-foreground">Clique para visualizar</span>
+                            </button>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="shrink-0 text-red-600 hover:bg-red-50 hover:text-red-700"
+                              title={`Remover comprovante ${index + 1}`}
+                              disabled={proofDeletingIndex !== null}
+                              onClick={() => void deleteOrderProof(index)}
+                            >
+                              {proofDeletingIndex === index
+                                ? <Loader2 className="h-4 w-4 animate-spin" />
+                                : <Trash2 className="h-4 w-4" />}
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
                 <label className={`flex flex-col items-center justify-center w-full h-40 rounded-2xl border-2 border-dashed cursor-pointer transition-colors ${proofFile ? "border-green-400 bg-green-50" : "border-border hover:border-primary bg-muted/30"}`}>
                   <input type="file" accept="image/*,application/pdf" className="hidden" onChange={handleProofUpload} />
                   {proofFile ? (
