@@ -6025,17 +6025,21 @@ export default function Admin() {
     };
   })();
 
-  const copyShoppingList = async (event?: React.MouseEvent<HTMLButtonElement>) => {
+  const copyShoppingList = async (
+    shoppingOrders: AdminOrder[],
+    promisedHours: number,
+    event?: React.MouseEvent<HTMLButtonElement>,
+  ) => {
     event?.preventDefault();
     event?.stopPropagation();
 
-    if (ordersParaEnviarCopyBase.length === 0) {
+    if (shoppingOrders.length === 0) {
       toast.info("Nao ha pedidos pendentes.");
       return;
     }
 
     const totals = new Map<string, { label: string; productId: string | null; qtyNormal: number; qtyReshipment: number }>();
-    for (const order of ordersParaEnviarCopyBase) {
+    for (const order of shoppingOrders) {
       const isReshipment = isActiveReshipmentOrder(order);
       for (const p of getOrderProducts(order.products)) {
         const name = (p.name || "Produto").trim();
@@ -6118,7 +6122,7 @@ export default function Admin() {
       : "Itens ja cobertos por estoque (nao comprar):\n- Estoque nao carregado";
 
     const text = [
-      `Lista de Compra - ${ordersParaEnviarCopyBase.length} pedido${ordersParaEnviarCopyBase.length !== 1 ? "s" : ""}`,
+      `Lista de Compra - Envios em ${promisedHours}h - ${shoppingOrders.length} pedido${shoppingOrders.length !== 1 ? "s" : ""}`,
       "",
       "Comprar agora:",
       buyLines.length ? buyLines.join("\n") : "- Nada para comprar",
@@ -6134,7 +6138,7 @@ export default function Admin() {
 
     try {
       const mode = await copyText(text);
-      toast.success(mode === "manual" ? "Texto aberto para copia manual." : "Lista de compra copiada!");
+      toast.success(mode === "manual" ? "Texto aberto para copia manual." : `Lista de compra de ${promisedHours}h copiada!`);
     } catch {
       toast.error("Nao foi possivel copiar a lista.");
     }
@@ -6559,23 +6563,25 @@ export default function Admin() {
                 <Truck className="w-4 h-4" /> Pedidos para Enviar
               </p>
               <div className="flex flex-wrap items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={copyShoppingList}
-                  className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-white/90 px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-white"
-                >
-                  <ShoppingBag className="w-3.5 h-3.5" /> Lista de Compra
-                </button>
                 {logisticsCopyGroups.deadlineGroups.map((group) => (
-                  <button
-                    key={group.promisedHours}
-                    type="button"
-                    onClick={(event) => { void copyLogisticsDeadlineGroup(group, event); }}
-                    className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-white/90 px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-white"
-                    title={`Copiar ${group.orders.length} pedido${group.orders.length !== 1 ? "s" : ""} com prazo de ${group.promisedHours} horas`}
-                  >
-                    <Copy className="w-3.5 h-3.5" /> {group.promisedHours}h ({group.orders.length})
-                  </button>
+                  <React.Fragment key={group.promisedHours}>
+                    <button
+                      type="button"
+                      onClick={(event) => { void copyShoppingList(group.orders, group.promisedHours, event); }}
+                      className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-white/90 px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-white"
+                      title={`Copiar lista de compra dos envios em ${group.promisedHours} horas`}
+                    >
+                      <ShoppingBag className="w-3.5 h-3.5" /> Compra {group.promisedHours}h
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) => { void copyLogisticsDeadlineGroup(group, event); }}
+                      className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-white/90 px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-white"
+                      title={`Copiar ${group.orders.length} pedido${group.orders.length !== 1 ? "s" : ""} com prazo de ${group.promisedHours} horas`}
+                    >
+                      <Copy className="w-3.5 h-3.5" /> Envios {group.promisedHours}h ({group.orders.length})
+                    </button>
+                  </React.Fragment>
                 ))}
                 {logisticsCopyGroups.motoboyOrders.length > 0 && (
                   <button
