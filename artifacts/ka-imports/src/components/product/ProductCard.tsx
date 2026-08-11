@@ -67,6 +67,7 @@ export function ProductCard({ product, sellerSlug, priority = false }: ProductCa
   const displayUnitPrice = hasBulkDiscount && oneBoxTier
     ? oneBoxTier.unitPrice
     : (hasPromo ? product.promoPrice! : product.price);
+  const showOriginalPrice = displayUnitPrice < product.price;
   const href = sellerSlug ? `/${sellerSlug}/produto/${product.id}` : `/produto/${product.id}`;
   const { addItem, setIsOpen } = useCart();
   const [, setLocation] = useLocation();
@@ -128,7 +129,7 @@ export function ProductCard({ product, sellerSlug, priority = false }: ProductCa
 
         <div className="ka-product-card-footer mt-auto">
           <div className="ka-product-card-price-wrap flex flex-col mb-3">
-            {!hasBulkDiscount && hasPromo ? (
+            {showOriginalPrice ? (
               <>
                 <span className="ka-product-card-price-old text-xs text-muted-foreground line-through decoration-destructive/50">
                   {formatCurrency(product.price)}

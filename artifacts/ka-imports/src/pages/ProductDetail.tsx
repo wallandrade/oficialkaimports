@@ -208,12 +208,10 @@ export default function ProductDetail() {
               </div>
 
               <div className="rounded-2xl border border-border bg-card p-4">
-                {shouldUseProgressiveUnitPrice ? (
-                  <span className="text-3xl font-bold text-primary">{formatCurrency(displayUnitPrice)}</span>
-                ) : hasPromo ? (
+                {displayUnitPrice < product.price ? (
                   <div className="flex items-end gap-3">
                     <span className="text-lg text-muted-foreground line-through">{formatCurrency(product.price)}</span>
-                    <span className="text-3xl font-bold text-primary">{formatCurrency(product.promoPrice!)}</span>
+                    <span className="text-3xl font-bold text-primary">{formatCurrency(displayUnitPrice)}</span>
                   </div>
                 ) : (
                   <span className="text-3xl font-bold text-primary">{formatCurrency(displayUnitPrice)}</span>
