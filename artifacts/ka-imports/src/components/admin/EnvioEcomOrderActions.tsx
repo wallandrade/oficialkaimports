@@ -272,37 +272,35 @@ export function EnvioEcomOrderActions({
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Button size="sm" variant="outline" className="gap-1.5 text-emerald-700 border-emerald-200 hover:bg-emerald-50" disabled={!!busy} onClick={() => void quote()}>
-          {busy === "quote" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Truck className="w-3.5 h-3.5" />}
-          EnvioEcom
+      <Button size="sm" variant="outline" className="gap-1.5 text-emerald-700 border-emerald-200 hover:bg-emerald-50" disabled={!!busy} onClick={() => void quote()}>
+        {busy === "quote" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Truck className="w-3.5 h-3.5" />}
+        EnvioEcom
+      </Button>
+      {(order.envioecomShipmentId || barcode) && (
+        <Button size="sm" variant="outline" className="gap-1.5 text-emerald-800 border-emerald-200 hover:bg-emerald-50" disabled={!!busy} onClick={() => void generateLabel()}>
+          {busy === "label" || busy === "bind" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
+          Etiqueta EE
         </Button>
-        {(order.envioecomShipmentId || barcode) && (
-          <Button size="sm" variant="outline" className="gap-1.5 text-emerald-800 border-emerald-200 hover:bg-emerald-50" disabled={!!busy} onClick={() => void generateLabel()}>
-            {busy === "label" || busy === "bind" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
-            Etiqueta EE
-          </Button>
-        )}
-        {(order.envioecomShipmentId || barcode) && (
-          <Button size="sm" variant="outline" className="gap-1.5" disabled={!!busy} onClick={() => void sync()}>
-            {busy === "sync" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-            Sync EE
-          </Button>
-        )}
-        {(order.envioecomShipmentId || barcode) && (
-          <Button size="sm" variant="outline" className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50" disabled={!!busy} onClick={() => void cancelShipment()}>
-            {busy === "cancel" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />}
-            Cancelar EE
-          </Button>
-        )}
-        {labelUrl && (
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={() => window.open(labelUrl, "_blank", "noopener,noreferrer")}>
-            <ExternalLink className="w-3.5 h-3.5" /> Ver PDF
-          </Button>
-        )}
-      </div>
+      )}
+      {(order.envioecomShipmentId || barcode) && (
+        <Button size="sm" variant="outline" className="gap-1.5" disabled={!!busy} onClick={() => void sync()}>
+          {busy === "sync" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+          Sync EE
+        </Button>
+      )}
+      {(order.envioecomShipmentId || barcode) && (
+        <Button size="sm" variant="outline" className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50" disabled={!!busy} onClick={() => void cancelShipment()}>
+          {busy === "cancel" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />}
+          Cancelar EE
+        </Button>
+      )}
+      {labelUrl && (
+        <Button size="sm" variant="outline" className="gap-1.5" onClick={() => window.open(labelUrl, "_blank", "noopener,noreferrer")}>
+          <ExternalLink className="w-3.5 h-3.5" /> Ver PDF
+        </Button>
+      )}
       {order.envioecomStatus && (
-        <p className="text-xs text-emerald-800 mt-1">
+        <p className="basis-full text-xs text-emerald-800">
           EnvioEcom: {order.envioecomStatus}
           {order.envioecomDeliveryMode ? ` · ${order.envioecomDeliveryMode}` : ""}
           {barcode ? ` · ${barcode}` : ""}

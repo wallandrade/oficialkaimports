@@ -13858,6 +13858,17 @@ function OrdersPanel({
                     <Upload className="w-3.5 h-3.5" />
                     {(order.proofUrls && order.proofUrls.length > 0) || order.proofUrl ? "Adicionar Comprovante" : "Upload Comprovante"}
                   </Button>
+                  {canManageEnvioEcom ? (
+                    <EnvioEcomOrderActions
+                      order={order as any}
+                      onPatched={(patch) => {
+                        onSetOrderPatched({ ...order, ...patch } as AdminOrder);
+                        if (typeof patch.enviado === "boolean") {
+                          setEnviados((prev) => ({ ...prev, [order.id]: patch.enviado as boolean }));
+                        }
+                      }}
+                    />
+                  ) : null}
                   <input
                     ref={(el) => { trackingInputRefs.current[order.id] = el; }}
                     type="file"
@@ -13879,19 +13890,6 @@ function OrdersPanel({
                     {trackingUploading[order.id] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
                     {trackingUploading[order.id] ? "Lendo Etiqueta..." : "Etiqueta/Rastreio"}
                   </Button>
-                  {canManageEnvioEcom ? (
-                    <div className="w-full basis-full">
-                      <EnvioEcomOrderActions
-                        order={order as any}
-                        onPatched={(patch) => {
-                          onSetOrderPatched({ ...order, ...patch } as AdminOrder);
-                          if (typeof patch.enviado === "boolean") {
-                            setEnviados((prev) => ({ ...prev, [order.id]: patch.enviado as boolean }));
-                          }
-                        }}
-                      />
-                    </div>
-                  ) : null}
                   {(order.proofUrls && order.proofUrls.length > 0) && (
                     <div className="flex items-center gap-1 flex-wrap">
                       {order.proofUrls.map((url, i) => (
