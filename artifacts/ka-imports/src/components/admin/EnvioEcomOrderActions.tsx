@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Loader2, RefreshCw, Truck, FileText, Ban, ExternalLink } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Loader2, RefreshCw, Truck, FileText, Ban, ExternalLink, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
@@ -15,6 +15,8 @@ function adminHeaders() {
 
 export type EnvioEcomOrderFields = {
   id: string;
+  orderNumber?: number | null;
+  clientName?: string;
   shippingType?: string;
   enviado?: boolean;
   trackingCode?: string | null;
@@ -26,6 +28,16 @@ export type EnvioEcomOrderFields = {
   envioecomLabelUrl?: string | null;
   envioecomFreightCost?: number | null;
 };
+
+const DEFAULT_CARRIER_FILTERS = [
+  "Correios Sedex",
+  "Correios Pac",
+  "Correios Mini Envios",
+  "J&T Express envioEcom",
+  "Jadlog envioEcom",
+  "Ponto Loggi envioEcom",
+  "BUSLOG envioEcom",
+];
 
 type QuoteOption = {
   carrier?: string;
@@ -78,24 +90,45 @@ export function EnvioEcomOrderActions({
   const [unavailable, setUnavailable] = useState<Array<{ carrier?: string; reason?: string }>>([]);
   const [originZipcode, setOriginZipcode] = useState("");
   const [packageInfo, setPackageInfo] = useState<Record<string, unknown> | null>(null);
+  const [selectedCarriers, setSelectedCarriers] = useState<string[]>([]);
+
+  const carrierFilters = useMemo(() => {
+    const fromResults = [
+      ...quotes.map(quoteCarrier),
+      ...unavailable.map((row) => String(row.carrier || "").trim()),
+    ].filter(Boolean);
+    return Array.from(new Set([...DEFAULT_CARRIER_FILTERS, ...fromResults]));
+  }, [quotes, unavailable]);
 
   if (isMotoboyOrPickup(order.shippingType)) return null;
 
   const barcode = order.envioecomBarcode || order.trackingCode || "";
   const needsBind = isProvisionalBarcode(barcode) && !order.envioecomShipmentId;
   const labelUrl = order.envioecomLabelUrl || order.trackingLabelUrl || "";
+  const orderDisplayId = Number.isFinite(Number(order.orderNumber)) && Number(order.orderNumber) > 0
+    ? String(Math.trunc(Number(order.orderNumber)))
+    : order.id;
 
   async function patchFromResponse(data: { order?: EnvioEcomOrderFields }) {
     if (data.order) onPatched(data.order);
   }
 
-  async function quote() {
+  function toggleCarrier(carrier: string) {
+    setSelectedCarriers((current) => (
+      current.includes(carrier)
+        ? current.filter((item) => item !== carrier)
+        : [...current, carrier]
+    ));
+  }
+
+  async function quote(carriers = selectedCarriers) {
+    setQuoteOpen(true);
     setBusy("quote");
     try {
       const res = await fetch(`${BASE}/api/admin/envioecom/orders/${order.id}/quote`, {
         method: "POST",
         headers: adminHeaders(),
-        body: "{}",
+        body: JSON.stringify(carriers.length ? { carriers } : {}),
       });
       if (!res.ok) throw new Error(await readError(res));
       const data = await res.json() as {
@@ -111,7 +144,6 @@ export function EnvioEcomOrderActions({
       })));
       setOriginZipcode(String(data.originZipcode || ""));
       setPackageInfo(data.package || null);
-      setQuoteOpen(true);
       if (!(data.quotes || []).length) toast.error("Nenhuma transportadora disponível para este CEP.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Falha ao cotar.");
@@ -280,40 +312,94 @@ export function EnvioEcomOrderActions({
 
       {quoteOpen && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setQuoteOpen(false)}>
-          <div className="bg-white rounded-2xl max-w-lg w-full p-5 shadow-xl max-h-[80vh] overflow-auto" onClick={(event) => event.stopPropagation()}>
-            <p className="text-sm font-semibold mb-1">Cotações EnvioEcom</p>
-            <p className="text-xs text-muted-foreground mb-3">Escolha a transportadora com o nome exato da cotação.</p>
-            {quotes.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Nenhuma opção disponível.</p>
-            ) : (
-              <div className="space-y-2">
-                {quotes.map((quoteOption, index) => (
+          <div className="bg-white rounded-[28px] max-w-md w-full shadow-xl max-h-[88vh] overflow-auto p-5 sm:p-6" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3 pb-4 border-b border-neutral-200">
+              <div>
+                <h2 className="text-lg font-bold text-neutral-900 leading-tight">Cotação EnvioEcom</h2>
+                <p className="text-sm text-neutral-500 mt-1">
+                  Pedido #{orderDisplayId}{order.clientName ? ` · ${order.clientName}` : ""}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="text-neutral-500 hover:text-neutral-800 p-1 -mt-1"
+                onClick={() => setQuoteOpen(false)}
+                aria-label="Fechar"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="pt-4 pb-4 border-b border-neutral-200">
+              <p className="text-[11px] font-semibold tracking-wide text-neutral-400 uppercase mb-2">
+                Filtrar transportadoras (opcional)
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {carrierFilters.map((carrier) => {
+                  const selected = selectedCarriers.includes(carrier);
+                  return (
+                    <button
+                      key={carrier}
+                      type="button"
+                      onClick={() => toggleCarrier(carrier)}
+                      className={`px-3 py-1.5 rounded-full text-sm border transition-colors ${
+                        selected
+                          ? "border-amber-700 bg-amber-50 text-amber-900"
+                          : "border-neutral-300 bg-white text-neutral-800 hover:border-neutral-400"
+                      }`}
+                    >
+                      {carrier}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex flex-wrap gap-2 mt-3">
+                <button
+                  type="button"
+                  disabled={busy === "quote"}
+                  onClick={() => void quote(selectedCarriers)}
+                  className="px-4 py-1.5 rounded-full text-sm border border-amber-700 text-amber-800 hover:bg-amber-50 disabled:opacity-60"
+                >
+                  {busy === "quote" ? "Atualizando..." : "Atualizar cotação"}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy === "quote"}
+                  onClick={() => {
+                    setSelectedCarriers([]);
+                    void quote([]);
+                  }}
+                  className="px-4 py-1.5 rounded-full text-sm border border-amber-700 text-amber-800 hover:bg-amber-50 disabled:opacity-60"
+                >
+                  Limpar filtro
+                </button>
+              </div>
+            </div>
+
+            <div className="pt-4 space-y-3">
+              {busy === "quote" && quotes.length === 0 ? (
+                <p className="text-sm text-neutral-500 flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Cotando frete...
+                </p>
+              ) : quotes.length === 0 ? (
+                <p className="text-sm text-neutral-500">Nenhuma opção disponível.</p>
+              ) : (
+                quotes.map((quoteOption, index) => (
                   <button
                     key={`${quoteCarrier(quoteOption)}-${index}`}
                     type="button"
-                    className="w-full text-left rounded-xl border border-emerald-200 hover:bg-emerald-50 px-3 py-2"
+                    className="w-full text-left rounded-2xl border border-neutral-200 hover:border-neutral-400 hover:bg-neutral-50 px-4 py-3 disabled:opacity-60"
                     disabled={!!busy}
                     onClick={() => void createShipment(quoteOption)}
                   >
-                    <p className="text-sm font-semibold">{quoteCarrier(quoteOption) || "Transportadora"}</p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-sm font-bold text-neutral-900">{quoteCarrier(quoteOption) || "Transportadora"}</p>
+                    <p className="text-sm text-neutral-500 mt-0.5">
                       {formatCurrency(quotePrice(quoteOption))}
                       {quoteDays(quoteOption) ? ` · ${quoteDays(quoteOption)} dia(s)` : ""}
                     </p>
                   </button>
-                ))}
-              </div>
-            )}
-            {unavailable.length > 0 && (
-              <div className="mt-3 text-xs text-muted-foreground">
-                <p className="font-semibold mb-1">Indisponíveis</p>
-                {unavailable.map((row, index) => (
-                  <p key={`${row.carrier}-${index}`}>{row.carrier}: {row.reason || "sem cotação"}</p>
-                ))}
-              </div>
-            )}
-            <div className="mt-4 flex justify-end">
-              <Button size="sm" variant="outline" onClick={() => setQuoteOpen(false)}>Fechar</Button>
+                ))
+              )}
             </div>
           </div>
         </div>
