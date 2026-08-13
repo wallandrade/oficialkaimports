@@ -5996,7 +5996,7 @@ export default function Admin() {
 
   const ordersParaEnviar = orders.filter((o) => {
     const isActiveReshipment = isActiveReshipmentOrder(o);
-    const isPendingNormalShipment = (o.status === "paid" || o.status === "completed") && !o.enviado;
+    const isPendingNormalShipment = (o.status === "paid" || o.status === "completed") && !o.enviado && !hasEnvioEcomLabelReady(o as any);
     return isPendingNormalShipment || isActiveReshipment;
   });
   const ordersParaEnviarCopyBase = ordersParaEnviarDedupForCopy(ordersParaEnviar);
@@ -13541,6 +13541,7 @@ function OrdersPanel({
           const isPaidOrder = currentOrderStatus === "paid" || currentOrderStatus === "completed";
           const isCard     = order.paymentMethod === "card_simulation";
           const isExpanded = expandedOrder === order.id;
+          const eeLabelReady = hasEnvioEcomLabelReady(order as any);
           const orderStockCheck = enviados[order.id] || !globalInventorySnapshotReady
             ? { hasStock: true, message: "", missingItems: [] as string[] }
             : verifyOrderStock(order.id);
@@ -13591,7 +13592,7 @@ function OrdersPanel({
             return productId ? String(productImageById[productId] || "").trim() : "";
           };
           return (
-            <div key={order.id} className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${hasEnvioEcomLabelReady(order as any) ? "border-emerald-400" : isCard ? "border-purple-200" : "border-border/60"} ${isPrioridade ? "ring-2 ring-red-400" : ""}`}>
+            <div key={order.id} className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${eeLabelReady ? "border-emerald-400" : isCard ? "border-purple-200" : "border-border/60"} ${isPrioridade ? "ring-2 ring-red-400" : ""}`}>
             <div className="p-5 sm:p-6">
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                 <div className="flex-1 min-w-0">
@@ -13610,6 +13611,8 @@ function OrdersPanel({
                         {/* Badge de status de envio */}
                         {enviados[order.id] ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-100 text-green-800 text-xs font-semibold border border-green-200">Enviado</span>
+                        ) : eeLabelReady ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-xs font-semibold border border-emerald-200">Pronto para envio</span>
                         ) : (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 text-xs font-semibold border border-yellow-200">Pendente para envio</span>
                         )}
@@ -13914,7 +13917,7 @@ function OrdersPanel({
                 </div>
               </div>
 
-              {hasLogisticsAllocation && !hasEnvioEcomLabelReady(order as any) && (
+              {hasLogisticsAllocation && !eeLabelReady && (
                 <div className={`mt-4 flex items-start gap-3 rounded-lg border p-3 ${logisticsIsLate ? "border-red-300 bg-red-50 text-red-900" : "border-amber-300 bg-amber-50 text-amber-950"}`}>
                   <Clock className="mt-0.5 h-4 w-4 shrink-0" />
                   <div>
