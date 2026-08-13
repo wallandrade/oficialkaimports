@@ -287,6 +287,16 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
     { name: "motoboy_delivery_date", sql: "ALTER TABLE orders ADD COLUMN motoboy_delivery_date DATE NULL" },
     { name: "motoboy_delivery_time", sql: "ALTER TABLE orders ADD COLUMN motoboy_delivery_time VARCHAR(5) NULL" },
     { name: "motoboy_delivery_duration_hours", sql: "ALTER TABLE orders ADD COLUMN motoboy_delivery_duration_hours INT NULL" },
+    { name: "envioecom_shipment_id", sql: "ALTER TABLE orders ADD COLUMN envioecom_shipment_id INT NULL" },
+    { name: "envioecom_barcode", sql: "ALTER TABLE orders ADD COLUMN envioecom_barcode VARCHAR(255) NULL" },
+    { name: "envioecom_tracking_key", sql: "ALTER TABLE orders ADD COLUMN envioecom_tracking_key VARCHAR(255) NULL" },
+    { name: "envioecom_delivery_mode", sql: "ALTER TABLE orders ADD COLUMN envioecom_delivery_mode VARCHAR(255) NULL" },
+    { name: "envioecom_status", sql: "ALTER TABLE orders ADD COLUMN envioecom_status VARCHAR(255) NULL" },
+    { name: "envioecom_status_updated_at", sql: "ALTER TABLE orders ADD COLUMN envioecom_status_updated_at TIMESTAMP NULL" },
+    { name: "envioecom_status_history", sql: "ALTER TABLE orders ADD COLUMN envioecom_status_history JSON NULL" },
+    { name: "envioecom_label_url", sql: "ALTER TABLE orders ADD COLUMN envioecom_label_url MEDIUMTEXT NULL" },
+    { name: "envioecom_freight_cost", sql: "ALTER TABLE orders ADD COLUMN envioecom_freight_cost DECIMAL(10,2) NULL" },
+    { name: "envioecom_external_order_number", sql: "ALTER TABLE orders ADD COLUMN envioecom_external_order_number VARCHAR(255) NULL" },
   ];
 
   for (const definition of definitions) {
@@ -300,6 +310,21 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
       await pool.query("ALTER TABLE orders ADD UNIQUE KEY orders_guest_access_token_unique (guest_access_token)");
     } catch {
       // Ignore duplicate or unsupported index creation issues.
+    }
+  }
+
+  const envioecomIndexes = [
+    { name: "orders_envioecom_barcode_idx", sql: "ALTER TABLE orders ADD INDEX orders_envioecom_barcode_idx (envioecom_barcode)" },
+    { name: "orders_envioecom_shipment_id_idx", sql: "ALTER TABLE orders ADD INDEX orders_envioecom_shipment_id_idx (envioecom_shipment_id)" },
+    { name: "orders_envioecom_external_order_idx", sql: "ALTER TABLE orders ADD INDEX orders_envioecom_external_order_idx (envioecom_external_order_number)" },
+  ];
+  for (const index of envioecomIndexes) {
+    if (!(await indexExists("orders", index.name, databaseName))) {
+      try {
+        await pool.query(index.sql);
+      } catch {
+        // Ignore duplicate or unsupported index creation issues.
+      }
     }
   }
 }

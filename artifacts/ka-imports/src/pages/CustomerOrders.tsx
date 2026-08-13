@@ -22,6 +22,11 @@ type CustomerOrder = {
   shippingCost?: number;
   insuranceAmount?: number;
   shippingType?: string;
+  trackingCode?: string | null;
+  envioecomStatus?: string | null;
+  envioecomDeliveryMode?: string | null;
+  envioecomBarcode?: string | null;
+  envioecomStatusHistory?: Array<{ at?: string; status?: string; description?: string | null }>;
 };
 
 type AccountSection = "orders" | "affiliate" | "raffle";
@@ -120,6 +125,14 @@ export default function CustomerOrders() {
   const [isSavingPixel, setIsSavingPixel] = useState(false);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [loadingDetails, setLoadingDetails] = useState<string | null>(null);
+  const [trackingOrderId, setTrackingOrderId] = useState<string | null>(null);
+  const [trackingLoading, setTrackingLoading] = useState(false);
+  const [tracking, setTracking] = useState<{
+    envioecomStatus: string | null;
+    deliveryMode: string | null;
+    barcode: string | null;
+    history: Array<{ at?: string; status?: string; description?: string | null }>;
+  } | null>(null);
 
   const affiliateSummary = useMemo(() => {
     return affiliateData?.summary || {
@@ -289,6 +302,47 @@ export default function CustomerOrders() {
     }
   }
 
+  async function handleOpenTracking(order: CustomerOrder) {
+    setTrackingOrderId(order.id);
+    setTracking({
+      envioecomStatus: order.envioecomStatus || null,
+      deliveryMode: order.envioecomDeliveryMode || null,
+      barcode: order.envioecomBarcode || order.trackingCode || null,
+      history: order.envioecomStatusHistory || [],
+    });
+    setTrackingLoading(true);
+    try {
+      const res = await fetch(`${BASE}/api/me/orders/${order.id}/tracking`, {
+        headers: getCustomerAuthHeaders(),
+      });
+      if (!res.ok) throw new Error("Falha ao atualizar rastreio");
+      const data = await res.json() as {
+        envioecomStatus?: string | null;
+        deliveryMode?: string | null;
+        barcode?: string | null;
+        history?: Array<{ at?: string; status?: string; description?: string | null }>;
+      };
+      setTracking({
+        envioecomStatus: data.envioecomStatus || null,
+        deliveryMode: data.deliveryMode || null,
+        barcode: data.barcode || null,
+        history: data.history || [],
+      });
+      setOrders((prev) => prev.map((item) => item.id === order.id ? {
+        ...item,
+        envioecomStatus: data.envioecomStatus || item.envioecomStatus,
+        envioecomDeliveryMode: data.deliveryMode || item.envioecomDeliveryMode,
+        envioecomBarcode: data.barcode || item.envioecomBarcode,
+        trackingCode: data.barcode || item.trackingCode,
+        envioecomStatusHistory: data.history || item.envioecomStatusHistory,
+      } : item));
+    } catch {
+      toast.error("Não foi possível atualizar o rastreio agora.");
+    } finally {
+      setTrackingLoading(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 px-4 py-8 sm:py-10">
       <div className="max-w-6xl mx-auto">
@@ -385,11 +439,13 @@ export default function CustomerOrders() {
                     <div className="space-y-3">
                       {orders.map((order) => {
                         const displayStatus = order.enviado ? "enviado" : order.status;
-                        const displaySituation = displayStatus === "completed"
-                          ? "Entregue"
-                          : displayStatus === "paid"
-                            ? "Processando"
-                            : (statusLabel[displayStatus] || displayStatus);
+                        const displaySituation = order.envioecomStatus
+                          ? order.envioecomStatus
+                          : displayStatus === "completed"
+                            ? "Entregue"
+                            : displayStatus === "paid"
+                              ? "Processando"
+                              : (statusLabel[displayStatus] || displayStatus);
 
                         return (
                         <div key={order.id} className="border border-border rounded-2xl p-5 bg-white hover:shadow-md transition-shadow">
@@ -451,14 +507,12 @@ export default function CustomerOrders() {
                               <MessageCircle className="w-3.5 h-3.5 mr-1.5" />
                               Suporte
                             </Button>
-                            {(order.enviado || order.status === "completed") && (
+                            {(order.enviado || order.status === "completed" || order.envioecomStatus || order.trackingCode) && (
                               <Button
                                 variant="outline"
                                 size="sm"
                                 className="rounded-lg text-xs"
-                                onClick={() => {
-                                  toast.info("Seu pedido já foi enviado. Chame o admin no privado para receber seu código de rastreio.");
-                                }}
+                                onClick={() => void handleOpenTracking(order)}
                               >
                                 <Truck className="w-3.5 h-3.5 mr-1.5" />
                                 Rastrear
@@ -508,6 +562,17 @@ export default function CustomerOrders() {
                                       </div>
                                     ))}
                                   </div>
+                                </div>
+                              )}
+
+                              {(order.envioecomStatus || order.envioecomBarcode || order.trackingCode) && (
+                                <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-100">
+                                  <p className="text-sm font-semibold text-emerald-900 mb-1">Envio / Rastreio</p>
+                                  <p className="text-sm text-emerald-900">{order.envioecomStatus || "Em preparação"}</p>
+                                  {order.envioecomDeliveryMode && <p className="text-xs text-emerald-800">{order.envioecomDeliveryMode}</p>}
+                                  {(order.envioecomBarcode || order.trackingCode) && (
+                                    <p className="text-xs font-mono text-emerald-800 mt-1">{order.envioecomBarcode || order.trackingCode}</p>
+                                  )}
                                 </div>
                               )}
 
@@ -635,6 +700,33 @@ export default function CustomerOrders() {
           </div>
         </div>
       </div>
+      {trackingOrderId && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setTrackingOrderId(null)}>
+          <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-xl max-h-[80vh] overflow-auto" onClick={(event) => event.stopPropagation()}>
+            <p className="text-sm font-semibold mb-1">Rastreio do pedido</p>
+            {trackingLoading && <p className="text-xs text-muted-foreground mb-2">Atualizando...</p>}
+            <p className="text-sm">{tracking?.envioecomStatus || "Ainda sem atualização de transportadora."}</p>
+            {tracking?.deliveryMode && <p className="text-xs text-muted-foreground mt-1">{tracking.deliveryMode}</p>}
+            {tracking?.barcode && <p className="text-xs font-mono mt-1">{tracking.barcode}</p>}
+            <div className="mt-4 space-y-2">
+              {(tracking?.history || []).length === 0 ? (
+                <p className="text-xs text-muted-foreground">Sem histórico ainda.</p>
+              ) : (
+                (tracking?.history || []).slice().reverse().map((event, index) => (
+                  <div key={`${event.at}-${index}`} className="border-l-2 border-emerald-300 pl-3 py-1">
+                    <p className="text-sm font-medium">{event.status}</p>
+                    {event.description && <p className="text-xs text-muted-foreground">{event.description}</p>}
+                    {event.at && <p className="text-[11px] text-muted-foreground">{formatDateBR(event.at)}</p>}
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="mt-4 flex justify-end">
+              <Button size="sm" variant="outline" onClick={() => setTrackingOrderId(null)}>Fechar</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

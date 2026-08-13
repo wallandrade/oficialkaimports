@@ -504,6 +504,9 @@ import { formatCurrency, formatDateOnlyBR } from "@/lib/utils";
 import { downloadFilialPurchasePdf, openFilialPurchasePdfInBrowser } from "@/lib/generateFilialPurchasePdf";
 import { generateChargePdf, generateOrderPdf } from "@/lib/generateOrderPdf";
 import { AdminLayout } from "@/components/layout/AdminLayout";
+import { EnvioEcomOrderActions, hasEnvioEcomLabelReady } from "@/components/admin/EnvioEcomOrderActions";
+import { EnvioEcomTrackingBoard } from "@/components/admin/EnvioEcomTrackingBoard";
+import { EnvioEcomSettingsCard } from "@/components/admin/EnvioEcomSettingsCard";
 
 
 
@@ -966,7 +969,7 @@ function OrderBumpsPanel({ bumps, products, form, setForm, creating, toggling, d
   );
 }
 
-type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "checkout" | "socialProof" | "raffles" | "lojas" | "supplierPurchases";
+type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "checkout" | "socialProof" | "raffles" | "lojas" | "supplierPurchases" | "envioecom";
 type LojasSubTab = "criar" | "pedidos" | "cadastradas";
 type FilialScopeSubTab = "pedidos" | "produtos" | "estoque";
 
@@ -5032,10 +5035,10 @@ export default function Admin() {
   }, [tab, authChecked, fetchUsers, fetchCustomers, fetchRecurringCustomers]);
 
   useEffect(() => {
-    if ((tab === "products" && !canManageProductsTab) || (!isPrimary && PRIMARY_ONLY_TABS.has(tab)) || (tab === "lojas" && !canManageTenants) || (tab === "supplierPurchases" && !canViewSupplierPurchasesTab)) {
+    if ((tab === "products" && !canManageProductsTab) || (!isPrimary && PRIMARY_ONLY_TABS.has(tab)) || (tab === "lojas" && !canManageTenants) || (tab === "supplierPurchases" && !canViewSupplierPurchasesTab) || (tab === "envioecom" && !canManageShippingTab)) {
       setTab("orders");
     }
-  }, [isPrimary, tab, canManageTenants, canManageProductsTab, canViewSupplierPurchasesTab]);
+  }, [isPrimary, tab, canManageTenants, canManageProductsTab, canViewSupplierPurchasesTab, canManageShippingTab]);
 
   useEffect(() => {
     if (!authChecked || tab !== "supplierPurchases") return;
@@ -6676,6 +6679,7 @@ export default function Admin() {
             ] : []),
             ...(canManageShippingTab ? [
               { key: "fretes" as TabType, label: "Fretes", icon: "Truck", count: shippingOptions.length },
+              { key: "envioecom" as TabType, label: "Rastreios EE", icon: "Truck" },
             ] : []),
             ...(canManageInventoryTab ? [
               { key: "inventory" as TabType, label: "Estoque", icon: "Package", count: pendingReshipments.length || undefined },
@@ -6803,6 +6807,7 @@ export default function Admin() {
             onSetOrderPatched={(order) => {
               setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, ...order } : o)));
             }}
+            canManageEnvioEcom={canManageShippingTab}
             availableWhatsappGroups={availableWhatsappGroups}
             onSetReshipmentStatus={async (reshipmentId, status) => {
               if (!reshipmentId) return;
@@ -7483,6 +7488,8 @@ export default function Admin() {
               finally { setMotoboyCepRangeDeleting(null); }
             }}
           />
+        ) : tab === "envioecom" ? (
+          <EnvioEcomTrackingBoard />
         ) : tab === "orderBumps" ? (
           <OrderBumpsPanel
             bumps={orderBumps}
@@ -10502,6 +10509,7 @@ export default function Admin() {
           />
         ) : tab === "configuracoes" ? (
           <div className="space-y-6">
+            <EnvioEcomSettingsCard />
             <div className="rounded-xl border bg-gradient-to-br from-rose-50 to-orange-50/60 border-rose-200 p-5">
               <div className="flex flex-wrap items-start justify-between gap-2 mb-4">
                 <div>
@@ -12369,7 +12377,7 @@ function OrdersPanel({
   orders, statusUpdating, expandedOrder, setExpandedOrder,
   updateOrderStatus, setProofModal, setProofViewer, openWhatsApp,
   onOpenCardPaidModal, updateOrderObservation, isPrimary, canMarkMotoboy, onMarkOrderMotoboy, onEditOrder, onOpenKycModal,
-  onSetOrderEnviado, onSetOrderPatched, availableWhatsappGroups, onSetReshipmentStatus, onRemoveOrder,
+  onSetOrderEnviado, onSetOrderPatched, availableWhatsappGroups, onSetReshipmentStatus, onRemoveOrder, canManageEnvioEcom,
 }: {
   allOrders: AdminOrder[];
   productImageById: Record<string, string>;
@@ -12406,6 +12414,7 @@ function OrdersPanel({
   availableWhatsappGroups: string[];
   onSetReshipmentStatus: (reshipmentId: string, status: "reenvio_aguardando_estoque" | "reenvio_pronto_para_envio" | "reenvio_resolvido_sem_entrada" | "reenvio_enviado") => void;
   onRemoveOrder: (id: string) => void;
+  canManageEnvioEcom?: boolean;
 }) {
 
   const normalizeIp = (ip?: string | null) => String(ip || "").trim().replace(/^::ffff:/, "") || "-";
@@ -13581,7 +13590,7 @@ function OrdersPanel({
             return productId ? String(productImageById[productId] || "").trim() : "";
           };
           return (
-            <div key={order.id} className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${isCard ? "border-purple-200" : "border-border/60"} ${isPrioridade ? "ring-2 ring-red-400" : ""}`}>
+            <div key={order.id} className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${hasEnvioEcomLabelReady(order as any) ? "border-emerald-400" : isCard ? "border-purple-200" : "border-border/60"} ${isPrioridade ? "ring-2 ring-red-400" : ""}`}>
             <div className="p-5 sm:p-6">
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                 <div className="flex-1 min-w-0">
@@ -13602,6 +13611,11 @@ function OrdersPanel({
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-100 text-green-800 text-xs font-semibold border border-green-200">Enviado</span>
                         ) : (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 text-xs font-semibold border border-yellow-200">Pendente para envio</span>
+                        )}
+                        {(order as any).envioecomStatus && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-xs font-semibold border border-emerald-200">
+                            EE: {(order as any).envioecomStatus}
+                          </span>
                         )}
                         {!enviados[order.id] && (
                           <span
@@ -13865,6 +13879,19 @@ function OrdersPanel({
                     {trackingUploading[order.id] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
                     {trackingUploading[order.id] ? "Lendo Etiqueta..." : "Etiqueta/Rastreio"}
                   </Button>
+                  {canManageEnvioEcom ? (
+                    <div className="w-full basis-full">
+                      <EnvioEcomOrderActions
+                        order={order as any}
+                        onPatched={(patch) => {
+                          onSetOrderPatched({ ...order, ...patch } as AdminOrder);
+                          if (typeof patch.enviado === "boolean") {
+                            setEnviados((prev) => ({ ...prev, [order.id]: patch.enviado as boolean }));
+                          }
+                        }}
+                      />
+                    </div>
+                  ) : null}
                   {(order.proofUrls && order.proofUrls.length > 0) && (
                     <div className="flex items-center gap-1 flex-wrap">
                       {order.proofUrls.map((url, i) => (

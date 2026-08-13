@@ -23,6 +23,7 @@ import { sendOutboundWebhook } from "../lib/outbound-webhook";
 import { requirePrimaryAdmin } from "./admin-auth";
 import { enqueueFilialOrderPurchaseRequest } from "../lib/filial-purchase-queue";
 import { allocateOrderLogistics, releaseOrderLogistics } from "../lib/order-logistics";
+import { applyEnvioEcomWebhook } from "./envioecom";
 
 const router: IRouter = Router();
 
@@ -576,6 +577,22 @@ router.post("/webhook/pix/charge/:token/:chargeId", async (req, res) => {
   } catch (err) {
     console.error("[WEBHOOK] Charge webhook error:", err);
     res.json({ ok: false });
+  }
+});
+
+router.post("/webhook/envioecom", async (req, res) => {
+  try {
+    const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, unknown>;
+    const event = String(req.get("x-webhook-event") || body.event || "").trim();
+    if (event && event !== "shipment.status_updated") {
+      res.status(200).json({ ok: true, ignored: true });
+      return;
+    }
+    const result = await applyEnvioEcomWebhook(body);
+    res.status(200).json({ ok: true, matched: result.matched, orderId: result.orderId || null });
+  } catch (err) {
+    console.error("[WEBHOOK_ENVIOECOM] Error:", err);
+    res.status(200).json({ ok: true, matched: false });
   }
 });
 

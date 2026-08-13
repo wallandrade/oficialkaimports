@@ -108,6 +108,22 @@ export async function uploadOrderTrackingLabelToR2(input: { dataUrl: string; ord
   return `${R2_PUBLIC_BASE_URL}/${objectKey}`;
 }
 
+export async function uploadShipmentLabelPdfToR2(input: { buffer: Buffer; orderId?: string | null }): Promise<string> {
+  const client = getR2Client();
+  const orderPrefix = String(input.orderId || "unassigned").trim() || "unassigned";
+  const objectKey = `tracking-labels/${orderPrefix}/${Date.now()}-${crypto.randomBytes(6).toString("hex")}.pdf`;
+
+  await client.send(new PutObjectCommand({
+    Bucket: R2_BUCKET_NAME,
+    Key: objectKey,
+    Body: input.buffer,
+    ContentType: "application/pdf",
+    CacheControl: "public, max-age=31536000, immutable",
+  }));
+
+  return `${R2_PUBLIC_BASE_URL}/${objectKey}`;
+}
+
 export async function uploadSiteSettingImageToR2(input: { dataUrl: string; settingKey: string }): Promise<string> {
   const client = getR2Client();
   const { buffer, mimeType } = parseImageDataUrl(input.dataUrl);

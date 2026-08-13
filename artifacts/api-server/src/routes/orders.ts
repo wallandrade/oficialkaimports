@@ -2379,6 +2379,16 @@ function mapOrder(o: typeof ordersTable.$inferSelect) {
     trackingLabelText:      o.trackingLabelText ?? null,
     trackingDetectedName:   o.trackingDetectedName ?? null,
     trackingDetectedAddress:o.trackingDetectedAddress ?? null,
+    envioecomShipmentId:    o.envioecomShipmentId ?? null,
+    envioecomBarcode:       o.envioecomBarcode ?? null,
+    envioecomTrackingKey:   o.envioecomTrackingKey ?? null,
+    envioecomDeliveryMode:  o.envioecomDeliveryMode ?? null,
+    envioecomStatus:        o.envioecomStatus ?? null,
+    envioecomStatusUpdatedAt: o.envioecomStatusUpdatedAt?.toISOString?.() ?? o.envioecomStatusUpdatedAt ?? null,
+    envioecomStatusHistory: o.envioecomStatusHistory ?? [],
+    envioecomLabelUrl:      o.envioecomLabelUrl ?? null,
+    envioecomFreightCost:   o.envioecomFreightCost != null ? Number(o.envioecomFreightCost) : null,
+    envioecomExternalOrderNumber: o.envioecomExternalOrderNumber ?? null,
   };
 }
 
