@@ -6006,6 +6006,7 @@ export default function Admin() {
     const motoboyOrders: AdminOrder[] = [];
 
     for (const order of ordersParaEnviarCopyBase) {
+      if (hasEnvioEcomLabelReady(order as any)) continue;
       if (order.motoboyDeliveryDate && order.motoboyDeliveryTime) {
         motoboyOrders.push(order);
         continue;
@@ -13913,7 +13914,7 @@ function OrdersPanel({
                 </div>
               </div>
 
-              {hasLogisticsAllocation && (
+              {hasLogisticsAllocation && !hasEnvioEcomLabelReady(order as any) && (
                 <div className={`mt-4 flex items-start gap-3 rounded-lg border p-3 ${logisticsIsLate ? "border-red-300 bg-red-50 text-red-900" : "border-amber-300 bg-amber-50 text-amber-950"}`}>
                   <Clock className="mt-0.5 h-4 w-4 shrink-0" />
                   <div>

@@ -45,6 +45,14 @@ export function shouldMarkEnviadoFromStatus(status: unknown): boolean {
   return markers.some((marker) => normalized.includes(marker));
 }
 
+export function hasEnvioEcomLabelReady(input: {
+  envioecomLabelUrl?: string | null;
+  envioecomStatus?: string | null;
+}): boolean {
+  if (String(input.envioecomLabelUrl || "").trim()) return true;
+  return shouldMarkEnviadoFromStatus(input.envioecomStatus);
+}
+
 export function shouldMarkCompletedFromStatus(status: unknown): boolean {
   const normalized = normalizeStatus(status);
   if (!normalized) return false;

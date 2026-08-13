@@ -4,6 +4,7 @@ import test from "node:test";
 import { buildConsolidatedQuotePackage } from "./envioecom-package";
 import {
   appendStatusHistory,
+  hasEnvioEcomLabelReady,
   isProvisionalBarcode,
   shouldMarkCompletedFromStatus,
   shouldMarkEnviadoFromStatus,
@@ -44,6 +45,15 @@ test("status de etiqueta pronta marca enviado", () => {
   assert.equal(shouldMarkEnviadoFromStatus("Aguardando pagamento"), false);
   assert.equal(shouldMarkCompletedFromStatus("Entregue"), true);
   assert.equal(shouldMarkCompletedFromStatus("Cancelado"), false);
+});
+
+test("etiqueta pronta libera fila mesmo sem status de transito", () => {
+  assert.equal(hasEnvioEcomLabelReady({ envioecomStatus: "Envio criado" }), false);
+  assert.equal(hasEnvioEcomLabelReady({
+    envioecomLabelUrl: "https://cdn.example/label.pdf",
+    envioecomStatus: "Envio criado",
+  }), true);
+  assert.equal(hasEnvioEcomLabelReady({ envioecomStatus: "Etiqueta emitida" }), true);
 });
 
 test("historico e idempotente no mesmo status+barcode", () => {

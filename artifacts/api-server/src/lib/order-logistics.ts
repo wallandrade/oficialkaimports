@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { db, orderLogisticsAllocationsTable, ordersTable } from "@workspace/db";
+import { hasEnvioEcomLabelReady } from "./envioecom-status";
 import {
   addBusinessDays,
   buildLogisticsDeadline,
@@ -97,21 +98,47 @@ export async function allocateOrderLogistics(orderId: string, compactQueue = tru
           .from(orderLogisticsAllocationsTable)
           .where(eq(orderLogisticsAllocationsTable.orderId, orderId))
           .limit(1);
-        if (existing?.status === "allocated") return existing;
 
         const [order] = await tx
-          .select({ tenantId: ordersTable.tenantId, shippingType: ordersTable.shippingType, status: ordersTable.status, enviado: ordersTable.enviado })
+          .select({
+            tenantId: ordersTable.tenantId,
+            shippingType: ordersTable.shippingType,
+            status: ordersTable.status,
+            enviado: ordersTable.enviado,
+            envioecomLabelUrl: ordersTable.envioecomLabelUrl,
+            envioecomStatus: ordersTable.envioecomStatus,
+          })
           .from(ordersTable)
           .where(eq(ordersTable.id, orderId))
           .limit(1);
         if (!order || !["paid", "completed"].includes(order.status) || !isStandardShipping(order.shippingType)) return null;
+
+        const tenantId = order.tenantId || "tenant_loja1";
+        if (hasEnvioEcomLabelReady(order)) {
+          if (existing?.status === "allocated") {
+            await tx.update(orderLogisticsAllocationsTable).set({
+              status: "shipped",
+              activeSlotKey: null,
+            }).where(eq(orderLogisticsAllocationsTable.id, existing.id));
+            if (compactQueue) await compactTenantOrderLogistics(tx, tenantId);
+            const [completed] = await tx
+              .select()
+              .from(orderLogisticsAllocationsTable)
+              .where(eq(orderLogisticsAllocationsTable.id, existing.id))
+              .limit(1);
+            return completed || existing;
+          }
+          return existing || null;
+        }
+
+        if (existing?.status === "allocated") return existing;
 
         if (existing?.status === "shipped") {
           if (order.enviado) return existing;
           await tx.update(orderLogisticsAllocationsTable).set({
             status: "allocated",
           }).where(eq(orderLogisticsAllocationsTable.id, existing.id));
-          if (compactQueue) await compactTenantOrderLogistics(tx, order.tenantId || "tenant_loja1");
+          if (compactQueue) await compactTenantOrderLogistics(tx, tenantId);
           const [restored] = await tx
             .select()
             .from(orderLogisticsAllocationsTable)
@@ -122,8 +149,7 @@ export async function allocateOrderLogistics(orderId: string, compactQueue = tru
 
         if (order.enviado) return null;
 
-        const tenantId = order.tenantId || "tenant_loja1";
-          if (compactQueue) await compactTenantOrderLogistics(tx, tenantId);
+        if (compactQueue) await compactTenantOrderLogistics(tx, tenantId);
         const forecast = await findForecast(tx, tenantId);
         const activeSlotKey = `${tenantId}|${forecast.promisedHours}|${forecast.slotPosition}`;
 

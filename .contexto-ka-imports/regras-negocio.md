@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-13 | Etiqueta EnvioEcom pronta sai da fila 48/72/96h mesmo com estoque faltando | Libera vaga de expedição; `enviado` continua exigindo estoque | Motoboy/retirada e OCR manual |
 | 2026-08-13 | EnvioEcom no admin de cada loja/filial; `enviado` na etiqueta pronta; rastreio na conta do cliente | Pedidos padrão podem ser despachados pela API EnvioEcom | Motoboy/retirada e OCR de etiqueta manual continuam; checkout não cota EnvioEcom |
 | 2026-08-11 | Política de sync: memória incrementada pelo agente após mudanças relevantes | Menos divergência e menos erros repetidos | Regras de negócio de runtime inalteradas |
 | 2026-08-11 | Criação inicial a partir do código | Baseline para agentes | Nenhuma regra de runtime alterada |
@@ -36,7 +37,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 - Cupons: % ou valor fixo, min. pedido, max usos, ativo/inativo.
 - Seguro de frete e opções de frete (incl. motoboy com data/hora) existem no schema de pedidos e rotas de shipping/logística.
 - EnvioEcom (loja 1 e filiais, admin com `hasGlobalAccess`): cotar/criar envio/gerar etiqueta PDF/webhook. Não se aplica a motoboy/retirada. Frete cobrado do cliente no checkout **não** é a cotação EnvioEcom.
-- Marcar `enviado` na etiqueta pronta / trânsito / PDF gerado reutiliza baixa de estoque (`ensureOrderMarkedEnviado`). Status EnvioEcom “Entregue” pode promover pedido para `completed` se não estiver cancelado.
+- Marcar `enviado` na etiqueta pronta / trânsito / PDF gerado reutiliza baixa de estoque (`ensureOrderMarkedEnviado`). Se o estoque faltar, a vaga de expedição mesmo assim vai para `shipped` (`completeOrderLogistics`) e o pedido some de Envios 48/72/96h; `enviado` permanece false. Status EnvioEcom “Entregue” pode promover pedido para `completed` se não estiver cancelado.
 - Crédito de afiliado pode zerar o valor a pagar (`paymentMethod: affiliate_credit`, `status: paid` quando `payableAmount <= 0`).
 
 ## Catálogo
@@ -74,6 +75,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 
 - Saldos e movimentos (`inventory_*`); entradas admin em `reshipments.ts`.
 - Reenvios manuais/automáticos, retornos, alocações de logística, reservas motoboy (CEP/bairros).
+- Fila 48/72/96h só conta alocações `allocated`. Pedido com PDF EnvioEcom ou status de etiqueta/trânsito não volta para `allocated` no reconcile só porque `enviado` ainda é false.
 
 ## Rifas
 

@@ -407,7 +407,24 @@ export function EnvioEcomOrderActions({
 }
 
 export function hasEnvioEcomLabelReady(order: EnvioEcomOrderFields): boolean {
-  const status = String(order.envioecomStatus || "").toLowerCase();
-  if (order.envioecomLabelUrl) return true;
-  return ["etiqueta", "pronto para envio", "processando", "expedição", "expedicao", "trânsito", "transito", "postado", "entregue"].some((marker) => status.includes(marker));
+  if (String(order.envioecomLabelUrl || "").trim()) return true;
+  const normalized = String(order.envioecomStatus || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  if (!normalized || normalized.includes("cancelad") || normalized.includes("aguardando pagamento")) return false;
+  return [
+    "etiqueta emitida",
+    "pronto para envio",
+    "processando envio",
+    "aguardando expedicao",
+    "dc-e emitida",
+    "dce emitida",
+    "em transito",
+    "postado",
+    "saiu para entrega",
+    "entregue",
+    "objeto entregue",
+  ].some((marker) => normalized.includes(marker));
 }

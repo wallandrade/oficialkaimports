@@ -3,12 +3,13 @@ import { desc, eq, or } from "drizzle-orm";
 import { DEFAULT_TENANT_ID } from "./tenant-context";
 import {
   appendStatusHistory,
+  hasEnvioEcomLabelReady,
   isProvisionalBarcode,
   isUsableLabelBarcode,
   shouldMarkCompletedFromStatus,
-  shouldMarkEnviadoFromStatus,
   type EnvioEcomHistoryEvent,
 } from "./envioecom-status";
+import { completeOrderLogistics } from "./order-logistics";
 import { ensureOrderMarkedEnviado } from "./order-enviado";
 
 export type EnvioEcomShipmentPatch = {
@@ -147,11 +148,21 @@ export async function persistEnvioEcomShipment(order: typeof ordersTable.$inferS
     await db.update(ordersTable).set({ status: "completed", updatedAt: now }).where(eq(ordersTable.id, order.id));
   }
 
-  if (shouldMarkEnviadoFromStatus(status) || patch.labelUrl) {
+  const tenantId = order.tenantId || DEFAULT_TENANT_ID;
+  const labelReady = hasEnvioEcomLabelReady({
+    envioecomLabelUrl: patch.labelUrl || order.envioecomLabelUrl,
+    envioecomStatus: status,
+  });
+  if (labelReady) {
     try {
-      await ensureOrderMarkedEnviado(order.id, order.tenantId || DEFAULT_TENANT_ID);
+      await ensureOrderMarkedEnviado(order.id, tenantId);
     } catch (err) {
       console.warn("[EnvioEcom] Falha ao marcar enviado:", err);
+      try {
+        await completeOrderLogistics(order.id, tenantId);
+      } catch (logisticsErr) {
+        console.warn("[EnvioEcom] Falha ao liberar vaga de expedição:", logisticsErr);
+      }
     }
   }
 
