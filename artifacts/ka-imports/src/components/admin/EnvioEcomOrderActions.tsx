@@ -421,6 +421,7 @@ export function hasEnvioEcomLabelReady(order: EnvioEcomOrderFields): boolean {
     "aguardando expedicao",
     "dc-e emitida",
     "dce emitida",
+    "coletado",
     "em transito",
     "postado",
     "saiu para entrega",

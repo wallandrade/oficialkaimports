@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-13 | Anti-padrão: marcar `enviado` ao gerar etiqueta/DC-e EnvioEcom | Enviado só na coleta/postagem | Stack inalterada |
 | 2026-08-13 | Anti-padrão: recolocar na fila 48/72/96h pedido com etiqueta EnvioEcom só porque falta estoque | Vaga some na etiqueta; `enviado` continua com baixa de estoque | Stack inalterada |
 | 2026-08-13 | Anti-padrões EnvioEcom (token no front, barcode EC, N linhas na cotação, enviado sem estoque) | Evitar erros de produção já vistos | Stack inalterada |
 | 2026-08-11 | Política: agente deve incrementar a memória após mudanças relevantes | Sync contínuo código↔contexto | Stack/padrões de runtime inalterados |
@@ -85,6 +86,7 @@ Código > memória > suposições.
 - Gerar etiqueta EnvioEcom com barcode provisório `EC…` (usar `shipping_id` / `ids`).
 - Enviar um produto × N linhas na cotação EnvioEcom (empilha altura → `QUOTE_ERROR`); usar 1 pacote + clamp.
 - Setar `orders.enviado` na etiqueta EnvioEcom sem passar por `ensureOrderMarkedEnviado` (estoque/logística).
+- Marcar `enviado` ao gerar etiqueta / DC-e / “Pronto para envio”; isso só na coleta/postagem da API.
 - Restaurar vaga `allocated` no reconcile só porque `enviado` é false quando a etiqueta EnvioEcom já existe.
 - Tratar status EnvioEcom como enum rígido (é texto livre).
 

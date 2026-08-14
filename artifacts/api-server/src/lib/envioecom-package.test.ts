@@ -40,9 +40,14 @@ test("barcode EC e provisório", () => {
   assert.equal(isProvisionalBarcode("AA123456789BR"), false);
 });
 
-test("status de etiqueta pronta marca enviado", () => {
-  assert.equal(shouldMarkEnviadoFromStatus("Pronto para envio"), true);
+test("etiqueta pronta nao marca enviado; coleta/postagem marca", () => {
+  assert.equal(shouldMarkEnviadoFromStatus("Pronto para envio"), false);
+  assert.equal(shouldMarkEnviadoFromStatus("DC-e emitida"), false);
+  assert.equal(shouldMarkEnviadoFromStatus("Etiqueta emitida"), false);
   assert.equal(shouldMarkEnviadoFromStatus("Aguardando pagamento"), false);
+  assert.equal(shouldMarkEnviadoFromStatus("Coletado"), true);
+  assert.equal(shouldMarkEnviadoFromStatus("Postado"), true);
+  assert.equal(shouldMarkEnviadoFromStatus("Em trânsito"), true);
   assert.equal(shouldMarkCompletedFromStatus("Entregue"), true);
   assert.equal(shouldMarkCompletedFromStatus("Cancelado"), false);
 });
@@ -54,6 +59,7 @@ test("etiqueta pronta libera fila mesmo sem status de transito", () => {
     envioecomStatus: "Envio criado",
   }), true);
   assert.equal(hasEnvioEcomLabelReady({ envioecomStatus: "Etiqueta emitida" }), true);
+  assert.equal(hasEnvioEcomLabelReady({ envioecomStatus: "DC-e emitida" }), true);
 });
 
 test("historico e idempotente no mesmo status+barcode", () => {

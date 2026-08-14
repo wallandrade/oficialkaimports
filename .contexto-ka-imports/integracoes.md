@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-13 | `enviado` EnvioEcom só após coleta/postagem (não na etiqueta/DC-e) | Webhook/sync vira Enviado; gerar PDF fica Pronto para envio | Token continua só no backend |
 | 2026-08-13 | Etiqueta EnvioEcom pronta libera fila 48/72/96h sem forçar `enviado` se faltar estoque | Pedido embalado não ocupa prazo de postagem | Token continua só no backend |
 | 2026-08-13 | EnvioEcom (whitelabel): cotação, create, etiqueta PDF, webhook, rastreio admin/cliente por tenant | Logística automatizada por loja/filial; token só no backend | Frete do checkout continua `shipping_options`; PIX/OCR de etiqueta manual permanecem |
 | 2026-08-11 | Inventário de providers no código | Leitura seletiva por integração | Sem troca de provider |
@@ -45,7 +46,7 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 - Público: `POST /api/webhook/envioecom` (2xx rápido; match barcode → `external_order_number` → `shipment_id`; idempotente barcode+status).
 - Cliente: `GET /api/me/orders/:id/tracking` (soft-sync).
 - Regras: 1 pacote consolidado + clamp; `cep_origem` obrigatório; `shipping_company` idêntico à cotação; etiqueta por `ids` (nunca barcode `EC…`); após create `GET /shipments/by-id/{id}`; status é texto livre.
-- `enviado=true` via `ensureOrderMarkedEnviado` (baixa estoque + logística), não só update de coluna. Se a baixa falhar, `completeOrderLogistics` ainda marca a vaga como `shipped`.
+- `enviado=true` via `ensureOrderMarkedEnviado` só em status de coleta/postagem/trânsito, não no PDF/DC-e. Etiqueta pronta ainda chama `completeOrderLogistics` (vaga `shipped`).
 
 ## E-mail / CRM
 

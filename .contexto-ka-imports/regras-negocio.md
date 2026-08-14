@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-13 | `enviado` só na coleta/postagem EnvioEcom, não na geração da etiqueta | Card fica Pronto para envio até webhook/sync de coletado | Fila 48h continua saindo na etiqueta |
 | 2026-08-13 | Card EE com etiqueta: badge Pronto para envio + Faltando estoque; some de Pedidos para enviar sem forçar `enviado` | Cópia/fila não recompra; estoque continua visível | `enviado=true` ainda exige baixa de estoque |
 | 2026-08-13 | Etiqueta EnvioEcom pronta sai da fila 48/72/96h mesmo com estoque faltando | Libera vaga de expedição; `enviado` continua exigindo estoque | Motoboy/retirada e OCR manual |
 | 2026-08-13 | EnvioEcom no admin de cada loja/filial; `enviado` na etiqueta pronta; rastreio na conta do cliente | Pedidos padrão podem ser despachados pela API EnvioEcom | Motoboy/retirada e OCR de etiqueta manual continuam; checkout não cota EnvioEcom |
@@ -38,7 +39,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 - Cupons: % ou valor fixo, min. pedido, max usos, ativo/inativo.
 - Seguro de frete e opções de frete (incl. motoboy com data/hora) existem no schema de pedidos e rotas de shipping/logística.
 - EnvioEcom (loja 1 e filiais, admin com `hasGlobalAccess`): cotar/criar envio/gerar etiqueta PDF/webhook. Não se aplica a motoboy/retirada. Frete cobrado do cliente no checkout **não** é a cotação EnvioEcom.
-- Marcar `enviado` na etiqueta pronta / trânsito / PDF gerado reutiliza baixa de estoque (`ensureOrderMarkedEnviado`). Se o estoque faltar, a vaga de expedição mesmo assim vai para `shipped` (`completeOrderLogistics`) e o pedido some de Envios 48/72/96h e de “Pedidos para enviar”; `enviado` permanece false. No card o badge vira **Pronto para envio** (não Pendente) e **Faltando estoque** continua. Status EnvioEcom “Entregue” pode promover pedido para `completed` se não estiver cancelado.
+- Marcar `enviado` só quando o status EnvioEcom indicar coleta/postagem/trânsito (`coletado`, `postado`, `em transito`, `saiu para entrega`, `entregue`), via `ensureOrderMarkedEnviado`. Gerar etiqueta / DC-e / “Pronto para envio” **não** seta `enviado`: o card fica **Pronto para envio**, sai da fila 48/72/96h e de “Pedidos para enviar”, e a vaga vai para `shipped`. Se faltar estoque na coleta, `enviado` permanece false e **Faltando estoque** continua. Status “Entregue” pode promover pedido para `completed` se não estiver cancelado.
 - Crédito de afiliado pode zerar o valor a pagar (`paymentMethod: affiliate_credit`, `status: paid` quando `payableAmount <= 0`).
 
 ## Catálogo

@@ -7,6 +7,7 @@ import {
   isProvisionalBarcode,
   isUsableLabelBarcode,
   shouldMarkCompletedFromStatus,
+  shouldMarkEnviadoFromStatus,
   type EnvioEcomHistoryEvent,
 } from "./envioecom-status";
 import { completeOrderLogistics } from "./order-logistics";
@@ -155,14 +156,16 @@ export async function persistEnvioEcomShipment(order: typeof ordersTable.$inferS
   });
   if (labelReady) {
     try {
+      await completeOrderLogistics(order.id, tenantId);
+    } catch (logisticsErr) {
+      console.warn("[EnvioEcom] Falha ao liberar vaga de expedição:", logisticsErr);
+    }
+  }
+  if (shouldMarkEnviadoFromStatus(status)) {
+    try {
       await ensureOrderMarkedEnviado(order.id, tenantId);
     } catch (err) {
       console.warn("[EnvioEcom] Falha ao marcar enviado:", err);
-      try {
-        await completeOrderLogistics(order.id, tenantId);
-      } catch (logisticsErr) {
-        console.warn("[EnvioEcom] Falha ao liberar vaga de expedição:", logisticsErr);
-      }
     }
   }
 

@@ -25,24 +25,33 @@ export function isUsableLabelBarcode(barcode: unknown): boolean {
   return !isProvisionalBarcode(value);
 }
 
-export function shouldMarkEnviadoFromStatus(status: unknown): boolean {
+const LABEL_READY_MARKERS = [
+  "etiqueta emitida",
+  "pronto para envio",
+  "processando envio",
+  "aguardando expedicao",
+  "dc-e emitida",
+  "dce emitida",
+];
+
+const COLLECTED_MARKERS = [
+  "coletado",
+  "em transito",
+  "postado",
+  "saiu para entrega",
+  "entregue",
+  "objeto entregue",
+];
+
+function statusMatches(status: unknown, markers: string[]): boolean {
   const normalized = normalizeStatus(status);
   if (!normalized) return false;
   if (normalized.includes("cancelad") || normalized.includes("aguardando pagamento")) return false;
-  const markers = [
-    "etiqueta emitida",
-    "pronto para envio",
-    "processando envio",
-    "aguardando expedicao",
-    "dc-e emitida",
-    "dce emitida",
-    "em transito",
-    "postado",
-    "saiu para entrega",
-    "entregue",
-    "objeto entregue",
-  ];
   return markers.some((marker) => normalized.includes(marker));
+}
+
+export function shouldMarkEnviadoFromStatus(status: unknown): boolean {
+  return statusMatches(status, COLLECTED_MARKERS);
 }
 
 export function hasEnvioEcomLabelReady(input: {
@@ -50,7 +59,7 @@ export function hasEnvioEcomLabelReady(input: {
   envioecomStatus?: string | null;
 }): boolean {
   if (String(input.envioecomLabelUrl || "").trim()) return true;
-  return shouldMarkEnviadoFromStatus(input.envioecomStatus);
+  return statusMatches(input.envioecomStatus, LABEL_READY_MARKERS) || shouldMarkEnviadoFromStatus(input.envioecomStatus);
 }
 
 export function shouldMarkCompletedFromStatus(status: unknown): boolean {
