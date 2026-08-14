@@ -35,9 +35,9 @@ export function EnvioEcomSettingsCard() {
     originCep: "",
     carriers: "",
     defaultWeight: "0.3",
-    defaultLength: "20",
-    defaultHeight: "10",
-    defaultWidth: "15",
+    defaultLength: "17",
+    defaultHeight: "2",
+    defaultWidth: "12",
   });
 
   async function load() {
@@ -56,9 +56,9 @@ export function EnvioEcomSettingsCard() {
           originCep: data.originCep || "",
           carriers: (data.carriers || []).join(", "),
           defaultWeight: String(data.defaults?.weightKg ?? 0.3),
-          defaultLength: String(data.defaults?.lengthCm ?? 20),
-          defaultHeight: String(data.defaults?.heightCm ?? 10),
-          defaultWidth: String(data.defaults?.widthCm ?? 15),
+          defaultLength: String(data.defaults?.lengthCm ?? 17),
+          defaultHeight: String(data.defaults?.heightCm ?? 2),
+          defaultWidth: String(data.defaults?.widthCm ?? 12),
         }));
       }
       if (webhookRes.ok) {

@@ -87,9 +87,9 @@ export async function loadEnvioEcomConfig(tenantId: string): Promise<EnvioEcomTe
     carriers,
     defaults: {
       weightKg: parseNumber(settings[ENVIOECOM_SETTING_KEYS.defaultWeight] || process.env.ENVIOECOM_DEFAULT_WEIGHT, 0.3),
-      lengthCm: parseNumber(settings[ENVIOECOM_SETTING_KEYS.defaultLength] || process.env.ENVIOECOM_DEFAULT_LENGTH, 20),
-      heightCm: parseNumber(settings[ENVIOECOM_SETTING_KEYS.defaultHeight] || process.env.ENVIOECOM_DEFAULT_HEIGHT, 10),
-      widthCm: parseNumber(settings[ENVIOECOM_SETTING_KEYS.defaultWidth] || process.env.ENVIOECOM_DEFAULT_WIDTH, 15),
+      lengthCm: parseNumber(settings[ENVIOECOM_SETTING_KEYS.defaultLength] || process.env.ENVIOECOM_DEFAULT_LENGTH, 17),
+      heightCm: parseNumber(settings[ENVIOECOM_SETTING_KEYS.defaultHeight] || process.env.ENVIOECOM_DEFAULT_HEIGHT, 2),
+      widthCm: parseNumber(settings[ENVIOECOM_SETTING_KEYS.defaultWidth] || process.env.ENVIOECOM_DEFAULT_WIDTH, 12),
     },
     baseUrl: String(process.env.ENVIOECOM_BASE_URL || "https://envioecom.com.br/api/v1/whitelabel").replace(/\/$/, ""),
     neverExpires: String(process.env.ENVIOECOM_TOKEN_NEVER_EXPIRES || "true").toLowerCase() !== "false",

@@ -10,7 +10,7 @@ import {
   shouldMarkEnviadoFromStatus,
 } from "./envioecom-status";
 
-test("cotacao usa 1 pacote mesmo com varios itens", () => {
+test("cotacao usa 1 pacote padrao 2x12x17 0.3kg R$5", () => {
   const packed = buildConsolidatedQuotePackage({
     products: [
       { name: "A", quantity: 3, price: 100 },
@@ -20,18 +20,24 @@ test("cotacao usa 1 pacote mesmo com varios itens", () => {
   });
 
   assert.equal(packed.product.quantity, 1);
-  assert.equal(packed.product.price, 400);
+  assert.equal(packed.product.price, 5);
+  assert.equal(packed.product.weight, 0.3);
+  assert.equal(packed.product.height, 2);
+  assert.equal(packed.product.width, 12);
+  assert.equal(packed.product.length, 17);
   assert.equal(packed.items.length, 2);
-  assert.ok(packed.product.weight <= 30);
-  assert.ok(packed.product.height <= 100);
 });
 
-test("valor declarado nao passa de 3000", () => {
+test("medidas reais no produto usam caixa e valor do pedido", () => {
   const packed = buildConsolidatedQuotePackage({
-    products: [{ name: "Caro", quantity: 10, price: 900 }],
-    defaults: { weightKg: 0.3, lengthCm: 20, heightCm: 10, widthCm: 15 },
+    products: [{ name: "Caro", quantity: 2, price: 900, weight: 1, height: 8, width: 20, length: 30 }],
   });
-  assert.equal(packed.product.price, 3000);
+  assert.equal(packed.product.quantity, 1);
+  assert.equal(packed.product.price, 1800);
+  assert.equal(packed.product.weight, 2);
+  assert.equal(packed.product.height, 8);
+  assert.equal(packed.product.width, 20);
+  assert.equal(packed.product.length, 30);
 });
 
 test("barcode EC e provisório", () => {

@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-13 | Cotação EnvioEcom padrão 2×12×17 / 0,3 kg / R$ 5 (não total do pedido) | Frete alinhado ao simulador | Checkout e motoboy inalterados |
 | 2026-08-13 | Busca de pedidos no admin: dígitos casam `orderNumber` exato antes de nome/telefone/CEP | Número tipo 1813 não mistura com telefone | Texto da busca continua só no frontend; período de datas na API |
 | 2026-08-13 | `enviado` só na coleta/postagem EnvioEcom, não na geração da etiqueta | Card fica Pronto para envio até webhook/sync de coletado | Fila 48h continua saindo na etiqueta |
 | 2026-08-13 | Card EE com etiqueta: badge Pronto para envio + Faltando estoque; some de Pedidos para enviar sem forçar `enviado` | Cópia/fila não recompra; estoque continua visível | `enviado=true` ainda exige baixa de estoque |
@@ -39,7 +40,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 - Cartão: pedido + fluxo KYC (`/kyc`, `/kyc/:orderId`); parcelas e comunicação WhatsApp no admin/FE.
 - Cupons: % ou valor fixo, min. pedido, max usos, ativo/inativo.
 - Seguro de frete e opções de frete (incl. motoboy com data/hora) existem no schema de pedidos e rotas de shipping/logística.
-- EnvioEcom (loja 1 e filiais, admin com `hasGlobalAccess`): cotar/criar envio/gerar etiqueta PDF/webhook. Não se aplica a motoboy/retirada. Frete cobrado do cliente no checkout **não** é a cotação EnvioEcom.
+- EnvioEcom (loja 1 e filiais, admin com `hasGlobalAccess`): cotar/criar envio/gerar etiqueta PDF/webhook. Não se aplica a motoboy/retirada. Frete cobrado do cliente no checkout **não** é a cotação EnvioEcom. Cotação padrão: 1 pacote 2×12×17 cm, 0,3 kg, R$ 5.
 - Marcar `enviado` só quando o status EnvioEcom indicar coleta/postagem/trânsito (`coletado`, `postado`, `em transito`, `saiu para entrega`, `entregue`), via `ensureOrderMarkedEnviado`. Gerar etiqueta / DC-e / “Pronto para envio” **não** seta `enviado`: o card fica **Pronto para envio**, sai da fila 48/72/96h e de “Pedidos para enviar”, e a vaga vai para `shipped`. Se faltar estoque na coleta, `enviado` permanece false e **Faltando estoque** continua. Status “Entregue” pode promover pedido para `completed` se não estiver cancelado.
 - Crédito de afiliado pode zerar o valor a pagar (`paymentMethod: affiliate_credit`, `status: paid` quando `payableAmount <= 0`).
 
