@@ -300,7 +300,7 @@ export function EnvioEcomOrderActions({
         </Button>
       )}
       {order.envioecomStatus && (
-        <p className="basis-full text-xs text-emerald-800">
+        <p className={`basis-full text-xs ${String(order.envioecomStatus).toLowerCase().includes("cancel") ? "text-rose-700" : "text-emerald-800"}`}>
           EnvioEcom: {order.envioecomStatus}
           {order.envioecomDeliveryMode ? ` · ${order.envioecomDeliveryMode}` : ""}
           {barcode ? ` · ${barcode}` : ""}
@@ -407,13 +407,14 @@ export function EnvioEcomOrderActions({
 }
 
 export function hasEnvioEcomLabelReady(order: EnvioEcomOrderFields): boolean {
-  if (String(order.envioecomLabelUrl || "").trim()) return true;
   const normalized = String(order.envioecomStatus || "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .trim()
     .toLowerCase();
-  if (!normalized || normalized.includes("cancelad") || normalized.includes("aguardando pagamento")) return false;
+  if (normalized.includes("cancelad") || normalized.includes("aguardando pagamento")) return false;
+  if (String(order.envioecomLabelUrl || "").trim()) return true;
+  if (!normalized) return false;
   return [
     "etiqueta emitida",
     "pronto para envio",

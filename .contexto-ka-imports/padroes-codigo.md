@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-14 | Anti-padrão: PDF EnvioEcom = Pronto para envio mesmo com status Cancelado | Cancelado manda `hasEnvioEcomLabelReady` para false | Stack inalterada |
 | 2026-08-14 | Anti-padrão: enviar `p.name` do catálogo em `items[].name` no create EnvioEcom | Usar o setting genérico da loja (default Mercadoria) | Cotação inalterada |
 | 2026-08-13 | Anti-padrão: cotar EnvioEcom com caixa 10×15×20 e valor = total do pedido | Usar 2×12×17, 0,3 kg, R$ 5 | Stack inalterada |
 | 2026-08-13 | Anti-padrão: marcar `enviado` ao gerar etiqueta/DC-e EnvioEcom | Enviado só na coleta/postagem | Stack inalterada |
@@ -92,6 +93,7 @@ Código > memória > suposições.
 - Setar `orders.enviado` na etiqueta EnvioEcom sem passar por `ensureOrderMarkedEnviado` (estoque/logística).
 - Marcar `enviado` ao gerar etiqueta / DC-e / “Pronto para envio”; isso só na coleta/postagem da API.
 - Restaurar vaga `allocated` no reconcile só porque `enviado` é false quando a etiqueta EnvioEcom já existe.
+- Tratar PDF da etiqueta EnvioEcom como “Pronto para envio” se o status for **Cancelado**.
 - Tratar status EnvioEcom como enum rígido (é texto livre).
 
 ## Idioma

@@ -583,8 +583,17 @@ router.post("/webhook/pix/charge/:token/:chargeId", async (req, res) => {
 router.post("/webhook/envioecom", async (req, res) => {
   try {
     const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, unknown>;
-    const event = String(req.get("x-webhook-event") || body.event || "").trim();
-    if (event && event !== "shipment.status_updated") {
+    const event = String(req.get("x-webhook-event") || body.event || "").trim().toLowerCase();
+    const looksLikeShipment = !!(
+      body.barcode
+      || body.shipment_id
+      || body.status
+      || body.situacao
+      || body.data
+      || body.shipment
+      || body.external_order_number
+    );
+    if (event && event !== "shipment.status_updated" && !looksLikeShipment) {
       res.status(200).json({ ok: true, ignored: true });
       return;
     }

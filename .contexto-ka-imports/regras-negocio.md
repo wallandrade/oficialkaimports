@@ -7,7 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
-| 2026-08-14 | Create EnvioEcom usa nome genérico da loja (default Mercadoria), nunca o catálogo | Texto do item no POST /shipping/create | Cotação, webhook, sync |
+| 2026-08-14 | EnvioEcom Cancelado tira Pronto para envio e devolve à fila 48h | Card deixa de parecer embalado | PIX/Concluído do pedido e `enviado` já baixado |
 | 2026-08-14 | Busca só dígitos no admin casa apenas o código do pedido | Evita #1756 aparecer ao buscar 1813 via telefone/CEP | Nome/e-mail/produto continuam no texto livre |
 | 2026-08-14 | Aba Rastreios EE com KPIs/grupos/sync lote e link do pedido | Painel de envios vinculados no BD | Cotar/criar etiqueta inalterados |
 | 2026-08-13 | Cotação EnvioEcom padrão 2×12×17 / 0,3 kg / R$ 5 (não total do pedido) | Frete alinhado ao simulador | Checkout e motoboy inalterados |
@@ -44,7 +44,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 - Cupons: % ou valor fixo, min. pedido, max usos, ativo/inativo.
 - Seguro de frete e opções de frete (incl. motoboy com data/hora) existem no schema de pedidos e rotas de shipping/logística.
 - EnvioEcom (loja 1 e filiais, admin com `hasGlobalAccess`): cotar/criar envio/gerar etiqueta PDF/webhook. Não se aplica a motoboy/retirada. Frete cobrado do cliente no checkout **não** é a cotação EnvioEcom. Cotação padrão: 1 pacote 2×12×17 cm, 0,3 kg, R$ 5. No create, `items[].name` é o setting da loja (`envioecom_shipment_item_name`, default Mercadoria), nunca o nome do produto.
-- Marcar `enviado` só quando o status EnvioEcom indicar coleta/postagem/trânsito (`coletado`, `postado`, `em transito`, `saiu para entrega`, `entregue`), via `ensureOrderMarkedEnviado`. Gerar etiqueta / DC-e / “Pronto para envio” **não** seta `enviado`: o card fica **Pronto para envio**, sai da fila 48/72/96h e de “Pedidos para enviar”, e a vaga vai para `shipped`. Se faltar estoque na coleta, `enviado` permanece false e **Faltando estoque** continua. Status “Entregue” pode promover pedido para `completed` se não estiver cancelado.
+- Marcar `enviado` só quando o status EnvioEcom indicar coleta/postagem/trânsito (`coletado`, `postado`, `em transito`, `saiu para entrega`, `entregue`), via `ensureOrderMarkedEnviado`. Gerar etiqueta / DC-e / “Pronto para envio” **não** seta `enviado`: o card fica **Pronto para envio**, sai da fila 48/72/96h e de “Pedidos para enviar”, e a vaga vai para `shipped`. Se faltar estoque na coleta, `enviado` permanece false e **Faltando estoque** continua. Status “Entregue” pode promover pedido para `completed` se não estiver cancelado. Status **Cancelado** na EnvioEcom remove **Pronto para envio** (mesmo com PDF) e, se ainda não estiver `enviado`, devolve o pedido à fila 48/72/96h.
 - Crédito de afiliado pode zerar o valor a pagar (`paymentMethod: affiliate_credit`, `status: paid` quando `payableAmount <= 0`).
 
 ## Catálogo
@@ -84,7 +84,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 
 - Saldos e movimentos (`inventory_*`); entradas admin em `reshipments.ts`.
 - Reenvios manuais/automáticos, retornos, alocações de logística, reservas motoboy (CEP/bairros).
-- Fila 48/72/96h só conta alocações `allocated`. Pedido com PDF EnvioEcom ou status de etiqueta/trânsito não volta para `allocated` no reconcile só porque `enviado` ainda é false.
+- Fila 48/72/96h só conta alocações `allocated`. Pedido com PDF EnvioEcom ou status de etiqueta/trânsito não volta para `allocated` no reconcile só porque `enviado` ainda é false. Exceção: status EnvioEcom **Cancelado** (e ainda não `enviado`) devolve à fila.
 
 ## Rifas
 

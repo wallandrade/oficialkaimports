@@ -710,26 +710,33 @@ router.get("/me/orders/:id/tracking", requireCustomerAuth, async (req, res) => {
   }
 });
 
+function asWebhookRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
 export async function applyEnvioEcomWebhook(body: Record<string, unknown>): Promise<{ matched: boolean; orderId?: string }> {
-  const barcode = String(body.barcode || "").trim() || null;
-  const externalOrderNumber = String(body.external_order_number || "").trim() || null;
-  const shipmentId = Number(body.shipment_id);
+  const nested = { ...asWebhookRecord(body.shipment), ...asWebhookRecord(body.data) };
+  const merged = { ...body, ...nested };
+  const patch = parseShipmentDetails(merged);
+  const barcode = patch.barcode || String(merged.barcode || "").trim() || null;
+  const externalOrderNumber = patch.externalOrderNumber || String(merged.external_order_number || merged.orderId || "").trim() || null;
+  const shipmentId = patch.shipmentId || Number(merged.shipment_id || merged.id);
   const order = await findOrderForEnvioEcomWebhook({
     barcode,
     externalOrderNumber,
-    shipmentId: Number.isFinite(shipmentId) ? shipmentId : null,
+    shipmentId: Number.isFinite(shipmentId) && shipmentId > 0 ? shipmentId : null,
   });
   if (!order) return { matched: false };
 
   await persistEnvioEcomShipment(order, {
-    shipmentId: Number.isFinite(shipmentId) ? shipmentId : null,
+    shipmentId: Number.isFinite(shipmentId) && shipmentId > 0 ? shipmentId : null,
     barcode,
-    trackingKey: String(body.tracking_key || "").trim() || null,
-    deliveryMode: String(body.delivery_mode || "").trim() || null,
-    status: String(body.status || "").trim() || null,
-    freightCost: body.freight_cost != null ? String(body.freight_cost) : null,
+    trackingKey: patch.trackingKey || String(merged.tracking_key || "").trim() || null,
+    deliveryMode: patch.deliveryMode || String(merged.delivery_mode || "").trim() || null,
+    status: patch.status || String(merged.status || merged.situacao || "").trim() || null,
+    freightCost: patch.freightCost ?? (merged.freight_cost != null ? String(merged.freight_cost) : null),
     externalOrderNumber,
-    description: String(body.description || "").trim() || null,
+    description: String(merged.description || "").trim() || null,
   });
   return { matched: true, orderId: order.id };
 }

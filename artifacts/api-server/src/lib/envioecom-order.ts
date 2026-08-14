@@ -4,13 +4,14 @@ import { DEFAULT_TENANT_ID } from "./tenant-context";
 import {
   appendStatusHistory,
   hasEnvioEcomLabelReady,
+  isLabelBlockedStatus,
   isProvisionalBarcode,
   isUsableLabelBarcode,
   shouldMarkCompletedFromStatus,
   shouldMarkEnviadoFromStatus,
   type EnvioEcomHistoryEvent,
 } from "./envioecom-status";
-import { completeOrderLogistics } from "./order-logistics";
+import { allocateOrderLogistics, completeOrderLogistics } from "./order-logistics";
 import { ensureOrderMarkedEnviado } from "./order-enviado";
 
 export type EnvioEcomShipmentPatch = {
@@ -69,7 +70,7 @@ export function parseCreatedShipment(payload: unknown): EnvioEcomShipmentPatch {
 
 export function parseShipmentDetails(payload: unknown): EnvioEcomShipmentPatch {
   const root = asRecord(payload);
-  const nested = asRecord(root.data && typeof root.data === "object" ? root.data : root);
+  const nested = asRecord(root.data && typeof root.data === "object" ? root.data : root.shipment && typeof root.shipment === "object" ? root.shipment : root);
   const finalStatus = asRecord(nested.final_status);
   const historyRaw = Array.isArray(nested.status_history) ? nested.status_history : [];
   const history: EnvioEcomHistoryEvent[] = [];
@@ -86,11 +87,11 @@ export function parseShipmentDetails(payload: unknown): EnvioEcomShipmentPatch {
   }
 
   return {
-    shipmentId: pickNumber(nested.id, nested.shipment_id),
-    barcode: pickString(nested.barcode),
+    shipmentId: pickNumber(nested.id, nested.shipment_id, root.shipment_id, root.id),
+    barcode: pickString(nested.barcode, root.barcode),
     trackingKey: pickString(nested.tracking_key),
     deliveryMode: pickString(nested.delivery_mode, nested.shipping_company),
-    status: pickString(finalStatus.status, nested.status, nested.final_status),
+    status: pickString(finalStatus.status, nested.status, nested.situacao, nested.final_status, root.status),
     freightCost: pickString(nested.freight_cost),
     externalOrderNumber: pickString(nested.external_order_number, nested.orderId),
     history,
@@ -159,6 +160,12 @@ export async function persistEnvioEcomShipment(order: typeof ordersTable.$inferS
       await completeOrderLogistics(order.id, tenantId);
     } catch (logisticsErr) {
       console.warn("[EnvioEcom] Falha ao liberar vaga de expedição:", logisticsErr);
+    }
+  } else if (isLabelBlockedStatus(status) && !order.enviado) {
+    try {
+      await allocateOrderLogistics(order.id, true);
+    } catch (logisticsErr) {
+      console.warn("[EnvioEcom] Falha ao devolver pedido à fila após cancelamento:", logisticsErr);
     }
   }
   if (shouldMarkEnviadoFromStatus(status)) {

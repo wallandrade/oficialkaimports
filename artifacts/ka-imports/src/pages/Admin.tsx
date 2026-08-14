@@ -5923,10 +5923,10 @@ export default function Admin() {
     const digitsOnly = /^\d+$/.test(q);
     if (digitsOnly) {
       const asNumber = Number(q);
-      const exactOrderMatches = orders.filter(
-        (o) => o.orderNumber != null && Number(o.orderNumber) === asNumber,
-      );
-      if (exactOrderMatches.length > 0) return exactOrderMatches;
+      return orders.filter((o) => {
+        if (o.orderNumber != null && Number(o.orderNumber) === asNumber) return true;
+        return getOrderDisplayId(o) === q || String(o.id) === q;
+      });
     }
     const queryDigits = /^[\d.\-\s]+$/.test(q) ? q.replace(/\D/g, "") : "";
     return orders.filter((o) => {
@@ -6674,6 +6674,9 @@ export default function Admin() {
         <div className="flex gap-0 mb-6 border-b border-border overflow-x-auto bg-white rounded-t-xl">
           {([
             { key: "orders",        label: "Pedidos",          icon: "QrCode",      count: orders.length },
+            ...(canManageShippingTab ? [
+              { key: "envioecom" as TabType, label: "Rastreios EE", icon: "Truck" },
+            ] : []),
             { key: "charges",       label: "Links Pagamento",  icon: "LinkIcon",    count: charges.length },
             { key: "sellers",       label: "Vendedores",       icon: "Tag" },
             { key: "commissions",   label: "Comissões",        icon: "DollarSign",  count: commissionPendingOrders.length || undefined },
@@ -6687,7 +6690,6 @@ export default function Admin() {
             ] : []),
             ...(canManageShippingTab ? [
               { key: "fretes" as TabType, label: "Fretes", icon: "Truck", count: shippingOptions.length },
-              { key: "envioecom" as TabType, label: "Rastreios EE", icon: "Truck" },
             ] : []),
             ...(canManageInventoryTab ? [
               { key: "inventory" as TabType, label: "Estoque", icon: "Package", count: pendingReshipments.length || undefined },
@@ -13630,7 +13632,7 @@ function OrdersPanel({
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 text-xs font-semibold border border-yellow-200">Pendente para envio</span>
                         )}
                         {(order as any).envioecomStatus && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-xs font-semibold border border-emerald-200">
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${String((order as any).envioecomStatus).toLowerCase().includes("cancel") ? "bg-rose-100 text-rose-800 border-rose-200" : "bg-emerald-100 text-emerald-800 border-emerald-200"}`}>
                             EE: {(order as any).envioecomStatus}
                           </span>
                         )}

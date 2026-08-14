@@ -54,10 +54,16 @@ export function shouldMarkEnviadoFromStatus(status: unknown): boolean {
   return statusMatches(status, COLLECTED_MARKERS);
 }
 
+export function isLabelBlockedStatus(status: unknown): boolean {
+  const normalized = normalizeStatus(status);
+  return normalized.includes("cancelad") || normalized.includes("aguardando pagamento");
+}
+
 export function hasEnvioEcomLabelReady(input: {
   envioecomLabelUrl?: string | null;
   envioecomStatus?: string | null;
 }): boolean {
+  if (isLabelBlockedStatus(input.envioecomStatus)) return false;
   if (String(input.envioecomLabelUrl || "").trim()) return true;
   return statusMatches(input.envioecomStatus, LABEL_READY_MARKERS) || shouldMarkEnviadoFromStatus(input.envioecomStatus);
 }
@@ -67,11 +73,6 @@ export function shouldMarkCompletedFromStatus(status: unknown): boolean {
   if (!normalized) return false;
   if (normalized.includes("cancelad") || normalized.includes("devolucao") || normalized.includes("devolvido")) return false;
   return normalized.includes("entregue");
-}
-
-export function isLabelBlockedStatus(status: unknown): boolean {
-  const normalized = normalizeStatus(status);
-  return normalized.includes("cancelad") || normalized.includes("aguardando pagamento");
 }
 
 export type EnvioEcomTrackingGroup = "delivered" | "in_transit" | "awaiting" | "cancelled" | "other";

@@ -7,7 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
-| 2026-08-14 | Create EnvioEcom usa `items[].name` genérico (`tenant_settings.envioecom_shipment_item_name`, default Mercadoria) | Nome do catálogo nunca vai no POST /shipping/create | Cotação, webhook e sync de status |
+| 2026-08-14 | Cancelamento EnvioEcom tira “Pronto para envio”, devolve à fila 48h e webhook aceita payload aninhado | Card e logística acompanham o status da API | PIX/Concluído do pedido e `enviado` já baixado |
 | 2026-08-14 | Aba Rastreios EE: KPIs, grupos, busca, sync lote dos abertos, PDF e link do pedido | Board lê o BD; Sync consulta EnvioEcom | Cotar/criar/etiqueta continuam `hasGlobalAccess` |
 | 2026-08-13 | Cotação EnvioEcom: pacote padrão 2×12×17, 0,3 kg, R$ 5, 1 linha | Preço bate o simulador do painel | Checkout continua `shipping_options` |
 | 2026-08-13 | `enviado` EnvioEcom só após coleta/postagem (não na etiqueta/DC-e) | Webhook/sync vira Enviado; gerar PDF fica Pronto para envio | Token continua só no backend |
@@ -47,11 +47,11 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 - Config **por tenant** (`tenant_settings`: token/email/senha, CEP origem, medidas default, carriers, `envioecom_shipment_item_name`). Fallback de env (`ENVIOECOM_TOKEN` etc.) só para loja 1.
 - Rotas admin (`hasGlobalAccess`, não seller-scoped): quote/create/labels/sync/cancel/bind-id, tracking-board, config, GET/PUT `shipment-item-name`, registrar webhook.
 - Board `GET /api/admin/envioecom/tracking-board` devolve `{ summary, items, configured }` (grupos delivered/in_transit/awaiting/cancelled/other). `POST .../tracking-board/sync` atualiza até 20–30 abertos. Aba **Rastreios EE** não chama a transportadora até Sync. Campo “Nome do produto no create” grava o setting da loja.
-- Público: `POST /api/webhook/envioecom` (2xx rápido; match barcode → `external_order_number` → `shipment_id`; idempotente barcode+status).
+- Público: `POST /api/webhook/envioecom` (2xx rápido; match barcode → `external_order_number` → `shipment_id`; aceita body plano ou `data`/`shipment`; eventos com barcode/status não são ignorados). Idempotente barcode+status.
+- Create (`POST /shipping/create`): `items[].name` é o texto genérico da loja (até 120 chars, default **Mercadoria**). Nunca o nome do produto do catálogo. Quantidade e `unit_cost` vêm do item; pedido sem produtos → 1 item genérico, qty 1, `unit_cost` = subtotal. Envios já criados não mudam; para alterar o nome é cancelar + criar de novo.
+- `enviado=true` via `ensureOrderMarkedEnviado` só em status de coleta/postagem/trânsito, não no PDF/DC-e. Etiqueta pronta ainda chama `completeOrderLogistics` (vaga `shipped`). Status **Cancelado** (webhook/sync/cancel): `hasEnvioEcomLabelReady` fica false mesmo com PDF; se `enviado` ainda é false, `allocateOrderLogistics` devolve o pedido à fila 48/72/96h.
 - Cliente: `GET /api/me/orders/:id/tracking` (soft-sync).
 - Regras: 1 pacote consolidado; sem medidas no produto usa caixa padrão 2×12×17 cm, 0,3 kg, valor declarado R$ 5 (`aviso_recebimento: false`); com medidas reais no item usa essas + valor do produto. `cep_origem` obrigatório; `shipping_company` idêntico à cotação; etiqueta por `ids` (nunca barcode `EC…`); após create `GET /shipments/by-id/{id}`; status é texto livre.
-- Create (`POST /shipping/create`): `items[].name` é o texto genérico da loja (até 120 chars, default **Mercadoria**). Nunca o nome do produto do catálogo. Quantidade e `unit_cost` vêm do item; pedido sem produtos → 1 item genérico, qty 1, `unit_cost` = subtotal. Envios já criados não mudam; para alterar o nome é cancelar + criar de novo.
-- `enviado=true` via `ensureOrderMarkedEnviado` só em status de coleta/postagem/trânsito, não no PDF/DC-e. Etiqueta pronta ainda chama `completeOrderLogistics` (vaga `shipped`).
 
 ## E-mail / CRM
 

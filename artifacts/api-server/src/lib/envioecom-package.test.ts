@@ -94,6 +94,11 @@ test("etiqueta pronta libera fila mesmo sem status de transito", () => {
   }), true);
   assert.equal(hasEnvioEcomLabelReady({ envioecomStatus: "Etiqueta emitida" }), true);
   assert.equal(hasEnvioEcomLabelReady({ envioecomStatus: "DC-e emitida" }), true);
+  assert.equal(hasEnvioEcomLabelReady({
+    envioecomLabelUrl: "https://cdn.example/label.pdf",
+    envioecomStatus: "Cancelado",
+  }), false);
+  assert.equal(hasEnvioEcomLabelReady({ envioecomStatus: "Cancelado" }), false);
 });
 
 test("historico e idempotente no mesmo status+barcode", () => {
