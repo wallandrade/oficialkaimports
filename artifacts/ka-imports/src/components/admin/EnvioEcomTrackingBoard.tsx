@@ -48,6 +48,58 @@ function displayOrderNumber(item: TrackingItem): string {
   return item.id;
 }
 
+function normalizeStatus(value: unknown): string {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function statusBadgeClass(status?: string | null, group?: TrackingGroup): string {
+  const normalized = normalizeStatus(status);
+  if (group === "cancelled" || normalized.includes("cancelad")) {
+    return "bg-rose-100 text-rose-800 border-rose-200";
+  }
+  if (group === "delivered" || normalized.includes("entregue")) {
+    return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  }
+  if (normalized.includes("emitid") || normalized.includes("pronto para envio") || normalized.includes("dc-e") || normalized.includes("dce")) {
+    return "bg-green-100 text-green-800 border-green-200";
+  }
+  if (
+    group === "in_transit"
+    || ["coletado", "em transito", "postado", "saiu para entrega"].some((marker) => normalized.includes(marker))
+  ) {
+    return "bg-sky-100 text-sky-800 border-sky-200";
+  }
+  if (normalized.includes("aguardando pagamento")) {
+    return "bg-amber-100 text-amber-800 border-amber-200";
+  }
+  if (group === "awaiting" || normalized.includes("aguardando") || normalized.includes("envio criado")) {
+    return "bg-lime-100 text-lime-800 border-lime-200";
+  }
+  return "bg-slate-100 text-slate-700 border-slate-200";
+}
+
+const KPI_TONE: Record<TrackingGroup, string> = {
+  all: "border-border bg-white hover:bg-muted/40",
+  in_transit: "border-sky-200 bg-sky-50 hover:bg-sky-100",
+  awaiting: "border-green-200 bg-green-50 hover:bg-green-100",
+  delivered: "border-emerald-200 bg-emerald-50 hover:bg-emerald-100",
+  cancelled: "border-rose-200 bg-rose-50 hover:bg-rose-100",
+  other: "border-slate-200 bg-slate-50 hover:bg-slate-100",
+};
+
+const KPI_TONE_ACTIVE: Record<TrackingGroup, string> = {
+  all: "border-slate-400 bg-slate-50",
+  in_transit: "border-sky-400 bg-sky-100",
+  awaiting: "border-green-400 bg-green-100",
+  delivered: "border-emerald-400 bg-emerald-100",
+  cancelled: "border-rose-400 bg-rose-100",
+  other: "border-slate-400 bg-slate-100",
+};
+
 export function EnvioEcomTrackingBoard({
   onOpenOrder,
 }: {
@@ -239,7 +291,7 @@ export function EnvioEcomTrackingBoard({
             key={kpi.key}
             type="button"
             onClick={() => setGroup(kpi.key)}
-            className={`rounded-xl border px-3 py-3 text-left ${group === kpi.key ? "border-emerald-400 bg-emerald-50" : "border-border bg-white hover:bg-muted/40"}`}
+            className={`rounded-xl border px-3 py-3 text-left ${group === kpi.key ? KPI_TONE_ACTIVE[kpi.key] : KPI_TONE[kpi.key]}`}
           >
             <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{kpi.label}</p>
             <p className="text-xl font-bold text-foreground">{kpi.value}</p>
@@ -290,7 +342,11 @@ export function EnvioEcomTrackingBoard({
                       <p>{item.clientName || "—"}</p>
                       <p className="text-xs text-muted-foreground">{item.clientPhone || ""}</p>
                     </td>
-                    <td className="px-3 py-2 align-top">{item.envioecomStatus || "Sem status"}</td>
+                    <td className="px-3 py-2 align-top">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${statusBadgeClass(item.envioecomStatus, item.trackingGroup)}`}>
+                        {item.envioecomStatus || "Sem status"}
+                      </span>
+                    </td>
                     <td className="px-3 py-2 align-top font-mono text-xs">{item.envioecomBarcode || item.trackingCode || "—"}</td>
                     <td className="px-3 py-2 align-top text-xs text-muted-foreground whitespace-nowrap">{updated}</td>
                     <td className="px-3 py-2 align-top">
