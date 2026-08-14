@@ -5917,28 +5917,35 @@ export default function Admin() {
     );
   }
 
-  const filteredOrders  = orders.filter((o) => {
-    const query = search.trim().toLowerCase();
-    if (!query) return true;
-
-    const isNumericQuery = /^[\d.\-\s]+$/.test(query);
-    const queryDigits = isNumericQuery ? query.replace(/\D/g, "") : "";
-    const orderNumber = getOrderDisplayId(o);
-    const productNames = getOrderProducts(o.products).map((product) => product.name).join(" ");
-    const searchableText = [
-      o.id,
-      orderNumber,
-      `ka-${orderNumber}`,
-      o.clientName,
-      o.clientPhone,
-      o.clientEmail,
-      o.addressCep,
-      productNames,
-    ].map((value) => String(value || "").toLowerCase()).join(" ");
-
-    return searchableText.includes(query)
-      || Boolean(queryDigits && String(o.addressCep || "").replace(/\D/g, "").includes(queryDigits));
-  });
+  const filteredOrders = (() => {
+    const q = search.toLowerCase().trim();
+    if (!q) return orders;
+    const digitsOnly = /^\d+$/.test(q);
+    if (digitsOnly) {
+      const asNumber = Number(q);
+      const exactOrderMatches = orders.filter(
+        (o) => o.orderNumber != null && Number(o.orderNumber) === asNumber,
+      );
+      if (exactOrderMatches.length > 0) return exactOrderMatches;
+    }
+    const queryDigits = /^[\d.\-\s]+$/.test(q) ? q.replace(/\D/g, "") : "";
+    return orders.filter((o) => {
+      const orderNumber = getOrderDisplayId(o);
+      const productNames = getOrderProducts(o.products).map((product) => product.name).join(" ");
+      const searchableText = [
+        o.id,
+        orderNumber,
+        `ka-${orderNumber}`,
+        o.clientName,
+        o.clientPhone,
+        o.clientEmail,
+        o.addressCep,
+        productNames,
+      ].map((value) => String(value || "").toLowerCase()).join(" ");
+      return searchableText.includes(q)
+        || Boolean(queryDigits && String(o.addressCep || "").replace(/\D/g, "").includes(queryDigits));
+    });
+  })();
   const filteredCharges = charges.filter((c) => {
     const q = search.toLowerCase();
     return !q || c.id.toLowerCase().includes(q) || c.clientName.toLowerCase().includes(q) ||
