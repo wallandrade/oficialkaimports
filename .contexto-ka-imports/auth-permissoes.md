@@ -7,7 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
-| 2026-08-14 | Board de rastreio EnvioEcom: GET com summary + sync lote (seller vê só os seus) | Painel Rastreios EE | Cotar/criar/etiqueta continuam `hasGlobalAccess` |
+| 2026-08-14 | GET/PUT `shipment-item-name` EnvioEcom exigem `hasGlobalAccess` | Nome genérico do create por loja | Board de rastreio continua visível ao seller-scoped |
 | 2026-08-13 | EnvioEcom admin exige `hasGlobalAccess` (loja 1 primary e admin de filial); seller-scoped não opera | Isolamento por loja | Papéis inalterados |
 | 2026-08-11 | Extração do modelo de auth do código | Evitar confusão de papéis | Sem mudança de auth |
 
@@ -38,7 +38,7 @@ Código > memória > tipagens.
 - Primary → `hasGlobalAccess: true`, `sellerCode: null`.
 - Seller map: env JSON `ADMIN_SELLER_SCOPE_MAP` `{"usuario":"seller-slug"}`.
 - Middleware: `requireAdminAuth`; subset: `requirePrimaryAdmin`.
-- EnvioEcom (cotar/criar/etiqueta/config): `hasGlobalAccess` (primary e admin de filial). Seller-scoped recebe 403. Board `tracking-board` lista/sync com filtro de `sellerCode` se não for global.
+- EnvioEcom (cotar/criar/etiqueta/config/shipment-item-name): `hasGlobalAccess` (primary e admin de filial). Seller-scoped recebe 403. Board `tracking-board` lista/sync com filtro de `sellerCode` se não for global.
 - Rate limit de login admin (janela/tentativas/block via env).
 - Smoke: scoped admin toma 403 em endpoints primary-only (`scripts/SMOKE_TESTS.md`).
 

@@ -126,7 +126,7 @@ export function buildConsolidatedQuotePackage(input: {
 }): { product: EnvioEcomQuoteProduct; items: EnvioEcomCreateItem[]; declaredValue: number } {
   const items = parseOrderProducts(input.products);
   const createItems = items.map((item) => ({
-    name: item.name.slice(0, 120),
+    name: "",
     quantity: item.quantity,
     unit_cost: round2(item.price),
   }));
@@ -165,6 +165,23 @@ export function buildConsolidatedQuotePackage(input: {
     items: createItems,
     declaredValue,
   };
+}
+
+/** Nome genérico do setting no create — nunca o nome do catálogo. */
+export function applyGenericShipmentItemName(
+  items: EnvioEcomCreateItem[],
+  genericName: string,
+  fallbackUnitCost: number,
+): EnvioEcomCreateItem[] {
+  const name = String(genericName || "").trim().slice(0, 120) || "Mercadoria";
+  if (!items.length) {
+    return [{ name, quantity: 1, unit_cost: round2(fallbackUnitCost) }];
+  }
+  return items.map((item) => ({
+    name,
+    quantity: item.quantity,
+    unit_cost: item.unit_cost,
+  }));
 }
 
 export function formatDimension(value: number): string {

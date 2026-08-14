@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildConsolidatedQuotePackage } from "./envioecom-package";
+import { applyGenericShipmentItemName, buildConsolidatedQuotePackage } from "./envioecom-package";
 import {
   appendStatusHistory,
   classifyEnvioEcomTrackingGroup,
@@ -28,6 +28,32 @@ test("cotacao usa 1 pacote padrao 2x12x17 0.3kg R$5", () => {
   assert.equal(packed.product.width, 12);
   assert.equal(packed.product.length, 17);
   assert.equal(packed.items.length, 2);
+  assert.equal(packed.items.every((item) => item.name === ""), true);
+});
+
+test("create usa nome generico e nunca o catalogo", () => {
+  const packed = buildConsolidatedQuotePackage({
+    products: [
+      { name: "Whey Isolado 900g", quantity: 2, price: 180 },
+      { name: "Creatina", quantity: 1, price: 90 },
+    ],
+  });
+  const items = applyGenericShipmentItemName(packed.items, "Suplementos", packed.declaredValue);
+  assert.equal(items.length, 2);
+  assert.deepEqual(items.map((item) => item.name), ["Suplementos", "Suplementos"]);
+  assert.equal(items[0].quantity, 2);
+  assert.equal(items[0].unit_cost, 180);
+  assert.equal(items[1].quantity, 1);
+  assert.equal(items[1].unit_cost, 90);
+  assert.equal(items.some((item) => /whey|creatina/i.test(item.name)), false);
+});
+
+test("create sem produtos usa 1 item generico com o subtotal", () => {
+  const items = applyGenericShipmentItemName([], "  ", 49.9);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].name, "Mercadoria");
+  assert.equal(items[0].quantity, 1);
+  assert.equal(items[0].unit_cost, 49.9);
 });
 
 test("medidas reais no produto usam caixa e valor do pedido", () => {

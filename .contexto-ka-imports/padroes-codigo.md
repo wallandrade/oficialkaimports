@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-08-13  
+> **Última atualização:** 2026-08-14  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-14 | Anti-padrão: enviar `p.name` do catálogo em `items[].name` no create EnvioEcom | Usar o setting genérico da loja (default Mercadoria) | Cotação inalterada |
 | 2026-08-13 | Anti-padrão: cotar EnvioEcom com caixa 10×15×20 e valor = total do pedido | Usar 2×12×17, 0,3 kg, R$ 5 | Stack inalterada |
 | 2026-08-13 | Anti-padrão: marcar `enviado` ao gerar etiqueta/DC-e EnvioEcom | Enviado só na coleta/postagem | Stack inalterada |
 | 2026-08-13 | Anti-padrão: recolocar na fila 48/72/96h pedido com etiqueta EnvioEcom só porque falta estoque | Vaga some na etiqueta; `enviado` continua com baixa de estoque | Stack inalterada |
@@ -87,6 +88,7 @@ Código > memória > suposições.
 - Gerar etiqueta EnvioEcom com barcode provisório `EC…` (usar `shipping_id` / `ids`).
 - Enviar um produto × N linhas na cotação EnvioEcom (empilha altura → `QUOTE_ERROR`); usar 1 pacote.
 - Cotar EnvioEcom com caixa 10×15×20 e valor declarado = total do pedido; o simulador usa 2×12×17, 0,3 kg, R$ 5.
+- Enviar o nome real do produto (`p.name` / catálogo) em `items[].name` no create EnvioEcom; usar `envioecom_shipment_item_name` (default Mercadoria).
 - Setar `orders.enviado` na etiqueta EnvioEcom sem passar por `ensureOrderMarkedEnviado` (estoque/logística).
 - Marcar `enviado` ao gerar etiqueta / DC-e / “Pronto para envio”; isso só na coleta/postagem da API.
 - Restaurar vaga `allocated` no reconcile só porque `enviado` é false quando a etiqueta EnvioEcom já existe.

@@ -13,7 +13,10 @@ export const ENVIOECOM_SETTING_KEYS = {
   defaultHeight: "envioecom_default_height",
   defaultWidth: "envioecom_default_width",
   carriers: "envioecom_carriers",
+  shipmentItemName: "envioecom_shipment_item_name",
 } as const;
+
+export const ENVIOECOM_DEFAULT_SHIPMENT_ITEM_NAME = "Mercadoria";
 
 export type EnvioEcomTenantConfig = {
   configured: boolean;
@@ -23,6 +26,7 @@ export type EnvioEcomTenantConfig = {
   originCep: string;
   carriers: string[];
   defaults: EnvioEcomPackageDefaults;
+  shipmentItemName: string;
   baseUrl: string;
   neverExpires: boolean;
 };
@@ -64,6 +68,11 @@ function parseCarriers(value: unknown): string[] {
     .filter(Boolean);
 }
 
+export function normalizeShipmentItemName(value: unknown): string {
+  const trimmed = String(value || "").trim().slice(0, 120);
+  return trimmed || ENVIOECOM_DEFAULT_SHIPMENT_ITEM_NAME;
+}
+
 function looksLikeEmailPasswordMix(token: string): boolean {
   return token.includes(":") || token.includes("@");
 }
@@ -91,6 +100,7 @@ export async function loadEnvioEcomConfig(tenantId: string): Promise<EnvioEcomTe
       heightCm: parseNumber(settings[ENVIOECOM_SETTING_KEYS.defaultHeight] || process.env.ENVIOECOM_DEFAULT_HEIGHT, 2),
       widthCm: parseNumber(settings[ENVIOECOM_SETTING_KEYS.defaultWidth] || process.env.ENVIOECOM_DEFAULT_WIDTH, 12),
     },
+    shipmentItemName: normalizeShipmentItemName(settings[ENVIOECOM_SETTING_KEYS.shipmentItemName]),
     baseUrl: String(process.env.ENVIOECOM_BASE_URL || "https://envioecom.com.br/api/v1/whitelabel").replace(/\/$/, ""),
     neverExpires: String(process.env.ENVIOECOM_TOKEN_NEVER_EXPIRES || "true").toLowerCase() !== "false",
   };
@@ -106,6 +116,7 @@ export async function saveEnvioEcomConfig(tenantId: string, patch: {
   defaultHeight?: string | number | null;
   defaultWidth?: string | number | null;
   carriers?: string[] | string | null;
+  shipmentItemName?: string | null;
 }): Promise<void> {
   const entries: Array<[string, string | null | undefined]> = [
     [ENVIOECOM_SETTING_KEYS.token, patch.token === undefined ? undefined : String(patch.token || "").trim()],
@@ -117,6 +128,7 @@ export async function saveEnvioEcomConfig(tenantId: string, patch: {
     [ENVIOECOM_SETTING_KEYS.defaultHeight, patch.defaultHeight === undefined ? undefined : String(patch.defaultHeight ?? "").trim()],
     [ENVIOECOM_SETTING_KEYS.defaultWidth, patch.defaultWidth === undefined ? undefined : String(patch.defaultWidth ?? "").trim()],
     [ENVIOECOM_SETTING_KEYS.carriers, patch.carriers === undefined ? undefined : (Array.isArray(patch.carriers) ? patch.carriers.join(",") : String(patch.carriers || "")).trim()],
+    [ENVIOECOM_SETTING_KEYS.shipmentItemName, patch.shipmentItemName === undefined ? undefined : normalizeShipmentItemName(patch.shipmentItemName)],
   ];
 
   for (const [key, value] of entries) {

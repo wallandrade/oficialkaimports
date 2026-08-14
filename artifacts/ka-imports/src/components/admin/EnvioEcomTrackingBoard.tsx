@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ExternalLink, FileText, Loader2, RefreshCw } from "lucide-react";
+import { ExternalLink, FileText, Loader2, RefreshCw, Save } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { formatDateBR } from "@/lib/utils";
@@ -61,6 +61,24 @@ export function EnvioEcomTrackingBoard({
   const [items, setItems] = useState<TrackingItem[]>([]);
   const [summary, setSummary] = useState<Summary>(EMPTY_SUMMARY);
   const [configured, setConfigured] = useState(true);
+  const [itemName, setItemName] = useState("Mercadoria");
+  const [canEditItemName, setCanEditItemName] = useState(false);
+  const [savingName, setSavingName] = useState(false);
+
+  async function loadItemName() {
+    try {
+      const res = await fetch(`${BASE}/api/admin/envioecom/shipment-item-name`, { headers: adminHeaders() });
+      if (!res.ok) {
+        setCanEditItemName(false);
+        return;
+      }
+      const data = await res.json() as { name?: string; defaultName?: string };
+      setItemName(data.name || data.defaultName || "Mercadoria");
+      setCanEditItemName(true);
+    } catch {
+      setCanEditItemName(false);
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -81,7 +99,27 @@ export function EnvioEcomTrackingBoard({
 
   useEffect(() => {
     void load();
+    void loadItemName();
   }, []);
+
+  async function saveItemName() {
+    setSavingName(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/envioecom/shipment-item-name`, {
+        method: "PUT",
+        headers: adminHeaders(),
+        body: JSON.stringify({ name: itemName }),
+      });
+      const data = await res.json().catch(() => ({})) as { name?: string; message?: string };
+      if (!res.ok) throw new Error(data.message || "Falha ao salvar o nome do produto.");
+      setItemName(data.name || "Mercadoria");
+      toast.success("Nome do produto no create salvo.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao salvar.");
+    } finally {
+      setSavingName(false);
+    }
+  }
 
   const visible = useMemo(() => {
     const query = q.trim().toLowerCase();
@@ -169,6 +207,31 @@ export function EnvioEcomTrackingBoard({
           </Button>
         </div>
       </div>
+
+      {canEditItemName ? (
+        <div className="rounded-xl border border-border bg-white p-4 space-y-2">
+          <label className="text-sm font-semibold" htmlFor="envioecom-shipment-item-name">
+            Nome do produto no create
+          </label>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              id="envioecom-shipment-item-name"
+              className="flex-1 h-11 px-3 rounded-xl border-2 border-border bg-white text-sm"
+              maxLength={120}
+              placeholder="Mercadoria"
+              value={itemName}
+              onChange={(event) => setItemName(event.target.value)}
+            />
+            <Button onClick={() => void saveItemName()} disabled={savingName} className="gap-1.5 shrink-0">
+              {savingName ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Salvar
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Vale para todos os itens; envios já criados não mudam.
+          </p>
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
         {kpis.map((kpi) => (

@@ -7,6 +7,8 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-14 | Create EnvioEcom usa nome genérico da loja (default Mercadoria), nunca o catálogo | Texto do item no POST /shipping/create | Cotação, webhook, sync |
+| 2026-08-14 | Busca só dígitos no admin casa apenas o código do pedido | Evita #1756 aparecer ao buscar 1813 via telefone/CEP | Nome/e-mail/produto continuam no texto livre |
 | 2026-08-14 | Aba Rastreios EE com KPIs/grupos/sync lote e link do pedido | Painel de envios vinculados no BD | Cotar/criar etiqueta inalterados |
 | 2026-08-13 | Cotação EnvioEcom padrão 2×12×17 / 0,3 kg / R$ 5 (não total do pedido) | Frete alinhado ao simulador | Checkout e motoboy inalterados |
 | 2026-08-13 | Busca de pedidos no admin: dígitos casam `orderNumber` exato antes de nome/telefone/CEP | Número tipo 1813 não mistura com telefone | Texto da busca continua só no frontend; período de datas na API |
@@ -41,7 +43,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 - Cartão: pedido + fluxo KYC (`/kyc`, `/kyc/:orderId`); parcelas e comunicação WhatsApp no admin/FE.
 - Cupons: % ou valor fixo, min. pedido, max usos, ativo/inativo.
 - Seguro de frete e opções de frete (incl. motoboy com data/hora) existem no schema de pedidos e rotas de shipping/logística.
-- EnvioEcom (loja 1 e filiais, admin com `hasGlobalAccess`): cotar/criar envio/gerar etiqueta PDF/webhook. Não se aplica a motoboy/retirada. Frete cobrado do cliente no checkout **não** é a cotação EnvioEcom. Cotação padrão: 1 pacote 2×12×17 cm, 0,3 kg, R$ 5.
+- EnvioEcom (loja 1 e filiais, admin com `hasGlobalAccess`): cotar/criar envio/gerar etiqueta PDF/webhook. Não se aplica a motoboy/retirada. Frete cobrado do cliente no checkout **não** é a cotação EnvioEcom. Cotação padrão: 1 pacote 2×12×17 cm, 0,3 kg, R$ 5. No create, `items[].name` é o setting da loja (`envioecom_shipment_item_name`, default Mercadoria), nunca o nome do produto.
 - Marcar `enviado` só quando o status EnvioEcom indicar coleta/postagem/trânsito (`coletado`, `postado`, `em transito`, `saiu para entrega`, `entregue`), via `ensureOrderMarkedEnviado`. Gerar etiqueta / DC-e / “Pronto para envio” **não** seta `enviado`: o card fica **Pronto para envio**, sai da fila 48/72/96h e de “Pedidos para enviar”, e a vaga vai para `shipped`. Se faltar estoque na coleta, `enviado` permanece false e **Faltando estoque** continua. Status “Entregue” pode promover pedido para `completed` se não estiver cancelado.
 - Crédito de afiliado pode zerar o valor a pagar (`paymentMethod: affiliate_credit`, `status: paid` quando `payableAmount <= 0`).
 
@@ -70,8 +72,8 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 - Auth própria (sessão/cookie); escopo `isPrimary` / seller-scoped / tenant (`admin-auth.ts`, `admin_user_tenants`).
 - Primary-only em vários endpoints (tenants, tracking live, etc. — ver `requirePrimaryAdmin`).
 - Cobranças custom (`custom_charges`), comprovantes múltiplos (`proofUrls`), edição de pedido (regras de permissão no admin).
-- Busca de Pedidos é só no frontend (`search` → `filteredOrders`). Data/status/método/vendedor/grupo vão na API. Só dígitos: match exato de `orderNumber`; se achar, devolve só esses. Senão `includes` em id, número, nome, telefone, e-mail, CEP e produtos. Fora do período carregado não aparece.
-- Aba **Rastreios EE**: lista pedidos com barcode/shipment_id/status EnvioEcom; Atualizar lista lê o BD; Sync consulta a API.
+- Busca de Pedidos é só no frontend (`search` → `filteredOrders`). Data/status/método/vendedor/grupo vão na API. Só dígitos: **somente** `orderNumber`/id do pedido (não telefone/CEP). Senão `includes` em id, número, nome, telefone, e-mail, CEP e produtos. Fora do período carregado não aparece.
+- Aba **Rastreios EE**: lista pedidos com barcode/shipment_id/status EnvioEcom; Atualizar lista lê o BD; Sync consulta a API. Campo “Nome do produto no create” (até 120 chars) vale para todos os itens da loja; envios já criados não mudam.
 
 ## KYC
 
