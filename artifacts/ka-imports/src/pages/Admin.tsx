@@ -7497,7 +7497,13 @@ export default function Admin() {
             }}
           />
         ) : tab === "envioecom" ? (
-          <EnvioEcomTrackingBoard />
+          <EnvioEcomTrackingBoard
+            onOpenOrder={(item) => {
+              const numeric = Number(item.orderNumber);
+              setSearch(Number.isFinite(numeric) && numeric > 0 ? String(Math.trunc(numeric)) : item.id);
+              setTab("orders");
+            }}
+          />
         ) : tab === "orderBumps" ? (
           <OrderBumpsPanel
             bumps={orderBumps}

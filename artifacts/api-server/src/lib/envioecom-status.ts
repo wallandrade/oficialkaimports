@@ -74,6 +74,31 @@ export function isLabelBlockedStatus(status: unknown): boolean {
   return normalized.includes("cancelad") || normalized.includes("aguardando pagamento");
 }
 
+export type EnvioEcomTrackingGroup = "delivered" | "in_transit" | "awaiting" | "cancelled" | "other";
+
+export function classifyEnvioEcomTrackingGroup(status: unknown): EnvioEcomTrackingGroup {
+  const normalized = normalizeStatus(status);
+  if (!normalized) return "other";
+  if (normalized.includes("cancelad")) return "cancelled";
+  if (normalized.includes("entregue")) return "delivered";
+  if (["coletado", "em transito", "postado", "saiu para entrega"].some((marker) => normalized.includes(marker))) {
+    return "in_transit";
+  }
+  if (
+    LABEL_READY_MARKERS.some((marker) => normalized.includes(marker))
+    || normalized.includes("envio criado")
+    || normalized.includes("aguardando")
+  ) {
+    return "awaiting";
+  }
+  return "other";
+}
+
+export function isOpenEnvioEcomTrackingStatus(status: unknown): boolean {
+  const group = classifyEnvioEcomTrackingGroup(status);
+  return group !== "delivered" && group !== "cancelled";
+}
+
 export function appendStatusHistory(
   current: unknown,
   event: EnvioEcomHistoryEvent,

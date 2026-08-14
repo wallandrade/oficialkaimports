@@ -4,7 +4,9 @@ import test from "node:test";
 import { buildConsolidatedQuotePackage } from "./envioecom-package";
 import {
   appendStatusHistory,
+  classifyEnvioEcomTrackingGroup,
   hasEnvioEcomLabelReady,
+  isOpenEnvioEcomTrackingStatus,
   isProvisionalBarcode,
   shouldMarkCompletedFromStatus,
   shouldMarkEnviadoFromStatus,
@@ -72,4 +74,14 @@ test("historico e idempotente no mesmo status+barcode", () => {
   const first = appendStatusHistory([], { at: "2026-08-13T12:00:00.000Z", status: "Postado", barcode: "8880" });
   const second = appendStatusHistory(first, { at: "2026-08-13T12:01:00.000Z", status: "Postado", barcode: "8880" });
   assert.equal(second.length, 1);
+});
+
+test("board classifica status em grupos de rastreio", () => {
+  assert.equal(classifyEnvioEcomTrackingGroup("Entregue"), "delivered");
+  assert.equal(classifyEnvioEcomTrackingGroup("Em trânsito"), "in_transit");
+  assert.equal(classifyEnvioEcomTrackingGroup("DC-e emitida"), "awaiting");
+  assert.equal(classifyEnvioEcomTrackingGroup("Pronto para envio"), "awaiting");
+  assert.equal(classifyEnvioEcomTrackingGroup("Cancelado"), "cancelled");
+  assert.equal(isOpenEnvioEcomTrackingStatus("Postado"), true);
+  assert.equal(isOpenEnvioEcomTrackingStatus("Entregue"), false);
 });

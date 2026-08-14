@@ -15,7 +15,7 @@ import {
   formatMoney,
   formatWeight,
 } from "../lib/envioecom-package";
-import { isLabelBlockedStatus, isProvisionalBarcode, isUsableLabelBarcode } from "../lib/envioecom-status";
+import { isLabelBlockedStatus, isProvisionalBarcode, isUsableLabelBarcode, classifyEnvioEcomTrackingGroup, isOpenEnvioEcomTrackingStatus } from "../lib/envioecom-status";
 import {
   buildExternalOrderNumber,
   digitsOnly,
@@ -102,6 +102,8 @@ function mapEnvioEcomOrder(order: typeof ordersTable.$inferSelect) {
     id: order.id,
     orderNumber: order.orderNumber ?? null,
     clientName: order.clientName,
+    clientPhone: order.clientPhone ?? null,
+    sellerCode: order.sellerCode ?? null,
     status: order.status,
     enviado: !!order.enviado,
     shippingType: order.shippingType,
@@ -117,7 +119,42 @@ function mapEnvioEcomOrder(order: typeof ordersTable.$inferSelect) {
     envioecomLabelUrl: order.envioecomLabelUrl ?? null,
     envioecomFreightCost: order.envioecomFreightCost != null ? Number(order.envioecomFreightCost) : null,
     envioecomExternalOrderNumber: order.envioecomExternalOrderNumber ?? null,
+    trackingGroup: classifyEnvioEcomTrackingGroup(order.envioecomStatus),
   };
+}
+
+function requireEnvioEcomBoardAdmin(req: Request, res: Response): { tenantId: string; sellerCode: string | null; hasGlobalAccess: boolean } | null {
+  const scope = getAdminScope(req);
+  if (!scope) {
+    res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
+    return null;
+  }
+  if (!scope.hasGlobalAccess && !scope.sellerCode) {
+    res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para ver rastreios EnvioEcom." });
+    return null;
+  }
+  return {
+    tenantId: scope.tenantId || DEFAULT_TENANT_ID,
+    sellerCode: scope.sellerCode,
+    hasGlobalAccess: scope.hasGlobalAccess,
+  };
+}
+
+function matchesTrackingQuery(order: ReturnType<typeof mapEnvioEcomOrder>, q: string): boolean {
+  if (!q) return true;
+  const hay = [
+    order.id,
+    order.orderNumber,
+    order.clientName,
+    order.clientPhone,
+    order.envioecomBarcode,
+    order.trackingCode,
+    order.envioecomStatus,
+    order.envioecomDeliveryMode,
+    order.envioecomShipmentId,
+    order.envioecomExternalOrderNumber,
+  ].join(" ").toLowerCase();
+  return hay.includes(q);
 }
 
 async function refreshShipment(client: EnvioEcomClient, order: typeof ordersTable.$inferSelect) {
@@ -504,22 +541,40 @@ router.post("/admin/envioecom/orders/:id/cancel", requireAdminAuth, async (req, 
 
 router.get("/admin/envioecom/tracking-board", requireAdminAuth, async (req, res) => {
   try {
-    const admin = requireEnvioEcomAdmin(req, res);
+    const admin = requireEnvioEcomBoardAdmin(req, res);
     if (!admin) return;
+    const q = String((req.query as { q?: string }).q || "").trim().toLowerCase();
+    const group = String((req.query as { group?: string }).group || "all").trim().toLowerCase();
+    const limit = Math.min(200, Math.max(1, Number((req.query as { limit?: string }).limit) || 200));
+    const conditions = [
+      buildOrderTenantWhere(admin.tenantId),
+      or(
+        isNotNull(ordersTable.envioecomShipmentId),
+        isNotNull(ordersTable.envioecomBarcode),
+        isNotNull(ordersTable.envioecomStatus),
+      ),
+    ];
+    if (!admin.hasGlobalAccess && admin.sellerCode) {
+      conditions.push(eq(ordersTable.sellerCode, admin.sellerCode));
+    }
     const rows = await db
       .select()
       .from(ordersTable)
-      .where(and(
-        buildOrderTenantWhere(admin.tenantId),
-        or(
-          isNotNull(ordersTable.envioecomShipmentId),
-          isNotNull(ordersTable.envioecomBarcode),
-          isNotNull(ordersTable.envioecomStatus),
-        ),
-      ))
+      .where(and(...conditions))
       .orderBy(desc(ordersTable.envioecomStatusUpdatedAt), desc(ordersTable.updatedAt))
-      .limit(200);
-    res.json({ orders: rows.map(mapEnvioEcomOrder) });
+      .limit(500);
+    const mapped = rows.map(mapEnvioEcomOrder).filter((order) => matchesTrackingQuery(order, q));
+    const summary = {
+      total: mapped.length,
+      in_transit: mapped.filter((order) => order.trackingGroup === "in_transit").length,
+      awaiting: mapped.filter((order) => order.trackingGroup === "awaiting").length,
+      delivered: mapped.filter((order) => order.trackingGroup === "delivered").length,
+      cancelled: mapped.filter((order) => order.trackingGroup === "cancelled").length,
+      other: mapped.filter((order) => order.trackingGroup === "other").length,
+    };
+    const items = (group && group !== "all" ? mapped.filter((order) => order.trackingGroup === group) : mapped).slice(0, limit);
+    const config = await loadEnvioEcomConfig(admin.tenantId);
+    res.json({ summary, items, configured: config.configured });
   } catch (err) {
     sendEnvioEcomError(res, err);
   }
@@ -527,31 +582,39 @@ router.get("/admin/envioecom/tracking-board", requireAdminAuth, async (req, res)
 
 router.post("/admin/envioecom/tracking-board/sync", requireAdminAuth, async (req, res) => {
   try {
-    const admin = requireEnvioEcomAdmin(req, res);
+    const admin = requireEnvioEcomBoardAdmin(req, res);
     if (!admin) return;
     const client = await getClientOrReject(admin.tenantId, res);
     if (!client) return;
-    const requestedIds = Array.isArray((req.body as { orderIds?: string[] })?.orderIds)
-      ? (req.body as { orderIds: string[] }).orderIds.map(String)
-      : [];
+    const body = req.body as { orderIds?: string[]; limit?: number };
+    const requestedIds = Array.isArray(body?.orderIds) ? body.orderIds.map(String).filter(Boolean) : [];
+    const limit = Math.min(30, Math.max(1, Number(body?.limit) || 20));
+    const scopeConditions = [buildOrderTenantWhere(admin.tenantId)];
+    if (!admin.hasGlobalAccess && admin.sellerCode) {
+      scopeConditions.push(eq(ordersTable.sellerCode, admin.sellerCode));
+    }
     const rows = requestedIds.length
-      ? await db.select().from(ordersTable).where(and(buildOrderTenantWhere(admin.tenantId), inArray(ordersTable.id, requestedIds.slice(0, 20))))
+      ? await db.select().from(ordersTable).where(and(...scopeConditions, inArray(ordersTable.id, requestedIds.slice(0, limit))))
       : await db
           .select()
           .from(ordersTable)
-          .where(and(buildOrderTenantWhere(admin.tenantId), isNotNull(ordersTable.envioecomShipmentId)))
-          .orderBy(desc(ordersTable.envioecomStatusUpdatedAt))
-          .limit(20);
+          .where(and(
+            ...scopeConditions,
+            or(isNotNull(ordersTable.envioecomShipmentId), isNotNull(ordersTable.envioecomBarcode)),
+          ))
+          .orderBy(desc(ordersTable.envioecomStatusUpdatedAt), desc(ordersTable.updatedAt))
+          .limit(80);
 
+    const targets = rows.filter((order) => isOpenEnvioEcomTrackingStatus(order.envioecomStatus)).slice(0, limit);
     const synced = [];
-    for (const order of rows.slice(0, 20)) {
+    for (const order of targets) {
       try {
         synced.push(mapEnvioEcomOrder(await refreshShipment(client, order)));
       } catch (err) {
         console.warn("[EnvioEcom] sync lote falhou", order.id, err);
       }
     }
-    res.json({ ok: true, orders: synced });
+    res.json({ ok: true, synced: synced.length, orders: synced });
   } catch (err) {
     sendEnvioEcomError(res, err);
   }

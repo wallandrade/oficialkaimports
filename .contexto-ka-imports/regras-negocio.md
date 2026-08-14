@@ -1,12 +1,13 @@
 # Regras de negócio — KA Imports
 
-> **Última atualização:** 2026-08-13  
+> **Última atualização:** 2026-08-14  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-14 | Aba Rastreios EE com KPIs/grupos/sync lote e link do pedido | Painel de envios vinculados no BD | Cotar/criar etiqueta inalterados |
 | 2026-08-13 | Cotação EnvioEcom padrão 2×12×17 / 0,3 kg / R$ 5 (não total do pedido) | Frete alinhado ao simulador | Checkout e motoboy inalterados |
 | 2026-08-13 | Busca de pedidos no admin: dígitos casam `orderNumber` exato antes de nome/telefone/CEP | Número tipo 1813 não mistura com telefone | Texto da busca continua só no frontend; período de datas na API |
 | 2026-08-13 | `enviado` só na coleta/postagem EnvioEcom, não na geração da etiqueta | Card fica Pronto para envio até webhook/sync de coletado | Fila 48h continua saindo na etiqueta |
@@ -70,6 +71,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 - Primary-only em vários endpoints (tenants, tracking live, etc. — ver `requirePrimaryAdmin`).
 - Cobranças custom (`custom_charges`), comprovantes múltiplos (`proofUrls`), edição de pedido (regras de permissão no admin).
 - Busca de Pedidos é só no frontend (`search` → `filteredOrders`). Data/status/método/vendedor/grupo vão na API. Só dígitos: match exato de `orderNumber`; se achar, devolve só esses. Senão `includes` em id, número, nome, telefone, e-mail, CEP e produtos. Fora do período carregado não aparece.
+- Aba **Rastreios EE**: lista pedidos com barcode/shipment_id/status EnvioEcom; Atualizar lista lê o BD; Sync consulta a API.
 
 ## KYC
 

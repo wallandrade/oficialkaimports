@@ -1,12 +1,13 @@
 # Integrações externas — KA Imports
 
-> **Última atualização:** 2026-08-13  
+> **Última atualização:** 2026-08-14  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-14 | Aba Rastreios EE: KPIs, grupos, busca, sync lote dos abertos, PDF e link do pedido | Board lê o BD; Sync consulta EnvioEcom | Cotar/criar/etiqueta continuam `hasGlobalAccess` |
 | 2026-08-13 | Cotação EnvioEcom: pacote padrão 2×12×17, 0,3 kg, R$ 5, 1 linha | Preço bate o simulador do painel | Checkout continua `shipping_options` |
 | 2026-08-13 | `enviado` EnvioEcom só após coleta/postagem (não na etiqueta/DC-e) | Webhook/sync vira Enviado; gerar PDF fica Pronto para envio | Token continua só no backend |
 | 2026-08-13 | Etiqueta EnvioEcom pronta libera fila 48/72/96h sem forçar `enviado` se faltar estoque | Pedido embalado não ocupa prazo de postagem | Token continua só no backend |
@@ -44,6 +45,7 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 - **Frontend nunca chama a EnvioEcom.** Só o backend.
 - Config **por tenant** (`tenant_settings`: token/email/senha, CEP origem, medidas default, carriers). Fallback de env (`ENVIOECOM_TOKEN` etc.) só para loja 1.
 - Rotas admin (`hasGlobalAccess`, não seller-scoped): quote/create/labels/sync/cancel/bind-id, tracking-board, config, registrar webhook.
+- Board `GET /api/admin/envioecom/tracking-board` devolve `{ summary, items, configured }` (grupos delivered/in_transit/awaiting/cancelled/other). `POST .../tracking-board/sync` atualiza até 20–30 abertos. Aba **Rastreios EE** não chama a transportadora até Sync.
 - Público: `POST /api/webhook/envioecom` (2xx rápido; match barcode → `external_order_number` → `shipment_id`; idempotente barcode+status).
 - Cliente: `GET /api/me/orders/:id/tracking` (soft-sync).
 - Regras: 1 pacote consolidado; sem medidas no produto usa caixa padrão 2×12×17 cm, 0,3 kg, valor declarado R$ 5 (`aviso_recebimento: false`); com medidas reais no item usa essas + valor do produto. `cep_origem` obrigatório; `shipping_company` idêntico à cotação; etiqueta por `ids` (nunca barcode `EC…`); após create `GET /shipments/by-id/{id}`; status é texto livre.
