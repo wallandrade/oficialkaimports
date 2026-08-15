@@ -1,13 +1,14 @@
 # Auth e permissões — KA Imports
 
-> **Última atualização:** 2026-08-14  
+> **Última atualização:** 2026-08-15  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
-| 2026-08-14 | GET/PUT `shipment-item-name` EnvioEcom exigem `hasGlobalAccess` | Nome genérico do create por loja | Board de rastreio continua visível ao seller-scoped |
+| 2026-08-15 | Filial com `hasGlobalAccess` pode editar os próprios pedidos (`PATCH /admin/orders/:id/edit`) | Cada loja edita só o seu tenant | Seller-scoped da loja 1 continua sem editar |
+| 2026-08-15 | Impersonar cliente grava `tenantId` na sessão e passa o token no hash da nova aba | “Entrar na conta” abre Meus pedidos em vez de /login | Só `hasGlobalAccess`; sessões continuam in-memory |
 | 2026-08-13 | EnvioEcom admin exige `hasGlobalAccess` (loja 1 primary e admin de filial); seller-scoped não opera | Isolamento por loja | Papéis inalterados |
 | 2026-08-11 | Extração do modelo de auth do código | Evitar confusão de papéis | Sem mudança de auth |
 
@@ -39,6 +40,7 @@ Código > memória > tipagens.
 - Seller map: env JSON `ADMIN_SELLER_SCOPE_MAP` `{"usuario":"seller-slug"}`.
 - Middleware: `requireAdminAuth`; subset: `requirePrimaryAdmin`.
 - EnvioEcom (cotar/criar/etiqueta/config/shipment-item-name): `hasGlobalAccess` (primary e admin de filial). Seller-scoped recebe 403. Board `tracking-board` lista/sync com filtro de `sellerCode` se não for global.
+- Editar pedido (`PATCH /api/admin/orders/:id/edit`): `hasGlobalAccess` (primary da loja 1 e admin de filial). Cada um só no próprio `tenantId`. Seller-scoped 403. O botão no FE usa `isPrimary || adminTenantId !== tenant_loja1`.
 - Rate limit de login admin (janela/tentativas/block via env).
 - Smoke: scoped admin toma 403 em endpoints primary-only (`scripts/SMOKE_TESTS.md`).
 
@@ -47,7 +49,8 @@ Código > memória > tipagens.
 - `artifacts/api-server/src/middlewares/customer-auth.ts` + `routes/customer-auth.ts`.
 - Password: PBKDF2 (120k, sha256) + salt.
 - Sessões **in-memory** no processo Node (não persistidas em DB) — reinício do server invalida tokens.
-- Tenant da sessão = tenant resolvido no registro/login.
+- Tenant da sessão = tenant resolvido no registro/login **ou** o `tenantId` do `customer_users` na impersonação admin.
+- Impersonar (`POST /api/admin/customers/:id/impersonate`): só `hasGlobalAccess`. A nova aba abre `/minha-conta/pedidos#customerToken=…` (hash, não query); o FE grava em `sessionStorage` e tira o hash. `/auth/me` usa o tenant da sessão com o mesmo legado null/vazio da loja 1.
 
 ## Site / payment password gate
 

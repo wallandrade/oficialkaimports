@@ -507,6 +507,7 @@ import { AdminLayout } from "@/components/layout/AdminLayout";
 import { EnvioEcomOrderActions, hasEnvioEcomLabelReady, preserveEnvioEcomLabelFields } from "@/components/admin/EnvioEcomOrderActions";
 import { EnvioEcomTrackingBoard } from "@/components/admin/EnvioEcomTrackingBoard";
 import { EnvioEcomSettingsCard } from "@/components/admin/EnvioEcomSettingsCard";
+import { buildCustomerImpersonationUrl } from "@/lib/customer-auth";
 
 
 
@@ -1986,6 +1987,7 @@ export default function Admin() {
   const canManageInventoryTab = isPrimary || adminTenantId !== "tenant_loja1";
   const canManageShippingTab = isPrimary || adminTenantId !== "tenant_loja1";
   const canManageSellerLinks = isPrimary || adminTenantId !== "tenant_loja1";
+  const canEditOrders = isPrimary || adminTenantId !== "tenant_loja1";
   const canViewSupplierPurchasesTab = adminTenantId !== "tenant_loja1";
   const filialTenantOptions = tenants.filter((tenant) => tenant.id !== "tenant_loja1");
   const selectedFilialTenant = filialTenantOptions.find((tenant) => tenant.id === selectedFilialTenantId) || null;
@@ -2801,11 +2803,11 @@ export default function Admin() {
         return;
       }
 
-      localStorage.setItem("customerToken", data.token);
+      const dest = buildCustomerImpersonationUrl(BASE, data.token);
       if (customerWindow && !customerWindow.closed) {
-        customerWindow.location.href = `${BASE}/minha-conta/pedidos`;
+        customerWindow.location.replace(dest);
       } else {
-        window.open(`${BASE}/minha-conta/pedidos`, "_blank");
+        window.open(dest, "_blank", "noopener,noreferrer");
       }
       toast.success(`Entrando na conta de ${customer.name}.`);
     } catch {
@@ -6827,6 +6829,7 @@ export default function Admin() {
             onOpenCardPaidModal={(id) => { setCardPaidModal(id); setCardPaidForm({ installments: "", installmentValue: "", totalValue: "" }); }}
             updateOrderObservation={updateOrderObservation}
             isPrimary={isPrimary}
+            canEditOrders={canEditOrders}
             canMarkMotoboy={adminTenantId !== "tenant_loja1"}
             onMarkOrderMotoboy={markOrderMotoboyDirect}
             onEditOrder={openEditOrder}
@@ -12412,7 +12415,7 @@ function OrdersPanel({
   gatewayFeeMin,
   orders, statusUpdating, expandedOrder, setExpandedOrder,
   updateOrderStatus, setProofModal, setProofViewer, openWhatsApp,
-  onOpenCardPaidModal, updateOrderObservation, isPrimary, canMarkMotoboy, onMarkOrderMotoboy, onEditOrder, onOpenKycModal,
+  onOpenCardPaidModal, updateOrderObservation, isPrimary, canEditOrders, canMarkMotoboy, onMarkOrderMotoboy, onEditOrder, onOpenKycModal,
   onSetOrderEnviado, onSetOrderPatched, availableWhatsappGroups, onSetReshipmentStatus, onRemoveOrder, canManageEnvioEcom,
 }: {
   allOrders: AdminOrder[];
@@ -12441,6 +12444,7 @@ function OrdersPanel({
   onOpenCardPaidModal: (id: string) => void;
   updateOrderObservation: (id: string, observation: string) => void;
   isPrimary: boolean;
+  canEditOrders: boolean;
   canMarkMotoboy: boolean;
   onMarkOrderMotoboy: (order: AdminOrder) => Promise<boolean>;
   onEditOrder: (order: AdminOrder) => void;
@@ -14026,7 +14030,7 @@ function OrdersPanel({
                     {copiedOrderId === order.id + "-post-paid" ? "Pós-pagamento copiado!" : "Copiar pós-pagamento"}
                   </Button>
                 )}
-                {isPrimary && (
+                {canEditOrders && (
                   <Button size="sm" variant="outline" className="gap-1.5 text-violet-600 border-violet-200 hover:bg-violet-50"
                     onClick={() => onEditOrder(order)}>
                     <Pencil className="w-3.5 h-3.5" />Editar Pedido

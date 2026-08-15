@@ -7,7 +7,8 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
-| 2026-08-15 | Anti-padrão: `fetchOrders` substituir a lista com GET atrasado e apagar `envioecomLabelUrl` | AbortController + seq; preservar PDF local; gravar Etiqueta emitida | Auto-refresh 20s permanece |
+| 2026-08-15 | Anti-padrão: esconder “Editar Pedido” da filial com `isPrimary` | Usar `hasGlobalAccess` / tenant da loja; pedidos já são por tenant | Seller-scoped da loja 1 inalterado |
+| 2026-08-15 | Anti-padrão: impersonar cliente sem `tenantId` na sessão e gravar token só no `localStorage` da aba admin | Sessão com tenant do cliente + hash na aba nova | Login normal do cliente inalterado |
 | 2026-08-15 | Anti-padrão: inventar evento “Status atualizado ao consultar rastreio” ou esconder o histórico EnvioEcom só no modal | Persistir `status_history` com `location`; timeline no card | Soft-sync GET tracking permanece |
 | 2026-08-15 | Anti-padrão: UUID do pedido na mensagem WhatsApp do checkout | Usar `orderNumber` sequencial | KYC URL continua com `id` |
 | 2026-08-14 | Anti-padrão: enviar `p.name` do catálogo em `items[].name` no create EnvioEcom | Usar o setting genérico da loja (default Mercadoria) | Cotação inalterada |
@@ -100,6 +101,8 @@ Código > memória > suposições.
 - Tratar status EnvioEcom como enum rígido (é texto livre).
 - Inventar histórico de rastreio EnvioEcom (ex. “Status atualizado ao consultar rastreio”); usar `status_history` da API, com `location` cidade/unidade, e não duplicar `description` igual ao status.
 - No `fetchOrders` do admin, substituir a lista com um GET iniciado antes de gerar a etiqueta (apaga o PDF na tela). Abortar o request anterior e não limpar `envioecomLabelUrl` local.
+- Impersonar cliente sem `tenantId` na sessão (`/auth/me` 404 → tela de login) ou gravar o token só no `localStorage` da aba do admin.
+- Esconder “Editar Pedido” da filial com `isPrimary`; pedidos já são isolados por tenant — usar `hasGlobalAccess` (primary e admin de filial).
 
 ## Idioma
 

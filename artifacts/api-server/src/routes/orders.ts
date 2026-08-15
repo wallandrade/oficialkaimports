@@ -1920,6 +1920,10 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
   try {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
+    if (!adminScope.hasGlobalAccess) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para editar pedidos." });
+      return;
+    }
 
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];

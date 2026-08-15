@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-15 | Admin da filial edita os pedidos da própria loja (botão não exige mais `isPrimary`) | Pedidos continuam isolados por tenant | Loja 1 e filial não veem os pedidos uma da outra |
 | 2026-08-15 | Etiqueta EnvioEcom não volta a “Pendente”: aborta GET velho, grava “Etiqueta emitida” e preserva PDF na lista | Card fica Pronto para envio até coleta/cancelamento | `enviado` continua só na coleta |
 | 2026-08-15 | Timeline EnvioEcom no card de Meus pedidos (status + cidade; sync/poll) | Cliente vê o mesmo histórico da consulta à API | Modal de rastreio deixou de ser obrigatório |
 | 2026-08-15 | WhatsApp de checkout usa `orderNumber` (ex. #1841), não o UUID | Mensagem e toast iguais ao admin | Link KYC continua `/kyc/:id` interno |
@@ -74,7 +75,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 
 - Auth própria (sessão/cookie); escopo `isPrimary` / seller-scoped / tenant (`admin-auth.ts`, `admin_user_tenants`).
 - Primary-only em vários endpoints (tenants, tracking live, etc. — ver `requirePrimaryAdmin`).
-- Cobranças custom (`custom_charges`), comprovantes múltiplos (`proofUrls`), edição de pedido (regras de permissão no admin).
+- Cobranças custom (`custom_charges`), comprovantes múltiplos (`proofUrls`), edição de pedido: primary da loja 1 e admin de filial nos pedidos do próprio tenant (seller-scoped não edita).
 - Busca de Pedidos é só no frontend (`search` → `filteredOrders`). Data/status/método/vendedor/grupo vão na API. Só dígitos: **somente** `orderNumber`/id do pedido (não telefone/CEP). Senão `includes` em id, número, nome, telefone, e-mail, CEP e produtos. Fora do período carregado não aparece.
 - Aba **Rastreios EE**: lista pedidos com barcode/shipment_id/status EnvioEcom; Atualizar lista lê o BD; Sync consulta a API. Campo “Nome do produto no create” (até 120 chars) vale para todos os itens da loja; envios já criados não mudam.
 

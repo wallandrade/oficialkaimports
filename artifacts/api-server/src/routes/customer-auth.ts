@@ -187,7 +187,10 @@ router.get("/auth/me", requireCustomerAuth, async (req, res) => {
   const users = await db
     .select({ id: customerUsersTable.id, name: customerUsersTable.name, email: customerUsersTable.email })
     .from(customerUsersTable)
-    .where(and(eq(customerUsersTable.tenantId, session.tenantId), eq(customerUsersTable.id, session.userId)))
+    .where(and(
+      eq(customerUsersTable.id, session.userId),
+      buildCustomerUsersTenantWhere(session.tenantId || DEFAULT_TENANT_ID),
+    ))
     .limit(1);
 
   const user = users[0];
@@ -451,7 +454,12 @@ router.post("/admin/customers/:id/impersonate", requireAdminAuth, async (req, re
     }
 
     const users = await db
-      .select({ id: customerUsersTable.id, name: customerUsersTable.name, email: customerUsersTable.email })
+      .select({
+        id: customerUsersTable.id,
+        name: customerUsersTable.name,
+        email: customerUsersTable.email,
+        tenantId: customerUsersTable.tenantId,
+      })
       .from(customerUsersTable)
       .where(eq(customerUsersTable.id, customerId))
       .limit(1);
@@ -473,7 +481,9 @@ router.post("/admin/customers/:id/impersonate", requireAdminAuth, async (req, re
       console.warn(`[Admin] impersonating customer without linked orders: ${user.id}`);
     }
 
+    const tenantId = String(user.tenantId || "").trim() || adminScope.tenantId || DEFAULT_TENANT_ID;
     const session = createCustomerSession({
+      tenantId,
       userId: user.id,
       email: user.email,
       name: user.name,
@@ -482,7 +492,11 @@ router.post("/admin/customers/:id/impersonate", requireAdminAuth, async (req, re
     res.json({
       token: session.token,
       expiresIn: session.expiresInSeconds,
-      user,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+      },
     });
   } catch (err) {
     console.error("[Admin] customer impersonation error:", err);
