@@ -21,7 +21,7 @@ import {
   formatMoney,
   formatWeight,
 } from "../lib/envioecom-package";
-import { isLabelBlockedStatus, isProvisionalBarcode, isUsableLabelBarcode, classifyEnvioEcomTrackingGroup, isOpenEnvioEcomTrackingStatus } from "../lib/envioecom-status";
+import { isLabelBlockedStatus, isProvisionalBarcode, isUsableLabelBarcode, classifyEnvioEcomTrackingGroup, isOpenEnvioEcomTrackingStatus, resolveStatusAfterLabelGenerated } from "../lib/envioecom-status";
 import {
   buildExternalOrderNumber,
   digitsOnly,
@@ -517,7 +517,7 @@ router.post("/admin/envioecom/orders/:id/labels", requireAdminAuth, async (req, 
       shipmentId: shipmentId || order.envioecomShipmentId,
       barcode: isUsableLabelBarcode(order.envioecomBarcode) ? order.envioecomBarcode : order.trackingCode,
       labelUrl,
-      status: order.envioecomStatus || "Etiqueta emitida",
+      status: resolveStatusAfterLabelGenerated(order.envioecomStatus),
     });
     res.json({ ok: true, labelUrl, order: mapEnvioEcomOrder(persisted) });
   } catch (err) {
@@ -710,6 +710,80 @@ router.get("/me/orders/:id/tracking", requireCustomerAuth, async (req, res) => {
   }
 });
 
+router.post("/me/orders/tracking-sync", requireCustomerAuth, async (req, res) => {
+  try {
+    const tenantId = await resolvePublicTenantId(req as never);
+    const session = getCustomerSession(req);
+    if (!session) {
+      res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
+      return;
+    }
+
+    const limit = Math.min(10, Math.max(1, Number((req.body as { limit?: number })?.limit) || 8));
+    const config = await loadEnvioEcomConfig(tenantId);
+    const rows = await db
+      .select()
+      .from(ordersTable)
+      .where(and(
+        buildOrderTenantWhere(tenantId),
+        eq(ordersTable.userId, session.userId),
+        or(isNotNull(ordersTable.envioecomShipmentId), isNotNull(ordersTable.envioecomBarcode)),
+      ))
+      .orderBy(desc(ordersTable.envioecomStatusUpdatedAt), desc(ordersTable.updatedAt))
+      .limit(40);
+
+    const targets = rows.filter((order) => isOpenEnvioEcomTrackingStatus(order.envioecomStatus)).slice(0, limit);
+    if (!config.configured || !targets.length) {
+      res.json({
+        ok: true,
+        synced: 0,
+        orders: targets.map((order) => ({
+          id: order.id,
+          enviado: !!order.enviado,
+          status: order.status,
+          envioecomStatus: order.envioecomStatus ?? null,
+          envioecomDeliveryMode: order.envioecomDeliveryMode ?? null,
+          envioecomBarcode: order.envioecomBarcode || order.trackingCode || null,
+          trackingCode: order.trackingCode ?? null,
+          envioecomStatusHistory: order.envioecomStatusHistory ?? [],
+        })),
+      });
+      return;
+    }
+
+    const client = createEnvioEcomClient({
+      tenantId,
+      baseUrl: config.baseUrl,
+      token: config.token,
+      email: config.email,
+      password: config.password,
+      neverExpires: config.neverExpires,
+    });
+
+    const synced = [];
+    for (const order of targets) {
+      try {
+        const current = await refreshShipment(client, order);
+        synced.push({
+          id: current.id,
+          enviado: !!current.enviado,
+          status: current.status,
+          envioecomStatus: current.envioecomStatus ?? null,
+          envioecomDeliveryMode: current.envioecomDeliveryMode ?? null,
+          envioecomBarcode: current.envioecomBarcode || current.trackingCode || null,
+          trackingCode: current.trackingCode ?? null,
+          envioecomStatusHistory: current.envioecomStatusHistory ?? [],
+        });
+      } catch (err) {
+        console.warn("[EnvioEcom] tracking-sync cliente falhou", order.id, err);
+      }
+    }
+    res.json({ ok: true, synced: synced.length, orders: synced });
+  } catch (err) {
+    sendEnvioEcomError(res, err);
+  }
+});
+
 function asWebhookRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -737,6 +811,7 @@ export async function applyEnvioEcomWebhook(body: Record<string, unknown>): Prom
     freightCost: patch.freightCost ?? (merged.freight_cost != null ? String(merged.freight_cost) : null),
     externalOrderNumber,
     description: String(merged.description || "").trim() || null,
+    history: patch.history,
   });
   return { matched: true, orderId: order.id };
 }

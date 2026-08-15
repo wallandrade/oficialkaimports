@@ -1,12 +1,14 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-08-13  
+> **Última atualização:** 2026-08-15  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-15 | `fetchOrders` aborta GET anterior e faz merge que preserva PDF EnvioEcom | Evita corrida com auto-refresh 20s | Stack FE/API/DB inalterada |
+| 2026-08-15 | `POST /api/me/orders/tracking-sync` + parser de `status_history` com `location` | Cliente sincroniza rastreio em lote | Colunas `envioecom_*` inalteradas |
 | 2026-08-13 | Rotas EnvioEcom + colunas `envioecom_*` em `orders` + R2 PDF | Logística externa no api-server | Stack FE/API/DB inalterada |
 | 2026-08-11 | Criação inicial | Mapa de stack/pastas para agentes | Deploy/runtime inalterados |
 
@@ -63,7 +65,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 
 - Rotas: `artifacts/ka-imports/src/App.tsx` (wouter).
 - Carrinho: Zustand persist `src/store/use-cart.ts`.
-- Admin monolítico: `src/pages/Admin.tsx` (arquivo grande — leitura seletiva).
+- Admin monolítico: `src/pages/Admin.tsx` (arquivo grande — leitura seletiva). `fetchOrders` usa AbortController + seq e não apaga `envioecomLabelUrl` se o GET vier vazio.
 - Proxy/API: requests sob `/api` (Vercel rewrite → Railway).
 - SW: `public/sw.js` — **somente notificações admin**, não PWA offline/sync.
 

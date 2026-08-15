@@ -2,11 +2,12 @@ import { db, ordersTable } from "@workspace/db";
 import { desc, eq, or } from "drizzle-orm";
 import { DEFAULT_TENANT_ID } from "./tenant-context";
 import {
-  appendStatusHistory,
+  extractStatusHistoryFromShipment,
   hasEnvioEcomLabelReady,
   isLabelBlockedStatus,
   isProvisionalBarcode,
   isUsableLabelBarcode,
+  mergeEnvioEcomHistory,
   shouldMarkCompletedFromStatus,
   shouldMarkEnviadoFromStatus,
   type EnvioEcomHistoryEvent,
@@ -72,19 +73,7 @@ export function parseShipmentDetails(payload: unknown): EnvioEcomShipmentPatch {
   const root = asRecord(payload);
   const nested = asRecord(root.data && typeof root.data === "object" ? root.data : root.shipment && typeof root.shipment === "object" ? root.shipment : root);
   const finalStatus = asRecord(nested.final_status);
-  const historyRaw = Array.isArray(nested.status_history) ? nested.status_history : [];
-  const history: EnvioEcomHistoryEvent[] = [];
-  for (const row of historyRaw) {
-    const item = asRecord(row);
-    const status = pickString(item.status, item.description);
-    if (!status) continue;
-    history.push({
-      at: pickString(item.updated_at, item.created_at, item.date, item.at) || new Date().toISOString(),
-      status,
-      description: pickString(item.description),
-      barcode: pickString(item.barcode),
-    });
-  }
+  const history = extractStatusHistoryFromShipment(payload);
 
   return {
     shipmentId: pickNumber(nested.id, nested.shipment_id, root.shipment_id, root.id),
@@ -110,16 +99,18 @@ export async function persistEnvioEcomShipment(order: typeof ordersTable.$inferS
   const now = new Date();
   const barcode = chooseBarcode(order.envioecomBarcode || order.trackingCode, patch.barcode);
   const status = pickString(patch.status) || order.envioecomStatus;
-  const history = patch.history && patch.history.length
-    ? patch.history.slice(-30)
-    : status
-      ? appendStatusHistory(order.envioecomStatusHistory, {
+  const history = mergeEnvioEcomHistory(
+    order.envioecomStatusHistory,
+    patch.history,
+    status
+      ? {
           at: now.toISOString(),
           status,
           description: patch.description || null,
           barcode,
-        })
-      : order.envioecomStatusHistory;
+        }
+      : null,
+  );
 
   const updates: Partial<typeof ordersTable.$inferInsert> = {
     updatedAt: now,

@@ -1,13 +1,15 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-08-14  
+> **Última atualização:** 2026-08-15  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
-| 2026-08-14 | Anti-padrão: PDF EnvioEcom = Pronto para envio mesmo com status Cancelado | Cancelado manda `hasEnvioEcomLabelReady` para false | Stack inalterada |
+| 2026-08-15 | Anti-padrão: `fetchOrders` substituir a lista com GET atrasado e apagar `envioecomLabelUrl` | AbortController + seq; preservar PDF local; gravar Etiqueta emitida | Auto-refresh 20s permanece |
+| 2026-08-15 | Anti-padrão: inventar evento “Status atualizado ao consultar rastreio” ou esconder o histórico EnvioEcom só no modal | Persistir `status_history` com `location`; timeline no card | Soft-sync GET tracking permanece |
+| 2026-08-15 | Anti-padrão: UUID do pedido na mensagem WhatsApp do checkout | Usar `orderNumber` sequencial | KYC URL continua com `id` |
 | 2026-08-14 | Anti-padrão: enviar `p.name` do catálogo em `items[].name` no create EnvioEcom | Usar o setting genérico da loja (default Mercadoria) | Cotação inalterada |
 | 2026-08-13 | Anti-padrão: cotar EnvioEcom com caixa 10×15×20 e valor = total do pedido | Usar 2×12×17, 0,3 kg, R$ 5 | Stack inalterada |
 | 2026-08-13 | Anti-padrão: marcar `enviado` ao gerar etiqueta/DC-e EnvioEcom | Enviado só na coleta/postagem | Stack inalterada |
@@ -94,7 +96,10 @@ Código > memória > suposições.
 - Marcar `enviado` ao gerar etiqueta / DC-e / “Pronto para envio”; isso só na coleta/postagem da API.
 - Restaurar vaga `allocated` no reconcile só porque `enviado` é false quando a etiqueta EnvioEcom já existe.
 - Tratar PDF da etiqueta EnvioEcom como “Pronto para envio” se o status for **Cancelado**.
+- Colocar o UUID do pedido (`orders.id`) na mensagem WhatsApp do checkout; usar `orderNumber`.
 - Tratar status EnvioEcom como enum rígido (é texto livre).
+- Inventar histórico de rastreio EnvioEcom (ex. “Status atualizado ao consultar rastreio”); usar `status_history` da API, com `location` cidade/unidade, e não duplicar `description` igual ao status.
+- No `fetchOrders` do admin, substituir a lista com um GET iniciado antes de gerar a etiqueta (apaga o PDF na tela). Abortar o request anterior e não limpar `envioecomLabelUrl` local.
 
 ## Idioma
 

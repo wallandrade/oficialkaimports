@@ -430,3 +430,33 @@ export function hasEnvioEcomLabelReady(order: EnvioEcomOrderFields): boolean {
     "objeto entregue",
   ].some((marker) => normalized.includes(marker));
 }
+
+export function preserveEnvioEcomLabelFields<T extends {
+  envioecomLabelUrl?: string | null;
+  trackingLabelUrl?: string | null;
+  envioecomStatus?: string | null;
+}>(incoming: T, previous?: T | null): T {
+  if (!previous) return incoming;
+  const nextLabel = String(incoming.envioecomLabelUrl || "").trim();
+  const prevLabel = String(previous.envioecomLabelUrl || "").trim();
+  const nextTracking = String(incoming.trackingLabelUrl || "").trim();
+  const prevTracking = String(previous.trackingLabelUrl || "").trim();
+  const incomingStatus = String(incoming.envioecomStatus || "").trim();
+  const previousStatus = String(previous.envioecomStatus || "").trim();
+  const incomingNormalized = incomingStatus
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  const incomingBlocked = incomingNormalized.includes("cancelad") || incomingNormalized.includes("aguardando pagamento");
+  const keepPreviousStatus = !incomingBlocked
+    && !hasEnvioEcomLabelReady({ envioecomStatus: incomingStatus, envioecomLabelUrl: nextLabel })
+    && hasEnvioEcomLabelReady({ envioecomStatus: previousStatus, envioecomLabelUrl: prevLabel });
+  return {
+    ...incoming,
+    envioecomLabelUrl: incomingBlocked ? incoming.envioecomLabelUrl : (nextLabel || prevLabel || incoming.envioecomLabelUrl),
+    trackingLabelUrl: incomingBlocked ? incoming.trackingLabelUrl : (nextTracking || prevTracking || incoming.trackingLabelUrl),
+    envioecomStatus: incomingBlocked
+      ? incoming.envioecomStatus
+      : (keepPreviousStatus ? previous.envioecomStatus : (incoming.envioecomStatus || previous.envioecomStatus)),
+  };
+}

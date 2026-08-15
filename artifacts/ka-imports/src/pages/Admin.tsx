@@ -504,7 +504,7 @@ import { formatCurrency, formatDateOnlyBR } from "@/lib/utils";
 import { downloadFilialPurchasePdf, openFilialPurchasePdfInBrowser } from "@/lib/generateFilialPurchasePdf";
 import { generateChargePdf, generateOrderPdf } from "@/lib/generateOrderPdf";
 import { AdminLayout } from "@/components/layout/AdminLayout";
-import { EnvioEcomOrderActions, hasEnvioEcomLabelReady } from "@/components/admin/EnvioEcomOrderActions";
+import { EnvioEcomOrderActions, hasEnvioEcomLabelReady, preserveEnvioEcomLabelFields } from "@/components/admin/EnvioEcomOrderActions";
 import { EnvioEcomTrackingBoard } from "@/components/admin/EnvioEcomTrackingBoard";
 import { EnvioEcomSettingsCard } from "@/components/admin/EnvioEcomSettingsCard";
 
@@ -1976,6 +1976,8 @@ export default function Admin() {
   const sseReconnectTimerRef = useRef<number | null>(null);
   const sseUnauthorizedRef = useRef(false);
   const sseCookieMismatchNotifiedRef = useRef(false);
+  const ordersFetchAbortRef = useRef<AbortController | null>(null);
+  const ordersFetchSeqRef = useRef(0);
   const swRef  = useRef<ServiceWorkerRegistration | null>(null);
   // Live Visitors Tracking
   const [liveStats, setLiveStats] = useState({ catalog: 0, checkout: 0 });
@@ -2560,6 +2562,10 @@ export default function Admin() {
   // Fetch helpers
   // -------------------------------------------------------------------------
   const fetchOrders = useCallback(async (_silent?: boolean) => {
+    ordersFetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    ordersFetchAbortRef.current = controller;
+    const seq = ++ordersFetchSeqRef.current;
     try {
       const params = new URLSearchParams({ dateFrom, dateTo });
       if (statusFilter !== "all") params.set("status", statusFilter);
@@ -2569,12 +2575,23 @@ export default function Admin() {
       const res = await fetch(`${BASE}/api/admin/orders?${params}`, {
         headers: authHeaders(),
         cache: "no-store",
+        signal: controller.signal,
       });
+      if (seq !== ordersFetchSeqRef.current) return;
       if (res.status === 401) { handleUnauthorized(); return; }
       const data = await res.json() as { orders: AdminOrder[] };
-      setOrders(data.orders || []);
+      if (seq !== ordersFetchSeqRef.current) return;
+      const incoming = data.orders || [];
+      setOrders((prev) => {
+        const prevById = new Map(prev.map((order) => [order.id, order]));
+        return incoming.map((order) => preserveEnvioEcomLabelFields(order, prevById.get(order.id)));
+      });
       setOrdersReady(true);
-    } catch { /* silent — don't show toast for background refreshes */ }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      if (err instanceof Error && err.name === "AbortError") return;
+      /* silent — don't show toast for background refreshes */
+    }
   }, [dateFrom, dateTo, statusFilter, methodFilter, sellerFilter, groupFilter, handleUnauthorized]);
 
   const fetchCharges = useCallback(async (_silent?: boolean) => {
@@ -5025,7 +5042,10 @@ export default function Admin() {
       fetchStatsData();
       if (tab === "recurringCustomers") fetchRecurringCustomers();
     }, 20000);
-    return () => clearInterval(id);
+    return () => {
+      window.clearInterval(id);
+      ordersFetchAbortRef.current?.abort();
+    };
   }, [authChecked, tab, fetchOrders, fetchCharges, fetchStatsData, fetchRecurringCustomers]);
 
   useEffect(() => {

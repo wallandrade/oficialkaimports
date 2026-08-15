@@ -5,9 +5,12 @@ import { applyGenericShipmentItemName, buildConsolidatedQuotePackage } from "./e
 import {
   appendStatusHistory,
   classifyEnvioEcomTrackingGroup,
+  extractStatusHistoryFromShipment,
   hasEnvioEcomLabelReady,
   isOpenEnvioEcomTrackingStatus,
   isProvisionalBarcode,
+  mergeEnvioEcomHistory,
+  resolveStatusAfterLabelGenerated,
   shouldMarkCompletedFromStatus,
   shouldMarkEnviadoFromStatus,
 } from "./envioecom-status";
@@ -115,4 +118,79 @@ test("board classifica status em grupos de rastreio", () => {
   assert.equal(classifyEnvioEcomTrackingGroup("Cancelado"), "cancelled");
   assert.equal(isOpenEnvioEcomTrackingStatus("Postado"), true);
   assert.equal(isOpenEnvioEcomTrackingStatus("Entregue"), false);
+});
+
+test("parser junta cidade e unidade no evento de rastreio", () => {
+  const events = extractStatusHistoryFromShipment({
+    status_history: [
+      {
+        status: "Expedido - SN RAO",
+        cidade: "Ribeirão Preto",
+        description: "Expedido - SN RAO",
+        updated_at: "2026-08-14T13:00:00.000Z",
+      },
+      {
+        status: "Coletado",
+        location: { cidade: "Ribeirão Preto", unidade: "SN RAO" },
+        updated_at: "2026-08-14T12:00:00.000Z",
+      },
+    ],
+  });
+  assert.equal(events.length, 2);
+  assert.equal(events[0].status, "Expedido - SN RAO");
+  assert.equal(events[0].location, "Ribeirão Preto - SN RAO");
+  assert.equal(events[0].description, null);
+  assert.equal(events[1].location, "Ribeirão Preto - SN RAO");
+});
+
+test("historico com 2+ eventos substitui; 1 evento faz append", () => {
+  const current = [
+    { at: "2026-08-13T10:00:00.000Z", status: "Envio criado", location: null, description: null, barcode: "8880" },
+  ];
+  const replaced = mergeEnvioEcomHistory(current, [
+    { at: "2026-08-14T12:00:00.000Z", status: "Coletado", location: "Ribeirão Preto - SN RAO", barcode: "8880" },
+    { at: "2026-08-14T13:00:00.000Z", status: "Expedido - SN RAO", location: "Ribeirão Preto - SN RAO", barcode: "8880" },
+  ]);
+  assert.equal(replaced.length, 2);
+  assert.equal(replaced[1].status, "Expedido - SN RAO");
+
+  const appended = mergeEnvioEcomHistory(current, [
+    { at: "2026-08-14T12:00:00.000Z", status: "Coletado", location: "Ribeirão Preto - SN RAO", barcode: "8880" },
+  ]);
+  assert.equal(appended.length, 2);
+  assert.equal(appended[1].location, "Ribeirão Preto - SN RAO");
+});
+
+test("nao grava nota sintetica de consulta de rastreio", () => {
+  const current = [
+    { at: "2026-08-13T10:00:00.000Z", status: "Postado", location: null, description: null, barcode: "8880" },
+  ];
+  const merged = mergeEnvioEcomHistory(current, [], {
+    at: "2026-08-14T12:00:00.000Z",
+    status: "Postado",
+    description: "Status atualizado ao consultar rastreio",
+    barcode: "8880",
+  });
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].description, null);
+});
+
+test("gerar etiqueta promove Envio criado para Etiqueta emitida", () => {
+  assert.equal(resolveStatusAfterLabelGenerated("Envio criado"), "Etiqueta emitida");
+  assert.equal(resolveStatusAfterLabelGenerated(""), "Etiqueta emitida");
+  assert.equal(resolveStatusAfterLabelGenerated("DC-e emitida"), "DC-e emitida");
+  assert.equal(resolveStatusAfterLabelGenerated("Coletado"), "Coletado");
+  assert.equal(resolveStatusAfterLabelGenerated("Cancelado"), "Cancelado");
+});
+
+test("append preenche location vazia no mesmo status", () => {
+  const first = appendStatusHistory([], { at: "2026-08-13T12:00:00.000Z", status: "Expedido - SN RAO", barcode: "8880" });
+  const second = appendStatusHistory(first, {
+    at: "2026-08-13T12:01:00.000Z",
+    status: "Expedido - SN RAO",
+    location: "Ribeirão Preto - SN RAO",
+    barcode: "8880",
+  });
+  assert.equal(second.length, 1);
+  assert.equal(second[0].location, "Ribeirão Preto - SN RAO");
 });

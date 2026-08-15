@@ -1,6 +1,7 @@
 export type EnvioEcomHistoryEvent = {
   at: string;
   status: string;
+  location?: string | null;
   description?: string | null;
   barcode?: string | null;
 };
@@ -59,6 +60,15 @@ export function isLabelBlockedStatus(status: unknown): boolean {
   return normalized.includes("cancelad") || normalized.includes("aguardando pagamento");
 }
 
+export function resolveStatusAfterLabelGenerated(current: unknown): string {
+  const status = String(current || "").trim();
+  if (isLabelBlockedStatus(status)) return status || "Etiqueta emitida";
+  if (statusMatches(status, LABEL_READY_MARKERS) || shouldMarkEnviadoFromStatus(status)) {
+    return status;
+  }
+  return "Etiqueta emitida";
+}
+
 export function hasEnvioEcomLabelReady(input: {
   envioecomLabelUrl?: string | null;
   envioecomStatus?: string | null;
@@ -100,11 +110,147 @@ export function isOpenEnvioEcomTrackingStatus(status: unknown): boolean {
   return group !== "delivered" && group !== "cancelled";
 }
 
-export function appendStatusHistory(
+function asPlainRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function pickText(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (value == null || typeof value === "object") continue;
+    const text = String(value).trim();
+    if (text) return text;
+  }
+  return null;
+}
+
+function sameTrackingText(left: string | null | undefined, right: string | null | undefined): boolean {
+  const a = normalizeStatus(left);
+  const b = normalizeStatus(right);
+  return !!a && a === b;
+}
+
+function extractUnitSuffix(status: string): string | null {
+  const match = String(status || "").trim().match(/\s[-–]\s([A-Z]{1,4}\s[A-Z]{2,8})$/i);
+  return match ? match[1].replace(/\s+/g, " ").toUpperCase() : null;
+}
+
+function looksLikeCityOnly(text: string): boolean {
+  const normalized = normalizeStatus(text);
+  if (!normalized || normalized.length > 60) return false;
+  if (/(coleta|chave|dc-e|dce emit|emitid|postad|entreg|cancel|pagamento|consultando|atualizado ao consultar)/.test(normalized)) {
+    return false;
+  }
+  return /[a-z]/.test(normalized);
+}
+
+export function isSyntheticTrackingNote(text: unknown): boolean {
+  const normalized = normalizeStatus(text);
+  return normalized.includes("status atualizado ao consultar") || normalized.includes("consultando rastreio");
+}
+
+function firstLocationRecord(...values: unknown[]): Record<string, unknown> {
+  for (const value of values) {
+    const rec = asPlainRecord(value);
+    if (rec.cidade || rec.city || rec.unidade || rec.unit) return rec;
+  }
+  return {};
+}
+
+export function normalizeHistoryEvent(raw: unknown): EnvioEcomHistoryEvent | null {
+  const item = asPlainRecord(raw);
+  const nestedLocation = firstLocationRecord(item.location, item.local, item.localizacao);
+  const status = pickText(item.status, item.event, item.title, item.situacao, item.name);
+  if (!status) return null;
+
+  const city = pickText(
+    item.cidade,
+    item.city,
+    nestedLocation.cidade,
+    nestedLocation.city,
+    nestedLocation.name,
+  );
+  const unit = pickText(
+    item.unidade,
+    item.unit,
+    item.agency,
+    item.agencia,
+    nestedLocation.unidade,
+    nestedLocation.unit,
+    extractUnitSuffix(status),
+  );
+  let location = pickText(
+    typeof item.location === "object" ? null : item.location,
+    typeof item.local === "object" ? null : item.local,
+    typeof item.localizacao === "object" ? null : item.localizacao,
+    item.origin,
+    item.origem,
+  );
+  if (!location && city && unit && !normalizeStatus(city).includes(normalizeStatus(unit))) {
+    location = `${city} - ${unit}`;
+  } else if (!location && city) {
+    location = city;
+  }
+
+  let description = pickText(item.description, item.details, item.detail, item.observacao, item.message);
+  if (description && sameTrackingText(description, status)) description = null;
+  if (description && location && sameTrackingText(description, location)) description = null;
+  if (!location && description && looksLikeCityOnly(description) && !sameTrackingText(description, status)) {
+    location = unit && !normalizeStatus(description).includes(normalizeStatus(unit))
+      ? `${description} - ${unit}`
+      : description;
+    description = null;
+  }
+  if (location && sameTrackingText(location, status)) location = null;
+  if (isSyntheticTrackingNote(description)) description = null;
+
+  return {
+    at: pickText(item.updated_at, item.created_at, item.date, item.at, item.timestamp) || new Date().toISOString(),
+    status,
+    location: location || null,
+    description: description || null,
+    barcode: pickText(item.barcode),
+  };
+}
+
+export function extractStatusHistoryFromShipment(payload: unknown): EnvioEcomHistoryEvent[] {
+  const root = asPlainRecord(payload);
+  const nested = asPlainRecord(
+    root.data && typeof root.data === "object" && !Array.isArray(root.data)
+      ? root.data
+      : root.shipment && typeof root.shipment === "object" && !Array.isArray(root.shipment)
+        ? root.shipment
+        : root,
+  );
+  const raw = Array.isArray(nested.status_history)
+    ? nested.status_history
+    : Array.isArray(nested.events)
+      ? nested.events
+      : Array.isArray(root.status_history)
+        ? root.status_history
+        : [];
+  const events: EnvioEcomHistoryEvent[] = [];
+  for (const row of raw) {
+    const event = normalizeHistoryEvent(row);
+    if (event) events.push(event);
+  }
+  return events.slice(-30);
+}
+
+export function mergeEnvioEcomHistory(
   current: unknown,
-  event: EnvioEcomHistoryEvent,
+  incoming: EnvioEcomHistoryEvent[] | null | undefined,
+  fallback?: EnvioEcomHistoryEvent | null,
   limit = 30,
 ): EnvioEcomHistoryEvent[] {
+  if (incoming && incoming.length >= 2) return incoming.slice(-limit);
+  if (incoming && incoming.length === 1) return appendStatusHistory(current, incoming[0], limit);
+  if (fallback && fallback.status && !isSyntheticTrackingNote(fallback.description)) {
+    return appendStatusHistory(current, fallback, limit);
+  }
+  return parseStoredHistory(current).slice(-limit);
+}
+
+function parseStoredHistory(current: unknown): EnvioEcomHistoryEvent[] {
   const parsed = Array.isArray(current)
     ? current
     : typeof current === "string"
@@ -127,19 +273,38 @@ export function appendStatusHistory(
     history.push({
       at,
       status,
+      location: item.location ? String(item.location) : null,
       description: item.description ? String(item.description) : null,
       barcode: item.barcode ? String(item.barcode) : null,
     });
   }
+  return history;
+}
+
+export function appendStatusHistory(
+  current: unknown,
+  event: EnvioEcomHistoryEvent,
+  limit = 30,
+): EnvioEcomHistoryEvent[] {
+  const history = parseStoredHistory(current);
+  if (!event?.status) return history.slice(-limit);
 
   const last = history[history.length - 1];
   if (last && last.status === event.status && last.barcode === (event.barcode || null)) {
+    if (!last.location && event.location) {
+      history[history.length - 1] = {
+        ...last,
+        location: event.location,
+        description: event.description ?? last.description,
+      };
+    }
     return history.slice(-limit);
   }
 
   history.push({
     at: event.at,
     status: event.status,
+    location: event.location || null,
     description: event.description || null,
     barcode: event.barcode || null,
   });

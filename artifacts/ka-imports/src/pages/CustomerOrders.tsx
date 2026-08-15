@@ -8,6 +8,13 @@ import { toast } from "sonner";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+type TrackingEvent = {
+  at?: string;
+  status?: string;
+  location?: string | null;
+  description?: string | null;
+};
+
 type CustomerOrder = {
   id: string;
   total: number;
@@ -23,10 +30,11 @@ type CustomerOrder = {
   insuranceAmount?: number;
   shippingType?: string;
   trackingCode?: string | null;
+  envioecomShipmentId?: number | null;
   envioecomStatus?: string | null;
   envioecomDeliveryMode?: string | null;
   envioecomBarcode?: string | null;
-  envioecomStatusHistory?: Array<{ at?: string; status?: string; description?: string | null }>;
+  envioecomStatusHistory?: TrackingEvent[];
 };
 
 type AccountSection = "orders" | "affiliate" | "raffle";
@@ -113,6 +121,61 @@ function getStatusIcon(status: string) {
   }
 }
 
+function normalizeTrackingText(value?: string | null): string {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function isOpenEnvioEcomTracking(status?: string | null): boolean {
+  const normalized = normalizeTrackingText(status);
+  if (!normalized) return true;
+  return !normalized.includes("cancelad") && !normalized.includes("entregue");
+}
+
+function hasEnvioEcomTracking(order: CustomerOrder): boolean {
+  return !!(order.envioecomShipmentId || order.envioecomBarcode || order.envioecomStatus);
+}
+
+function usefulTrackingLocation(event: TrackingEvent): string | null {
+  const location = String(event.location || "").trim();
+  if (!location) return null;
+  if (normalizeTrackingText(location) === normalizeTrackingText(event.status)) return null;
+  return location;
+}
+
+function usefulTrackingDescription(event: TrackingEvent): string | null {
+  const description = String(event.description || "").trim();
+  if (!description) return null;
+  const normalized = normalizeTrackingText(description);
+  if (normalized.includes("status atualizado ao consultar") || normalized.includes("consultando rastreio")) return null;
+  if (normalized === normalizeTrackingText(event.status) || normalized === normalizeTrackingText(event.location)) return null;
+  return description;
+}
+
+function TrackingTimeline({ events }: { events: TrackingEvent[] }) {
+  const items = [...events].reverse();
+  if (!items.length) return null;
+  return (
+    <div className="mt-3 space-y-2 max-h-64 overflow-y-auto">
+      {items.map((event, index) => {
+        const location = usefulTrackingLocation(event);
+        const description = usefulTrackingDescription(event);
+        return (
+          <div key={`${event.at}-${event.status}-${index}`} className="border-l-2 border-emerald-300 pl-3 py-1">
+            <p className="text-sm font-semibold text-foreground">{event.status}</p>
+            {location && <p className="text-xs text-muted-foreground">{location}</p>}
+            {description && <p className="text-xs text-muted-foreground">{description}</p>}
+            {event.at && <p className="text-[11px] text-muted-foreground">{formatDateBR(event.at)}</p>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function CustomerOrders() {
   const [, setLocation] = useLocation();
   const [loading, setLoading] = useState(true);
@@ -125,14 +188,7 @@ export default function CustomerOrders() {
   const [isSavingPixel, setIsSavingPixel] = useState(false);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
   const [loadingDetails, setLoadingDetails] = useState<string | null>(null);
-  const [trackingOrderId, setTrackingOrderId] = useState<string | null>(null);
-  const [trackingLoading, setTrackingLoading] = useState(false);
-  const [tracking, setTracking] = useState<{
-    envioecomStatus: string | null;
-    deliveryMode: string | null;
-    barcode: string | null;
-    history: Array<{ at?: string; status?: string; description?: string | null }>;
-  } | null>(null);
+  const [refreshingTrackingId, setRefreshingTrackingId] = useState<string | null>(null);
 
   const affiliateSummary = useMemo(() => {
     return affiliateData?.summary || {
@@ -212,6 +268,67 @@ export default function CustomerOrders() {
       active = false;
     };
   }, [setLocation]);
+
+  const openTrackingKey = useMemo(
+    () => orders
+      .filter((order) => hasEnvioEcomTracking(order) && isOpenEnvioEcomTracking(order.envioecomStatus))
+      .map((order) => order.id)
+      .sort()
+      .join(","),
+    [orders],
+  );
+
+  useEffect(() => {
+    if (loading || !openTrackingKey) return;
+    let cancelled = false;
+
+    async function syncOpenTracking() {
+      try {
+        const res = await fetch(`${BASE}/api/me/orders/tracking-sync`, {
+          method: "POST",
+          headers: getCustomerAuthHeaders(),
+          body: JSON.stringify({}),
+        });
+        if (!res.ok) return;
+        const data = await res.json() as {
+          orders?: Array<{
+            id: string;
+            enviado?: boolean;
+            status?: string;
+            envioecomStatus?: string | null;
+            envioecomDeliveryMode?: string | null;
+            envioecomBarcode?: string | null;
+            trackingCode?: string | null;
+            envioecomStatusHistory?: TrackingEvent[];
+          }>;
+        };
+        if (cancelled || !Array.isArray(data.orders) || !data.orders.length) return;
+        setOrders((prev) => prev.map((item) => {
+          const next = data.orders?.find((order) => order.id === item.id);
+          if (!next) return item;
+          return {
+            ...item,
+            enviado: next.enviado ?? item.enviado,
+            status: next.status || item.status,
+            envioecomStatus: next.envioecomStatus ?? item.envioecomStatus,
+            envioecomDeliveryMode: next.envioecomDeliveryMode ?? item.envioecomDeliveryMode,
+            envioecomBarcode: next.envioecomBarcode ?? item.envioecomBarcode,
+            trackingCode: next.trackingCode ?? item.trackingCode,
+            envioecomStatusHistory: next.envioecomStatusHistory ?? item.envioecomStatusHistory,
+          };
+        }));
+      } catch {
+        // soft-sync: a lista local continua válida
+      }
+    }
+
+    void syncOpenTracking();
+    const timer = window.setInterval(() => void syncOpenTracking(), 120_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [loading, openTrackingKey]);
 
   function handleLogout() {
     clearCustomerToken();
@@ -302,15 +419,8 @@ export default function CustomerOrders() {
     }
   }
 
-  async function handleOpenTracking(order: CustomerOrder) {
-    setTrackingOrderId(order.id);
-    setTracking({
-      envioecomStatus: order.envioecomStatus || null,
-      deliveryMode: order.envioecomDeliveryMode || null,
-      barcode: order.envioecomBarcode || order.trackingCode || null,
-      history: order.envioecomStatusHistory || [],
-    });
-    setTrackingLoading(true);
+  async function handleRefreshTracking(order: CustomerOrder) {
+    setRefreshingTrackingId(order.id);
     try {
       const res = await fetch(`${BASE}/api/me/orders/${order.id}/tracking`, {
         headers: getCustomerAuthHeaders(),
@@ -320,14 +430,8 @@ export default function CustomerOrders() {
         envioecomStatus?: string | null;
         deliveryMode?: string | null;
         barcode?: string | null;
-        history?: Array<{ at?: string; status?: string; description?: string | null }>;
+        history?: TrackingEvent[];
       };
-      setTracking({
-        envioecomStatus: data.envioecomStatus || null,
-        deliveryMode: data.deliveryMode || null,
-        barcode: data.barcode || null,
-        history: data.history || [],
-      });
       setOrders((prev) => prev.map((item) => item.id === order.id ? {
         ...item,
         envioecomStatus: data.envioecomStatus || item.envioecomStatus,
@@ -339,7 +443,7 @@ export default function CustomerOrders() {
     } catch {
       toast.error("Não foi possível atualizar o rastreio agora.");
     } finally {
-      setTrackingLoading(false);
+      setRefreshingTrackingId(null);
     }
   }
 
@@ -489,6 +593,25 @@ export default function CustomerOrders() {
                             </div>
                           </div>
 
+                          {hasEnvioEcomTracking(order) && (
+                            <div className="mb-4 pb-4 border-t border-border/50 pt-4">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-xs uppercase tracking-wide text-muted-foreground font-medium">Rastreio</p>
+                                {(order.envioecomBarcode || order.trackingCode) && (
+                                  <p className="text-xs font-mono text-muted-foreground">{order.envioecomBarcode || order.trackingCode}</p>
+                                )}
+                              </div>
+                              {order.envioecomDeliveryMode && (
+                                <p className="text-xs text-muted-foreground mt-1">{order.envioecomDeliveryMode}</p>
+                              )}
+                              {(order.envioecomStatusHistory || []).length > 0 ? (
+                                <TrackingTimeline events={order.envioecomStatusHistory || []} />
+                              ) : (
+                                <p className="text-sm font-semibold text-foreground mt-2">{displaySituation}</p>
+                              )}
+                            </div>
+                          )}
+
                           {/* Actions */}
                           <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-border/50">
                             <Button
@@ -507,15 +630,20 @@ export default function CustomerOrders() {
                               <MessageCircle className="w-3.5 h-3.5 mr-1.5" />
                               Suporte
                             </Button>
-                            {(order.enviado || order.status === "completed" || order.envioecomStatus || order.trackingCode) && (
+                            {(order.enviado || order.status === "completed" || hasEnvioEcomTracking(order) || order.trackingCode) && (
                               <Button
                                 variant="outline"
                                 size="sm"
                                 className="rounded-lg text-xs"
-                                onClick={() => void handleOpenTracking(order)}
+                                onClick={() => void handleRefreshTracking(order)}
+                                disabled={refreshingTrackingId === order.id}
                               >
-                                <Truck className="w-3.5 h-3.5 mr-1.5" />
-                                Rastrear
+                                {refreshingTrackingId === order.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                                ) : (
+                                  <Truck className="w-3.5 h-3.5 mr-1.5" />
+                                )}
+                                Atualizar rastreio
                               </Button>
                             )}
                             <Button
@@ -568,7 +696,7 @@ export default function CustomerOrders() {
                               {(order.envioecomStatus || order.envioecomBarcode || order.trackingCode) && (
                                 <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-100">
                                   <p className="text-sm font-semibold text-emerald-900 mb-1">Envio / Rastreio</p>
-                                  <p className="text-sm text-emerald-900">{order.envioecomStatus || "Em preparação"}</p>
+                                  <p className="text-sm font-semibold text-emerald-900">{order.envioecomStatus || "Em preparação"}</p>
                                   {order.envioecomDeliveryMode && <p className="text-xs text-emerald-800">{order.envioecomDeliveryMode}</p>}
                                   {(order.envioecomBarcode || order.trackingCode) && (
                                     <p className="text-xs font-mono text-emerald-800 mt-1">{order.envioecomBarcode || order.trackingCode}</p>
@@ -700,33 +828,6 @@ export default function CustomerOrders() {
           </div>
         </div>
       </div>
-      {trackingOrderId && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setTrackingOrderId(null)}>
-          <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-xl max-h-[80vh] overflow-auto" onClick={(event) => event.stopPropagation()}>
-            <p className="text-sm font-semibold mb-1">Rastreio do pedido</p>
-            {trackingLoading && <p className="text-xs text-muted-foreground mb-2">Atualizando...</p>}
-            <p className="text-sm">{tracking?.envioecomStatus || "Ainda sem atualização de transportadora."}</p>
-            {tracking?.deliveryMode && <p className="text-xs text-muted-foreground mt-1">{tracking.deliveryMode}</p>}
-            {tracking?.barcode && <p className="text-xs font-mono mt-1">{tracking.barcode}</p>}
-            <div className="mt-4 space-y-2">
-              {(tracking?.history || []).length === 0 ? (
-                <p className="text-xs text-muted-foreground">Sem histórico ainda.</p>
-              ) : (
-                (tracking?.history || []).slice().reverse().map((event, index) => (
-                  <div key={`${event.at}-${index}`} className="border-l-2 border-emerald-300 pl-3 py-1">
-                    <p className="text-sm font-medium">{event.status}</p>
-                    {event.description && <p className="text-xs text-muted-foreground">{event.description}</p>}
-                    {event.at && <p className="text-[11px] text-muted-foreground">{formatDateBR(event.at)}</p>}
-                  </div>
-                ))
-              )}
-            </div>
-            <div className="mt-4 flex justify-end">
-              <Button size="sm" variant="outline" onClick={() => setTrackingOrderId(null)}>Fechar</Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

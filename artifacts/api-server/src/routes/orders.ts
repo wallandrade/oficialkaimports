@@ -1339,7 +1339,9 @@ router.post("/orders", async (req, res) => {
     }, { tenantId });
 
     res.status(201).json({
-      id, client, address: address || null, products: orderProducts, shippingType,
+      id,
+      orderNumber: assignedOrderNumber,
+      client, address: address || null, products: orderProducts, shippingType,
       includeInsurance: Boolean(includeInsurance),
       subtotal: computedSubtotal,
       shippingCost: computedShippingCost,

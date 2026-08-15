@@ -67,6 +67,12 @@ function formatPhone(value: string) {
   return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
 }
 
+function formatCheckoutOrderNumber(order: { id: string; orderNumber?: number | null }): string {
+  const numeric = Number(order.orderNumber);
+  if (Number.isFinite(numeric) && numeric > 0) return String(Math.trunc(numeric));
+  return order.id;
+}
+
 function pluralizeUnit(unit: string, qty: number): string {
   if (qty <= 1) return unit;
   const map: Record<string, string> = {
@@ -165,11 +171,12 @@ export default function Checkout() {
   const [motoboySlotsLoading, setMotoboySlotsLoading] = useState(false);
   const [includeInsurance, setIncludeInsurance] = useState(false);
   const [showCardModal, setShowCardModal] = useState(false);
-  const [whatsappModalData, setWhatsappModalData] = useState<{ url: string; orderId: string } | null>(null);
+  const [whatsappModalData, setWhatsappModalData] = useState<{ url: string; displayNumber: string } | null>(null);
   const [isOpeningWhatsApp, setIsOpeningWhatsApp] = useState(false);
   const [cardModalStep, setCardModalStep] = useState<"card_pricing" | "kyc_notice" | "installments" | "kyc_link">("card_pricing");
   const [installments, setInstallments] = useState(1);
   const [kycOrderId, setKycOrderId] = useState("");
+  const [kycOrderDisplay, setKycOrderDisplay] = useState("");
   const [kycWhatsAppUrl, setKycWhatsAppUrl] = useState("");
   const [kycVerified, setKycVerified] = useState(false);
   const [cpfDisplay, setCpfDisplay] = useState("");
@@ -452,7 +459,7 @@ export default function Checkout() {
         throw error;
       }
 
-      return result as { id: string };
+      return result as { id: string; orderNumber?: number | null };
     } finally {
       setIsCreatingOrder(false);
     }
@@ -1129,7 +1136,7 @@ export default function Checkout() {
                   <CheckCircle2 className="w-8 h-8 text-green-600" />
                 </div>
 
-                <h2 className="text-2xl font-bold mb-2">Pedido #{whatsappModalData.orderId} criado!</h2>
+                <h2 className="text-2xl font-bold mb-2">Pedido #{whatsappModalData.displayNumber} criado!</h2>
                 <p className="text-muted-foreground mb-6">
                   Seu pedido foi criado com sucesso. Agora, clique no botão abaixo para solicitar a chave PIX ao vendedor.
                 </p>
@@ -1391,6 +1398,7 @@ export default function Checkout() {
       if (!cartAvailable) return;
 
       setKycOrderId("");
+      setKycOrderDisplay("");
       setKycWhatsAppUrl("");
       setKycVerified(false);
       // Check if this CPF already has an approved KYC
@@ -1516,7 +1524,7 @@ export default function Checkout() {
           `💵 *TOTAL: ${formatCurrency(payableTotal)}*\n\n` +
           `━━━━━━━━━━━━━━━━━━`
         : `Olá! Quero finalizar meu pedido.\n\n` +
-          `Pedido: #${order.id}\n` +
+          `Pedido: #${formatCheckoutOrderNumber(order)}\n` +
           `Cliente: ${data.name}\n` +
           `Telefone: ${data.phone}\n` +
           `CPF: ${data.document}\n` +
@@ -1540,8 +1548,8 @@ export default function Checkout() {
       const waUrl = `https://wa.me/${sellerWhatsApp}?text=${encodeURIComponent(message)}`;
 
       // Store modal data to show confirmation dialog
-      setWhatsappModalData({ url: waUrl, orderId: order.id });
-      toast.success(`Pedido #${order.id} criado com sucesso!`);
+      setWhatsappModalData({ url: waUrl, displayNumber: formatCheckoutOrderNumber(order) });
+      toast.success(`Pedido #${formatCheckoutOrderNumber(order)} criado com sucesso!`);
       priceSyncRetryCountRef.current.whatsapp = 0;
       clearCart();
       setIsOpen(false);
@@ -1635,7 +1643,7 @@ export default function Checkout() {
 
       const message =
         `💳 *Pedido via Cartão — KA Imports*\n\n` +
-        `*Nº do Pedido:* ${order.id}\n` +
+        `*Nº do Pedido:* ${formatCheckoutOrderNumber(order)}\n` +
         `*Cliente:* ${data.name}\n` +
         `*CPF:* ${data.document}\n` +
         `*Telefone:* ${data.phone}\n` +
@@ -1660,6 +1668,7 @@ export default function Checkout() {
       }
       const waUrl = `https://wa.me/${sellerWhatsApp}?text=${encodeURIComponent(message)}`;
       setKycOrderId(order.id);
+      setKycOrderDisplay(formatCheckoutOrderNumber(order));
       setKycWhatsAppUrl(waUrl);
       setCardModalStep("kyc_link");
       priceSyncRetryCountRef.current.card = 0;
@@ -2904,7 +2913,7 @@ export default function Checkout() {
                 {cardModalStep === "kyc_link" && kycVerified && (
                   <>
                     <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center space-y-1">
-                      <p className="text-sm font-bold text-green-800">✅ Pedido #{kycOrderId} registrado!</p>
+                      <p className="text-sm font-bold text-green-800">✅ Pedido #{kycOrderDisplay || kycOrderId} registrado!</p>
                       <p className="text-sm text-green-700 leading-relaxed">
                         Sua identidade já foi verificada. A vendedora vai entrar em contato pelo WhatsApp para concluir sua compra.
                       </p>
@@ -2927,7 +2936,7 @@ export default function Checkout() {
                 {cardModalStep === "kyc_link" && !kycVerified && (
                   <>
                     <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
-                      <p className="text-sm font-bold text-green-800 mb-1">✅ Pedido #{kycOrderId} criado!</p>
+                      <p className="text-sm font-bold text-green-800 mb-1">✅ Pedido #{kycOrderDisplay || kycOrderId} criado!</p>
                       <p className="text-sm text-green-700">
                         Agora você precisa completar o KYC para que seu pedido seja processado.
                       </p>
@@ -2998,7 +3007,7 @@ export default function Checkout() {
               <CheckCircle2 className="w-8 h-8 text-green-600" />
             </div>
             
-            <h2 className="text-2xl font-bold mb-2">Pedido #{whatsappModalData.orderId} criado!</h2>
+            <h2 className="text-2xl font-bold mb-2">Pedido #{whatsappModalData.displayNumber} criado!</h2>
             <p className="text-muted-foreground mb-6">
               Seu pedido foi criado com sucesso. Agora, clique no botão abaixo para solicitar a chave PIX ao vendedor.
             </p>
