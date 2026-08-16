@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-16 | Histórico de rastreio na Minha conta mostra o evento mais recente no topo | Ordena por data, não `.reverse()` cego | API/BD do histórico inalterados |
 | 2026-08-16 | Minha conta traduz status EnvioEcom (etiqueta/pronto) para “Estamos embalando seu pedido” | Só UI do cliente; hint de despacho | Admin/BD continuam com o status técnico |
 | 2026-08-16 | Clique na foto do saldo de estoque abre zoom (lightbox) | Identificar embalagem sem sair da lista | API de inventário inalterada |
 | 2026-08-16 | Busca de produto em Estoque/Reenvios mostra foto (não usa mais `datalist`) | Igual ao saldo; clique escolhe o item | API de entrada/saída inalterada |
@@ -105,7 +106,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 ## Cliente final
 
 - Conta: `/login`, `/minha-conta/pedidos` (customer auth Bearer in-memory no processo do server). O card de Meus pedidos mostra `orderNumber` (#1831), não o UUID; fallback no `id` só se não houver número. WhatsApp de suporte do card usa o mesmo número. APIs de tracking/detalhe continuam com `id`.
-- Rastreio EnvioEcom na Minha conta: a **Situação**, o bloco Envio/Rastreio e os títulos do histórico traduzem o `envioecomStatus` só na tela (`toCustomerFriendlyShippingLabel`): Pronto para envio / etiqueta / processando / DC-e / envio criado / aguardando postagem → “Estamos embalando seu pedido” + hint “Em breve ele será despachado…”. Aguardando pagamento → “Preparando envio”; saiu para entrega/em rota → “Saiu para entrega”; entregue → “Entregue”; demais textos originais. Admin e colunas `envioecom_*` continuam com o status técnico. Eventos do `status_history` aparecem no card (`location` e descrição técnica); `POST /api/me/orders/tracking-sync` ao abrir a lista e a cada ~2 min nos abertos; botão Atualizar rastreio chama `GET /api/me/orders/:id/tracking`.
+- Rastreio EnvioEcom na Minha conta: a **Situação**, o bloco Envio/Rastreio e os títulos do histórico traduzem o `envioecomStatus` só na tela (`toCustomerFriendlyShippingLabel`): Pronto para envio / etiqueta / processando / DC-e / envio criado / aguardando postagem → “Estamos embalando seu pedido” + hint “Em breve ele será despachado…”. Aguardando pagamento → “Preparando envio”; saiu para entrega/em rota → “Saiu para entrega”; entregue → “Entregue”; demais textos originais. Admin e colunas `envioecom_*` continuam com o status técnico. Eventos do `status_history` aparecem no card (`location` e descrição técnica), **mais recente no topo** (ordena por `at`); `POST /api/me/orders/tracking-sync` ao abrir a lista e a cada ~2 min nos abertos; botão Atualizar rastreio chama `GET /api/me/orders/:id/tracking`.
 - Senha de site / payment gate no FE (`SitePasswordGate`) — não confundir com auth admin.
 
 ## Decisões pendentes

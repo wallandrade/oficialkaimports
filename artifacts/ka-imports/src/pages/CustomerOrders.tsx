@@ -208,8 +208,24 @@ function usefulTrackingDescription(event: TrackingEvent): string | null {
   return description;
 }
 
+function trackingEventTime(event: TrackingEvent): number {
+  const parsed = Date.parse(String(event.at || ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function sortTrackingEventsNewestFirst(events: TrackingEvent[]): TrackingEvent[] {
+  return events
+    .map((event, index) => ({ event, index }))
+    .sort((a, b) => {
+      const delta = trackingEventTime(b.event) - trackingEventTime(a.event);
+      if (delta !== 0) return delta;
+      return a.index - b.index;
+    })
+    .map(({ event }) => event);
+}
+
 function TrackingTimeline({ events }: { events: TrackingEvent[] }) {
-  const items = [...events].reverse();
+  const items = sortTrackingEventsNewestFirst(events);
   if (!items.length) return null;
   return (
     <div className="mt-3 space-y-2 max-h-64 overflow-y-auto">
