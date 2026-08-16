@@ -12122,12 +12122,18 @@ function InventoryPanel({
   };
 
   const normalizedBalanceSearch = balanceSearch.trim().toLowerCase();
-  const filteredBalances = normalizedBalanceSearch
+  const filteredBalances = (normalizedBalanceSearch
     ? balances.filter((row) => {
         const productName = String(row.productName || "").toLowerCase();
         return productName.includes(normalizedBalanceSearch);
       })
-    : balances;
+    : balances
+  ).slice().sort((a, b) => {
+    const aPositive = Number(a.quantity) > 0 ? 1 : 0;
+    const bPositive = Number(b.quantity) > 0 ? 1 : 0;
+    if (aPositive !== bPositive) return bPositive - aPositive;
+    return String(a.productName || "").localeCompare(String(b.productName || ""), "pt-BR");
+  });
 
   const onFillManualReturnEntry = () => {
     const clientName = String(manualReturnDraft.clientName || "").trim();
