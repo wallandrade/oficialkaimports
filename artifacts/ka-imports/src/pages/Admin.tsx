@@ -11849,18 +11849,85 @@ function InventoryProductThumb({
   name,
   image,
   size = "h-8 w-8",
+  onPreview,
 }: {
   name: string;
   image?: string | null;
   size?: string;
+  onPreview?: () => void;
 }) {
   if (image) {
-    return <img src={image} alt={name} className={`${size} rounded-md object-cover shrink-0 border border-border`} loading="lazy" />;
+    if (!onPreview) {
+      return <img src={image} alt={name} className={`${size} rounded-md object-cover shrink-0 border border-border`} loading="lazy" />;
+    }
+    return (
+      <button
+        type="button"
+        title="Ampliar foto"
+        className={`${size} rounded-md overflow-hidden shrink-0 border border-border cursor-zoom-in p-0`}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onPreview();
+        }}
+      >
+        <img src={image} alt={name} className="h-full w-full object-cover" loading="lazy" />
+      </button>
+    );
   }
   return (
     <div className={`${size} rounded-md bg-muted shrink-0 border border-border flex items-center justify-center`}>
       <IconLucide name="Package" className="w-4 h-4 text-muted-foreground" />
     </div>
+  );
+}
+
+function InventoryImageLightbox({
+  preview,
+  onClose,
+}: {
+  preview: { src: string; name: string } | null;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    if (!preview) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [preview, onClose]);
+
+  return (
+    <AnimatePresence>
+      {preview && (
+        <motion.div
+          className="fixed inset-0 z-[120] bg-black/70 backdrop-blur-[1px] p-4 sm:p-8 flex items-center justify-center"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={onClose}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96, y: 6 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: 6 }}
+            transition={{ duration: 0.18, ease: "easeOut" }}
+            onClick={(event) => event.stopPropagation()}
+            className="max-w-[94vw] rounded-2xl border border-white/20 bg-white p-2 shadow-2xl"
+          >
+            <img
+              src={preview.src}
+              alt={`Prévia ${preview.name}`}
+              className="max-h-[78vh] w-auto max-w-[90vw] rounded-xl object-contain"
+            />
+            <p className="px-2 pt-2 pb-1 text-xs font-medium text-muted-foreground truncate max-w-[86vw]">
+              {preview.name}
+            </p>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -12013,6 +12080,7 @@ function InventoryPanel({
   const [entryProductQuery, setEntryProductQuery] = useState("");
   const [manualProductQuery, setManualProductQuery] = useState("");
   const [balanceSearch, setBalanceSearch] = useState("");
+  const [imagePreview, setImagePreview] = useState<{ src: string; name: string } | null>(null);
   const [reshipmentActionLoading, setReshipmentActionLoading] = useState<Record<string, boolean>>({});
   const [manualReturnDraft, setManualReturnDraft] = useState({
     clientName: "",
@@ -12363,7 +12431,11 @@ function InventoryPanel({
                   return (
                     <div key={row.productId} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 gap-2">
                       <div className="flex items-center gap-2 min-w-0">
-                        <InventoryProductThumb name={row.productName} image={prod?.image} />
+                        <InventoryProductThumb
+                          name={row.productName}
+                          image={prod?.image}
+                          onPreview={prod?.image ? () => setImagePreview({ src: String(prod.image), name: row.productName }) : undefined}
+                        />
                         <span className="text-sm truncate">{row.productName}</span>
                       </div>
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border shrink-0 ${row.quantity > 0 ? "bg-green-100 text-green-800 border-green-200" : "bg-red-100 text-red-700 border-red-200"}`}>
@@ -12535,6 +12607,7 @@ function InventoryPanel({
           </div>
         )}
       </div>
+      <InventoryImageLightbox preview={imagePreview} onClose={() => setImagePreview(null)} />
     </div>
   );
 }

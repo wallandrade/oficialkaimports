@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-16 | Clique na foto do saldo de estoque abre zoom (lightbox) | Identificar embalagem sem sair da lista | API de inventário inalterada |
 | 2026-08-16 | Busca de produto em Estoque/Reenvios mostra foto (não usa mais `datalist`) | Igual ao saldo; clique escolhe o item | API de entrada/saída inalterada |
 | 2026-08-16 | Minha conta mostra `orderNumber` (#1831), não o UUID | Card e WhatsApp de suporte iguais ao admin | Rotas `/api/me/orders/:id` continuam com `id` |
 | 2026-08-16 | Create EnvioEcom recusa CPF/telefone/e-mail inválidos no pedido (não envia CPF `000.000.000-00`) | Toast e log mostram o motivo | Cotação continua só com CEP/caixa |
@@ -90,7 +91,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 
 ## Estoque / reenvios / logística
 
-- Saldos e movimentos (`inventory_*`); entradas admin em `reshipments.ts`. Busca de produto na entrada, reenvio manual e “produto voltando” mostra a foto do catálogo (mesmo thumbnail do saldo).
+- Saldos e movimentos (`inventory_*`); entradas admin em `reshipments.ts`. Busca de produto na entrada, reenvio manual e “produto voltando” mostra a foto do catálogo (mesmo thumbnail do saldo). No **Saldo atual por produto**, clicar na miniatura abre a foto em zoom (Esc ou clique fora fecha).
 - Reenvios manuais/automáticos, retornos, alocações de logística, reservas motoboy (CEP/bairros).
 - Fila 48/72/96h só conta alocações `allocated`. Pedido com PDF EnvioEcom ou status de etiqueta/trânsito não volta para `allocated` no reconcile só porque `enviado` ainda é false. Exceção: status EnvioEcom **Cancelado** (e ainda não `enviado`) devolve à fila.
 
