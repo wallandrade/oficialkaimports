@@ -144,6 +144,50 @@ function isOpenEnvioEcomTracking(status?: string | null): boolean {
   return !normalized.includes("cancelad") && !normalized.includes("entregue");
 }
 
+function isPackingBeforePostStatus(status?: string | null): boolean {
+  const normalized = normalizeTrackingText(status);
+  if (!normalized) return false;
+  if (normalized.includes("cancelad") || normalized.includes("aguardando pagamento")) return false;
+  if (["coletado", "em transito", "postado", "saiu para entrega", "entregue"].some((marker) => normalized.includes(marker))) {
+    return false;
+  }
+  return [
+    "pronto para envio",
+    "etiqueta",
+    "processando envio",
+    "aguardando expedicao",
+    "dc-e",
+    "dce",
+    "envio criado",
+    "aguardando postagem",
+  ].some((marker) => normalized.includes(marker));
+}
+
+function toCustomerFriendlyShippingLabel(status?: string | null): string {
+  const raw = String(status || "").trim();
+  if (!raw) return raw;
+  const normalized = normalizeTrackingText(raw);
+  if (isPackingBeforePostStatus(raw)) return "Estamos embalando seu pedido";
+  if (normalized.includes("aguardando pagamento")) return "Preparando envio";
+  if (normalized.includes("saiu para entrega") || normalized.includes("em rota")) return "Saiu para entrega";
+  if (normalized.includes("entregue")) return "Entregue";
+  return raw;
+}
+
+function customerShippingHint(status?: string | null): string | null {
+  if (!isPackingBeforePostStatus(status)) return null;
+  return "Em breve ele será despachado. Aguarde a atualização do rastreio.";
+}
+
+function getCustomerSituation(order: CustomerOrder, displayStatus: string): string {
+  if (order.envioecomStatus) {
+    return toCustomerFriendlyShippingLabel(order.envioecomStatus);
+  }
+  if (displayStatus === "completed") return "Entregue";
+  if (displayStatus === "paid") return "Processando";
+  return statusLabel[displayStatus] || displayStatus;
+}
+
 function hasEnvioEcomTracking(order: CustomerOrder): boolean {
   return !!(order.envioecomShipmentId || order.envioecomBarcode || order.envioecomStatus);
 }
@@ -174,7 +218,7 @@ function TrackingTimeline({ events }: { events: TrackingEvent[] }) {
         const description = usefulTrackingDescription(event);
         return (
           <div key={`${event.at}-${event.status}-${index}`} className="border-l-2 border-emerald-300 pl-3 py-1">
-            <p className="text-sm font-semibold text-foreground">{event.status}</p>
+            <p className="text-sm font-semibold text-foreground">{toCustomerFriendlyShippingLabel(event.status) || event.status}</p>
             {location && <p className="text-xs text-muted-foreground">{location}</p>}
             {description && <p className="text-xs text-muted-foreground">{description}</p>}
             {event.at && <p className="text-[11px] text-muted-foreground">{formatDateBR(event.at)}</p>}
@@ -552,13 +596,8 @@ export default function CustomerOrders() {
                     <div className="space-y-3">
                       {orders.map((order) => {
                         const displayStatus = order.enviado ? "enviado" : order.status;
-                        const displaySituation = order.envioecomStatus
-                          ? order.envioecomStatus
-                          : displayStatus === "completed"
-                            ? "Entregue"
-                            : displayStatus === "paid"
-                              ? "Processando"
-                              : (statusLabel[displayStatus] || displayStatus);
+                        const displaySituation = getCustomerSituation(order, displayStatus);
+                        const packingHint = customerShippingHint(order.envioecomStatus);
                         const displayOrderId = getOrderDisplayId(order);
 
                         return (
@@ -618,6 +657,9 @@ export default function CustomerOrders() {
                                 <TrackingTimeline events={order.envioecomStatusHistory || []} />
                               ) : (
                                 <p className="text-sm font-semibold text-foreground mt-2">{displaySituation}</p>
+                              )}
+                              {packingHint && (
+                                <p className="text-xs text-muted-foreground mt-1">{packingHint}</p>
                               )}
                             </div>
                           )}
@@ -706,7 +748,10 @@ export default function CustomerOrders() {
                               {(order.envioecomStatus || order.envioecomBarcode || order.trackingCode) && (
                                 <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-100">
                                   <p className="text-sm font-semibold text-emerald-900 mb-1">Envio / Rastreio</p>
-                                  <p className="text-sm font-semibold text-emerald-900">{order.envioecomStatus || "Em preparação"}</p>
+                                  <p className="text-sm font-semibold text-emerald-900">
+                                    {toCustomerFriendlyShippingLabel(order.envioecomStatus) || "Em preparação"}
+                                  </p>
+                                  {packingHint && <p className="text-xs text-emerald-800 mt-1">{packingHint}</p>}
                                   {order.envioecomDeliveryMode && <p className="text-xs text-emerald-800">{order.envioecomDeliveryMode}</p>}
                                   {(order.envioecomBarcode || order.trackingCode) && (
                                     <p className="text-xs font-mono text-emerald-800 mt-1">{order.envioecomBarcode || order.trackingCode}</p>

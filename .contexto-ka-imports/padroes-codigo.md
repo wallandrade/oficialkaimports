@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-16 | Anti-padrão: mostrar “Pronto para envio” / “Etiqueta emitida” na Minha conta | Traduzir só no FE do cliente; admin fica técnico | Status EnvioEcom no BD inalterado |
 | 2026-08-16 | Anti-padrão: miniatura do saldo de estoque sem zoom | Clique abre lightbox (igual pedidos) | API de inventário inalterada |
 | 2026-08-16 | Anti-padrão: `datalist` nativo na busca de estoque (sem foto) | Combobox com `products[].image` igual ao saldo | API de inventário inalterada |
 | 2026-08-16 | Anti-padrão: UUID no card da Minha conta (`#{order.id}`) | Usar `orderNumber` como o admin | Rotas `/me/orders/:id` inalteradas |
@@ -112,6 +113,7 @@ Código > memória > suposições.
 - Enviar CPF placeholder `000.000.000-00` no create EnvioEcom, ou devolver 400 da EnvioEcom sem logar `message`/`details` e sem juntar `details` no toast.
 - Usar `<datalist>` nativo na busca de produto do estoque (não mostra foto); usar combobox com `products[].image` igual ao saldo.
 - Miniatura no **Saldo atual por produto** só como `<img>` sem clique; usar zoom/lightbox para identificar a embalagem.
+- Mostrar status técnico EnvioEcom (“Pronto para envio”, “Etiqueta emitida”) na Minha conta; traduzir só na UI do cliente (`isPackingBeforePostStatus` / `toCustomerFriendlyShippingLabel`). Admin e banco ficam iguais.
 
 ## Idioma
 
