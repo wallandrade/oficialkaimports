@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-16 | Anti-padrão: `datalist` nativo na busca de estoque (sem foto) | Combobox com `products[].image` igual ao saldo | API de inventário inalterada |
 | 2026-08-16 | Anti-padrão: UUID no card da Minha conta (`#{order.id}`) | Usar `orderNumber` como o admin | Rotas `/me/orders/:id` inalteradas |
 | 2026-08-16 | Anti-padrão: create EnvioEcom com CPF `000.000.000-00` e 400 sem log/`details` | Validar destinatário; logar erro; toast com `details` | Cotação/etiqueta inalteradas |
 | 2026-08-15 | Anti-padrão: editar pedido só com nome/endereço/itens e deixar telefone/e-mail/CPF só no card | `PATCH /admin/orders/:id/edit` persiste contato | Frete/seguro e conta do cliente inalterados |
@@ -108,6 +109,7 @@ Código > memória > suposições.
 - Esconder “Editar Pedido” da filial com `isPrimary`; pedidos já são isolados por tenant — usar `hasGlobalAccess` (primary e admin de filial).
 - Editar pedido sem persistir telefone, e-mail e CPF (`clientPhone` / `clientEmail` / `clientDocument`); não são só o card.
 - Enviar CPF placeholder `000.000.000-00` no create EnvioEcom, ou devolver 400 da EnvioEcom sem logar `message`/`details` e sem juntar `details` no toast.
+- Usar `<datalist>` nativo na busca de produto do estoque (não mostra foto); usar combobox com `products[].image` igual ao saldo.
 
 ## Idioma
 

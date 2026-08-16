@@ -11845,6 +11845,94 @@ function SupportTicketsPanel({
   );
 }
 
+function InventoryProductThumb({
+  name,
+  image,
+  size = "h-8 w-8",
+}: {
+  name: string;
+  image?: string | null;
+  size?: string;
+}) {
+  if (image) {
+    return <img src={image} alt={name} className={`${size} rounded-md object-cover shrink-0 border border-border`} loading="lazy" />;
+  }
+  return (
+    <div className={`${size} rounded-md bg-muted shrink-0 border border-border flex items-center justify-center`}>
+      <IconLucide name="Package" className="w-4 h-4 text-muted-foreground" />
+    </div>
+  );
+}
+
+function InventoryProductPicker({
+  products,
+  query,
+  selectedId,
+  onQueryChange,
+  onSelect,
+  placeholder,
+  inputClassName = "h-10",
+}: {
+  products: Array<{ id: string; name: string; image?: string | null }>;
+  query: string;
+  selectedId?: string;
+  onQueryChange: (value: string) => void;
+  onSelect: (product: { id: string; name: string; image?: string | null }) => void;
+  placeholder: string;
+  inputClassName?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = selectedId ? products.find((item) => item.id === selectedId) : products.find((item) => item.name.trim().toLowerCase() === query.trim().toLowerCase());
+  const normalized = query.trim().toLowerCase();
+  const matches = normalized
+    ? products.filter((item) => item.name.toLowerCase().includes(normalized)).slice(0, 12)
+    : [];
+
+  return (
+    <div className="relative">
+      <div className="relative">
+        {selected ? (
+          <div className="absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none">
+            <InventoryProductThumb name={selected.name} image={selected.image} size="h-6 w-6" />
+          </div>
+        ) : null}
+        <input
+          className={`${inputClassName} w-full rounded-lg border border-border text-sm bg-white ${selected ? "pl-10 pr-3" : "px-3"}`}
+          placeholder={placeholder}
+          value={query}
+          onChange={(e) => {
+            onQueryChange(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => { window.setTimeout(() => setOpen(false), 150); }}
+        />
+      </div>
+      {open && normalized.length > 0 && (
+        <div className="absolute top-full left-0 right-0 z-20 mt-1 bg-white border border-border rounded-lg shadow-lg max-h-56 overflow-y-auto">
+          {matches.length === 0 ? (
+            <p className="px-3 py-2 text-sm text-muted-foreground">Nenhum produto encontrado</p>
+          ) : matches.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className="w-full px-3 py-2 text-sm text-left hover:bg-muted/50 flex items-center gap-2"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                onSelect(item);
+                setOpen(false);
+              }}
+            >
+              <InventoryProductThumb name={item.name} image={item.image} />
+              <span className="truncate">{item.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function InventoryPanel({
   loading,
   products,
@@ -12109,18 +12197,17 @@ function InventoryPanel({
             <option value="exit">Saída</option>
           </select>
           <div className="md:col-span-2">
-            <input
-              list="inventory-entry-products"
-              className="h-10 w-full rounded-lg border border-border px-3 text-sm bg-white"
+            <InventoryProductPicker
+              products={products}
+              query={entryProductQuery}
+              selectedId={entryForm.productId}
               placeholder="Pesquise e selecione o produto"
-              value={entryProductQuery}
-              onChange={(e) => applyEntryProductQuery(e.target.value)}
+              onQueryChange={applyEntryProductQuery}
+              onSelect={(item) => {
+                setEntryProductQuery(item.name);
+                setEntryForm((prev) => ({ ...prev, productId: item.id }));
+              }}
             />
-            <datalist id="inventory-entry-products">
-              {products.map((p) => (
-                <option key={p.id} value={p.name} />
-              ))}
-            </datalist>
           </div>
           <input
             type="number"
@@ -12193,18 +12280,17 @@ function InventoryPanel({
           <input className="h-10 rounded-lg border border-border px-3 text-sm" placeholder="Cidade*" value={manualForm.addressCity} onChange={(e) => setManualForm((prev) => ({ ...prev, addressCity: e.target.value }))} />
           <input className="h-10 rounded-lg border border-border px-3 text-sm" placeholder="UF*" value={manualForm.addressState} onChange={(e) => setManualForm((prev) => ({ ...prev, addressState: e.target.value }))} />
           <div>
-            <input
-              list="inventory-manual-products"
-              className="h-10 w-full rounded-lg border border-border px-3 text-sm bg-white"
+            <InventoryProductPicker
+              products={products}
+              query={manualProductQuery}
+              selectedId={manualForm.productId}
               placeholder="Pesquise e selecione o produto*"
-              value={manualProductQuery}
-              onChange={(e) => applyManualProductQuery(e.target.value)}
+              onQueryChange={applyManualProductQuery}
+              onSelect={(item) => {
+                setManualProductQuery(item.name);
+                setManualForm((prev) => ({ ...prev, productId: item.id }));
+              }}
             />
-            <datalist id="inventory-manual-products">
-              {products.map((p) => (
-                <option key={p.id} value={p.name} />
-              ))}
-            </datalist>
           </div>
           <input
             type="number"
@@ -12277,13 +12363,7 @@ function InventoryPanel({
                   return (
                     <div key={row.productId} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 gap-2">
                       <div className="flex items-center gap-2 min-w-0">
-                        {prod?.image ? (
-                          <img src={prod.image} alt={row.productName} className="h-8 w-8 rounded-md object-cover shrink-0 border border-border" loading="lazy" />
-                        ) : (
-                          <div className="h-8 w-8 rounded-md bg-muted shrink-0 border border-border flex items-center justify-center">
-                            <IconLucide name="Package" className="w-4 h-4 text-muted-foreground" />
-                          </div>
-                        )}
+                        <InventoryProductThumb name={row.productName} image={prod?.image} />
                         <span className="text-sm truncate">{row.productName}</span>
                       </div>
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border shrink-0 ${row.quantity > 0 ? "bg-green-100 text-green-800 border-green-200" : "bg-red-100 text-red-700 border-red-200"}`}>
@@ -12314,12 +12394,13 @@ function InventoryPanel({
                 value={manualReturnDraft.returningOrder}
                 onChange={(e) => setManualReturnDraft((prev) => ({ ...prev, returningOrder: e.target.value }))}
               />
-              <input
-                list="inventory-manual-return-products"
-                className="h-9 rounded-lg border border-blue-200 px-3 text-sm bg-white"
+              <InventoryProductPicker
+                products={products}
+                query={manualReturnDraft.productName}
                 placeholder="Produto voltando"
-                value={manualReturnDraft.productName}
-                onChange={(e) => setManualReturnDraft((prev) => ({ ...prev, productName: e.target.value }))}
+                inputClassName="h-9 border-blue-200"
+                onQueryChange={(value) => setManualReturnDraft((prev) => ({ ...prev, productName: value }))}
+                onSelect={(item) => setManualReturnDraft((prev) => ({ ...prev, productName: item.name }))}
               />
               <input
                 type="number"
@@ -12329,11 +12410,6 @@ function InventoryPanel({
                 value={manualReturnDraft.quantity}
                 onChange={(e) => setManualReturnDraft((prev) => ({ ...prev, quantity: e.target.value }))}
               />
-              <datalist id="inventory-manual-return-products">
-                {products.map((p) => (
-                  <option key={`manual-return-${p.id}`} value={p.name} />
-                ))}
-              </datalist>
             </div>
             <div className="mt-2 flex justify-end gap-2">
               <Button size="sm" variant="outline" className="h-8" onClick={onAddManualReturnToQueue}>
