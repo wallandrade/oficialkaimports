@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-16 | Admin pode cancelar reenvio ativo (`reenvio_cancelado`) | Some da fila; pedido original/`enviado` iguais | Estoque só baixa em “Marcar Reenvio Enviado” |
 | 2026-08-16 | Saldo atual por produto lista estoque positivo primeiro | Busca continua por nome; zeros no fim | API de inventário inalterada |
 | 2026-08-16 | Histórico de rastreio na Minha conta mostra o evento mais recente no topo | Ordena por data, não `.reverse()` cego | API/BD do histórico inalterados |
 | 2026-08-16 | Minha conta traduz status EnvioEcom (etiqueta/pronto) para “Estamos embalando seu pedido” | Só UI do cliente; hint de despacho | Admin/BD continuam com o status técnico |
@@ -95,7 +96,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 ## Estoque / reenvios / logística
 
 - Saldos e movimentos (`inventory_*`); entradas admin em `reshipments.ts`. Busca de produto na entrada, reenvio manual e “produto voltando” mostra a foto do catálogo (mesmo thumbnail do saldo). No **Saldo atual por produto**, clicar na miniatura abre a foto em zoom (Esc ou clique fora fecha). A lista mostra saldo **positivo primeiro**, depois 0, e dentro de cada grupo ordena por nome.
-- Reenvios manuais/automáticos, retornos, alocações de logística, reservas motoboy (CEP/bairros).
+- Reenvios manuais/automáticos, retornos, alocações de logística, reservas motoboy (CEP/bairros). Status: aguardando estoque, pronto para envio, enviado, resolvido sem entrada, **cancelado**. No card do pedido ativo há **Cancelar Reenvio** (confirmação); some da fila “para enviar” e não dá baixa de estoque. “Cancelar Reenvio Enviado” continua só desfazendo o enviado. Pedido/`enviado` do envio original não mudam.
 - Fila 48/72/96h só conta alocações `allocated`. Pedido com PDF EnvioEcom ou status de etiqueta/trânsito não volta para `allocated` no reconcile só porque `enviado` ainda é false. Exceção: status EnvioEcom **Cancelado** (e ainda não `enviado`) devolve à fila.
 
 ## Rifas

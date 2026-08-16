@@ -139,6 +139,10 @@ function getOrderLogisticsBlock(order: any): string {
   ].join("\n");
 }
 
+function isClosedReshipmentStatus(status?: string | null): boolean {
+  return ["reenvio_enviado", "reenvio_resolvido_sem_entrada", "reenvio_cancelado"].includes(String(status || ""));
+}
+
 export function orderToText(order: any): string {
   const products = getOrderProducts(order?.products);
   const prioridadeLine = order?.isPrioridade ? "PRIORIDADE URGENTE" : "";
@@ -156,6 +160,7 @@ export function orderToText(order: any): string {
     : reshipmentStatus === "reenvio_pronto_para_envio" ? "✅ PRONTO PARA ENVIO"
     : reshipmentStatus === "reenvio_resolvido_sem_entrada" ? "🟦 RESOLVIDO SEM ENTRADA"
     : reshipmentStatus === "reenvio_enviado" ? "📦 ENVIADO"
+    : reshipmentStatus === "reenvio_cancelado" ? "⛔ CANCELADO"
     : "";
 
   const rua = [order?.addressStreet, order?.addressNumber].filter(Boolean).join(", ") || "-";
@@ -413,7 +418,7 @@ function supplierOrderContent(order: any): { addressBlock: string; resumoPedido:
     : "- Sem itens";
 
   const rua = [order?.addressStreet, order?.addressNumber].filter(Boolean).join(", ") || "-";
-  const isReshipment = Boolean(order?.reshipment?.id) && !["reenvio_enviado", "reenvio_resolvido_sem_entrada"].includes(String(order?.reshipment?.status || ""));
+  const isReshipment = Boolean(order?.reshipment?.id) && !isClosedReshipmentStatus(order?.reshipment?.status);
   const firstOrderDate = formatDateBR(order?.reshipment?.originalOrderCreatedAt || order?.createdAt) || "-";
   const reshipmentReason = String(order?.reshipment?.ticketDescription || "").trim();
   const reshipmentReasonText = reshipmentReason || "Nao informado no chamado";
@@ -1078,7 +1083,7 @@ interface ReshipmentRecord {
   source: "support" | "manual" | string;
   orderId: string | null;
   supportTicketId: string | null;
-  status: "reenvio_aguardando_estoque" | "reenvio_pronto_para_envio" | "reenvio_resolvido_sem_entrada" | "reenvio_enviado" | string;
+  status: "reenvio_aguardando_estoque" | "reenvio_pronto_para_envio" | "reenvio_resolvido_sem_entrada" | "reenvio_enviado" | "reenvio_cancelado" | string;
   clientName: string;
   clientPhone: string | null;
   clientDocument: string | null;
@@ -5995,7 +6000,7 @@ export default function Admin() {
   const revenue         = paidOrders.reduce((s, o) => s + Number(o.total), 0);
   const chargeRevenue   = charges.filter((c) => c.status === "paid").reduce((s, c) => s + Number(c.amount), 0);
   const isActiveReshipmentOrder = (order: AdminOrder): boolean => Boolean((order as { reshipment?: { id?: string; status?: string } }).reshipment?.id)
-    && !["reenvio_enviado", "reenvio_resolvido_sem_entrada"].includes(String((order as { reshipment?: { status?: string } }).reshipment?.status || ""));
+    && !isClosedReshipmentStatus((order as { reshipment?: { status?: string } }).reshipment?.status);
 
   const extractOriginalOrderIdFromObservation = (order: AdminOrder): string | null => {
     const raw = String(order.observation || "");
@@ -6900,6 +6905,8 @@ export default function Admin() {
                   } else {
                     toast.success("Reenvio marcado como enviado.");
                   }
+                } else if (status === "reenvio_cancelado") {
+                  toast.success("Reenvio cancelado. Não será mais enviado.");
                 } else if (status === "reenvio_aguardando_estoque") {
                   const restored = Array.isArray(data?.restoredProducts) ? data.restoredProducts : [];
                   if (restored.length > 0) {
@@ -12667,7 +12674,7 @@ function OrdersPanel({
   onSetOrderEnviado: (id: string, enviado: boolean) => void;
   onSetOrderPatched: (order: AdminOrder) => void;
   availableWhatsappGroups: string[];
-  onSetReshipmentStatus: (reshipmentId: string, status: "reenvio_aguardando_estoque" | "reenvio_pronto_para_envio" | "reenvio_resolvido_sem_entrada" | "reenvio_enviado") => void;
+  onSetReshipmentStatus: (reshipmentId: string, status: "reenvio_aguardando_estoque" | "reenvio_pronto_para_envio" | "reenvio_resolvido_sem_entrada" | "reenvio_enviado" | "reenvio_cancelado") => void;
   onRemoveOrder: (id: string) => void;
   canManageEnvioEcom?: boolean;
 }) {
@@ -12724,6 +12731,7 @@ function OrdersPanel({
     if (status === "reenvio_pronto_para_envio") return "Reenvio · Pronto para envio";
     if (status === "reenvio_resolvido_sem_entrada") return "Reenvio · Resolvido sem entrada";
     if (status === "reenvio_enviado") return "Reenvio · Enviado";
+    if (status === "reenvio_cancelado") return "Reenvio · Cancelado";
     return "Reenvio";
   };
 
@@ -13835,7 +13843,7 @@ function OrdersPanel({
           const hasLogisticsAllocation = logisticsAllocation?.status === "allocated" && Boolean(logisticsAllocation.deadlineAt);
           const logisticsIsLate = hasLogisticsAllocation && Date.parse(logisticsAllocation!.deadlineAt!) < Date.now();
           // Definir isReshipment no escopo correto
-          const isReshipment = Boolean(order?.reshipment?.id) && !["reenvio_enviado", "reenvio_resolvido_sem_entrada"].includes(String(order?.reshipment?.status || ""));
+          const isReshipment = Boolean(order?.reshipment?.id) && !isClosedReshipmentStatus((order as { reshipment?: { status?: string } }).reshipment?.status);
           const isSupportTicketReshipmentChild = String(order?.observation || "").toUpperCase().includes("REENVIO DO PEDIDO");
           const commissionBasisAmount = Number(order?.subtotal ?? order?.total) || 0;
           const hasIncrementalCommission = isSupportTicketReshipmentChild && commissionBasisAmount > 0;
@@ -13852,7 +13860,7 @@ function OrdersPanel({
                 <div className="flex-1 min-w-0">
                   {(() => {
                     const rs = (order as any)?.reshipment?.status as string | undefined;
-                    const isReshipment = !!rs;
+                    const isReshipment = !!rs && !isClosedReshipmentStatus(rs);
                     return (
                       <div className="flex flex-wrap items-center gap-2 mb-2">
                         {isPrioridade && (
@@ -13894,6 +13902,11 @@ function OrdersPanel({
                         {isReshipment && (
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${rs === "reenvio_aguardando_estoque" ? "bg-red-100 text-red-800 border-red-200" : rs === "reenvio_pronto_para_envio" ? "bg-red-50 text-red-700 border-red-200" : "bg-rose-100 text-rose-800 border-rose-200"}`}>
                             <AlertTriangle className="w-3 h-3" />{reshipmentStatusLabel(rs)}
+                          </span>
+                        )}
+                        {rs === "reenvio_cancelado" && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border bg-slate-100 text-slate-700 border-slate-200">
+                            <XCircle className="w-3 h-3" />Reenvio · Cancelado
                           </span>
                         )}
                         {isSupportTicketReshipmentChild && (
@@ -14257,15 +14270,28 @@ function OrdersPanel({
                     <ShieldCheck className="w-3.5 h-3.5" />KYC
                   </Button>
                 )}
-                {(order as any)?.reshipment?.id && !["reenvio_enviado", "reenvio_resolvido_sem_entrada"].includes(String((order as any)?.reshipment?.status || "")) && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="gap-1.5 text-red-700 border-red-200 hover:bg-red-50"
-                    onClick={() => onSetReshipmentStatus((order as any).reshipment.id, "reenvio_enviado")}
-                  >
-                    <Truck className="w-3.5 h-3.5" />Marcar Reenvio Enviado
-                  </Button>
+                {(order as any)?.reshipment?.id && !isClosedReshipmentStatus((order as any)?.reshipment?.status) && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 text-red-700 border-red-200 hover:bg-red-50"
+                      onClick={() => onSetReshipmentStatus((order as any).reshipment.id, "reenvio_enviado")}
+                    >
+                      <Truck className="w-3.5 h-3.5" />Marcar Reenvio Enviado
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1.5 text-slate-700 border-slate-300 hover:bg-slate-50"
+                      onClick={() => {
+                        if (!window.confirm("Cancelar este reenvio? Ele não será mais enviado.")) return;
+                        onSetReshipmentStatus((order as any).reshipment.id, "reenvio_cancelado");
+                      }}
+                    >
+                      <XCircle className="w-3.5 h-3.5" />Cancelar Reenvio
+                    </Button>
+                  </>
                 )}
                 {(order as any)?.reshipment?.id && String((order as any)?.reshipment?.status || "") === "reenvio_enviado" && (
                   <Button

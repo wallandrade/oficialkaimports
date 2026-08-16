@@ -477,9 +477,10 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
       | "reenvio_aguardando_estoque"
       | "reenvio_pronto_para_envio"
       | "reenvio_resolvido_sem_entrada"
-      | "reenvio_enviado";
+      | "reenvio_enviado"
+      | "reenvio_cancelado";
 
-    if (!id || !["reenvio_aguardando_estoque", "reenvio_pronto_para_envio", "reenvio_resolvido_sem_entrada", "reenvio_enviado"].includes(status)) {
+    if (!id || !["reenvio_aguardando_estoque", "reenvio_pronto_para_envio", "reenvio_resolvido_sem_entrada", "reenvio_enviado", "reenvio_cancelado"].includes(status)) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Status de reenvio inválido." });
       return;
     }
@@ -489,9 +490,6 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
       .from(reshipmentsTable)
       .where(and(buildReshipmentsTenantWhere(scope.tenantId), eq(reshipmentsTable.id, id)))
       .limit(1);
-          const check = await ensureReshipmentReservation({ id, source: "support", tenantId: scope.tenantId });
-          const debit = await ensureReshipmentSendDebit({ id, source: "support", tenantId: scope.tenantId });
-  const ok = await setReshipmentStatus(id, status, scope.tenantId);
 
     if (rows[0]) {
       if (!(await isOrderInScope(rows[0].orderId, scope))) {
@@ -571,9 +569,6 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
         .from(manualReshipmentsTable)
         .where(and(buildManualReshipmentsTenantWhere(scope.tenantId), eq(manualReshipmentsTable.id, id)))
         .limit(1);
-          const check = await ensureReshipmentReservation({ id, source: "manual", tenantId: scope.tenantId });
-          const debit = await ensureReshipmentSendDebit({ id, source: "manual", tenantId: scope.tenantId });
-  const ok = await setManualReshipmentStatus(id, status, scope.tenantId);
 
       if (!manualRows[0]) {
         res.status(404).json({ error: "NOT_FOUND", message: "Reenvio não encontrado." });
