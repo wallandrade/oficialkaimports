@@ -1739,6 +1739,9 @@ export default function Admin() {
     state: "",
   });
   const [editClientName, setEditClientName] = useState("");
+  const [editClientPhone, setEditClientPhone] = useState("");
+  const [editClientEmail, setEditClientEmail] = useState("");
+  const [editClientDocument, setEditClientDocument] = useState("");
   const [editDiscount, setEditDiscount] = useState(0);
   const [editProductSearch, setEditProductSearch] = useState("");
   const [editSaving, setEditSaving] = useState(false);
@@ -5388,6 +5391,9 @@ export default function Admin() {
     setEditOrderModal(order);
     setEditItems(getOrderProducts(order.products).map((p) => ({ id: p.id, name: p.name, quantity: p.quantity, price: p.price })));
     setEditClientName(String(order.clientName || ""));
+    setEditClientPhone(String(order.clientPhone || ""));
+    setEditClientEmail(String(order.clientEmail || ""));
+    setEditClientDocument(String(order.clientDocument || ""));
     setEditDiscount(order.discountAmount || 0);
     setEditAddress({
       cep: String(order.addressCep || ""),
@@ -5588,7 +5594,12 @@ export default function Admin() {
   const saveEditOrder = async () => {
     if (!editOrderModal || editItems.length === 0) { toast.error("Adicione ao menos um produto."); return; }
     const normalizedClientName = String(editClientName || "").trim();
+    const normalizedClientPhone = String(editClientPhone || "").trim();
+    const normalizedClientEmail = String(editClientEmail || "").trim();
+    const normalizedClientDocument = String(editClientDocument || "").trim();
     if (!editAsReshipment && !normalizedClientName) { toast.error("Informe o nome do cliente."); return; }
+    if (!editAsReshipment && !normalizedClientPhone) { toast.error("Informe o telefone do cliente."); return; }
+    if (!editAsReshipment && !normalizedClientEmail) { toast.error("Informe o e-mail do cliente."); return; }
     setEditSaving(true);
     const originalTotal = editOrderModal.total;
     try {
@@ -5620,6 +5631,9 @@ export default function Admin() {
       const nextOrderSnapshot = {
         ...editOrderModal,
         clientName: normalizedClientName,
+        clientPhone: normalizedClientPhone,
+        clientEmail: normalizedClientEmail,
+        clientDocument: normalizedClientDocument,
         products: editItems,
         subtotal,
         insuranceAmount,
@@ -5629,6 +5643,9 @@ export default function Admin() {
         method: "PATCH", headers: authHeaders(),
         body: JSON.stringify({
           clientName: normalizedClientName,
+          clientPhone: normalizedClientPhone,
+          clientEmail: normalizedClientEmail,
+          clientDocument: normalizedClientDocument,
           products: editItems,
           discountAmount: discountAmount,
           address: {
@@ -10904,7 +10921,7 @@ export default function Admin() {
               <motion.div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col"
                 initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}>
                 <div className="flex items-center justify-between px-6 py-4 border-b shrink-0">
-                  <h3 className="text-lg font-bold">Editar Pedido #{editOrderModal.id}</h3>
+                  <h3 className="text-lg font-bold">Editar Pedido #{getOrderDisplayId(editOrderModal)}</h3>
                   <Button size="icon" variant="ghost" onClick={() => setEditOrderModal(null)}><X className="w-5 h-5" /></Button>
                 </div>
                 <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
@@ -11014,11 +11031,54 @@ export default function Admin() {
 
                   {!editAsReshipment && (
                   <div>
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block mb-2">Contato do cliente</label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <input
+                        value={editClientPhone}
+                        onChange={(e) => setEditClientPhone(e.target.value)}
+                        placeholder="Telefone"
+                        className="h-9 px-3 rounded-lg border border-border bg-muted/30 text-sm outline-none focus:border-primary"
+                      />
+                      <input
+                        value={editClientDocument}
+                        onChange={(e) => setEditClientDocument(e.target.value)}
+                        placeholder="CPF"
+                        className="h-9 px-3 rounded-lg border border-border bg-muted/30 text-sm outline-none focus:border-primary"
+                      />
+                      <input
+                        value={editClientEmail}
+                        onChange={(e) => setEditClientEmail(e.target.value)}
+                        placeholder="E-mail"
+                        className="h-9 px-3 rounded-lg border border-border bg-muted/30 text-sm outline-none focus:border-primary sm:col-span-2"
+                      />
+                    </div>
+                  </div>
+                  )}
+
+                  {!editAsReshipment && (
+                  <div>
                     <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block mb-2">Endereço do cliente</label>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <input
                         value={editAddress.cep}
                         onChange={(e) => setEditAddress((prev) => ({ ...prev, cep: e.target.value }))}
+                        onBlur={async () => {
+                          const raw = String(editAddress.cep || "").replace(/\D/g, "");
+                          if (raw.length !== 8) return;
+                          try {
+                            const r = await fetch(`https://viacep.com.br/ws/${raw}/json/`);
+                            const d = await r.json() as { logradouro?: string; bairro?: string; localidade?: string; uf?: string; erro?: boolean };
+                            if (d.erro) return;
+                            setEditAddress((prev) => ({
+                              ...prev,
+                              cep: `${raw.slice(0, 5)}-${raw.slice(5)}`,
+                              street: d.logradouro || prev.street,
+                              neighborhood: d.bairro || prev.neighborhood,
+                              city: d.localidade || prev.city,
+                              state: d.uf || prev.state,
+                            }));
+                          } catch { /* ignore */ }
+                        }}
                         placeholder="CEP"
                         className="h-9 px-3 rounded-lg border border-border bg-muted/30 text-sm outline-none focus:border-primary"
                       />
@@ -11090,7 +11150,7 @@ export default function Admin() {
                         <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
                         <div className="flex justify-between"><span className="text-muted-foreground">Frete</span><span>{formatCurrency(editOrderModal.shippingCost)}</span></div>
                         {editOrderModal.includeInsurance && <div className="flex justify-between"><span className="text-muted-foreground">Seguro</span><span>{formatCurrency(insuranceAmount)}</span></div>}
-                        {(editOrderModal.discountAmount || 0) > 0 && <div className="flex justify-between text-green-700"><span>Desconto</span><span>-{formatCurrency(editOrderModal.discountAmount!)}</span></div>}
+                        {(editDiscount || 0) > 0 && <div className="flex justify-between text-green-700"><span>Desconto</span><span>-{formatCurrency(editDiscount)}</span></div>}
                         <div className="flex justify-between font-bold border-t border-border/50 pt-1 mt-1"><span>Novo Total</span><span>{formatCurrency(total)}</span></div>
                         {hasPaidAmount && (
                           <div className="flex justify-between text-xs text-muted-foreground">

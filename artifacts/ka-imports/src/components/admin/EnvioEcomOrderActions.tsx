@@ -72,9 +72,34 @@ function quoteDays(quote: QuoteOption) {
   return String(quote.delivery_time ?? quote.delivery_days ?? "");
 }
 
+function formatErrorDetails(details: unknown): string {
+  if (details == null || details === "") return "";
+  if (typeof details === "string" || typeof details === "number" || typeof details === "boolean") {
+    return String(details).trim();
+  }
+  if (Array.isArray(details)) {
+    return details.map((item) => formatErrorDetails(item)).filter(Boolean).join("; ");
+  }
+  if (typeof details === "object") {
+    const row = details as Record<string, unknown>;
+    const field = String(row.field || row.path || "").trim();
+    const msg = String(row.message || row.reason || row.error || "").trim();
+    if (field || msg) return field && msg ? `${field}: ${msg}` : (msg || field);
+    return Object.entries(row)
+      .map(([key, value]) => {
+        const nested = formatErrorDetails(value);
+        return nested ? `${key}: ${nested}` : "";
+      })
+      .filter(Boolean)
+      .join("; ");
+  }
+  return "";
+}
+
 async function readError(res: Response) {
-  const data = await res.json().catch(() => ({})) as { message?: string; error?: string };
-  return data.message || data.error || "Erro EnvioEcom";
+  const data = await res.json().catch(() => ({})) as { message?: string; error?: string; details?: unknown };
+  const details = formatErrorDetails(data.details);
+  return [data.message || data.error, details].filter(Boolean).join(" — ") || "Erro EnvioEcom";
 }
 
 export function EnvioEcomOrderActions({

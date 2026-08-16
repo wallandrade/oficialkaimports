@@ -19,11 +19,49 @@ type TokenCacheEntry = {
 
 const tokenCache = new Map<string, TokenCacheEntry>();
 
+export function formatEnvioEcomDetails(details: unknown): string {
+  if (details == null || details === "") return "";
+  if (typeof details === "string" || typeof details === "number" || typeof details === "boolean") {
+    return String(details).trim();
+  }
+  if (Array.isArray(details)) {
+    return details.map((item) => formatEnvioEcomDetails(item)).filter(Boolean).join("; ");
+  }
+  if (typeof details === "object") {
+    const row = details as Record<string, unknown>;
+    const field = String(row.field || row.path || row.attribute || "").trim();
+    const msg = String(row.message || row.reason || row.error || "").trim();
+    if (field || msg) {
+      const rest = Object.entries(row)
+        .filter(([key]) => !["field", "path", "attribute", "message", "reason", "error"].includes(key))
+        .map(([key, value]) => {
+          const nested = formatEnvioEcomDetails(value);
+          return nested ? `${key}: ${nested}` : "";
+        })
+        .filter(Boolean)
+        .join("; ");
+      const main = field && msg ? `${field}: ${msg}` : (msg || field);
+      return [main, rest].filter(Boolean).join("; ");
+    }
+    return Object.entries(row)
+      .map(([key, value]) => {
+        const nested = formatEnvioEcomDetails(value);
+        return nested ? `${key}: ${nested}` : "";
+      })
+      .filter(Boolean)
+      .join("; ");
+  }
+  return "";
+}
+
 function parseErrorPayload(payload: unknown, httpStatus: number): EnvioEcomApiError {
-  const body = payload as { error?: { code?: string; message?: string; details?: unknown }; message?: string; code?: string };
+  const body = payload as { error?: { code?: string; message?: string; details?: unknown }; message?: string; code?: string; details?: unknown };
   const code = String(body?.error?.code || body?.code || "INTERNAL_ERROR");
-  const message = String(body?.error?.message || body?.message || "Erro na EnvioEcom.");
-  return new EnvioEcomApiError(code, message, httpStatus, body?.error?.details ?? null);
+  const details = body?.error?.details ?? body?.details ?? null;
+  const base = String(body?.error?.message || body?.message || "").trim();
+  const detailText = formatEnvioEcomDetails(details);
+  const message = [base, detailText].filter(Boolean).join(" — ") || "Erro na EnvioEcom.";
+  return new EnvioEcomApiError(code, message, httpStatus, details);
 }
 
 async function readResponseBody(res: Response): Promise<{ json: unknown | null; buffer: Buffer; contentType: string }> {

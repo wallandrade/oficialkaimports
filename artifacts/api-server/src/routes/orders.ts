@@ -1927,10 +1927,13 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
 
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
-    const { products: newProducts, address, discountAmount, clientName } = req.body as {
+    const { products: newProducts, address, discountAmount, clientName, clientPhone, clientEmail, clientDocument } = req.body as {
       products: Array<{ id: string; name: string; quantity: number; price: number }>;
       discountAmount?: number;
       clientName?: string;
+      clientPhone?: string;
+      clientEmail?: string;
+      clientDocument?: string;
       address?: {
         cep?: string | null;
         street?: string | null;
@@ -1947,6 +1950,17 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
       res.status(400).json({ error: "INVALID_INPUT", message: "Nome do cliente inválido." });
       return;
     }
+    const nextClientPhone = clientPhone !== undefined ? String(clientPhone || "").trim() : undefined;
+    if (nextClientPhone !== undefined && !nextClientPhone) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Telefone do cliente inválido." });
+      return;
+    }
+    const nextClientEmail = clientEmail !== undefined ? String(clientEmail || "").trim().toLowerCase() : undefined;
+    if (nextClientEmail !== undefined && !nextClientEmail) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "E-mail do cliente inválido." });
+      return;
+    }
+    const nextClientDocument = clientDocument !== undefined ? String(clientDocument || "").trim() : undefined;
 
     if (!newProducts || !Array.isArray(newProducts) || newProducts.length === 0) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Produtos inválidos." });
@@ -2034,6 +2048,9 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
     if (nextAddressCity !== undefined) updates.addressCity = nextAddressCity;
     if (nextAddressState !== undefined) updates.addressState = nextAddressState;
     if (nextClientName !== undefined) updates.clientName = nextClientName;
+    if (nextClientPhone !== undefined) updates.clientPhone = nextClientPhone;
+    if (nextClientEmail !== undefined) updates.clientEmail = nextClientEmail;
+    if (nextClientDocument !== undefined) updates.clientDocument = nextClientDocument;
 
     await db.update(ordersTable)
       .set(updates)

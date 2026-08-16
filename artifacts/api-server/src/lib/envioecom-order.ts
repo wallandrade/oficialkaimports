@@ -241,7 +241,27 @@ export function sanitizeDocument(value: unknown): string {
   if (digits.length === 11) {
     return digits.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, "$1.$2.$3-$4");
   }
-  return String(value || "").trim() || "000.000.000-00";
+  return String(value || "").trim();
+}
+
+export function describeEnvioEcomRecipientIssues(order: {
+  clientDocument?: string | null;
+  clientPhone?: string | null;
+  clientEmail?: string | null;
+}): string | null {
+  const docDigits = digitsOnly(order.clientDocument);
+  if ((docDigits.length !== 11 && docDigits.length !== 14) || /^0+$/.test(docDigits)) {
+    return "CPF/CNPJ do pedido inválido. Edite o pedido e informe o documento correto.";
+  }
+  const phone = digitsOnly(order.clientPhone);
+  if (phone.length < 10) {
+    return "Telefone do pedido inválido. Edite o pedido e informe um telefone com DDD.";
+  }
+  const email = String(order.clientEmail || "").trim();
+  if (!email.includes("@")) {
+    return "E-mail do pedido inválido. Edite o pedido e informe o e-mail do cliente.";
+  }
+  return null;
 }
 
 export function sanitizeUf(value: unknown): string {

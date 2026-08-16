@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { applyGenericShipmentItemName, buildConsolidatedQuotePackage } from "./envioecom-package";
+import { formatEnvioEcomDetails } from "./envioecom-client";
 import {
   appendStatusHistory,
   classifyEnvioEcomTrackingGroup,
@@ -193,4 +194,15 @@ test("append preenche location vazia no mesmo status", () => {
   });
   assert.equal(second.length, 1);
   assert.equal(second[0].location, "Ribeirão Preto - SN RAO");
+});
+
+test("erro EnvioEcom junta message e details", () => {
+  assert.equal(
+    formatEnvioEcomDetails({ document_number: ["CPF inválido"] }),
+    "document_number: CPF inválido",
+  );
+  assert.equal(
+    formatEnvioEcomDetails([{ field: "phone_number", message: "Telefone inválido" }]),
+    "phone_number: Telefone inválido",
+  );
 });

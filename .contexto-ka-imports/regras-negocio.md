@@ -1,12 +1,14 @@
 # Regras de negócio — KA Imports
 
-> **Última atualização:** 2026-08-15  
+> **Última atualização:** 2026-08-16  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-16 | Create EnvioEcom recusa CPF/telefone/e-mail inválidos no pedido (não envia CPF `000.000.000-00`) | Toast e log mostram o motivo | Cotação continua só com CEP/caixa |
+| 2026-08-15 | Editar pedido grava telefone, e-mail e CPF além de nome/endereço/itens/desconto | Contato do pedido muda no card e nas cópias | Frete/seguro continuam do checkout; conta `customer_users` inalterada |
 | 2026-08-15 | Admin da filial edita os pedidos da própria loja (botão não exige mais `isPrimary`) | Pedidos continuam isolados por tenant | Loja 1 e filial não veem os pedidos uma da outra |
 | 2026-08-15 | Etiqueta EnvioEcom não volta a “Pendente”: aborta GET velho, grava “Etiqueta emitida” e preserva PDF na lista | Card fica Pronto para envio até coleta/cancelamento | `enviado` continua só na coleta |
 | 2026-08-15 | Timeline EnvioEcom no card de Meus pedidos (status + cidade; sync/poll) | Cliente vê o mesmo histórico da consulta à API | Modal de rastreio deixou de ser obrigatório |
@@ -47,7 +49,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 - Finalizar no WhatsApp (`whatsapp_pix`): `POST /api/orders` devolve `orderNumber`; a mensagem usa `Pedido: #1841` (número sequencial), não o `id` UUID. Link KYC de cartão continua com o `id`.
 - Cupons: % ou valor fixo, min. pedido, max usos, ativo/inativo.
 - Seguro de frete e opções de frete (incl. motoboy com data/hora) existem no schema de pedidos e rotas de shipping/logística.
-- EnvioEcom (loja 1 e filiais, admin com `hasGlobalAccess`): cotar/criar envio/gerar etiqueta PDF/webhook. Não se aplica a motoboy/retirada. Frete cobrado do cliente no checkout **não** é a cotação EnvioEcom. Cotação padrão: 1 pacote 2×12×17 cm, 0,3 kg, R$ 5. No create, `items[].name` é o setting da loja (`envioecom_shipment_item_name`, default Mercadoria), nunca o nome do produto.
+- EnvioEcom (loja 1 e filiais, admin com `hasGlobalAccess`): cotar/criar envio/gerar etiqueta PDF/webhook. Não se aplica a motoboy/retirada. Frete cobrado do cliente no checkout **não** é a cotação EnvioEcom. Cotação padrão: 1 pacote 2×12×17 cm, 0,3 kg, R$ 5. No create, `items[].name` é o setting da loja (`envioecom_shipment_item_name`, default Mercadoria), nunca o nome do produto. Create exige CPF/CNPJ (11/14 dígitos, não só zeros), telefone com DDD e e-mail com `@`; senão 400 `INVALID_RECIPIENT` sem chamar a EnvioEcom.
 - Marcar `enviado` só quando o status EnvioEcom indicar coleta/postagem/trânsito (`coletado`, `postado`, `em transito`, `saiu para entrega`, `entregue`), via `ensureOrderMarkedEnviado`. Gerar etiqueta / DC-e / “Pronto para envio” **não** seta `enviado`: o card fica **Pronto para envio**, sai da fila 48/72/96h e de “Pedidos para enviar”, e a vaga vai para `shipped`. Se faltar estoque na coleta, `enviado` permanece false e **Faltando estoque** continua. Status “Entregue” pode promover pedido para `completed` se não estiver cancelado. Status **Cancelado** na EnvioEcom remove **Pronto para envio** (mesmo com PDF) e, se ainda não estiver `enviado`, devolve o pedido à fila 48/72/96h. Gerar PDF grava status **Etiqueta emitida** se ainda for “Envio criado”; o admin aborta GET atrasado e não apaga `envioecomLabelUrl` local — o card não volta a **Pendente para envio**.
 - Crédito de afiliado pode zerar o valor a pagar (`paymentMethod: affiliate_credit`, `status: paid` quando `payableAmount <= 0`).
 
@@ -75,7 +77,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 
 - Auth própria (sessão/cookie); escopo `isPrimary` / seller-scoped / tenant (`admin-auth.ts`, `admin_user_tenants`).
 - Primary-only em vários endpoints (tenants, tracking live, etc. — ver `requirePrimaryAdmin`).
-- Cobranças custom (`custom_charges`), comprovantes múltiplos (`proofUrls`), edição de pedido: primary da loja 1 e admin de filial nos pedidos do próprio tenant (seller-scoped não edita).
+- Cobranças custom (`custom_charges`), comprovantes múltiplos (`proofUrls`), edição de pedido: primary da loja 1 e admin de filial nos pedidos do próprio tenant (seller-scoped não edita). O PATCH grava nome, telefone, e-mail, CPF, endereço, produtos e desconto; CEP no modal preenche ViaCEP ao sair do campo. Frete e seguro não são editáveis nesse modal. Não atualiza `customer_users`.
 - Busca de Pedidos é só no frontend (`search` → `filteredOrders`). Data/status/método/vendedor/grupo vão na API. Só dígitos: **somente** `orderNumber`/id do pedido (não telefone/CEP). Senão `includes` em id, número, nome, telefone, e-mail, CEP e produtos. Fora do período carregado não aparece.
 - Aba **Rastreios EE**: lista pedidos com barcode/shipment_id/status EnvioEcom; Atualizar lista lê o BD; Sync consulta a API. Campo “Nome do produto no create” (até 120 chars) vale para todos os itens da loja; envios já criados não mudam.
 

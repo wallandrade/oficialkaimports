@@ -1,12 +1,14 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-08-15  
+> **Última atualização:** 2026-08-16  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-16 | Anti-padrão: create EnvioEcom com CPF `000.000.000-00` e 400 sem log/`details` | Validar destinatário; logar erro; toast com `details` | Cotação/etiqueta inalteradas |
+| 2026-08-15 | Anti-padrão: editar pedido só com nome/endereço/itens e deixar telefone/e-mail/CPF só no card | `PATCH /admin/orders/:id/edit` persiste contato | Frete/seguro e conta do cliente inalterados |
 | 2026-08-15 | Anti-padrão: esconder “Editar Pedido” da filial com `isPrimary` | Usar `hasGlobalAccess` / tenant da loja; pedidos já são por tenant | Seller-scoped da loja 1 inalterado |
 | 2026-08-15 | Anti-padrão: impersonar cliente sem `tenantId` na sessão e gravar token só no `localStorage` da aba admin | Sessão com tenant do cliente + hash na aba nova | Login normal do cliente inalterado |
 | 2026-08-15 | Anti-padrão: inventar evento “Status atualizado ao consultar rastreio” ou esconder o histórico EnvioEcom só no modal | Persistir `status_history` com `location`; timeline no card | Soft-sync GET tracking permanece |
@@ -103,6 +105,8 @@ Código > memória > suposições.
 - No `fetchOrders` do admin, substituir a lista com um GET iniciado antes de gerar a etiqueta (apaga o PDF na tela). Abortar o request anterior e não limpar `envioecomLabelUrl` local.
 - Impersonar cliente sem `tenantId` na sessão (`/auth/me` 404 → tela de login) ou gravar o token só no `localStorage` da aba do admin.
 - Esconder “Editar Pedido” da filial com `isPrimary`; pedidos já são isolados por tenant — usar `hasGlobalAccess` (primary e admin de filial).
+- Editar pedido sem persistir telefone, e-mail e CPF (`clientPhone` / `clientEmail` / `clientDocument`); não são só o card.
+- Enviar CPF placeholder `000.000.000-00` no create EnvioEcom, ou devolver 400 da EnvioEcom sem logar `message`/`details` e sem juntar `details` no toast.
 
 ## Idioma
 

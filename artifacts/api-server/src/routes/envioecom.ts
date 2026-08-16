@@ -29,6 +29,7 @@ import {
   parseCreatedShipment,
   parseShipmentDetails,
   persistEnvioEcomShipment,
+  describeEnvioEcomRecipientIssues,
   sanitizeDocument,
   sanitizeUf,
 } from "../lib/envioecom-order";
@@ -61,6 +62,12 @@ function requireEnvioEcomAdmin(req: Request, res: Response): { tenantId: string 
 
 function sendEnvioEcomError(res: Response, err: unknown) {
   if (err instanceof EnvioEcomApiError) {
+    console.warn("[EnvioEcom]", {
+      code: err.code,
+      message: err.message,
+      httpStatus: err.httpStatus,
+      details: err.details,
+    });
     res.status(err.httpStatus >= 400 && err.httpStatus < 600 ? err.httpStatus : 400).json({
       error: err.code,
       message: err.message,
@@ -387,6 +394,11 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
     const destination = digitsOnly(order.addressCep);
     if (destination.length !== 8) {
       res.status(400).json({ error: "INVALID_CEP", message: "CEP de destino inválido no pedido." });
+      return;
+    }
+    const recipientIssue = describeEnvioEcomRecipientIssues(order);
+    if (recipientIssue) {
+      res.status(400).json({ error: "INVALID_RECIPIENT", message: recipientIssue });
       return;
     }
     const packed = buildConsolidatedQuotePackage({ products: order.products, defaults: config.defaults });
