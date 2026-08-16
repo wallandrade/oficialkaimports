@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-16 | Minha conta mostra `orderNumber` (#1831), não o UUID | Card e WhatsApp de suporte iguais ao admin | Rotas `/api/me/orders/:id` continuam com `id` |
 | 2026-08-16 | Create EnvioEcom recusa CPF/telefone/e-mail inválidos no pedido (não envia CPF `000.000.000-00`) | Toast e log mostram o motivo | Cotação continua só com CEP/caixa |
 | 2026-08-15 | Editar pedido grava telefone, e-mail e CPF além de nome/endereço/itens/desconto | Contato do pedido muda no card e nas cópias | Frete/seguro continuam do checkout; conta `customer_users` inalterada |
 | 2026-08-15 | Admin da filial edita os pedidos da própria loja (botão não exige mais `isPrimary`) | Pedidos continuam isolados por tenant | Loja 1 e filial não veem os pedidos uma da outra |
@@ -100,7 +101,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 
 ## Cliente final
 
-- Conta: `/login`, `/minha-conta/pedidos` (customer auth Bearer in-memory no processo do server).
+- Conta: `/login`, `/minha-conta/pedidos` (customer auth Bearer in-memory no processo do server). O card de Meus pedidos mostra `orderNumber` (#1831), não o UUID; fallback no `id` só se não houver número. WhatsApp de suporte do card usa o mesmo número. APIs de tracking/detalhe continuam com `id`.
 - Rastreio EnvioEcom na Minha conta: situação usa `envioecomStatus` se existir; eventos do `status_history` aparecem no card (status + `location`); `POST /api/me/orders/tracking-sync` ao abrir a lista e a cada ~2 min nos abertos; botão Atualizar rastreio chama `GET /api/me/orders/:id/tracking`.
 - Senha de site / payment gate no FE (`SitePasswordGate`) — não confundir com auth admin.
 

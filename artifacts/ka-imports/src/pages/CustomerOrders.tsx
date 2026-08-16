@@ -17,6 +17,7 @@ type TrackingEvent = {
 
 type CustomerOrder = {
   id: string;
+  orderNumber?: number | null;
   total: number;
   status: string;
   enviado?: boolean;
@@ -52,6 +53,14 @@ type AffiliateDashboardResponse = {
     facebookPixelId: string;
   };
 };
+
+function getOrderDisplayId(order: { id: string; orderNumber?: number | null }): string {
+  const numeric = Number(order.orderNumber);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return String(Math.trunc(numeric));
+  }
+  return String(order.id || "-");
+}
 
 function resolveStoreReferralLink(link: string, code: string): string {
   if (typeof window === "undefined") {
@@ -550,6 +559,7 @@ export default function CustomerOrders() {
                             : displayStatus === "paid"
                               ? "Processando"
                               : (statusLabel[displayStatus] || displayStatus);
+                        const displayOrderId = getOrderDisplayId(order);
 
                         return (
                         <div key={order.id} className="border border-border rounded-2xl p-5 bg-white hover:shadow-md transition-shadow">
@@ -561,7 +571,7 @@ export default function CustomerOrders() {
                               </div>
                               <div>
                                 <p className="text-xs uppercase tracking-wide text-muted-foreground font-semibold">Pedido ID</p>
-                                <p className="text-lg font-bold text-foreground">#{order.id}</p>
+                                <p className="text-lg font-bold text-foreground">#{displayOrderId}</p>
                               </div>
                             </div>
                             <div className="flex flex-col sm:items-end gap-2">
@@ -621,7 +631,7 @@ export default function CustomerOrders() {
                               onClick={() => {
                                 const phone = getActiveWhatsApp();
                                 window.open(
-                                  `https://wa.me/${phone}?text=${encodeURIComponent(`Olá! Gostaria de informações sobre o pedido #${order.id}`)}`,
+                                  `https://wa.me/${phone}?text=${encodeURIComponent(`Olá! Gostaria de informações sobre o pedido #${displayOrderId}`)}`,
                                   "_blank",
                                   "noopener,noreferrer"
                                 );

@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-16 | Anti-padrão: UUID no card da Minha conta (`#{order.id}`) | Usar `orderNumber` como o admin | Rotas `/me/orders/:id` inalteradas |
 | 2026-08-16 | Anti-padrão: create EnvioEcom com CPF `000.000.000-00` e 400 sem log/`details` | Validar destinatário; logar erro; toast com `details` | Cotação/etiqueta inalteradas |
 | 2026-08-15 | Anti-padrão: editar pedido só com nome/endereço/itens e deixar telefone/e-mail/CPF só no card | `PATCH /admin/orders/:id/edit` persiste contato | Frete/seguro e conta do cliente inalterados |
 | 2026-08-15 | Anti-padrão: esconder “Editar Pedido” da filial com `isPrimary` | Usar `hasGlobalAccess` / tenant da loja; pedidos já são por tenant | Seller-scoped da loja 1 inalterado |
@@ -99,7 +100,7 @@ Código > memória > suposições.
 - Marcar `enviado` ao gerar etiqueta / DC-e / “Pronto para envio”; isso só na coleta/postagem da API.
 - Restaurar vaga `allocated` no reconcile só porque `enviado` é false quando a etiqueta EnvioEcom já existe.
 - Tratar PDF da etiqueta EnvioEcom como “Pronto para envio” se o status for **Cancelado**.
-- Colocar o UUID do pedido (`orders.id`) na mensagem WhatsApp do checkout; usar `orderNumber`.
+- Colocar o UUID do pedido (`orders.id`) na mensagem WhatsApp do checkout ou no card da Minha conta; usar `orderNumber`.
 - Tratar status EnvioEcom como enum rígido (é texto livre).
 - Inventar histórico de rastreio EnvioEcom (ex. “Status atualizado ao consultar rastreio”); usar `status_history` da API, com `location` cidade/unidade, e não duplicar `description` igual ao status.
 - No `fetchOrders` do admin, substituir a lista com um GET iniciado antes de gerar a etiqueta (apaga o PDF na tela). Abortar o request anterior e não limpar `envioecomLabelUrl` local.
