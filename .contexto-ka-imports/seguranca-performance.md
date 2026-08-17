@@ -1,12 +1,13 @@
 # Segurança e performance — KA Imports
 
-> **Última atualização:** 2026-08-11  
+> **Última atualização:** 2026-08-16  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-16 | CSP do FE: `frame-src 'self' blob: data: https:` | Comprovante PDF no admin abre no iframe | `object-src 'none'` e `frame-ancestors 'none'` iguais |
 | 2026-08-11 | Extração de hardening/ops do código | Evitar remover proteções | Sem tuning de infra |
 
 ---
@@ -21,6 +22,7 @@
 - **Erros 500**: menos detalhes em produção.
 - Password gates no FE (site/pagamento).
 - Isolamento tenant/seller (ver `auth-permissoes.md` + smoke scripts).
+- **CSP do FE** (`index.html` + `vercel.json`): `default-src 'self'`; `object-src 'none'`; `frame-ancestors 'none'`; `frame-src 'self' blob: data: https:` (comprovante PDF no admin usa iframe + blob). `img-src` já permite `data:`/`blob:`/`https:`.
 
 ## Ops / health
 
@@ -38,5 +40,6 @@
 ## Anti-padrões
 
 - Remover rate limit / CORS / checkout token “para facilitar”.
+- Tirar `frame-src` do CSP do FE e voltar a iframe de comprovante em `data:` (quebra o PDF no Chrome).
 - Reativar polling de gateway.
 - Logar tokens/senhas em claro (há redaction parcial em admin-auth).

@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-16 | Comprovante PDF no admin abre (blob + CSP `frame-src`) | Clique no selo PDF mostra o arquivo | Upload/gravação `proofUrls` inalterados |
 | 2026-08-16 | Admin pode cancelar reenvio ativo (`reenvio_cancelado`) | Some da fila; pedido original/`enviado` iguais | Estoque só baixa em “Marcar Reenvio Enviado” |
 | 2026-08-16 | Saldo atual por produto lista estoque positivo primeiro | Busca continua por nome; zeros no fim | API de inventário inalterada |
 | 2026-08-16 | Histórico de rastreio na Minha conta mostra o evento mais recente no topo | Ordena por data, não `.reverse()` cego | API/BD do histórico inalterados |
@@ -84,7 +85,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 
 - Auth própria (sessão/cookie); escopo `isPrimary` / seller-scoped / tenant (`admin-auth.ts`, `admin_user_tenants`).
 - Primary-only em vários endpoints (tenants, tracking live, etc. — ver `requirePrimaryAdmin`).
-- Cobranças custom (`custom_charges`), comprovantes múltiplos (`proofUrls`), edição de pedido: primary da loja 1 e admin de filial nos pedidos do próprio tenant (seller-scoped não edita). O PATCH grava nome, telefone, e-mail, CPF, endereço, produtos e desconto; CEP no modal preenche ViaCEP ao sair do campo. Frete e seguro não são editáveis nesse modal. Não atualiza `customer_users`.
+- Cobranças custom (`custom_charges`), comprovantes múltiplos (`proofUrls`), edição de pedido: primary da loja 1 e admin de filial nos pedidos do próprio tenant (seller-scoped não edita). O PATCH grava nome, telefone, e-mail, CPF, endereço, produtos e desconto; CEP no modal preenche ViaCEP ao sair do campo. Frete e seguro não são editáveis nesse modal. Não atualiza `customer_users`. Comprovante PDF no modal do admin converte `data:` para blob (`frame-src blob:` no CSP).
 - Busca de Pedidos é só no frontend (`search` → `filteredOrders`). Data/status/método/vendedor/grupo vão na API. Só dígitos: **somente** `orderNumber`/id do pedido (não telefone/CEP). Senão `includes` em id, número, nome, telefone, e-mail, CEP e produtos. Fora do período carregado não aparece.
 - Aba **Rastreios EE**: lista pedidos com barcode/shipment_id/status EnvioEcom; Atualizar lista lê o BD; Sync consulta a API. Campo “Nome do produto no create” (até 120 chars) vale para todos os itens da loja; envios já criados não mudam.
 

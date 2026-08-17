@@ -143,6 +143,70 @@ function isClosedReshipmentStatus(status?: string | null): boolean {
   return ["reenvio_enviado", "reenvio_resolvido_sem_entrada", "reenvio_cancelado"].includes(String(status || ""));
 }
 
+function isPaymentProofPdf(url: string): boolean {
+  const value = String(url || "").trim().toLowerCase();
+  if (!value) return false;
+  if (value.startsWith("data:image")) return false;
+  if (value.startsWith("data:application/pdf") || value.includes("application/pdf")) return true;
+  try {
+    const path = value.startsWith("http://") || value.startsWith("https://")
+      ? new URL(url).pathname.toLowerCase()
+      : value.split("?")[0];
+    if (path.endsWith(".pdf")) return true;
+  } catch {
+    if (value.includes(".pdf")) return true;
+  }
+  return value.startsWith("data:") && !value.startsWith("data:image");
+}
+
+function PaymentProofDocument({ src }: { src: string }) {
+  const [frameSrc, setFrameSrc] = useState<string | null>(null);
+  const isPdf = isPaymentProofPdf(src);
+
+  useEffect(() => {
+    let revoked: string | null = null;
+    let cancelled = false;
+
+    async function prepare() {
+      if (!isPdf) {
+        setFrameSrc(src);
+        return;
+      }
+      if (src.startsWith("data:")) {
+        try {
+          const blob = await (await fetch(src)).blob();
+          const pdfBlob = blob.type.includes("pdf") ? blob : new Blob([blob], { type: "application/pdf" });
+          const objectUrl = URL.createObjectURL(pdfBlob);
+          revoked = objectUrl;
+          if (!cancelled) setFrameSrc(objectUrl);
+        } catch {
+          if (!cancelled) setFrameSrc(src);
+        }
+        return;
+      }
+      if (!cancelled) setFrameSrc(src);
+    }
+
+    void prepare();
+    return () => {
+      cancelled = true;
+      if (revoked) URL.revokeObjectURL(revoked);
+    };
+  }, [src, isPdf]);
+
+  if (!isPdf) {
+    return <img src={src} alt="Comprovante" className="max-w-full max-h-[500px] rounded-xl object-contain shadow" />;
+  }
+
+  if (!frameSrc) {
+    return <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />;
+  }
+
+  return (
+    <iframe src={frameSrc} className="w-full h-[500px] rounded-xl border bg-white" title="Comprovante PDF" />
+  );
+}
+
 export function orderToText(order: any): string {
   const products = getOrderProducts(order?.products);
   const prioridadeLine = order?.isPrioridade ? "PRIORIDADE URGENTE" : "";
@@ -10828,11 +10892,7 @@ export default function Admin() {
                   </div>
                 </div>
                 <div className="p-4 flex items-center justify-center min-h-[400px] bg-muted/20">
-                  {proofViewer.startsWith("data:application/pdf") || proofViewer.endsWith(".pdf") ? (
-                    <iframe src={proofViewer} className="w-full h-[500px] rounded-xl border" title="Comprovante PDF" />
-                  ) : (
-                    <img src={proofViewer} alt="Comprovante" className="max-w-full max-h-[500px] rounded-xl object-contain shadow" />
-                  )}
+                  <PaymentProofDocument src={proofViewer} />
                 </div>
               </motion.div>
             </motion.div>
