@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-08-16  
+> **Última atualização:** 2026-08-17  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-17 | Anti-padrão: `window.prompt` para ID EnvioEcom | Modal Vincular EE + parser ID vs rastreio | bind-id antigo permanece |
 | 2026-08-16 | Anti-padrão: iframe de comprovante PDF em `data:` com CSP sem `frame-src` | Converter para blob + `frame-src blob: data: https:` | `object-src 'none'` inalterado |
 | 2026-08-16 | Anti-padrão: PATCH de reenvio debitar estoque em qualquer status | Só debitar em `reenvio_enviado`; cancelar não baixa | Schema `reshipments.status` inalterado (varchar) |
 | 2026-08-16 | Anti-padrão: saldo de estoque misturar 0 un no topo da lista | Positivo primeiro, depois nome | API de inventário inalterada |
@@ -100,6 +101,7 @@ Código > memória > suposições.
 - Inventar NF-e/fiscal sem evidência no código.
 - Chamar EnvioEcom do browser / expor `X-Partner-Token` no FE.
 - Gerar etiqueta EnvioEcom com barcode provisório `EC…` (usar `shipping_id` / `ids`).
+- Pedir ID EnvioEcom com `window.prompt`; usar o modal **Vincular EE** (ID 4–10 dígitos ou rastreio) e `POST .../sync`.
 - Enviar um produto × N linhas na cotação EnvioEcom (empilha altura → `QUOTE_ERROR`); usar 1 pacote.
 - Cotar EnvioEcom com caixa 10×15×20 e valor declarado = total do pedido; o simulador usa 2×12×17, 0,3 kg, R$ 5.
 - Enviar o nome real do produto (`p.name` / catálogo) em `items[].name` no create EnvioEcom; usar `envioecom_shipment_item_name` (default Mercadoria).

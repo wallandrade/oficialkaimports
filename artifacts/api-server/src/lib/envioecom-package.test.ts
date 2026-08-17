@@ -15,6 +15,7 @@ import {
   shouldMarkCompletedFromStatus,
   shouldMarkEnviadoFromStatus,
 } from "./envioecom-status";
+import { parseEnvioEcomLinkRef } from "./envioecom-link-ref";
 
 test("cotacao usa 1 pacote padrao 2x12x17 0.3kg R$5", () => {
   const packed = buildConsolidatedQuotePackage({
@@ -182,6 +183,14 @@ test("gerar etiqueta promove Envio criado para Etiqueta emitida", () => {
   assert.equal(resolveStatusAfterLabelGenerated("DC-e emitida"), "DC-e emitida");
   assert.equal(resolveStatusAfterLabelGenerated("Coletado"), "Coletado");
   assert.equal(resolveStatusAfterLabelGenerated("Cancelado"), "Cancelado");
+});
+
+test("parseEnvioEcomLinkRef separa ID curto de rastreio", () => {
+  assert.deepEqual(parseEnvioEcomLinkRef("726270"), { shipmentId: 726270 });
+  assert.deepEqual(parseEnvioEcomLinkRef("888030877622416"), { barcode: "888030877622416" });
+  assert.deepEqual(parseEnvioEcomLinkRef("EC12345"), { barcode: "EC12345" });
+  assert.deepEqual(parseEnvioEcomLinkRef("  726270  "), { shipmentId: 726270 });
+  assert.deepEqual(parseEnvioEcomLinkRef(""), {});
 });
 
 test("append preenche location vazia no mesmo status", () => {

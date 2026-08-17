@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Loader2, RefreshCw, Truck, FileText, Ban, ExternalLink, X } from "lucide-react";
+import { Loader2, RefreshCw, Truck, FileText, Ban, ExternalLink, X, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
@@ -60,6 +60,17 @@ function isProvisionalBarcode(value?: string | null) {
   return /^EC\d+/i.test(String(value || "").trim());
 }
 
+function parseEnvioEcomLinkRef(raw: unknown): { shipmentId?: number; barcode?: string } {
+  const value = String(raw || "").trim();
+  if (!value) return {};
+  const compact = value.replace(/\s+/g, "");
+  const digits = compact.replace(/\D/g, "");
+  if (digits.length >= 4 && digits.length <= 10 && digits === compact) {
+    return { shipmentId: Number(digits) };
+  }
+  return { barcode: compact };
+}
+
 function quoteCarrier(quote: QuoteOption) {
   return String(quote.carrier || quote.shipping_company || "").trim();
 }
@@ -96,10 +107,17 @@ function formatErrorDetails(details: unknown): string {
   return "";
 }
 
-async function readError(res: Response) {
+async function readErrorPayload(res: Response) {
   const data = await res.json().catch(() => ({})) as { message?: string; error?: string; details?: unknown };
   const details = formatErrorDetails(data.details);
-  return [data.message || data.error, details].filter(Boolean).join(" — ") || "Erro EnvioEcom";
+  return {
+    error: String(data.error || "").trim(),
+    message: [data.message || data.error, details].filter(Boolean).join(" — ") || "Erro EnvioEcom",
+  };
+}
+
+async function readError(res: Response) {
+  return (await readErrorPayload(res)).message;
 }
 
 export function EnvioEcomOrderActions({
@@ -116,6 +134,9 @@ export function EnvioEcomOrderActions({
   const [originZipcode, setOriginZipcode] = useState("");
   const [packageInfo, setPackageInfo] = useState<Record<string, unknown> | null>(null);
   const [selectedCarriers, setSelectedCarriers] = useState<string[]>([]);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [linkRef, setLinkRef] = useState("");
+  const [continueToLabel, setContinueToLabel] = useState(false);
 
   const carrierFilters = useMemo(() => {
     const fromResults = [
@@ -211,26 +232,45 @@ export function EnvioEcomOrderActions({
     }
   }
 
-  async function generateLabel() {
-    if (needsBind) {
-      const raw = window.prompt("Informe o ID numérico do envio no painel EnvioEcom (não use o código EC):");
-      const shipmentId = Number(String(raw || "").replace(/\D/g, ""));
-      if (!Number.isFinite(shipmentId) || shipmentId <= 0) return;
-      setBusy("bind");
-      try {
-        const bindRes = await fetch(`${BASE}/api/admin/envioecom/orders/${order.id}/bind-id`, {
-          method: "POST",
-          headers: adminHeaders(),
-          body: JSON.stringify({ shipmentId }),
-        });
-        if (!bindRes.ok) throw new Error(await readError(bindRes));
-        const bindData = await bindRes.json() as { order?: EnvioEcomOrderFields };
-        await patchFromResponse(bindData);
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Não foi possível salvar o ID.");
-        setBusy(null);
-        return;
+  function openEnvioEcomLinkModal(nextContinueToLabel = false) {
+    setContinueToLabel(nextContinueToLabel);
+    setLinkOpen(true);
+  }
+
+  async function linkEnvioEcomShipment() {
+    const parsed = parseEnvioEcomLinkRef(linkRef);
+    if (!parsed.shipmentId && !parsed.barcode) {
+      toast.error("Informe o ID do envio ou o código de rastreio.");
+      return;
+    }
+    setBusy("bind");
+    try {
+      const res = await fetch(`${BASE}/api/admin/envioecom/orders/${order.id}/sync`, {
+        method: "POST",
+        headers: adminHeaders(),
+        body: JSON.stringify(parsed.shipmentId ? { shipment_id: parsed.shipmentId } : { barcode: parsed.barcode }),
+      });
+      if (!res.ok) throw new Error(await readError(res));
+      const data = await res.json() as { order?: EnvioEcomOrderFields };
+      await patchFromResponse(data);
+      setLinkOpen(false);
+      setLinkRef("");
+      toast.success("Envio EnvioEcom vinculado.");
+      if (continueToLabel) {
+        setContinueToLabel(false);
+        await generateLabel({ skipBind: true });
       }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Não foi possível vincular o envio.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function generateLabel(opts?: { skipBind?: boolean }) {
+    if (needsBind && !opts?.skipBind) {
+      openEnvioEcomLinkModal(true);
+      return;
     }
 
     setBusy("label");
@@ -244,7 +284,13 @@ export function EnvioEcomOrderActions({
         toast.message("Etiqueta ainda em processamento. Tente de novo em instantes.");
         return;
       }
-      if (!res.ok) throw new Error(await readError(res));
+      if (!res.ok) {
+        const payload = await readErrorPayload(res);
+        if (payload.error === "SHIPMENT_ID_REQUIRED") {
+          openEnvioEcomLinkModal(true);
+        }
+        throw new Error(payload.message);
+      }
       const data = await res.json() as { order?: EnvioEcomOrderFields; labelUrl?: string };
       await patchFromResponse(data);
       toast.success("Etiqueta gerada.");
@@ -300,6 +346,16 @@ export function EnvioEcomOrderActions({
       <Button size="sm" variant="outline" className="gap-1.5 text-emerald-700 border-emerald-200 hover:bg-emerald-50" disabled={!!busy} onClick={() => void quote()}>
         {busy === "quote" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Truck className="w-3.5 h-3.5" />}
         EnvioEcom
+      </Button>
+      <Button
+        size="sm"
+        variant="outline"
+        className="gap-1.5 text-teal-700 border-teal-200 hover:bg-teal-50"
+        disabled={!!busy}
+        onClick={() => openEnvioEcomLinkModal(false)}
+      >
+        {busy === "bind" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />}
+        Vincular EE
       </Button>
       {(order.envioecomShipmentId || barcode) && (
         <Button size="sm" variant="outline" className="gap-1.5 text-emerald-800 border-emerald-200 hover:bg-emerald-50" disabled={!!busy} onClick={() => void generateLabel()}>
@@ -424,6 +480,58 @@ export function EnvioEcomOrderActions({
                 ))
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {linkOpen && (
+        <div className="fixed inset-0 z-[70] bg-black/40 flex items-center justify-center p-4" onClick={() => !busy && setLinkOpen(false)}>
+          <div className="bg-white rounded-[28px] max-w-md w-full shadow-xl p-5 sm:p-6" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3 pb-4 border-b border-neutral-200">
+              <div>
+                <h2 className="text-lg font-bold text-neutral-900 leading-tight">Vincular EnvioEcom</h2>
+                <p className="text-sm text-neutral-500 mt-1">
+                  Pedido #{orderDisplayId}{order.clientName ? ` · ${order.clientName}` : ""}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="text-neutral-500 hover:text-neutral-800 p-1 -mt-1"
+                onClick={() => setLinkOpen(false)}
+                aria-label="Fechar"
+                disabled={!!busy}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-sm text-neutral-600 mt-4">
+              Cole o ID do envio no painel EnvioEcom (ex. 726270) ou o código de rastreio. Não cria envio novo — só liga o que já existe.
+            </p>
+            <form
+              className="mt-4 space-y-4"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void linkEnvioEcomShipment();
+              }}
+            >
+              <input
+                className="h-11 w-full rounded-xl border border-neutral-300 px-3 text-sm"
+                placeholder="ID ou rastreio"
+                value={linkRef}
+                onChange={(event) => setLinkRef(event.target.value)}
+                autoFocus
+                disabled={busy === "bind"}
+              />
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" disabled={!!busy} onClick={() => setLinkOpen(false)}>
+                  Cancelar
+                </Button>
+                <Button type="submit" disabled={busy === "bind" || !linkRef.trim()}>
+                  {busy === "bind" ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : <Link2 className="w-4 h-4 mr-1.5" />}
+                  Vincular
+                </Button>
+              </div>
+            </form>
           </div>
         </div>
       )}

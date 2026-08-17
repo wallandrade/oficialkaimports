@@ -29,6 +29,7 @@ import {
   parseCreatedShipment,
   parseShipmentDetails,
   persistEnvioEcomShipment,
+  parseEnvioEcomLinkRef,
   describeEnvioEcomRecipientIssues,
   sanitizeDocument,
   sanitizeUf,
@@ -171,16 +172,94 @@ function matchesTrackingQuery(order: ReturnType<typeof mapEnvioEcomOrder>, q: st
 }
 
 async function refreshShipment(client: EnvioEcomClient, order: typeof ordersTable.$inferSelect) {
-  if (order.envioecomShipmentId) {
-    const details = await client.getById(order.envioecomShipmentId);
-    return persistEnvioEcomShipment(order, parseShipmentDetails(details));
+  const details = await resolveLiveShipmentRefs(client, order, {});
+  if (!details) return order;
+  return persistEnvioEcomShipment(order, parseShipmentDetails(details));
+}
+
+function firstShipmentFromList(payload: unknown): unknown | null {
+  const root = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+  const nested = root.data && typeof root.data === "object" && !Array.isArray(root.data)
+    ? root.data as Record<string, unknown>
+    : root;
+  const candidates = [root.data, root.shipments, root.results, root.items, nested.shipments, nested.results, nested.items, nested.data];
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate) && candidate[0]) return candidate[0];
   }
-  const identifier = String(order.envioecomBarcode || order.trackingCode || "").trim();
-  if (identifier && !isProvisionalBarcode(identifier)) {
-    const details = await client.getByIdentifier(identifier);
-    return persistEnvioEcomShipment(order, parseShipmentDetails(details));
+  if (root.id || root.shipment_id || nested.id || nested.shipment_id) return payload;
+  return null;
+}
+
+async function tryEnvioEcomLookup(fn: () => Promise<unknown>): Promise<unknown | null> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (err instanceof EnvioEcomApiError && (err.httpStatus === 404 || err.httpStatus === 400)) return null;
+    throw err;
   }
-  return order;
+}
+
+async function lookupShipmentByRecipient(client: EnvioEcomClient, order: typeof ordersTable.$inferSelect): Promise<unknown | null> {
+  const document = digitsOnly(order.clientDocument);
+  const cep = digitsOnly(order.addressCep);
+  const name = String(order.clientName || "").trim();
+  const listParams: Record<string, string> = {};
+  if (document) listParams.document_number = document;
+  if (cep) listParams.zipcode = cep;
+  if (name) listParams.receiver_name = name;
+  if (Object.keys(listParams).length === 0) return null;
+  const listed = await tryEnvioEcomLookup(() => client.list(listParams));
+  return firstShipmentFromList(listed);
+}
+
+async function resolveLiveShipmentRefs(
+  client: EnvioEcomClient,
+  order: typeof ordersTable.$inferSelect,
+  input: { shipmentId?: number; barcode?: string },
+): Promise<unknown | null> {
+  const explicitId = input.shipmentId && input.shipmentId > 0 ? input.shipmentId : undefined;
+  const explicitBarcode = String(input.barcode || "").trim();
+  const shipmentId = explicitId || Number(order.envioecomShipmentId || 0) || undefined;
+  const barcode = explicitBarcode || String(order.envioecomBarcode || order.trackingCode || "").trim();
+  const hadExplicit = Boolean(explicitId || explicitBarcode);
+
+  if (shipmentId) {
+    const byId = await tryEnvioEcomLookup(() => client.getById(shipmentId));
+    if (byId) return byId;
+  }
+
+  if (barcode && !isProvisionalBarcode(barcode)) {
+    const byCode = await tryEnvioEcomLookup(() => client.getByIdentifier(barcode));
+    if (byCode) return byCode;
+  }
+
+  if (hadExplicit && explicitBarcode && /^\d+$/.test(explicitBarcode)) {
+    const asId = Number(explicitBarcode);
+    if (Number.isFinite(asId) && asId > 0 && asId !== shipmentId) {
+      const byId = await tryEnvioEcomLookup(() => client.getById(asId));
+      if (byId) return byId;
+    }
+  }
+
+  if (hadExplicit) {
+    const listed = await lookupShipmentByRecipient(client, order);
+    if (listed) return listed;
+    throw new EnvioEcomApiError(
+      "SHIPMENT_NOT_FOUND",
+      "Não encontramos esse envio na EnvioEcom. Confira o ID ou o código de rastreio.",
+      404,
+    );
+  }
+
+  if (!shipmentId && !(barcode && !isProvisionalBarcode(barcode))) {
+    return null;
+  }
+
+  throw new EnvioEcomApiError(
+    "SHIPMENT_NOT_FOUND",
+    "Não encontramos esse envio na EnvioEcom. Confira o ID ou o código de rastreio.",
+    404,
+  );
 }
 
 router.get("/admin/envioecom/status", requireAdminAuth, async (req, res) => {
@@ -548,8 +627,34 @@ router.post("/admin/envioecom/orders/:id/sync", requireAdminAuth, async (req, re
     }
     const client = await getClientOrReject(admin.tenantId, res);
     if (!client) return;
-    const persisted = await refreshShipment(client, order);
-    res.json({ ok: true, order: mapEnvioEcomOrder(persisted) });
+
+    const body = (req.body || {}) as {
+      shipment_id?: number | string;
+      shipmentId?: number | string;
+      barcode?: string;
+      ref?: string;
+    };
+    const parsed = parseEnvioEcomLinkRef(body.ref);
+    const shipmentIdRaw = Number(body.shipment_id || body.shipmentId || parsed.shipmentId);
+    const shipmentId = Number.isFinite(shipmentIdRaw) && shipmentIdRaw > 0 ? Math.trunc(shipmentIdRaw) : undefined;
+    const barcode = String(body.barcode || parsed.barcode || "").trim() || undefined;
+
+    const details = await resolveLiveShipmentRefs(client, order, { shipmentId, barcode });
+    if (!details) {
+      res.json({ ok: true, order: mapEnvioEcomOrder(order), resolved: false });
+      return;
+    }
+    const persisted = await persistEnvioEcomShipment(order, parseShipmentDetails(details));
+    res.json({
+      ok: true,
+      order: mapEnvioEcomOrder(persisted),
+      resolved: true,
+      tracking: {
+        shipmentId: persisted.envioecomShipmentId ?? null,
+        barcode: persisted.envioecomBarcode ?? persisted.trackingCode ?? null,
+        status: persisted.envioecomStatus ?? null,
+      },
+    });
   } catch (err) {
     sendEnvioEcomError(res, err);
   }

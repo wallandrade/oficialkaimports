@@ -233,6 +233,8 @@ export function digitsOnly(value: unknown): string {
   return String(value || "").replace(/\D/g, "");
 }
 
+export { parseEnvioEcomLinkRef } from "./envioecom-link-ref";
+
 export function sanitizeDocument(value: unknown): string {
   const digits = digitsOnly(value);
   if (digits.length === 14) {
