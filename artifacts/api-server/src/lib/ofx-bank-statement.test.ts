@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { parseOfxDate, parseOfxStatement } from "./ofx-bank-statement";
-import { nameSimilarity, reconcileBankStatement } from "./bank-statement-reconcile";
+import { nameSimilarity, matchIdentityScore, reconcileBankStatement } from "./bank-statement-reconcile";
 
 test("parseOfxDate converte YYYYMMDD", () => {
   assert.equal(parseOfxDate("20260810"), "2026-08-10");
@@ -93,4 +93,51 @@ test("mesmo valor e nomes diferentes vira ambiguo", () => {
   });
   assert.equal(report.matched.length, 1);
   assert.equal(report.matched[0]?.orderId, "1");
+});
+
+test("CPF no NAME do OFX gera score 100% mesmo com nome diferente", () => {
+  assert.equal(
+    matchIdentityScore({
+      creditName: "Fulano Silva 05040576692",
+      creditMemo: null,
+      clientName: "Maria Aparecida",
+      clientDocument: "050.405.766-92",
+    }),
+    1,
+  );
+  assert.ok(
+    matchIdentityScore({
+      creditName: "Wellington Rocha",
+      creditMemo: null,
+      clientName: "Maria Aparecida",
+      clientDocument: "050.405.766-92",
+    }) < 0.5,
+  );
+});
+
+test("match 100% por CPF no credito com valor e janela", () => {
+  const report = reconcileBankStatement({
+    credits: [{
+      fitid: "pix-cpf",
+      postedAt: "2026-08-12",
+      amount: 1768.8,
+      amountCents: 176880,
+      name: "Wellington Rocha Dos Santos 05040576692",
+      memo: "Pix recebido",
+      trnType: "CREDIT",
+    }],
+    orders: [{
+      id: "ord-maria",
+      orderNumber: 1832,
+      clientName: "Maria Aparecida Ferreira Barbosa Santos",
+      clientDocument: "050.405.766-92",
+      totalCents: 176880,
+      createdAt: "2026-08-12T11:53:00.000Z",
+      status: "paid",
+    }],
+    dateWindowDays: 5,
+  });
+  assert.equal(report.matched.length, 1);
+  assert.equal(report.matched[0]?.nameScore, 1);
+  assert.equal(report.matched[0]?.orderNumber, 1832);
 });

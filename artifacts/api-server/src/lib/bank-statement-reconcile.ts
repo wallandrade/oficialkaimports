@@ -8,6 +8,8 @@ export type ReconcileOrderInput = {
   id: string;
   orderNumber: number | null;
   clientName: string;
+  /** CPF/CNPJ do pedido — se aparecer no NAME/MEMO do OFX, score → 100%. */
+  clientDocument?: string | null;
   totalCents: number;
   createdAt: string; // ISO
   status: string;
@@ -118,6 +120,35 @@ export function nameSimilarity(a: string | null | undefined, b: string | null | 
   return hit / denom;
 }
 
+export function normalizeDocumentDigits(raw: string | null | undefined): string {
+  return String(raw || "").replace(/\D/g, "");
+}
+
+/** CPF (11) ou CNPJ (14) do pedido aparece no NAME/MEMO do crédito OFX. */
+export function creditContainsClientDocument(
+  creditName: string | null | undefined,
+  creditMemo: string | null | undefined,
+  clientDocument: string | null | undefined,
+): boolean {
+  const doc = normalizeDocumentDigits(clientDocument);
+  if (doc.length !== 11 && doc.length !== 14) return false;
+  const hay = normalizeDocumentDigits(`${creditName || ""} ${creditMemo || ""}`);
+  return hay.includes(doc);
+}
+
+/** Nome + boost CPF/CNPJ → 1.0 se documento bater. */
+export function matchIdentityScore(params: {
+  creditName: string | null | undefined;
+  creditMemo: string | null | undefined;
+  clientName: string | null | undefined;
+  clientDocument?: string | null | undefined;
+}): number {
+  if (creditContainsClientDocument(params.creditName, params.creditMemo, params.clientDocument)) {
+    return 1;
+  }
+  return nameSimilarity(params.creditName, params.clientName);
+}
+
 function parseDay(isoOrYmd: string): number | null {
   const s = String(isoOrYmd || "").trim();
   if (!s) return null;
@@ -204,7 +235,12 @@ export function reconcileBankStatement(params: {
       if (diff == null) continue;
       cands.push({
         order,
-        nameScore: nameSimilarity(credit.name, order.clientName),
+        nameScore: matchIdentityScore({
+          creditName: credit.name,
+          creditMemo: credit.memo,
+          clientName: order.clientName,
+          clientDocument: order.clientDocument,
+        }),
         dayDiff: diff,
       });
     }
