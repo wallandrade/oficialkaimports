@@ -106,6 +106,18 @@ function isoToSPDate(iso: string) {
 
 type OrderProductLite = { id: string; name: string; quantity: number; price: number; costPrice?: number; image?: string | null };
 
+function resolveOrderItemUnitCost(
+  item: { id?: string; costPrice?: number | null },
+  catalogById: Record<string, number> | Map<string, number>,
+): number {
+  const snapshot = Number(item.costPrice);
+  if (Number.isFinite(snapshot) && snapshot > 0) return snapshot;
+  const id = String(item.id || "").trim();
+  if (!id) return 0;
+  if (catalogById instanceof Map) return Number(catalogById.get(id) || 0);
+  return Number(catalogById[id] || 0);
+}
+
 function getOrderProducts(raw: unknown): OrderProductLite[] {
   if (Array.isArray(raw)) return raw as OrderProductLite[];
   if (typeof raw === "string") {
@@ -6368,7 +6380,7 @@ export default function Admin() {
   const statsTotalCost = statsPaidOrders.reduce((sum, order) => {
     const orderCost = getOrderProducts(order.products).reduce((lineSum, item) => {
       const qty = Number(item.quantity) || 0;
-      const lineCost = item.costPrice != null ? Number(item.costPrice) : Number(productCostMap.get(item.id) || 0);
+      const lineCost = resolveOrderItemUnitCost(item, productCostMap);
       return lineSum + qty * lineCost;
     }, 0);
     return sum + orderCost;
@@ -7426,6 +7438,10 @@ export default function Admin() {
                   setProductFormOpen(false);
                   setProductForm({});
                   fetchProducts();
+                  if (isEdit) {
+                    void fetchOrders();
+                    void fetchStatsData();
+                  }
                 }
               } catch { toast.error("Erro ao salvar produto."); }
               finally { setProductSaving(false); }
@@ -13871,9 +13887,7 @@ function OrdersPanel({
           const grossAmount = Number(order.cardTotalActual ?? order.total) || 0;
           const orderProductsCost = orderProducts.reduce((sum, item) => {
             const qty = Number(item.quantity) || 0;
-            const unitCost = item.costPrice != null
-              ? Number(item.costPrice)
-              : Number(productCostById[String(item.id || "").trim()] || 0);
+            const unitCost = resolveOrderItemUnitCost(item, productCostById);
             return sum + qty * unitCost;
           }, 0);
           const commissionRate = getCommissionRate(order.sellerCode, order.sellerCommissionRateSnapshot);
@@ -14383,9 +14397,7 @@ function OrdersPanel({
                       const imageSrc = resolveProductImage(p);
                       const qty = Number(p.quantity) || 0;
                       const lineTotal = Number(p.price) * qty;
-                      const unitCost = p.costPrice != null
-                        ? Number(p.costPrice)
-                        : Number(productCostById[String(p.id || "").trim()] || 0);
+                      const unitCost = resolveOrderItemUnitCost(p, productCostById);
                       const lineProfit = lineTotal - (unitCost * qty);
                       const hasNegativeProfit = lineProfit < 0;
                       return (

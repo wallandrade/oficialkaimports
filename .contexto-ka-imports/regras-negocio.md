@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-17 | Salvar custo do produto preenche pedidos com custo 0/ausente; card trata 0 como sem snapshot | Lucro est. passa a descontar o custo novo nesses pedidos | Pedidos com custo > 0 antigos (>24h) inalterados |
 | 2026-08-17 | Vincular EE cola envio externo (ID ou rastreio) no pedido | Card ganha shipment_id/status; webhook/sync usam esses IDs | Cotar/criar envio inalterados |
 | 2026-08-16 | Comprovante PDF no admin abre (blob + CSP `frame-src`) | Clique no selo PDF mostra o arquivo | Upload/gravação `proofUrls` inalterados |
 | 2026-08-16 | Admin pode cancelar reenvio ativo (`reenvio_cancelado`) | Some da fila; pedido original/`enviado` iguais | Estoque só baixa em “Marcar Reenvio Enviado” |
@@ -68,6 +69,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 - Fallback documentado no código: Google Sheets se DB vazio (`products.ts`).
 - Flags: `isActive`, `isSoldOut`, `isLaunch`, promo com `promoPrice`/`promoEndsAt`, desconto por volume (`bulkDiscountTiers`), variantes (`variantGroups`).
 - Imagens: URL pública R2/CDN; base64 legado ainda suportado na migração.
+- Checkout grava `costPrice` no item do pedido (snapshot; `0` se a ficha ainda não tinha custo). Ao **salvar** um custo novo no produto: pedidos das **últimas 24h** da loja com aquele item são sobrescritos; pedidos mais antigos **só** recebem o custo se o item ainda estiver `0`/ausente. O **Lucro est.** do card (e o dashboard) trata `0` como sem snapshot e cai no custo atual da ficha até o backfill gravar.
 
 ## Multi-tenant e filiais
 

@@ -1,11 +1,16 @@
 import { Router, type IRouter } from "express";
 import { db, productsTable, productCostHistoryTable, ordersTable, siteSettingsTable } from "@workspace/db";
-import { and, eq, asc, desc, gte, isNull, or } from "drizzle-orm";
+import { and, eq, asc, desc, isNull, or } from "drizzle-orm";
 import crypto from "crypto";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { getR2MissingConfig, isR2Configured, uploadProductImageToR2 } from "../lib/r2";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 import { removeLoja1ProductFromEnabledFiliais, syncLoja1ProductToEnabledFiliais } from "../lib/tenant-product-sync";
+import {
+  isWithinCostOverwriteWindow,
+  parseOrderProductItems,
+  patchOrderItemsWithProductCost,
+} from "../lib/order-item-cost";
 
 const router: IRouter = Router();
 
@@ -291,6 +296,14 @@ function buildProductTenantWhere(tenantId: string) {
   }
 
   return eq(productsTable.tenantId, tenantId);
+}
+
+function buildOrderTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(eq(ordersTable.tenantId, tenantId), isNull(ordersTable.tenantId), eq(ordersTable.tenantId, ""));
+  }
+
+  return eq(ordersTable.tenantId, tenantId);
 }
 
 function canManageProducts(scope: ReturnType<typeof getAdminScope>): boolean {
@@ -735,7 +748,7 @@ router.patch("/admin/products/:id", requireAdminAuth, async (req, res) => {
     if (isLaunch   !== undefined) updates.isLaunch    = isLaunch;
     if (sortOrder  !== undefined) updates.sortOrder   = sortOrder;
 
-    // Record cost price history and backfill recent orders when costPrice changes
+    // Record cost price history and backfill order item costs when costPrice changes
     if (costPrice !== undefined) {
       const [current] = await db.select({ costPrice: productsTable.costPrice }).from(productsTable).where(and(eq(productsTable.id, id), buildProductTenantWhere(tenantId)));
       const newCost = Number(costPrice ?? 0);
@@ -746,30 +759,20 @@ router.patch("/admin/products/:id", requireAdminAuth, async (req, res) => {
           costPrice: String(newCost),
         });
 
-        // 2. Atualizar costPrice nos pedidos das últimas 24h que contêm este produto
-        const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-        const recentOrders = await db
-          .select({ id: ordersTable.id, products: ordersTable.products })
+        // 2. Pedidos < 24h: sobrescreve o custo do item. Mais antigos: só preenche se ainda estiver 0/ausente.
+        const tenantOrders = await db
+          .select({ id: ordersTable.id, products: ordersTable.products, createdAt: ordersTable.createdAt })
           .from(ordersTable)
-          .where(and(eq(ordersTable.tenantId, tenantId), gte(ordersTable.createdAt, since)));
+          .where(buildOrderTenantWhere(tenantId));
 
-        for (const order of recentOrders) {
-          let items: Array<Record<string, unknown>>;
-          try {
-            items = Array.isArray(order.products)
-              ? (order.products as Array<Record<string, unknown>>)
-              : JSON.parse(String(order.products));
-          } catch {
-            continue;
-          }
-          const hasProduct = items.some((item) => String(item.id ?? item.productId ?? "").trim() === id);
-          if (!hasProduct) continue;
-          const patched = items.map((item) =>
-            String(item.id ?? item.productId ?? "").trim() === id
-              ? { ...item, costPrice: newCost }
-              : item,
-          );
-          await db.update(ordersTable).set({ products: patched }).where(eq(ordersTable.id, order.id));
+        for (const order of tenantOrders) {
+          const items = parseOrderProductItems(order.products);
+          if (!items) continue;
+          const patched = patchOrderItemsWithProductCost(items, id, newCost, {
+            overwriteExisting: isWithinCostOverwriteWindow(order.createdAt),
+          });
+          if (!patched.changed) continue;
+          await db.update(ordersTable).set({ products: patched.items }).where(eq(ordersTable.id, order.id));
         }
       }
     }
