@@ -9,7 +9,7 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 type Props = {
   authHeaders: () => HeadersInit;
   onUnauthorized: () => void;
-  onGoToOrder?: (orderId: string) => void;
+  onGoToOrder?: (orderId: string, orderCreatedAt?: string | null) => void;
 };
 
 type DepositRow = {
@@ -171,7 +171,7 @@ export default function AdminBankDepositsPanel({ authHeaders, onUnauthorized, on
                       <button
                         type="button"
                         className="text-primary font-semibold hover:underline"
-                        onClick={() => onGoToOrder?.(r.orderId)}
+                        onClick={() => onGoToOrder?.(r.orderId, r.orderCreatedAt)}
                       >
                         #{r.orderNumber ?? r.orderId.slice(0, 8)}
                       </button>

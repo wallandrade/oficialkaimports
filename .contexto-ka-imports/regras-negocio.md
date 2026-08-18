@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-18 | Extrato: clique no pedido amplia datas; título **Valor bateu, nome diferente** + hints | Pedido antigo aparece na lista; labels em pt-BR | Analyze/apply iguais |
 | 2026-08-18 | Extrato: CPF/CNPJ no OFX = score **100%** se igual `clientDocument` | Confirma pagador pelo documento mesmo com nome diferente | Valor/janela/FITID iguais |
 | 2026-08-18 | Extrato: **Aplicar este** por linha (outros/100%/ambíguo) | Confirma depósito um a um sem lote | Apply em massa e Desfazer iguais |
 | 2026-08-18 | Aba Depósitos: **Desfazer** por linha (`POST .../clear`) | Remove vínculo depósito; FITID volta no Extrato | Status pago / Extrato apply iguais |
@@ -96,11 +97,11 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 - Auth própria (sessão/cookie); escopo `isPrimary` / seller-scoped / tenant (`admin-auth.ts`, `admin_user_tenants`).
 - Primary-only em vários endpoints (tenants, tracking live, etc. — ver `requirePrimaryAdmin`).
 - Cobranças custom (`custom_charges`), comprovantes múltiplos (`proofUrls`), edição de pedido: primary da loja 1 e admin de filial nos pedidos do próprio tenant (seller-scoped não edita). O PATCH grava nome, telefone, e-mail, CPF, endereço, produtos e desconto; CEP no modal preenche ViaCEP ao sair do campo. Frete e seguro não são editáveis nesse modal. Não atualiza `customer_users`. Comprovante PDF no modal do admin converte `data:` para blob (`frame-src blob:` no CSP).
-- Busca de Pedidos é só no frontend (`search` → `filteredOrders`). Data/status/método/vendedor/grupo vão na API. Só dígitos: **somente** `orderNumber`/id do pedido (não telefone/CEP). Senão `includes` em id, número, nome, telefone, e-mail, CEP e produtos. Fora do período carregado não aparece.
+- Busca de Pedidos é só no frontend (`search` → `filteredOrders`). Data/status/método/vendedor/grupo vão na API. Só dígitos: **somente** `orderNumber`/id do pedido (não telefone/CEP). Senão `includes` em id, número, nome, telefone, e-mail, CEP e produtos. Fora do período carregado não aparece. Clique no nº a partir do Extrato/Depósitos chama `goToOrder`: amplia o intervalo de datas e zera status/método.
 - **Prioridade** no card: botão grava `is_prioridade`; SLA automático (48h úteis, pago/concluído, ainda não enviado). Ao marcar **enviado** (botão, rastreio ou coleta/postagem EnvioEcom) a prioridade manual é zerada e o selo some. Pedido já enviado não mostra nem deixa ligar a estrela.
 - Aba **Rastreios EE**: lista pedidos com barcode/shipment_id/status EnvioEcom; Atualizar lista lê o BD; Sync consulta a API. Campo “Nome do produto no create” (até 120 chars) vale para todos os itens da loja; envios já criados não mudam. **Vincular EE** cola ID ou rastreio de um envio já criado no painel EnvioEcom no pedido (não cotação/create).
-- Aba **Extrato**: upload OFX → Analisar → relatório (100% / outros / ambíguos / PIX sem pedido / pedido sem depósito) → aplicar em lote ou **Aplicar este** por linha (grava `ok` nos outros; `confirmed_100` nos 100%; ambíguo depois de escolher o pedido). Meta mostra créditos novos, FITIDs já registrados (ignorados) e pedidos manuais vs. total no período. Badge no card: **Depósito pago 100%** / Depósito OK / Depósito não encontrado.
-- Aba **Depósitos**: `GET /api/admin/bank-deposits` lista pedidos já aplicados (`confirmed_100` / `ok` / ambos). Não some ao atualizar. Clique no pedido abre o card em Pedidos. **Desfazer** confirma e zera `bank_deposit_*`; o crédito pode reaparecer no próximo Analisar.
+- Aba **Extrato**: upload OFX → Analisar → relatório (100% / **Valor bateu, nome diferente** / ambíguos / PIX sem pedido / pedido sem depósito) → aplicar em lote ou **Aplicar este** por linha (grava `ok` nos outros; `confirmed_100` nos 100%; ambíguo depois de escolher o pedido). Clique no nº do pedido abre Pedidos ampliando `dateFrom`/`dateTo` (data do pedido → hoje, ou 365 dias). Meta mostra créditos novos, FITIDs já registrados (ignorados) e pedidos manuais vs. total no período. Badge no card: **Depósito pago 100%** / Depósito OK / Depósito não encontrado.
+- Aba **Depósitos**: `GET /api/admin/bank-deposits` lista pedidos já aplicados (`confirmed_100` / `ok` / ambos). Não some ao atualizar. Clique no pedido abre o card em Pedidos (com o intervalo de datas do pedido). **Desfazer** confirma e zera `bank_deposit_*`; o crédito pode reaparecer no próximo Analisar.
 
 ## KYC
 
