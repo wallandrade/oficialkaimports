@@ -13,6 +13,14 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatCurrency, formatDateBR } from "@/lib/utils";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -163,6 +171,11 @@ export default function AdminBankStatementPanel({ authHeaders, onUnauthorized, o
   const [manualAmbiguous, setManualAmbiguous] = useState<Record<string, string>>({});
   const [creditSearch, setCreditSearch] = useState("");
   const [linkOrderByFitid, setLinkOrderByFitid] = useState<Record<string, string>>({});
+  const [mismatchModal, setMismatchModal] = useState<{
+    credit: OfxCreditLite;
+    order: LinkableOrder;
+  } | null>(null);
+  const [mismatchNote, setMismatchNote] = useState("");
 
   const report = result?.report;
   const credits = result?.credits || [];
@@ -203,6 +216,8 @@ export default function AdminBankStatementPanel({ authHeaders, onUnauthorized, o
       setResult(null);
       setCreditSearch("");
       setLinkOrderByFitid({});
+      setMismatchModal(null);
+      setMismatchNote("");
       toast.success(`Arquivo carregado: ${file.name}`);
     } catch {
       toast.error("Não foi possível ler o arquivo OFX.");
@@ -241,6 +256,8 @@ export default function AdminBankStatementPanel({ authHeaders, onUnauthorized, o
       setSelectedNotFound(nf);
       setManualAmbiguous({});
       setLinkOrderByFitid({});
+      setMismatchModal(null);
+      setMismatchNote("");
       toast.success(
         `Análise pronta: ${data.report?.summary.matched ?? 0} OK · ${data.report?.summary.ambiguous ?? 0} ambíguos`,
       );
@@ -279,17 +296,21 @@ export default function AdminBankStatementPanel({ authHeaders, onUnauthorized, o
     return linkableOrders.find((o) => o.orderId === q) || null;
   };
 
-  const linkCreditToOrder = async (credit: OfxCreditLite) => {
+  const linkCreditToOrder = async (credit: OfxCreditLite, mismatchNoteOverride?: string) => {
     const orderRaw = String(linkOrderByFitid[credit.fitid] || "").trim();
-    const order = findLinkableOrder(orderRaw);
+    const order =
+      mismatchNoteOverride && mismatchModal?.credit.fitid === credit.fitid
+        ? mismatchModal.order
+        : findLinkableOrder(orderRaw);
     if (!order) {
       toast.error("Pedido não encontrado. Digite o nº do pedido (ex.: 617).");
       return;
     }
-    if (moneyCents(order.total) !== moneyCents(credit.amount)) {
-      toast.error(
-        `Valor diferente: pedido #${order.orderNumber ?? "—"} é ${formatCurrency(order.total)}, PIX é ${formatCurrency(credit.amount)}.`,
-      );
+    const amountsDiffer = moneyCents(order.total) !== moneyCents(credit.amount);
+    const note = String(mismatchNoteOverride ?? "").trim();
+    if (amountsDiffer && note.length < 3) {
+      setMismatchNote("");
+      setMismatchModal({ credit, order });
       return;
     }
 
@@ -342,6 +363,7 @@ export default function AdminBankStatementPanel({ authHeaders, onUnauthorized, o
               creditName: credit.name,
               nameScore: 0,
               matchStatus: "ok",
+              ...(amountsDiffer ? { amountMismatchNote: note } : {}),
             },
           ],
           notFoundOrderIds: [],
@@ -367,6 +389,8 @@ export default function AdminBankStatementPanel({ authHeaders, onUnauthorized, o
       toast.success(
         `PIX (${credit.name || "sem nome"}) vinculado ao pedido #${order.orderNumber ?? "—"}.`,
       );
+      setMismatchModal(null);
+      setMismatchNote("");
       await analyze();
     } catch {
       toast.error("Erro ao vincular depósito.");
@@ -913,6 +937,67 @@ export default function AdminBankStatementPanel({ authHeaders, onUnauthorized, o
           </Section>
         </>
       )}
+
+      <Dialog
+        open={!!mismatchModal}
+        onOpenChange={(open) => {
+          if (!open) {
+            if (applyingFitid) return;
+            setMismatchModal(null);
+            setMismatchNote("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Valor diferente — explique o motivo</DialogTitle>
+            <DialogDescription>
+              {mismatchModal
+                ? `Pedido #${mismatchModal.order.orderNumber ?? "—"} é ${formatCurrency(mismatchModal.order.total)}; o PIX é ${formatCurrency(mismatchModal.credit.amount)}. O vínculo é permitido, mas precisa da observação.`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <label className="block">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Motivo</span>
+            <textarea
+              value={mismatchNote}
+              onChange={(e) => setMismatchNote(e.target.value)}
+              rows={4}
+              placeholder="Ex.: cliente pagou valor maior / dois pedidos no mesmo PIX…"
+              className="mt-1.5 w-full rounded-xl border border-border bg-white px-3 py-2 text-sm outline-none focus:border-primary"
+            />
+          </label>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!!applyingFitid}
+              onClick={() => {
+                setMismatchModal(null);
+                setMismatchNote("");
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2"
+              disabled={mismatchNote.trim().length < 3 || !!applyingFitid}
+              onClick={() => {
+                if (!mismatchModal) return;
+                if (mismatchNote.trim().length < 3) {
+                  toast.error("Escreva o motivo (mínimo 3 caracteres).");
+                  return;
+                }
+                void linkCreditToOrder(mismatchModal.credit, mismatchNote.trim());
+              }}
+            >
+              {applyingFitid ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              Confirmar e vincular
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

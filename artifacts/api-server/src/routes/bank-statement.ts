@@ -15,6 +15,11 @@ function moneyToCents(value: unknown): number {
   return Math.round(n * 100);
 }
 
+function formatBrlFromCents(cents: number): string {
+  const n = (Math.round(cents) / 100).toFixed(2).replace(".", ",");
+  return `R$ ${n}`;
+}
+
 function toIsoDateStart(ymd: string): Date {
   return new Date(`${ymd}T00:00:00.000Z`);
 }
@@ -465,10 +470,28 @@ router.post("/admin/bank-statement/apply", requireAdminAuth, async (req, res) =>
         continue;
       }
 
-      if (moneyToCents(order.total) !== moneyToCents(creditAmount)) {
-        errors.push({ orderId, message: "Valor do crédito ≠ total do pedido." });
-        continue;
+      const amountsDiffer = moneyToCents(order.total) !== moneyToCents(creditAmount);
+      const mismatchNote = String(raw?.amountMismatchNote || "").trim().slice(0, 500);
+      if (amountsDiffer) {
+        if (matchStatus === "confirmed_100") {
+          errors.push({ orderId, message: "Valor do crédito ≠ total do pedido." });
+          continue;
+        }
+        if (mismatchNote.length < 3) {
+          errors.push({
+            orderId,
+            message: "Valor diferente: informe o motivo para vincular.",
+          });
+          continue;
+        }
       }
+
+      const mismatchLine = amountsDiffer
+        ? `OFX: PIX ${formatBrlFromCents(moneyToCents(creditAmount))} ≠ pedido ${formatBrlFromCents(moneyToCents(order.total))}. Motivo: ${mismatchNote}`
+        : null;
+      const nextObservation = mismatchLine
+        ? [String(order.observation || "").trim(), mismatchLine].filter(Boolean).join("\n")
+        : undefined;
 
       await db
         .update(ordersTable)
@@ -480,6 +503,7 @@ router.post("/admin/bank-statement/apply", requireAdminAuth, async (req, res) =>
           bankDepositPostedAt: creditPostedAt || null,
           bankDepositMatchedAt: new Date(),
           updatedAt: new Date(),
+          ...(nextObservation !== undefined ? { observation: nextObservation } : {}),
         })
         .where(and(eq(ordersTable.id, orderId), tenantWhere));
 

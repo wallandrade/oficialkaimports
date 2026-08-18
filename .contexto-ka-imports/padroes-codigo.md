@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-18 | Anti-padrão: recusar Vincular só porque PIX ≠ total sem pedir motivo | Modal + `amountMismatchNote` no apply `ok` | Lote / 100% ainda exigem valor igual |
 | 2026-08-18 | Anti-padrão: forçar match automático quando o pagador é outra pessoa | Buscar no extrato + Vincular ao nº | Apply/clear iguais |
 | 2026-08-18 | Anti-padrão: abrir pedido do Extrato só com `setSearch` (filtro de data = hoje) | `goToOrder` amplia dateFrom/dateTo | API de pedidos inalterada |
 | 2026-08-18 | Anti-padrão: desfazer depósito mudando pago ou apagando pedido | `clear` só zera `bank_deposit_*` | Polling PIX inalterado |
@@ -129,7 +130,8 @@ Código > memória > suposições.
 - Listar saldo de estoque só por nome, misturando 0 un no topo; positivo primeiro, zeros no fim.
 - Debitar estoque no PATCH de reenvio fora de `reenvio_enviado`, ou não ter **Cancelar Reenvio** para quem não vai mais enviar (`reenvio_cancelado`). “Cancelar Reenvio Enviado” é só o undo do enviado.
 - Marcar pedido `paid` a partir do OFX, ou baixar PDF do Inter para `proofUrl`; conciliação só grava `bank_deposit_*`.
-- Forçar o match automático quando o nome no extrato é de outra pessoa; usar **Buscar no extrato** e Vincular ao nº (valor igual; `clear` se já houver vínculo).
+- Forçar o match automático quando o nome no extrato é de outra pessoa; usar **Buscar no extrato** e Vincular ao nº (`clear` se já houver vínculo). Valor diferente no vínculo manual exige motivo (`amountMismatchNote`); não recusar só com toast. Lote / `confirmed_100` continuam valor igual.
+- Recusar Vincular no Extrato só porque o valor do PIX ≠ total do pedido, sem pedir observação. Apply `ok` aceita `amountMismatchNote` (≥3, máx 500) e anexa em `orders.observation`; `confirmed_100` recusa valor diferente.
 - Tratar score 100% só como “nome igual”; se o CPF/CNPJ do pedido (`11`/`14` dígitos) aparecer no NAME/MEMO do crédito, o score é 1.0.
 - Abrir pedido do Extrato/Depósitos só com `setSearch(id)` enquanto o filtro de data é “hoje”; a API não traz pedido antigo. Usar `goToOrder` (intervalo da data do pedido → hoje, ou 365 dias).
 - Desfazer depósito alterando `status`/`paid` ou apagando o pedido; `POST .../clear` só zera os seis campos `bank_deposit_*`.
