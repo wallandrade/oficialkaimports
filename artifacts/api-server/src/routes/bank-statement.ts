@@ -257,6 +257,17 @@ router.post("/admin/bank-statement/analyze", requireAdminAuth, async (req, res) 
       usedFitids,
     });
 
+    const linkableOrders = manualRows.map((r) => ({
+      orderId: r.id,
+      orderNumber: r.orderNumber ?? null,
+      clientName: r.clientName,
+      total: Number(r.total),
+      createdAt: r.createdAt?.toISOString?.() ?? null,
+      status: r.status,
+      bankDepositMatchStatus: r.bankDepositMatchStatus,
+      bankDepositFitid: r.bankDepositFitid,
+    }));
+
     res.json({
       ok: true,
       meta: parsed.meta,
@@ -266,6 +277,15 @@ router.post("/admin/bank-statement/analyze", requireAdminAuth, async (req, res) 
       ordersManualOnly: manualRows.length,
       creditsTotal: parsed.credits.length,
       creditsNew: creditsFresh.length,
+      credits: parsed.credits.map((c) => ({
+        fitid: c.fitid,
+        amount: c.amount,
+        postedAt: c.postedAt,
+        name: c.name,
+        memo: c.memo,
+        alreadyUsed: usedFitids.has(c.fitid),
+      })),
+      linkableOrders,
       report,
     });
   } catch (err) {

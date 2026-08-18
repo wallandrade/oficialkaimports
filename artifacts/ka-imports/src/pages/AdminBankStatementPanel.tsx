@@ -8,6 +8,8 @@ import {
   AlertTriangle,
   XCircle,
   Landmark,
+  Search,
+  Link2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatCurrency, formatDateBR } from "@/lib/utils";
@@ -74,6 +76,26 @@ type ReportNotFound = {
   orderStatus: string;
 };
 
+type OfxCreditLite = {
+  fitid: string;
+  amount: number;
+  postedAt: string;
+  name: string | null;
+  memo: string | null;
+  alreadyUsed?: boolean;
+};
+
+type LinkableOrder = {
+  orderId: string;
+  orderNumber: number | null;
+  clientName: string;
+  total: number;
+  createdAt: string | null;
+  status: string;
+  bankDepositMatchStatus: string | null;
+  bankDepositFitid: string | null;
+};
+
 type AnalyzeResponse = {
   ok?: boolean;
   meta?: {
@@ -90,6 +112,8 @@ type AnalyzeResponse = {
   ordersManualOnly?: number;
   creditsTotal?: number;
   creditsNew?: number;
+  credits?: OfxCreditLite[];
+  linkableOrders?: LinkableOrder[];
   report?: {
     matched: ReportMatch[];
     ambiguous: ReportAmbiguous[];
@@ -115,6 +139,18 @@ function formatYmd(ymd: string | null | undefined): string {
   return `${d}/${m}/${y}`;
 }
 
+function moneyCents(v: number): number {
+  return Math.round(Number(v) * 100);
+}
+
+function normalizeSearch(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .trim();
+}
+
 export default function AdminBankStatementPanel({ authHeaders, onUnauthorized, onGoToOrder }: Props) {
   const [fileName, setFileName] = useState<string | null>(null);
   const [ofxText, setOfxText] = useState("");
@@ -125,13 +161,38 @@ export default function AdminBankStatementPanel({ authHeaders, onUnauthorized, o
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
   const [selectedNotFound, setSelectedNotFound] = useState<Record<string, boolean>>({});
   const [manualAmbiguous, setManualAmbiguous] = useState<Record<string, string>>({});
+  const [creditSearch, setCreditSearch] = useState("");
+  const [linkOrderByFitid, setLinkOrderByFitid] = useState<Record<string, string>>({});
 
   const report = result?.report;
+  const credits = result?.credits || [];
+  const linkableOrders = result?.linkableOrders || [];
 
   const selectedNotFoundIds = useMemo(
     () => Object.entries(selectedNotFound).filter(([, v]) => v).map(([id]) => id),
     [selectedNotFound],
   );
+
+  const matchedByFitid = useMemo(() => {
+    const map = new Map<string, ReportMatch>();
+    for (const m of report?.matched || []) map.set(m.creditFitid, m);
+    return map;
+  }, [report]);
+
+  const searchedCredits = useMemo(() => {
+    const q = normalizeSearch(creditSearch);
+    if (q.length < 2) return [];
+    const qDigits = q.replace(/\D/g, "");
+    return credits
+      .filter((c) => {
+        const hay = normalizeSearch(`${c.name || ""} ${c.memo || ""} ${c.fitid} ${c.amount}`);
+        if (hay.includes(q)) return true;
+        if (qDigits.length >= 3 && String(c.amount).replace(/\D/g, "").includes(qDigits)) return true;
+        if (qDigits.length >= 4 && c.fitid.includes(qDigits)) return true;
+        return false;
+      })
+      .slice(0, 40);
+  }, [creditSearch, credits]);
 
   const onPickFile = async (file: File | null) => {
     if (!file) return;
@@ -140,6 +201,8 @@ export default function AdminBankStatementPanel({ authHeaders, onUnauthorized, o
       const text = await file.text();
       setOfxText(text);
       setResult(null);
+      setCreditSearch("");
+      setLinkOrderByFitid({});
       toast.success(`Arquivo carregado: ${file.name}`);
     } catch {
       toast.error("Não foi possível ler o arquivo OFX.");
@@ -177,6 +240,7 @@ export default function AdminBankStatementPanel({ authHeaders, onUnauthorized, o
       }
       setSelectedNotFound(nf);
       setManualAmbiguous({});
+      setLinkOrderByFitid({});
       toast.success(
         `Análise pronta: ${data.report?.summary.matched ?? 0} OK · ${data.report?.summary.ambiguous ?? 0} ambíguos`,
       );
@@ -184,6 +248,130 @@ export default function AdminBankStatementPanel({ authHeaders, onUnauthorized, o
       toast.error("Erro ao analisar extrato.");
     } finally {
       setAnalyzing(false);
+    }
+  };
+
+  const clearOrderDeposit = async (orderId: string): Promise<boolean> => {
+    const res = await fetch(`${BASE}/api/admin/bank-statement/clear`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ orderId }),
+    });
+    if (res.status === 401) {
+      onUnauthorized();
+      return false;
+    }
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { message?: string };
+      toast.error(data.message || "Falha ao desfazer depósito anterior.");
+      return false;
+    }
+    return true;
+  };
+
+  const findLinkableOrder = (raw: string): LinkableOrder | null => {
+    const q = raw.trim();
+    if (!q) return null;
+    if (/^\d+$/.test(q)) {
+      const n = Number(q);
+      return linkableOrders.find((o) => o.orderNumber === n) || null;
+    }
+    return linkableOrders.find((o) => o.orderId === q) || null;
+  };
+
+  const linkCreditToOrder = async (credit: OfxCreditLite) => {
+    const orderRaw = String(linkOrderByFitid[credit.fitid] || "").trim();
+    const order = findLinkableOrder(orderRaw);
+    if (!order) {
+      toast.error("Pedido não encontrado. Digite o nº do pedido (ex.: 617).");
+      return;
+    }
+    if (moneyCents(order.total) !== moneyCents(credit.amount)) {
+      toast.error(
+        `Valor diferente: pedido #${order.orderNumber ?? "—"} é ${formatCurrency(order.total)}, PIX é ${formatCurrency(credit.amount)}.`,
+      );
+      return;
+    }
+
+    const fitidOwner = linkableOrders.find(
+      (o) =>
+        o.bankDepositFitid === credit.fitid &&
+        (o.bankDepositMatchStatus === "ok" || o.bankDepositMatchStatus === "confirmed_100") &&
+        o.orderId !== order.orderId,
+    );
+    if (fitidOwner) {
+      if (
+        !window.confirm(
+          `Este PIX já está vinculado ao pedido #${fitidOwner.orderNumber ?? fitidOwner.orderId.slice(0, 8)}. Desfazer e vincular em #${order.orderNumber ?? "—"}?`,
+        )
+      ) {
+        return;
+      }
+      const ok = await clearOrderDeposit(fitidOwner.orderId);
+      if (!ok) return;
+    }
+
+    if (
+      (order.bankDepositMatchStatus === "ok" || order.bankDepositMatchStatus === "confirmed_100") &&
+      order.bankDepositFitid &&
+      order.bankDepositFitid !== credit.fitid
+    ) {
+      if (
+        !window.confirm(
+          `Pedido #${order.orderNumber ?? "—"} já tem outro depósito. Desfazer o anterior e vincular este PIX (${credit.name || "sem nome"})?`,
+        )
+      ) {
+        return;
+      }
+      const ok = await clearOrderDeposit(order.orderId);
+      if (!ok) return;
+    }
+
+    setApplyingFitid(credit.fitid);
+    try {
+      const res = await fetch(`${BASE}/api/admin/bank-statement/apply`, {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          matches: [
+            {
+              orderId: order.orderId,
+              creditFitid: credit.fitid,
+              creditAmount: credit.amount,
+              creditPostedAt: credit.postedAt,
+              creditName: credit.name,
+              nameScore: 0,
+              matchStatus: "ok",
+            },
+          ],
+          notFoundOrderIds: [],
+        }),
+      });
+      if (res.status === 401) {
+        onUnauthorized();
+        return;
+      }
+      const data = (await res.json()) as {
+        ok?: boolean;
+        errors?: Array<{ orderId?: string; message: string }>;
+        message?: string;
+      };
+      if (!res.ok) {
+        toast.error(data.message || "Falha ao vincular.");
+        return;
+      }
+      if (data.errors?.length) {
+        toast.error(data.errors[0]?.message || "Não foi possível vincular.");
+        return;
+      }
+      toast.success(
+        `PIX (${credit.name || "sem nome"}) vinculado ao pedido #${order.orderNumber ?? "—"}.`,
+      );
+      await analyze();
+    } catch {
+      toast.error("Erro ao vincular depósito.");
+    } finally {
+      setApplyingFitid(null);
     }
   };
 
@@ -434,6 +622,105 @@ export default function AdminBankStatementPanel({ authHeaders, onUnauthorized, o
               “Só 100%” grava <strong>Depósito confirmado 100%</strong> no pedido. Não altera status de pagamento.
             </p>
           </div>
+
+          <Section
+            title="Buscar no extrato (vincular manual)"
+            icon={<Search className="w-4 h-4 text-slate-600" />}
+            hint="Digite o nome de quem pagou no Inter (ex.: Francisco). Ache o PIX e informe o nº do pedido certo para vincular — mesmo se o cliente do pedido for outro."
+          >
+            <div className="relative mb-3">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={creditSearch}
+                onChange={(e) => setCreditSearch(e.target.value)}
+                placeholder="Pesquisar nome, valor ou FITID no extrato…"
+                className="w-full h-11 pl-10 pr-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+              />
+            </div>
+            {normalizeSearch(creditSearch).length < 2 ? (
+              <p className="text-sm text-muted-foreground">Digite pelo menos 2 letras para buscar.</p>
+            ) : searchedCredits.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nenhum PIX encontrado com “{creditSearch.trim()}”.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-muted-foreground border-b">
+                      <th className="py-2 pr-3">Data</th>
+                      <th className="py-2 pr-3">Nome no extrato</th>
+                      <th className="py-2 pr-3">Valor</th>
+                      <th className="py-2 pr-3">Sugestão auto</th>
+                      <th className="py-2 pr-3">Nº pedido</th>
+                      <th className="py-2">Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {searchedCredits.map((c) => {
+                      const auto = matchedByFitid.get(c.fitid);
+                      return (
+                        <tr key={c.fitid} className="border-b border-border/50 align-top">
+                          <td className="py-2.5 pr-3 whitespace-nowrap">{formatYmd(c.postedAt)}</td>
+                          <td className="py-2.5 pr-3">
+                            <div className="font-medium">{c.name || "—"}</div>
+                            {c.memo ? (
+                              <div className="text-[11px] text-muted-foreground truncate max-w-[220px]">{c.memo}</div>
+                            ) : null}
+                            {c.alreadyUsed ? (
+                              <div className="text-[11px] text-amber-700 font-medium mt-0.5">Já vinculado (pode religar)</div>
+                            ) : null}
+                          </td>
+                          <td className="py-2.5 pr-3 font-semibold">{formatCurrency(c.amount)}</td>
+                          <td className="py-2.5 pr-3 text-xs text-muted-foreground">
+                            {auto ? (
+                              <button
+                                type="button"
+                                className="text-primary hover:underline"
+                                onClick={() => onGoToOrder?.(auto.orderId, auto.orderCreatedAt)}
+                              >
+                                #{auto.orderNumber ?? "—"} {auto.clientName}
+                              </button>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
+                          <td className="py-2.5 pr-3">
+                            <input
+                              value={linkOrderByFitid[c.fitid] || ""}
+                              onChange={(e) =>
+                                setLinkOrderByFitid((prev) => ({ ...prev, [c.fitid]: e.target.value }))
+                              }
+                              placeholder="Ex.: 617"
+                              className="h-9 w-28 px-2 rounded-lg border border-border bg-white text-sm outline-none focus:border-primary"
+                            />
+                          </td>
+                          <td className="py-2.5">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              className="gap-1.5 text-xs"
+                              disabled={!!applyingFitid || applying || analyzing}
+                              onClick={() => void linkCreditToOrder(c)}
+                            >
+                              {applyingFitid === c.fitid ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <Link2 className="w-3.5 h-3.5" />
+                              )}
+                              Vincular
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <p className="text-xs text-muted-foreground mt-2">
+                  {searchedCredits.length} resultado(s). Valor do PIX precisa ser igual ao total do pedido.
+                </p>
+              </div>
+            )}
+          </Section>
 
           <Section
             title={`Depósito confirmado 100% (${matched100.length})`}
