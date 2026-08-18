@@ -588,6 +588,7 @@ import { AdminLayout } from "@/components/layout/AdminLayout";
 import { EnvioEcomOrderActions, hasEnvioEcomLabelReady, preserveEnvioEcomLabelFields } from "@/components/admin/EnvioEcomOrderActions";
 import { EnvioEcomTrackingBoard } from "@/components/admin/EnvioEcomTrackingBoard";
 import { EnvioEcomSettingsCard } from "@/components/admin/EnvioEcomSettingsCard";
+import AdminBankStatementPanel from "@/pages/AdminBankStatementPanel";
 import { buildCustomerImpersonationUrl } from "@/lib/customer-auth";
 
 
@@ -1051,7 +1052,7 @@ function OrderBumpsPanel({ bumps, products, form, setForm, creating, toggling, d
   );
 }
 
-type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "checkout" | "socialProof" | "raffles" | "lojas" | "supplierPurchases" | "envioecom";
+type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "checkout" | "socialProof" | "raffles" | "lojas" | "supplierPurchases" | "envioecom" | "extrato";
 type LojasSubTab = "criar" | "pedidos" | "cadastradas";
 type FilialScopeSubTab = "pedidos" | "produtos" | "estoque";
 
@@ -6798,6 +6799,7 @@ export default function Admin() {
               { key: "envioecom" as TabType, label: "Rastreios EE", icon: "Truck" },
             ] : []),
             { key: "charges",       label: "Links Pagamento",  icon: "LinkIcon",    count: charges.length },
+            { key: "extrato" as TabType, label: "Extrato", icon: "Landmark" },
             { key: "sellers",       label: "Vendedores",       icon: "Tag" },
             { key: "commissions",   label: "Comissões",        icon: "DollarSign",  count: commissionPendingOrders.length || undefined },
             { key: "kyc",           label: "KYC",              icon: "ShieldCheck", count: kycList.length > 0 ? kycList.filter((k) => k.status === "submitted").length : undefined },
@@ -6933,7 +6935,7 @@ export default function Admin() {
             onEditOrder={openEditOrder}
             onOpenKycModal={openKycModal}
             onSetOrderEnviado={(id, enviado) => {
-              setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, enviado } : o)));
+              setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, enviado, isPrioridade: enviado ? false : o.isPrioridade } : o)));
             }}
             onSetOrderPatched={(order) => {
               setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, ...order } : o)));
@@ -7004,6 +7006,16 @@ export default function Admin() {
             }}
             onRemoveOrder={(id) => {
               setOrders((prev) => prev.filter((o) => o.id !== id));
+            }}
+          />
+        ) : tab === "extrato" ? (
+          <AdminBankStatementPanel
+            authHeaders={authHeaders}
+            onUnauthorized={handleUnauthorized}
+            onGoToOrder={(orderId) => {
+              setSearch(orderId);
+              setTab("orders");
+              setExpandedOrder(orderId);
             }}
           />
         ) : tab === "charges" ? (
@@ -12927,6 +12939,7 @@ function OrdersPanel({
   };
 
   const resolveOrderPriority = (order: AdminOrder): boolean => {
+    if (enviados[order.id] || order.enviado) return false;
     const id = String(order.id || "").trim();
     if (!id) return !!(order as any).isPrioridade;
     return Object.prototype.hasOwnProperty.call(orderPriorities, id)
@@ -12983,6 +12996,7 @@ function OrdersPanel({
   const toggleOrderPriority = async (order: AdminOrder) => {
     const id = String(order.id || "").trim();
     if (!id) return;
+    if (enviados[id] || order.enviado) return;
 
     const current = resolveOrderPriority(order);
     const next = !current;
@@ -13273,6 +13287,9 @@ function OrdersPanel({
       const confirmado = typeof data?.enviado === "boolean" ? data.enviado : novoValor;
       onSetOrderEnviado(orderId, confirmado);
       setEnviados(prev => ({ ...prev, [orderId]: confirmado }));
+      if (confirmado) {
+        setOrderPriorities((prev) => ({ ...prev, [orderId]: false }));
+      }
 
       // Keep local state briefly to avoid UI flip from stale background refreshes.
       setEnviadoLockUntil((prev) => ({ ...prev, [orderId]: Date.now() + 15000 }));
@@ -13793,6 +13810,7 @@ function OrdersPanel({
 
         onSetOrderEnviado(targetOrderId, true);
         setEnviados((prev) => ({ ...prev, [targetOrderId]: true }));
+        setOrderPriorities((prev) => ({ ...prev, [targetOrderId]: false }));
       }
 
       setTrackingReview(null);
@@ -13955,6 +13973,34 @@ function OrdersPanel({
                         {(order as any).envioecomStatus && (
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${String((order as any).envioecomStatus).toLowerCase().includes("cancel") ? "bg-rose-100 text-rose-800 border-rose-200" : "bg-emerald-100 text-emerald-800 border-emerald-200"}`}>
                             EE: {(order as any).envioecomStatus}
+                          </span>
+                        )}
+                        {(order as any).bankDepositMatchStatus === "confirmed_100" && (
+                          <span
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-600 text-white text-xs font-bold border border-emerald-700"
+                            title={(order as any).bankDepositPayerName
+                              ? `Depósito confirmado 100% · ${(order as any).bankDepositPayerName}`
+                              : "Depósito confirmado 100% (nome bateu com o extrato)"}
+                          >
+                            Depósito 100%
+                          </span>
+                        )}
+                        {(order as any).bankDepositMatchStatus === "ok" && (
+                          <span
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 text-xs font-semibold border border-emerald-300"
+                            title={(order as any).bankDepositPayerName
+                              ? `Depósito OK · ${(order as any).bankDepositPayerName}`
+                              : "Depósito encontrado no extrato bancário"}
+                          >
+                            Depósito OK
+                          </span>
+                        )}
+                        {(order as any).bankDepositMatchStatus === "not_found" && (
+                          <span
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-50 text-orange-800 text-xs font-semibold border border-orange-300"
+                            title="Comprovante de depósito não encontrado no extrato"
+                          >
+                            Depósito não encontrado
                           </span>
                         )}
                         {!enviados[order.id] && (
@@ -14278,8 +14324,10 @@ function OrdersPanel({
                   size="sm"
                   variant={isPrioridade ? "danger" : "outline"}
                   className={`gap-1.5 ${isPrioridade ? "bg-red-600 text-white border-red-700 hover:bg-red-700" : "text-red-600 border-red-200 hover:bg-red-50"}`}
-                  title={isPrioridade ? "Remover prioridade" : "Marcar como prioridade"}
-                  disabled={!!orderPriorityUpdating[order.id]}
+                  title={enviados[order.id] || order.enviado
+                    ? "Prioridade some após enviado/coletado"
+                    : isPrioridade ? "Remover prioridade" : "Marcar como prioridade"}
+                  disabled={!!orderPriorityUpdating[order.id] || !!enviados[order.id] || !!order.enviado}
                   onClick={() => { void toggleOrderPriority(order); }}
                 >
                   {orderPriorityUpdating[order.id]

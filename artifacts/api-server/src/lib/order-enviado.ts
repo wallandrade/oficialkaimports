@@ -4,6 +4,7 @@ import { DEFAULT_TENANT_ID } from "./tenant-context";
 import { registerInventoryEntry } from "./reshipments";
 import { completeOrderLogistics } from "./order-logistics";
 import { broadcastNotification } from "../routes/notifications";
+import { clearOrderManualPriority } from "./order-priority";
 
 function buildOrderTenantWhere(tenantId: string) {
   if (tenantId === DEFAULT_TENANT_ID) {
@@ -84,7 +85,10 @@ export async function ensureOrderMarkedEnviado(orderId: string, tenantId: string
 
   const order = rows[0];
   if (!order) throw new OrderEnviadoError("NOT_FOUND", "Pedido não encontrado.");
-  if (order.enviado) return { enviado: true, already: true };
+  if (order.enviado) {
+    await clearOrderManualPriority(orderId);
+    return { enviado: true, already: true };
+  }
 
   const orderItems = parseOrderItemsForInventory(order.products);
   if (orderItems.length > 0) {
@@ -143,6 +147,7 @@ export async function ensureOrderMarkedEnviado(orderId: string, tenantId: string
   await db.update(ordersTable)
     .set({ enviado: true, updatedAt: new Date() })
     .where(and(eq(ordersTable.id, orderId), buildOrderTenantWhere(tenantId)));
+  await clearOrderManualPriority(orderId);
 
   await db.delete(motoboyDeliveryReservationsTable).where(and(
     eq(motoboyDeliveryReservationsTable.orderId, orderId),

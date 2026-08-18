@@ -297,6 +297,12 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
     { name: "envioecom_label_url", sql: "ALTER TABLE orders ADD COLUMN envioecom_label_url MEDIUMTEXT NULL" },
     { name: "envioecom_freight_cost", sql: "ALTER TABLE orders ADD COLUMN envioecom_freight_cost DECIMAL(10,2) NULL" },
     { name: "envioecom_external_order_number", sql: "ALTER TABLE orders ADD COLUMN envioecom_external_order_number VARCHAR(255) NULL" },
+    { name: "bank_deposit_match_status", sql: "ALTER TABLE orders ADD COLUMN bank_deposit_match_status VARCHAR(32) NULL" },
+    { name: "bank_deposit_fitid", sql: "ALTER TABLE orders ADD COLUMN bank_deposit_fitid VARCHAR(64) NULL" },
+    { name: "bank_deposit_amount", sql: "ALTER TABLE orders ADD COLUMN bank_deposit_amount DECIMAL(10,2) NULL" },
+    { name: "bank_deposit_payer_name", sql: "ALTER TABLE orders ADD COLUMN bank_deposit_payer_name VARCHAR(255) NULL" },
+    { name: "bank_deposit_posted_at", sql: "ALTER TABLE orders ADD COLUMN bank_deposit_posted_at VARCHAR(10) NULL" },
+    { name: "bank_deposit_matched_at", sql: "ALTER TABLE orders ADD COLUMN bank_deposit_matched_at TIMESTAMP NULL" },
   ];
 
   for (const definition of definitions) {
@@ -317,6 +323,7 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
     { name: "orders_envioecom_barcode_idx", sql: "ALTER TABLE orders ADD INDEX orders_envioecom_barcode_idx (envioecom_barcode)" },
     { name: "orders_envioecom_shipment_id_idx", sql: "ALTER TABLE orders ADD INDEX orders_envioecom_shipment_id_idx (envioecom_shipment_id)" },
     { name: "orders_envioecom_external_order_idx", sql: "ALTER TABLE orders ADD INDEX orders_envioecom_external_order_idx (envioecom_external_order_number)" },
+    { name: "orders_bank_deposit_fitid_idx", sql: "ALTER TABLE orders ADD INDEX orders_bank_deposit_fitid_idx (bank_deposit_fitid)" },
   ];
   for (const index of envioecomIndexes) {
     if (!(await indexExists("orders", index.name, databaseName))) {

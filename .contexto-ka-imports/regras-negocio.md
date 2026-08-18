@@ -1,12 +1,14 @@
 # Regras de negócio — KA Imports
 
-> **Última atualização:** 2026-08-17  
+> **Última atualização:** 2026-08-18  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-18 | Extrato OFX do Inter concilia PIX com pedidos (flag `bank_deposit_*`) | Aba Extrato + badge Depósito 100%; não marca pago | Webhook PIX e comprovante PDF inalterados |
+| 2026-08-17 | Pedido enviado/coletado deixa de ficar como prioridade | Zera `is_prioridade`; card não mostra a estrela | SLA automático e botão em pedidos não enviados inalterados |
 | 2026-08-17 | Salvar custo do produto preenche pedidos com custo 0/ausente; card trata 0 como sem snapshot | Lucro est. passa a descontar o custo novo nesses pedidos | Pedidos com custo > 0 antigos (>24h) inalterados |
 | 2026-08-17 | Vincular EE cola envio externo (ID ou rastreio) no pedido | Card ganha shipment_id/status; webhook/sync usam esses IDs | Cotar/criar envio inalterados |
 | 2026-08-16 | Comprovante PDF no admin abre (blob + CSP `frame-src`) | Clique no selo PDF mostra o arquivo | Upload/gravação `proofUrls` inalterados |
@@ -54,6 +56,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 - Fluxo PIX preferencial: `POST /api/checkout/pix` cria pedido + cobrança no gateway (`artifacts/api-server/src/routes/checkout.ts`).
 - Status observados no código: `pending`, `awaiting_payment`, `paid`, `cancelled` (e fluxos admin de marcação manual).
 - Confirmação PIX: **via webhook** (`POST /api/webhook/pix`). Job de reconciliação **não** faz polling de status no gateway — só expira pedidos/cobranças `pending`/`awaiting_payment` > 24h (`artifacts/api-server/src/reconciliation.ts`).
+- **Extrato OFX (Banco Inter):** aba **Extrato** sobe `.ofx`, analisa só créditos (`TRNAMT > 0`) e cruza valor exato + janela de data + score de nome. **Aplicar só 100%** grava `confirmed_100` no pedido (`bank_deposit_*` + FITID único). Não marca `paid`, não baixa PDF/comprovante, não fala com o gateway. Conta mascarada. Seller-scoped só vê/aplica nos próprios pedidos.
 - PIX dura ~15 min no gateway (`PIX_DURATION_MS` em `gateway.ts`); regeneração/expiração tratada nas rotas PIX/checkout.
 - Cartão: pedido + fluxo KYC (`/kyc`, `/kyc/:orderId`); parcelas e comunicação WhatsApp no admin/FE.
 - Finalizar no WhatsApp (`whatsapp_pix`): `POST /api/orders` devolve `orderNumber`; a mensagem usa `Pedido: #1841` (número sequencial), não o `id` UUID. Link KYC de cartão continua com o `id`.
@@ -90,7 +93,9 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 - Primary-only em vários endpoints (tenants, tracking live, etc. — ver `requirePrimaryAdmin`).
 - Cobranças custom (`custom_charges`), comprovantes múltiplos (`proofUrls`), edição de pedido: primary da loja 1 e admin de filial nos pedidos do próprio tenant (seller-scoped não edita). O PATCH grava nome, telefone, e-mail, CPF, endereço, produtos e desconto; CEP no modal preenche ViaCEP ao sair do campo. Frete e seguro não são editáveis nesse modal. Não atualiza `customer_users`. Comprovante PDF no modal do admin converte `data:` para blob (`frame-src blob:` no CSP).
 - Busca de Pedidos é só no frontend (`search` → `filteredOrders`). Data/status/método/vendedor/grupo vão na API. Só dígitos: **somente** `orderNumber`/id do pedido (não telefone/CEP). Senão `includes` em id, número, nome, telefone, e-mail, CEP e produtos. Fora do período carregado não aparece.
+- **Prioridade** no card: botão grava `is_prioridade`; SLA automático (48h úteis, pago/concluído, ainda não enviado). Ao marcar **enviado** (botão, rastreio ou coleta/postagem EnvioEcom) a prioridade manual é zerada e o selo some. Pedido já enviado não mostra nem deixa ligar a estrela.
 - Aba **Rastreios EE**: lista pedidos com barcode/shipment_id/status EnvioEcom; Atualizar lista lê o BD; Sync consulta a API. Campo “Nome do produto no create” (até 120 chars) vale para todos os itens da loja; envios já criados não mudam. **Vincular EE** cola ID ou rastreio de um envio já criado no painel EnvioEcom no pedido (não cotação/create).
+- Aba **Extrato**: upload OFX → Analisar → relatório (100% / outros / ambíguos / PIX sem pedido / pedido sem depósito) → aplicar. Badge no card: Depósito 100% / Depósito OK / Depósito não encontrado.
 
 ## KYC
 

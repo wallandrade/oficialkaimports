@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-08-15  
+> **Última atualização:** 2026-08-18  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-18 | Colunas `bank_deposit_*` em `orders` + rotas Extrato | Conciliação OFX no api-server | Stack FE/API/DB inalterada |
 | 2026-08-15 | `fetchOrders` aborta GET anterior e faz merge que preserva PDF EnvioEcom | Evita corrida com auto-refresh 20s | Stack FE/API/DB inalterada |
 | 2026-08-15 | `POST /api/me/orders/tracking-sync` + parser de `status_history` com `location` | Cliente sincroniza rastreio em lote | Colunas `envioecom_*` inalteradas |
 | 2026-08-13 | Rotas EnvioEcom + colunas `envioecom_*` em `orders` + R2 PDF | Logística externa no api-server | Stack FE/API/DB inalterada |
@@ -45,7 +46,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 ### Tabelas principais (não exaustivo)
 
 - `tenants`, `admin_users`, `admin_user_tenants`, `admin_sessions`
-- `orders` (incl. `envioecom_*`, `enviado`, `tracking_*`), `custom_charges`, `products`, `coupons`, `sellers`
+- `orders` (incl. `envioecom_*`, `enviado`, `tracking_*`, `bank_deposit_*`), `custom_charges`, `products`, `coupons`, `sellers`
 - `customer_users`, `affiliates` (+ referrals/commissions/credit uses)
 - `kyc_documents`, `site_settings` / `tenant_settings`
 - `shipping_options`, `motoboy_*`, `order_logistics_allocations`

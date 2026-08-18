@@ -1,12 +1,13 @@
 # Integrações externas — KA Imports
 
-> **Última atualização:** 2026-08-17  
+> **Última atualização:** 2026-08-18  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-18 | Extrato OFX Inter: `POST /admin/bank-statement/analyze\|apply` | Concilia PIX recebido com pedido; não baixa PDF | Gateway PIX e EnvioEcom inalterados |
 | 2026-08-17 | Vincular EE: cola ID/rastreio no pedido via `POST .../sync` | Envio criado no painel EE liga no card | Cotação/create inalterados |
 | 2026-08-16 | Create EnvioEcom recusa CPF/telefone/e-mail inválidos; loga 400 da API e o toast junta `details` | Admin vê o motivo; log Railway deixa de ser só `400` | Cotação, etiqueta e token inalterados |
 | 2026-08-15 | Gerar etiqueta EnvioEcom grava “Etiqueta emitida”; admin aborta GET velho e preserva PDF na lista | Evita badge Pendente por corrida de refresh | Token continua só no backend |
@@ -66,6 +67,7 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 ## Catálogo auxiliar
 
 - **Google Sheets** fallback de produtos se DB vazio (`routes/products.ts`; env `GOOGLE_SHEET_ID` citada em docs).
+- **Extrato OFX (Banco Inter):** parser `lib/ofx-bank-statement.ts` + match `lib/bank-statement-reconcile.ts`; rotas `POST /api/admin/bank-statement/analyze` e `/apply`. Arquivo lido no browser; só créditos; conta mascarada. Não baixa comprovante do Inter.
 
 ## Geo / IP
 

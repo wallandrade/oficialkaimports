@@ -73,6 +73,12 @@ export const ordersTable = mysqlTable("orders", {
   envioecomLabelUrl: mediumtext("envioecom_label_url"),
   envioecomFreightCost: decimal("envioecom_freight_cost", { precision: 10, scale: 2 }),
   envioecomExternalOrderNumber: varchar("envioecom_external_order_number", { length: 255 }),
+  bankDepositMatchStatus: varchar("bank_deposit_match_status", { length: 32 }),
+  bankDepositFitid: varchar("bank_deposit_fitid", { length: 64 }),
+  bankDepositAmount: decimal("bank_deposit_amount", { precision: 10, scale: 2 }),
+  bankDepositPayerName: varchar("bank_deposit_payer_name", { length: 255 }),
+  bankDepositPostedAt: varchar("bank_deposit_posted_at", { length: 10 }),
+  bankDepositMatchedAt: timestamp("bank_deposit_matched_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

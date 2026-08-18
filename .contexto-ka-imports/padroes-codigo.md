@@ -1,12 +1,14 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-08-17  
+> **Última atualização:** 2026-08-18  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-18 | Anti-padrão: tratar flag de extrato OFX como “pago” do gateway | Só `bank_deposit_*`; paid continua webhook/manual | Polling PIX inalterado |
+| 2026-08-17 | Anti-padrão: manter `PRIORIDADE URGENTE` em pedido já `enviado` | Zerar `is_prioridade` no envio/coleta; esconder no card | SLA 48h e botão em não enviados inalterados |
 | 2026-08-17 | Anti-padrão: tratar `costPrice: 0` no item do pedido como snapshot válido | 0 = sem custo; preencher no save do produto; card usa a ficha | Pedidos com custo > 0 fora de 24h inalterados |
 | 2026-08-17 | Anti-padrão: `window.prompt` para ID EnvioEcom | Modal Vincular EE + parser ID vs rastreio | bind-id antigo permanece |
 | 2026-08-16 | Anti-padrão: iframe de comprovante PDF em `data:` com CSP sem `frame-src` | Converter para blob + `frame-src blob: data: https:` | `object-src 'none'` inalterado |
@@ -122,6 +124,8 @@ Código > memória > suposições.
 - Miniatura no **Saldo atual por produto** só como `<img>` sem clique; usar zoom/lightbox para identificar a embalagem.
 - Listar saldo de estoque só por nome, misturando 0 un no topo; positivo primeiro, zeros no fim.
 - Debitar estoque no PATCH de reenvio fora de `reenvio_enviado`, ou não ter **Cancelar Reenvio** para quem não vai mais enviar (`reenvio_cancelado`). “Cancelar Reenvio Enviado” é só o undo do enviado.
+- Marcar pedido `paid` a partir do OFX, ou baixar PDF do Inter para `proofUrl`; conciliação só grava `bank_deposit_*`.
+- Manter selo **PRIORIDADE URGENTE** depois de `enviado`/coletado; zerar `is_prioridade` no envio e não exibir a estrela.
 - Tratar `costPrice: 0` no JSON do pedido como custo real (`!= null`); 0/ausente cai na ficha, e o PATCH do produto só preenche esses itens (além da janela de 24h).
 - Abrir comprovante PDF no admin com `<iframe src="data:application/pdf...">` sem `frame-src blob:` no CSP; converter data URL para blob.
 - Mostrar status técnico EnvioEcom (“Pronto para envio”, “Etiqueta emitida”) na Minha conta; traduzir só na UI do cliente (`isPackingBeforePostStatus` / `toCustomerFriendlyShippingLabel`). Admin e banco ficam iguais.

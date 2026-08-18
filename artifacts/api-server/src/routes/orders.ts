@@ -29,6 +29,7 @@ import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context"
 import { reserveNextOrderNumber } from "../lib/order-number";
 import { MotoboyScheduleError, reserveMotoboySchedule } from "../lib/motoboy-delivery-schedule";
 import { allocateOrderLogistics, completeOrderLogistics, releaseOrderLogistics } from "../lib/order-logistics";
+import { clearOrderManualPriority } from "../lib/order-priority";
 
 const router: IRouter = Router();
 
@@ -1590,7 +1591,7 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
       return {
         ...mapOrder(order),
         logisticsAllocation: logisticsByOrder.get(order.id) || null,
-        isPrioridade: manualPriority || automaticPriority,
+        isPrioridade: !order.enviado && (manualPriority || automaticPriority),
         priorityManual: manualPriority,
         priorityAutomatic: automaticPriority,
         prioritySource: manualPriority ? "manual" : automaticPriority ? "automatic" : null,
@@ -2412,6 +2413,12 @@ function mapOrder(o: typeof ordersTable.$inferSelect) {
     envioecomLabelUrl:      o.envioecomLabelUrl ?? null,
     envioecomFreightCost:   o.envioecomFreightCost != null ? Number(o.envioecomFreightCost) : null,
     envioecomExternalOrderNumber: o.envioecomExternalOrderNumber ?? null,
+    bankDepositMatchStatus: (o as any).bankDepositMatchStatus ?? null,
+    bankDepositFitid:       (o as any).bankDepositFitid ?? null,
+    bankDepositAmount:      (o as any).bankDepositAmount != null ? Number((o as any).bankDepositAmount) : null,
+    bankDepositPayerName:   (o as any).bankDepositPayerName ?? null,
+    bankDepositPostedAt:    (o as any).bankDepositPostedAt ?? null,
+    bankDepositMatchedAt:   (o as any).bankDepositMatchedAt?.toISOString?.() ?? (o as any).bankDepositMatchedAt ?? null,
   };
 }
 
@@ -2632,6 +2639,10 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
     await db.update(ordersTable)
       .set({ enviado, updatedAt: new Date() })
       .where(buildAdminOrderWhere(id, adminScope));
+
+    if (enviado) {
+      await clearOrderManualPriority(id);
+    }
 
     if (enviado && !wasEnviado) {
       await db.delete(motoboyDeliveryReservationsTable).where(and(

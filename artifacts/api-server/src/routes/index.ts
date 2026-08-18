@@ -33,6 +33,7 @@ import filialPurchasesRouter from "./filial-purchases";
 
 import brevoRouter from "./brevo";
 import envioecomRouter from "./envioecom";
+import bankStatementRouter from "./bank-statement";
 const router: IRouter = Router();
 
 router.use(healthRouter);
@@ -68,5 +69,6 @@ router.use(tenantsRouter);
 router.use(filialPurchasesRouter);
 router.use(brevoRouter);
 router.use(envioecomRouter);
+router.use(bankStatementRouter);
 
 export default router;
