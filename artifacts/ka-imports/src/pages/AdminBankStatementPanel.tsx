@@ -121,6 +121,7 @@ export default function AdminBankStatementPanel({ authHeaders, onUnauthorized, o
   const [dateWindowDays, setDateWindowDays] = useState(5);
   const [analyzing, setAnalyzing] = useState(false);
   const [applying, setApplying] = useState(false);
+  const [applyingFitid, setApplyingFitid] = useState<string | null>(null);
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
   const [selectedNotFound, setSelectedNotFound] = useState<Record<string, boolean>>({});
   const [manualAmbiguous, setManualAmbiguous] = useState<Record<string, string>>({});
@@ -205,6 +206,50 @@ export default function AdminBankStatementPanel({ authHeaders, onUnauthorized, o
       nameScore: m.nameScore,
       ...(matchStatus ? { matchStatus } : {}),
     }));
+
+  const applyOne = async (m: ReportMatch, matchStatus: "ok" | "confirmed_100") => {
+    setApplyingFitid(m.creditFitid);
+    try {
+      const res = await fetch(`${BASE}/api/admin/bank-statement/apply`, {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          matches: buildMatchPayload([m], matchStatus),
+          notFoundOrderIds: [],
+          onlyConfirmed100: matchStatus === "confirmed_100",
+        }),
+      });
+      if (res.status === 401) {
+        onUnauthorized();
+        return;
+      }
+      const data = (await res.json()) as {
+        ok?: boolean;
+        appliedOk?: number;
+        appliedConfirmed100?: number;
+        errors?: Array<{ orderId?: string; message: string }>;
+        message?: string;
+      };
+      if (!res.ok) {
+        toast.error(data.message || "Falha ao aplicar este depósito.");
+        return;
+      }
+      if (data.errors?.length) {
+        toast.error(data.errors[0]?.message || "Não foi possível aplicar.");
+        return;
+      }
+      toast.success(
+        matchStatus === "confirmed_100"
+          ? `Pedido #${m.orderNumber ?? "—"}: depósito 100% salvo`
+          : `Pedido #${m.orderNumber ?? "—"}: depósito OK salvo`,
+      );
+      await analyze();
+    } catch {
+      toast.error("Erro ao aplicar este depósito.");
+    } finally {
+      setApplyingFitid(null);
+    }
+  };
 
   const apply = async (mode: "confirmed_100" | "all_ok") => {
     if (!report) return;
@@ -397,7 +442,15 @@ export default function AdminBankStatementPanel({ authHeaders, onUnauthorized, o
             {matched100.length === 0 ? (
               <Empty />
             ) : (
-              <MatchTable rows={matched100} onGoToOrder={onGoToOrder} highlight />
+              <MatchTable
+                rows={matched100}
+                onGoToOrder={onGoToOrder}
+                highlight
+                applyingFitid={applyingFitid}
+                applyBusy={applying}
+                onApplyOne={(m) => void applyOne(m, "confirmed_100")}
+                applyLabel="Aplicar 100%"
+              />
             )}
           </Section>
 
@@ -408,7 +461,14 @@ export default function AdminBankStatementPanel({ authHeaders, onUnauthorized, o
             {matchedOther.length === 0 ? (
               <Empty />
             ) : (
-              <MatchTable rows={matchedOther} onGoToOrder={onGoToOrder} />
+              <MatchTable
+                rows={matchedOther}
+                onGoToOrder={onGoToOrder}
+                applyingFitid={applyingFitid}
+                applyBusy={applying}
+                onApplyOne={(m) => void applyOne(m, "ok")}
+                applyLabel="Aplicar este"
+              />
             )}
           </Section>
 
@@ -440,6 +500,45 @@ export default function AdminBankStatementPanel({ authHeaders, onUnauthorized, o
                         </label>
                       ))}
                     </div>
+                    {manualAmbiguous[amb.creditFitid] && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="mt-2 gap-1.5"
+                        disabled={!!applyingFitid || applying}
+                        onClick={() => {
+                          const orderId = manualAmbiguous[amb.creditFitid];
+                          const cand = amb.candidates.find((c) => c.orderId === orderId);
+                          if (!orderId || !cand) return;
+                          void applyOne(
+                            {
+                              kind: "ok",
+                              orderId,
+                              orderNumber: cand.orderNumber,
+                              clientName: cand.clientName,
+                              orderTotal: cand.orderTotal,
+                              orderCreatedAt: cand.orderCreatedAt,
+                              orderStatus: "",
+                              creditFitid: amb.creditFitid,
+                              creditAmount: amb.creditAmount,
+                              creditPostedAt: amb.creditPostedAt,
+                              creditName: amb.creditName,
+                              creditMemo: amb.creditMemo,
+                              nameScore: cand.nameScore,
+                              dayDiff: cand.dayDiff,
+                            },
+                            "ok",
+                          );
+                        }}
+                      >
+                        {applyingFitid === amb.creditFitid ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                        )}
+                        Aplicar este ambíguo
+                      </Button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -529,10 +628,18 @@ function MatchTable({
   rows,
   onGoToOrder,
   highlight,
+  onApplyOne,
+  applyLabel,
+  applyingFitid,
+  applyBusy,
 }: {
   rows: ReportMatch[];
   onGoToOrder?: (orderId: string) => void;
   highlight?: boolean;
+  onApplyOne?: (m: ReportMatch) => void;
+  applyLabel?: string;
+  applyingFitid?: string | null;
+  applyBusy?: boolean;
 }) {
   return (
     <div className="overflow-x-auto">
@@ -544,7 +651,8 @@ function MatchTable({
             <th className="py-2 pr-3">Valor</th>
             <th className="py-2 pr-3">Pagou em</th>
             <th className="py-2 pr-3">Nome no extrato</th>
-            <th className="py-2">Score</th>
+            <th className="py-2 pr-3">Score</th>
+            {onApplyOne && <th className="py-2">Ação</th>}
           </tr>
         </thead>
         <tbody>
@@ -570,7 +678,26 @@ function MatchTable({
                 <span className="text-muted-foreground">(+{m.dayDiff}d)</span>
               </td>
               <td className="py-2 pr-3">{m.creditName || "—"}</td>
-              <td className="py-2 font-semibold">{Math.round(m.nameScore * 100)}%</td>
+              <td className="py-2 pr-3 font-semibold">{Math.round(m.nameScore * 100)}%</td>
+              {onApplyOne && (
+                <td className="py-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 whitespace-nowrap"
+                    disabled={!!applyBusy || !!applyingFitid}
+                    onClick={() => onApplyOne(m)}
+                  >
+                    {applyingFitid === m.creditFitid ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                    )}
+                    {applyLabel || "Aplicar este"}
+                  </Button>
+                </td>
+              )}
             </tr>
           ))}
         </tbody>

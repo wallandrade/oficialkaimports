@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-18 | Extrato: **Aplicar este** por linha (outros/100%/ambíguo) | Confirma depósito um a um sem lote | Apply em massa e Desfazer iguais |
 | 2026-08-18 | Aba Depósitos: **Desfazer** por linha (`POST .../clear`) | Remove vínculo depósito; FITID volta no Extrato | Status pago / Extrato apply iguais |
 | 2026-08-18 | OFX v2: só Inter manual; FITID já salvo ignorado; aba Depósitos persistente | Extrato some no F5; histórico em Depósitos; badge “Depósito pago 100%” | Webhook PIX, paid e comprovante PDF inalterados |
 | 2026-08-18 | Extrato OFX do Inter concilia PIX com pedidos (flag `bank_deposit_*`) | Aba Extrato + badge Depósito 100%; não marca pago | Webhook PIX e comprovante PDF inalterados |
@@ -97,7 +98,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 - Busca de Pedidos é só no frontend (`search` → `filteredOrders`). Data/status/método/vendedor/grupo vão na API. Só dígitos: **somente** `orderNumber`/id do pedido (não telefone/CEP). Senão `includes` em id, número, nome, telefone, e-mail, CEP e produtos. Fora do período carregado não aparece.
 - **Prioridade** no card: botão grava `is_prioridade`; SLA automático (48h úteis, pago/concluído, ainda não enviado). Ao marcar **enviado** (botão, rastreio ou coleta/postagem EnvioEcom) a prioridade manual é zerada e o selo some. Pedido já enviado não mostra nem deixa ligar a estrela.
 - Aba **Rastreios EE**: lista pedidos com barcode/shipment_id/status EnvioEcom; Atualizar lista lê o BD; Sync consulta a API. Campo “Nome do produto no create” (até 120 chars) vale para todos os itens da loja; envios já criados não mudam. **Vincular EE** cola ID ou rastreio de um envio já criado no painel EnvioEcom no pedido (não cotação/create).
-- Aba **Extrato**: upload OFX → Analisar → relatório (100% / outros / ambíguos / PIX sem pedido / pedido sem depósito) → aplicar. Meta mostra créditos novos, FITIDs já registrados (ignorados) e pedidos manuais vs. total no período. Badge no card: **Depósito pago 100%** / Depósito OK / Depósito não encontrado.
+- Aba **Extrato**: upload OFX → Analisar → relatório (100% / outros / ambíguos / PIX sem pedido / pedido sem depósito) → aplicar em lote ou **Aplicar este** por linha (grava `ok` nos outros; `confirmed_100` nos 100%; ambíguo depois de escolher o pedido). Meta mostra créditos novos, FITIDs já registrados (ignorados) e pedidos manuais vs. total no período. Badge no card: **Depósito pago 100%** / Depósito OK / Depósito não encontrado.
 - Aba **Depósitos**: `GET /api/admin/bank-deposits` lista pedidos já aplicados (`confirmed_100` / `ok` / ambos). Não some ao atualizar. Clique no pedido abre o card em Pedidos. **Desfazer** confirma e zera `bank_deposit_*`; o crédito pode reaparecer no próximo Analisar.
 
 ## KYC
