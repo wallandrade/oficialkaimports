@@ -14027,10 +14027,14 @@ function OrdersPanel({
                           <span
                             className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 text-xs font-semibold border border-emerald-300"
                             title={(order as any).bankDepositPayerName
-                              ? `Depósito OK · ${(order as any).bankDepositPayerName}`
+                              ? `Depósito OK · ${(order as any).bankDepositPayerName}${(order as any).bankDepositAmount != null ? ` · ${formatCurrency(Number((order as any).bankDepositAmount))}` : ""}`
                               : "Depósito encontrado no extrato bancário"}
                           >
-                            Depósito OK
+                            {Number.isFinite(Number((order as any).bankDepositAmount)) &&
+                            Number.isFinite(Number(order.total)) &&
+                            Math.round(Number((order as any).bankDepositAmount) * 100) < Math.round(Number(order.total) * 100)
+                              ? "Depósito parcial"
+                              : "Depósito OK"}
                           </span>
                         )}
                         {(order as any).bankDepositMatchStatus === "not_found" && (

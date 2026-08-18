@@ -728,6 +728,65 @@ async function ensureSupportTicketsTable(databaseName: string): Promise<void> {
   }
 }
 
+async function ensureOrderBankDepositsTable(databaseName: string): Promise<void> {
+  if (!(await tableExists("order_bank_deposits", databaseName))) {
+    await pool.query(`
+      CREATE TABLE order_bank_deposits (
+        id VARCHAR(255) NOT NULL PRIMARY KEY,
+        tenant_id VARCHAR(255) NULL,
+        order_id VARCHAR(255) NOT NULL,
+        fitid VARCHAR(64) NOT NULL,
+        amount DECIMAL(10,2) NOT NULL,
+        payer_name VARCHAR(255) NULL,
+        posted_at VARCHAR(10) NULL,
+        match_status VARCHAR(32) NOT NULL,
+        note VARCHAR(500) NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY order_bank_deposits_fitid_unique (fitid),
+        KEY order_bank_deposits_order_id_idx (order_id)
+      )
+    `);
+  }
+
+  if (!(await indexExists("order_bank_deposits", "order_bank_deposits_fitid_unique", databaseName))) {
+    try {
+      await pool.query("ALTER TABLE order_bank_deposits ADD UNIQUE KEY order_bank_deposits_fitid_unique (fitid)");
+    } catch {
+      // Ignore duplicate or unsupported index creation issues.
+    }
+  }
+  if (!(await indexExists("order_bank_deposits", "order_bank_deposits_order_id_idx", databaseName))) {
+    try {
+      await pool.query("ALTER TABLE order_bank_deposits ADD KEY order_bank_deposits_order_id_idx (order_id)");
+    } catch {
+      // Ignore duplicate or unsupported index creation issues.
+    }
+  }
+
+  const [result] = await pool.query(
+    `INSERT IGNORE INTO order_bank_deposits
+      (id, tenant_id, order_id, fitid, amount, payer_name, posted_at, match_status, created_at)
+     SELECT
+       CONCAT('obd_', bank_deposit_fitid),
+       tenant_id,
+       id,
+       bank_deposit_fitid,
+       IFNULL(bank_deposit_amount, 0),
+       bank_deposit_payer_name,
+       bank_deposit_posted_at,
+       bank_deposit_match_status,
+       IFNULL(bank_deposit_matched_at, CURRENT_TIMESTAMP)
+     FROM orders
+     WHERE bank_deposit_fitid IS NOT NULL
+       AND bank_deposit_fitid != ''
+       AND bank_deposit_match_status IN ('ok', 'confirmed_100')`,
+  );
+  const inserted = Number((result as { affectedRows?: number } | undefined)?.affectedRows || 0);
+  if (inserted > 0) {
+    console.log(`[RuntimeSchema] Backfilled ${inserted} order_bank_deposits from orders.`);
+  }
+}
+
 async function ensureReshipmentsTable(databaseName: string): Promise<void> {
   if (!(await tableExists("reshipments", databaseName))) {
     await pool.query(`
@@ -1310,6 +1369,7 @@ export async function ensureRuntimeSchema(): Promise<void> {
 
     await ensureTenantsTables(databaseName);
     await ensureOrdersColumns(databaseName);
+    await ensureOrderBankDepositsTable(databaseName);
     await ensureProductsColumns(databaseName);
     await ensureSellersColumns(databaseName);
     await ensureCouponsColumns(databaseName);

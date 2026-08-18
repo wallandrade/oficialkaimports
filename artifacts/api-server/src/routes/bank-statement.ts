@@ -1,19 +1,24 @@
 import { Router, type IRouter } from "express";
-import { and, desc, eq, gte, inArray, isNotNull, isNull, lte, ne, or } from "drizzle-orm";
-import { db, ordersTable } from "@workspace/db";
+import { and, desc, eq, gte, inArray, isNull, lte, ne, or } from "drizzle-orm";
+import { db, orderBankDepositsTable, ordersTable } from "@workspace/db";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-context";
 import { parseOfxStatement } from "../lib/ofx-bank-statement";
 import { reconcileBankStatement } from "../lib/bank-statement-reconcile";
 import { isManualInterDepositOrder } from "../lib/bank-deposit-manual";
+import {
+  deleteOrderDeposits,
+  depositLinkRequiresNote,
+  ensureOrderDepositsMirrored,
+  findDepositByFitid,
+  insertOrderDeposit,
+  listDepositsForOrders,
+  listUsedFitids,
+  moneyToCents,
+  syncOrderDepositSummary,
+} from "../lib/order-bank-deposits";
 
 const router: IRouter = Router();
-
-function moneyToCents(value: unknown): number {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return 0;
-  return Math.round(n * 100);
-}
 
 function formatBrlFromCents(cents: number): string {
   const n = (Math.round(cents) / 100).toFixed(2).replace(".", ",");
@@ -53,28 +58,18 @@ router.get("/admin/bank-deposits", requireAdminAuth, async (req, res) => {
     const limitRaw = Number(req.query.limit);
     const limit = Number.isFinite(limitRaw) ? Math.min(500, Math.max(1, limitRaw)) : 200;
 
-    const conditions = [
-      buildOrderTenantWhere(adminScope.tenantId),
-      isNotNull(ordersTable.bankDepositFitid),
-      or(
-        eq(ordersTable.bankDepositMatchStatus, "confirmed_100"),
-        eq(ordersTable.bankDepositMatchStatus, "ok"),
-      )!,
-    ];
+    const conditions = [buildOrderTenantWhere(adminScope.tenantId)];
 
     if (statusFilter === "confirmed_100") {
-      conditions.length = 0;
-      conditions.push(
-        buildOrderTenantWhere(adminScope.tenantId),
-        isNotNull(ordersTable.bankDepositFitid),
-        eq(ordersTable.bankDepositMatchStatus, "confirmed_100"),
-      );
+      conditions.push(eq(orderBankDepositsTable.matchStatus, "confirmed_100"));
     } else if (statusFilter === "ok") {
-      conditions.length = 0;
+      conditions.push(eq(orderBankDepositsTable.matchStatus, "ok"));
+    } else {
       conditions.push(
-        buildOrderTenantWhere(adminScope.tenantId),
-        isNotNull(ordersTable.bankDepositFitid),
-        eq(ordersTable.bankDepositMatchStatus, "ok"),
+        or(
+          eq(orderBankDepositsTable.matchStatus, "confirmed_100"),
+          eq(orderBankDepositsTable.matchStatus, "ok"),
+        )!,
       );
     }
 
@@ -97,16 +92,18 @@ router.get("/admin/bank-deposits", requireAdminAuth, async (req, res) => {
         paymentMethod: ordersTable.paymentMethod,
         sellerCode: ordersTable.sellerCode,
         createdAt: ordersTable.createdAt,
-        bankDepositMatchStatus: ordersTable.bankDepositMatchStatus,
-        bankDepositFitid: ordersTable.bankDepositFitid,
-        bankDepositAmount: ordersTable.bankDepositAmount,
-        bankDepositPayerName: ordersTable.bankDepositPayerName,
-        bankDepositPostedAt: ordersTable.bankDepositPostedAt,
-        bankDepositMatchedAt: ordersTable.bankDepositMatchedAt,
+        orderDepositAmount: ordersTable.bankDepositAmount,
+        matchStatus: orderBankDepositsTable.matchStatus,
+        fitid: orderBankDepositsTable.fitid,
+        amount: orderBankDepositsTable.amount,
+        payerName: orderBankDepositsTable.payerName,
+        postedAt: orderBankDepositsTable.postedAt,
+        matchedAt: orderBankDepositsTable.createdAt,
       })
-      .from(ordersTable)
+      .from(orderBankDepositsTable)
+      .innerJoin(ordersTable, eq(orderBankDepositsTable.orderId, ordersTable.id))
       .where(and(...conditions))
-      .orderBy(desc(ordersTable.bankDepositMatchedAt), desc(ordersTable.createdAt))
+      .orderBy(desc(orderBankDepositsTable.createdAt), desc(ordersTable.createdAt))
       .limit(limit);
 
     res.json({
@@ -121,12 +118,13 @@ router.get("/admin/bank-deposits", requireAdminAuth, async (req, res) => {
         paymentMethod: r.paymentMethod || "pix",
         sellerCode: r.sellerCode,
         orderCreatedAt: r.createdAt?.toISOString?.() ?? null,
-        matchStatus: r.bankDepositMatchStatus,
-        fitid: r.bankDepositFitid,
-        amount: r.bankDepositAmount != null ? Number(r.bankDepositAmount) : null,
-        payerName: r.bankDepositPayerName,
-        postedAt: r.bankDepositPostedAt,
-        matchedAt: r.bankDepositMatchedAt?.toISOString?.() ?? null,
+        matchStatus: r.matchStatus,
+        fitid: r.fitid,
+        amount: r.amount != null ? Number(r.amount) : null,
+        orderDepositAmount: r.orderDepositAmount != null ? Number(r.orderDepositAmount) : null,
+        payerName: r.payerName,
+        postedAt: r.postedAt,
+        matchedAt: r.matchedAt?.toISOString?.() ?? null,
       })),
       total: rows.length,
     });
@@ -213,6 +211,7 @@ router.post("/admin/bank-statement/analyze", requireAdminAuth, async (req, res) 
         transactionId: ordersTable.transactionId,
         bankDepositMatchStatus: ordersTable.bankDepositMatchStatus,
         bankDepositFitid: ordersTable.bankDepositFitid,
+        bankDepositAmount: ordersTable.bankDepositAmount,
       })
       .from(ordersTable)
       .where(and(...conditions));
@@ -224,23 +223,7 @@ router.post("/admin/bank-statement/analyze", requireAdminAuth, async (req, res) 
       }),
     );
 
-    const usedFitidRows = await db
-      .select({ fitid: ordersTable.bankDepositFitid })
-      .from(ordersTable)
-      .where(
-        and(
-          buildOrderTenantWhere(adminScope.tenantId),
-          isNotNull(ordersTable.bankDepositFitid),
-          or(
-            eq(ordersTable.bankDepositMatchStatus, "ok"),
-            eq(ordersTable.bankDepositMatchStatus, "confirmed_100"),
-          ),
-        ),
-      );
-
-    const usedFitids = new Set(
-      usedFitidRows.map((r) => String(r.fitid || "").trim()).filter(Boolean),
-    );
+    const usedFitids = await listUsedFitids(buildOrderTenantWhere(adminScope.tenantId));
 
     const creditsFresh = parsed.credits.filter((c) => !usedFitids.has(c.fitid));
     const skippedDuplicateCredits = parsed.credits.length - creditsFresh.length;
@@ -262,16 +245,29 @@ router.post("/admin/bank-statement/analyze", requireAdminAuth, async (req, res) 
       usedFitids,
     });
 
-    const linkableOrders = manualRows.map((r) => ({
-      orderId: r.id,
-      orderNumber: r.orderNumber ?? null,
-      clientName: r.clientName,
-      total: Number(r.total),
-      createdAt: r.createdAt?.toISOString?.() ?? null,
-      status: r.status,
-      bankDepositMatchStatus: r.bankDepositMatchStatus,
-      bankDepositFitid: r.bankDepositFitid,
-    }));
+    const depositsByOrder = await listDepositsForOrders(manualRows.map((r) => r.id));
+    const linkableOrders = manualRows.map((r) => {
+      const links = depositsByOrder.get(r.id) || [];
+      const fitids = links.map((d) => d.fitid).filter(Boolean);
+      if (!fitids.length && r.bankDepositFitid) fitids.push(r.bankDepositFitid);
+      const depositSum = links.length
+        ? links.reduce((acc, d) => acc + moneyToCents(d.amount), 0) / 100
+        : r.bankDepositFitid
+          ? Number(r.bankDepositAmount) || 0
+          : 0;
+      return {
+        orderId: r.id,
+        orderNumber: r.orderNumber ?? null,
+        clientName: r.clientName,
+        total: Number(r.total),
+        createdAt: r.createdAt?.toISOString?.() ?? null,
+        status: r.status,
+        bankDepositMatchStatus: r.bankDepositMatchStatus,
+        bankDepositFitid: r.bankDepositFitid,
+        bankDepositFitids: fitids,
+        bankDepositAmount: depositSum,
+      };
+    });
 
     res.json({
       ok: true,
@@ -301,8 +297,8 @@ router.post("/admin/bank-statement/analyze", requireAdminAuth, async (req, res) 
 
 // --------------------------------------------------------------------------
 // POST /api/admin/bank-statement/clear
-// body: { orderId }
-// Zera vínculo de depósito no pedido (desfazer apply). Não altera status pago.
+// body: { orderId, fitid? }
+// Remove um PIX (fitid) ou todos os depósitos do pedido. Não altera status pago.
 // --------------------------------------------------------------------------
 router.post("/admin/bank-statement/clear", requireAdminAuth, async (req, res) => {
   try {
@@ -313,6 +309,7 @@ router.post("/admin/bank-statement/clear", requireAdminAuth, async (req, res) =>
     }
 
     const orderId = String(req.body?.orderId || "").trim();
+    const fitid = String(req.body?.fitid || "").trim();
     if (!orderId) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Informe orderId." });
       return;
@@ -334,30 +331,21 @@ router.post("/admin/bank-statement/clear", requireAdminAuth, async (req, res) =>
       return;
     }
 
-    const hadMatch =
-      order.bankDepositMatchStatus === "ok" ||
-      order.bankDepositMatchStatus === "confirmed_100" ||
-      Boolean(order.bankDepositFitid);
-
-    await db
-      .update(ordersTable)
-      .set({
-        bankDepositMatchStatus: null,
-        bankDepositFitid: null,
-        bankDepositAmount: null,
-        bankDepositPayerName: null,
-        bankDepositPostedAt: null,
-        bankDepositMatchedAt: null,
-        updatedAt: new Date(),
-      })
-      .where(and(eq(ordersTable.id, orderId), tenantWhere));
+    const previousFitid = fitid || order.bankDepositFitid || null;
+    const deleted = await deleteOrderDeposits(orderId, fitid || undefined);
+    const summary = await syncOrderDepositSummary({
+      orderId,
+      tenantWhere,
+      orderTotal: order.total,
+    });
 
     res.json({
       ok: true,
       orderId,
-      cleared: hadMatch,
-      previousFitid: order.bankDepositFitid ?? null,
+      cleared: deleted > 0 || Boolean(order.bankDepositFitid),
+      previousFitid,
       previousMatchStatus: order.bankDepositMatchStatus ?? null,
+      remainingCount: summary.count,
     });
   } catch (err) {
     console.error("[bank-statement] clear error:", err);
@@ -450,62 +438,68 @@ router.post("/admin/bank-statement/apply", requireAdminAuth, async (req, res) =>
         continue;
       }
 
-      const dup = await db
-        .select({ id: ordersTable.id })
-        .from(ordersTable)
-        .where(
-          and(
-            tenantWhere,
-            eq(ordersTable.bankDepositFitid, creditFitid),
-            or(
-              eq(ordersTable.bankDepositMatchStatus, "ok"),
-              eq(ordersTable.bankDepositMatchStatus, "confirmed_100"),
-            ),
-            ne(ordersTable.id, orderId),
-          ),
-        )
-        .limit(1);
-      if (dup[0]) {
-        errors.push({ orderId, message: `FITID já usado no pedido ${dup[0].id}.` });
+      const existingOnOrder = await ensureOrderDepositsMirrored(order);
+      const alreadyHere = existingOnOrder.find((d) => d.fitid === creditFitid);
+      if (alreadyHere) {
+        if (matchStatus === "confirmed_100") appliedConfirmed100 += 1;
+        else appliedOk += 1;
         continue;
       }
 
-      const amountsDiffer = moneyToCents(order.total) !== moneyToCents(creditAmount);
-      const mismatchNote = String(raw?.amountMismatchNote || "").trim().slice(0, 500);
-      if (amountsDiffer) {
-        if (matchStatus === "confirmed_100") {
-          errors.push({ orderId, message: "Valor do crédito ≠ total do pedido." });
-          continue;
-        }
-        if (mismatchNote.length < 3) {
-          errors.push({
-            orderId,
-            message: "Valor diferente: informe o motivo para vincular.",
-          });
-          continue;
-        }
+      const dup = await findDepositByFitid(creditFitid);
+      if (dup && dup.orderId !== orderId) {
+        errors.push({ orderId, message: `FITID já usado no pedido ${dup.orderId}.` });
+        continue;
       }
 
-      const mismatchLine = amountsDiffer
-        ? `OFX: PIX ${formatBrlFromCents(moneyToCents(creditAmount))} ≠ pedido ${formatBrlFromCents(moneyToCents(order.total))}. Motivo: ${mismatchNote}`
+      const existingSum = existingOnOrder.reduce((acc, d) => acc + moneyToCents(d.amount), 0) / 100;
+      const noteCheck = depositLinkRequiresNote({
+        orderTotal: order.total,
+        existingSum,
+        creditAmount,
+        matchStatus,
+      });
+      const mismatchNote = String(raw?.amountMismatchNote || "").trim().slice(0, 500);
+      if (noteCheck.blocked) {
+        errors.push({ orderId, message: noteCheck.message || "Valor do crédito ≠ total do pedido." });
+        continue;
+      }
+      if (noteCheck.requiresNote && mismatchNote.length < 3) {
+        errors.push({
+          orderId,
+          message: "Valor diferente: informe o motivo para vincular.",
+        });
+        continue;
+      }
+
+      const mismatchLine = noteCheck.requiresNote
+        ? `OFX: PIX ${formatBrlFromCents(moneyToCents(creditAmount))} (depósitos ${formatBrlFromCents(noteCheck.nextSumCents)}) ≠ pedido ${formatBrlFromCents(moneyToCents(order.total))}. Motivo: ${mismatchNote}`
         : null;
       const nextObservation = mismatchLine
         ? [String(order.observation || "").trim(), mismatchLine].filter(Boolean).join("\n")
         : undefined;
 
-      await db
-        .update(ordersTable)
-        .set({
-          bankDepositMatchStatus: matchStatus,
-          bankDepositFitid: creditFitid,
-          bankDepositAmount: String(Math.round(creditAmount * 100) / 100),
-          bankDepositPayerName: creditName,
-          bankDepositPostedAt: creditPostedAt || null,
-          bankDepositMatchedAt: new Date(),
-          updatedAt: new Date(),
-          ...(nextObservation !== undefined ? { observation: nextObservation } : {}),
-        })
-        .where(and(eq(ordersTable.id, orderId), tenantWhere));
+      await insertOrderDeposit({
+        tenantId: order.tenantId ?? adminScope.tenantId,
+        orderId,
+        fitid: creditFitid,
+        amount: creditAmount,
+        payerName: creditName,
+        postedAt: creditPostedAt || null,
+        matchStatus,
+        note: noteCheck.requiresNote ? mismatchNote : null,
+      });
+      await syncOrderDepositSummary({
+        orderId,
+        tenantWhere,
+        orderTotal: order.total,
+      });
+      if (nextObservation !== undefined) {
+        await db
+          .update(ordersTable)
+          .set({ observation: nextObservation, updatedAt: new Date() })
+          .where(and(eq(ordersTable.id, orderId), tenantWhere));
+      }
 
       if (matchStatus === "confirmed_100") appliedConfirmed100 += 1;
       else appliedOk += 1;

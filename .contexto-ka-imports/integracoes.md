@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-18 | Tabela `order_bank_deposits`: vários PIX por pedido | Soma no apply/clear/analyze | Parser OFX inalterado; `paid` inalterado |
 | 2026-08-18 | Apply OFX `ok` aceita `amountMismatchNote` se PIX ≠ total | Grava valor do PIX + observação no pedido | `confirmed_100`/lote ainda valor igual; parser inalterado |
 | 2026-08-18 | Analyze OFX devolve `credits` + `linkableOrders` para busca manual | Vincular PIX por nome ao nº do pedido | Parser/apply/clear iguais |
 | 2026-08-18 | Conciliação OFX: match CPF/CNPJ no crédito → score 100% | Confirma pagador pelo documento | Parser OFX / apply iguais |
@@ -72,7 +73,7 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 ## Catálogo auxiliar
 
 - **Google Sheets** fallback de produtos se DB vazio (`routes/products.ts`; env `GOOGLE_SHEET_ID` citada em docs).
-- **Extrato OFX (Banco Inter):** parser `lib/ofx-bank-statement.ts` + match `lib/bank-statement-reconcile.ts` (`matchIdentityScore`: CPF/CNPJ em NAME/MEMO = 1.0) + filtro `lib/bank-deposit-manual.ts`; rotas `POST /api/admin/bank-statement/analyze`, `/apply`, `/clear`, `GET /api/admin/bank-deposits`. Analyze também devolve `credits` (todos os PIX, `alreadyUsed`) e `linkableOrders` (pedidos manuais) para busca/vínculo manual. Arquivo lido no browser; só créditos novos entram no match automático (FITID ainda não gravado); conta mascarada. Não baixa comprovante do Inter. PIX com `transactionId` (CNPay/DentPeg) não entra no match. `clear` só zera `bank_deposit_*`. Apply `ok` com valor do PIX ≠ total do pedido exige `amountMismatchNote` (≥3 chars) e anexa em `orders.observation`; `confirmed_100` recusa valor diferente.
+- **Extrato OFX (Banco Inter):** parser `lib/ofx-bank-statement.ts` + match `lib/bank-statement-reconcile.ts` (`matchIdentityScore`: CPF/CNPJ em NAME/MEMO = 1.0) + filtro `lib/bank-deposit-manual.ts`; rotas `POST /api/admin/bank-statement/analyze`, `/apply`, `/clear`, `GET /api/admin/bank-deposits`. Analyze também devolve `credits` (todos os PIX, `alreadyUsed`) e `linkableOrders` (pedidos manuais + `bankDepositFitids`/`bankDepositAmount`) para busca/vínculo manual. Arquivo lido no browser; só créditos novos entram no match automático (FITID ainda não gravado); conta mascarada. Não baixa comprovante do Inter. PIX com `transactionId` (CNPay/DentPeg) não entra no match. `clear` aceita `fitid` opcional. Apply `ok` com soma ≠ total exige `amountMismatchNote`; `confirmed_100` recusa valor diferente. Vários PIX por pedido em `order_bank_deposits` (FITID único).
 
 ## Geo / IP
 

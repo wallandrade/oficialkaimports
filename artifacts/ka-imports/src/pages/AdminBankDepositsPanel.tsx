@@ -25,6 +25,7 @@ type DepositRow = {
   matchStatus: string | null;
   fitid: string | null;
   amount: number | null;
+  orderDepositAmount?: number | null;
   payerName: string | null;
   postedAt: string | null;
   matchedAt: string | null;
@@ -75,17 +76,17 @@ export default function AdminBankDepositsPanel({ authHeaders, onUnauthorized, on
     const label = `#${r.orderNumber ?? r.orderId.slice(0, 8)}`;
     if (
       !window.confirm(
-        `Desfazer depósito do pedido ${label}?\n\nO vínculo com o extrato será removido. O crédito poderá aparecer de novo no Extrato. Não altera o status de pagamento do pedido.`,
+        `Desfazer este PIX do pedido ${label}?\n\nOs outros depósitos do mesmo pedido (se houver) continuam. O crédito poderá aparecer de novo no Extrato. Não altera o status de pagamento.`,
       )
     ) {
       return;
     }
-    setClearingId(r.orderId);
+    setClearingId(`${r.orderId}:${r.fitid || ""}`);
     try {
       const res = await fetch(`${BASE}/api/admin/bank-statement/clear`, {
         method: "POST",
         headers: { ...authHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId: r.orderId }),
+        body: JSON.stringify({ orderId: r.orderId, ...(r.fitid ? { fitid: r.fitid } : {}) }),
       });
       if (res.status === 401) {
         onUnauthorized();
@@ -97,7 +98,7 @@ export default function AdminBankDepositsPanel({ authHeaders, onUnauthorized, on
         return;
       }
       toast.success(`Depósito desfeito em ${label}.`);
-      setRows((prev) => prev.filter((x) => x.orderId !== r.orderId));
+      setRows((prev) => prev.filter((x) => !(x.orderId === r.orderId && x.fitid === r.fitid)));
     } catch {
       toast.error("Erro ao desfazer depósito.");
     } finally {
@@ -182,6 +183,12 @@ export default function AdminBankDepositsPanel({ authHeaders, onUnauthorized, on
                     <td className="py-2.5 pr-3">{r.clientName}</td>
                     <td className="py-2.5 pr-3 font-semibold">
                       {formatCurrency(r.amount ?? r.orderTotal)}
+                      {r.orderDepositAmount != null &&
+                      Math.round((r.orderDepositAmount || 0) * 100) !== Math.round((r.amount || 0) * 100) ? (
+                        <div className="text-[11px] font-normal text-muted-foreground">
+                          soma no pedido {formatCurrency(r.orderDepositAmount)} / {formatCurrency(r.orderTotal)}
+                        </div>
+                      ) : null}
                     </td>
                     <td className="py-2.5 pr-3">{formatYmd(r.postedAt)}</td>
                     <td className="py-2.5 pr-3">{r.payerName || "—"}</td>
@@ -209,7 +216,7 @@ export default function AdminBankDepositsPanel({ authHeaders, onUnauthorized, on
                         disabled={clearingId !== null}
                         onClick={() => void clearOne(r)}
                       >
-                        {clearingId === r.orderId ? (
+                        {clearingId === `${r.orderId}:${r.fitid || ""}` ? (
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
                         ) : (
                           <Undo2 className="w-3.5 h-3.5" />

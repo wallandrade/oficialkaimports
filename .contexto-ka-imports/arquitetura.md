@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-18 | Tabela `order_bank_deposits` + resumo em `orders.bank_deposit_*` | Vários PIX por pedido | Stack FE/API inalterada |
 | 2026-08-18 | `POST /admin/bank-statement/clear` zera vínculo no pedido | Desfazer na aba Depósitos | Stack FE/API/DB inalterada |
 | 2026-08-18 | `GET /admin/bank-deposits` + filtro Inter manual no analyze | Aba Depósitos; Extrato não persiste sessão | Stack FE/API/DB inalterada |
 | 2026-08-18 | Colunas `bank_deposit_*` em `orders` + rotas Extrato | Conciliação OFX no api-server | Stack FE/API/DB inalterada |
@@ -48,7 +49,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 ### Tabelas principais (não exaustivo)
 
 - `tenants`, `admin_users`, `admin_user_tenants`, `admin_sessions`
-- `orders` (incl. `envioecom_*`, `enviado`, `tracking_*`, `bank_deposit_*`), `custom_charges`, `products`, `coupons`, `sellers`
+- `orders` (incl. `envioecom_*`, `enviado`, `tracking_*`, `bank_deposit_*`), `order_bank_deposits` (vários PIX OFX por pedido), `custom_charges`, `products`, `coupons`, `sellers`
 - `customer_users`, `affiliates` (+ referrals/commissions/credit uses)
 - `kyc_documents`, `site_settings` / `tenant_settings`
 - `shipping_options`, `motoboy_*`, `order_logistics_allocations`
@@ -62,7 +63,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 - Health: `GET /healthz`.
 - Jobs no boot: reconciliação (expiração 24h), raffle expiry, reconcile logistics.
 - EnvioEcom: `artifacts/api-server/src/routes/envioecom.ts` + webhook em `webhooks.ts`. Config por `tenant_settings`.
-- Extrato OFX: `artifacts/api-server/src/routes/bank-statement.ts` (`analyze`/`apply`/`clear`/`bank-deposits`). Painéis FE: `AdminBankStatementPanel.tsx` (sessão) e `AdminBankDepositsPanel.tsx` (histórico + Desfazer).
+- Extrato OFX: `artifacts/api-server/src/routes/bank-statement.ts` (`analyze`/`apply`/`clear`/`bank-deposits`) + `order_bank_deposits`. Painéis FE: `AdminBankStatementPanel.tsx` (sessão) e `AdminBankDepositsPanel.tsx` (histórico + Desfazer por FITID).
 - OpenAPI cobre só um subconjunto (health/products/pix/orders…); **muitas rotas existem só no Express** — não assumir que Orval cobre tudo.
 
 ## Frontend

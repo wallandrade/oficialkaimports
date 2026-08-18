@@ -95,6 +95,8 @@ type LinkableOrder = {
   status: string;
   bankDepositMatchStatus: string | null;
   bankDepositFitid: string | null;
+  bankDepositFitids?: string[];
+  bankDepositAmount?: number | null;
 };
 
 type AnalyzeResponse = {
@@ -261,11 +263,11 @@ export default function AdminBankStatementPanel({ authHeaders, onUnauthorized, o
     }
   };
 
-  const clearOrderDeposit = async (orderId: string): Promise<boolean> => {
+  const clearOrderDeposit = async (orderId: string, fitid?: string): Promise<boolean> => {
     const res = await fetch(`${BASE}/api/admin/bank-statement/clear`, {
       method: "POST",
       headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ orderId }),
+      body: JSON.stringify({ orderId, ...(fitid ? { fitid } : {}) }),
     });
     if (res.status === 401) {
       onUnauthorized();
@@ -299,7 +301,19 @@ export default function AdminBankStatementPanel({ authHeaders, onUnauthorized, o
       toast.error("Pedido não encontrado. Digite o nº do pedido (ex.: 617).");
       return;
     }
-    const amountsDiffer = moneyCents(order.total) !== moneyCents(credit.amount);
+    const existingFitids = order.bankDepositFitids?.length
+      ? order.bankDepositFitids
+      : order.bankDepositFitid
+        ? [order.bankDepositFitid]
+        : [];
+    if (existingFitids.includes(credit.fitid)) {
+      toast.success(`Este PIX já está vinculado ao pedido #${order.orderNumber ?? "—"}.`);
+      return;
+    }
+
+    const existingSumCents = moneyCents(order.bankDepositAmount || 0);
+    const nextSumCents = existingSumCents + moneyCents(credit.amount);
+    const amountsDiffer = nextSumCents !== moneyCents(order.total);
     const note = String(mismatchNoteOverride ?? "").trim();
     if (amountsDiffer && note.length < 3) {
       setMismatchNote("");
@@ -307,12 +321,14 @@ export default function AdminBankStatementPanel({ authHeaders, onUnauthorized, o
       return;
     }
 
-    const fitidOwner = linkableOrders.find(
-      (o) =>
-        o.bankDepositFitid === credit.fitid &&
-        (o.bankDepositMatchStatus === "ok" || o.bankDepositMatchStatus === "confirmed_100") &&
-        o.orderId !== order.orderId,
-    );
+    const fitidOwner = linkableOrders.find((o) => {
+      const ids = o.bankDepositFitids?.length
+        ? o.bankDepositFitids
+        : o.bankDepositFitid
+          ? [o.bankDepositFitid]
+          : [];
+      return ids.includes(credit.fitid) && o.orderId !== order.orderId;
+    });
     if (fitidOwner) {
       if (
         !window.confirm(
@@ -321,23 +337,7 @@ export default function AdminBankStatementPanel({ authHeaders, onUnauthorized, o
       ) {
         return;
       }
-      const ok = await clearOrderDeposit(fitidOwner.orderId);
-      if (!ok) return;
-    }
-
-    if (
-      (order.bankDepositMatchStatus === "ok" || order.bankDepositMatchStatus === "confirmed_100") &&
-      order.bankDepositFitid &&
-      order.bankDepositFitid !== credit.fitid
-    ) {
-      if (
-        !window.confirm(
-          `Pedido #${order.orderNumber ?? "—"} já tem outro depósito. Desfazer o anterior e vincular este PIX (${credit.name || "sem nome"})?`,
-        )
-      ) {
-        return;
-      }
-      const ok = await clearOrderDeposit(order.orderId);
+      const ok = await clearOrderDeposit(fitidOwner.orderId, credit.fitid);
       if (!ok) return;
     }
 
@@ -948,8 +948,11 @@ export default function AdminBankStatementPanel({ authHeaders, onUnauthorized, o
               <div>
                 <h2 className="text-lg font-bold text-neutral-900 leading-tight">Valor diferente — explique o motivo</h2>
                 <p className="text-sm text-neutral-500 mt-1">
-                  Pedido #{mismatchModal.order.orderNumber ?? "—"} é {formatCurrency(mismatchModal.order.total)}; o PIX é{" "}
-                  {formatCurrency(mismatchModal.credit.amount)}. O vínculo é permitido, mas precisa da observação.
+                  Pedido #{mismatchModal.order.orderNumber ?? "—"} é {formatCurrency(mismatchModal.order.total)}
+                  {moneyCents(mismatchModal.order.bankDepositAmount || 0) > 0
+                    ? `; já tem ${formatCurrency(mismatchModal.order.bankDepositAmount || 0)} vinculado`
+                    : ""}
+                  ; este PIX é {formatCurrency(mismatchModal.credit.amount)}. Pode vincular vários PIX no mesmo pedido.
                 </p>
               </div>
               <button
