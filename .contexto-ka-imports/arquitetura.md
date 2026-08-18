@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-18 | `GET /admin/bank-deposits` + filtro Inter manual no analyze | Aba Depósitos; Extrato não persiste sessão | Stack FE/API/DB inalterada |
 | 2026-08-18 | Colunas `bank_deposit_*` em `orders` + rotas Extrato | Conciliação OFX no api-server | Stack FE/API/DB inalterada |
 | 2026-08-15 | `fetchOrders` aborta GET anterior e faz merge que preserva PDF EnvioEcom | Evita corrida com auto-refresh 20s | Stack FE/API/DB inalterada |
 | 2026-08-15 | `POST /api/me/orders/tracking-sync` + parser de `status_history` com `location` | Cliente sincroniza rastreio em lote | Colunas `envioecom_*` inalteradas |
@@ -60,6 +61,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 - Health: `GET /healthz`.
 - Jobs no boot: reconciliação (expiração 24h), raffle expiry, reconcile logistics.
 - EnvioEcom: `artifacts/api-server/src/routes/envioecom.ts` + webhook em `webhooks.ts`. Config por `tenant_settings`.
+- Extrato OFX: `artifacts/api-server/src/routes/bank-statement.ts` (`analyze`/`apply`/`bank-deposits`). Painéis FE: `AdminBankStatementPanel.tsx` (sessão) e `AdminBankDepositsPanel.tsx` (histórico).
 - OpenAPI cobre só um subconjunto (health/products/pix/orders…); **muitas rotas existem só no Express** — não assumir que Orval cobre tudo.
 
 ## Frontend

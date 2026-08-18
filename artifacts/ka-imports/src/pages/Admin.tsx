@@ -589,6 +589,7 @@ import { EnvioEcomOrderActions, hasEnvioEcomLabelReady, preserveEnvioEcomLabelFi
 import { EnvioEcomTrackingBoard } from "@/components/admin/EnvioEcomTrackingBoard";
 import { EnvioEcomSettingsCard } from "@/components/admin/EnvioEcomSettingsCard";
 import AdminBankStatementPanel from "@/pages/AdminBankStatementPanel";
+import AdminBankDepositsPanel from "@/pages/AdminBankDepositsPanel";
 import { buildCustomerImpersonationUrl } from "@/lib/customer-auth";
 
 
@@ -1052,7 +1053,7 @@ function OrderBumpsPanel({ bumps, products, form, setForm, creating, toggling, d
   );
 }
 
-type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "checkout" | "socialProof" | "raffles" | "lojas" | "supplierPurchases" | "envioecom" | "extrato";
+type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "checkout" | "socialProof" | "raffles" | "lojas" | "supplierPurchases" | "envioecom" | "extrato" | "depositos";
 type LojasSubTab = "criar" | "pedidos" | "cadastradas";
 type FilialScopeSubTab = "pedidos" | "produtos" | "estoque";
 
@@ -6800,6 +6801,7 @@ export default function Admin() {
             ] : []),
             { key: "charges",       label: "Links Pagamento",  icon: "LinkIcon",    count: charges.length },
             { key: "extrato" as TabType, label: "Extrato", icon: "Landmark" },
+            { key: "depositos" as TabType, label: "Depósitos", icon: "CheckCircle" },
             { key: "sellers",       label: "Vendedores",       icon: "Tag" },
             { key: "commissions",   label: "Comissões",        icon: "DollarSign",  count: commissionPendingOrders.length || undefined },
             { key: "kyc",           label: "KYC",              icon: "ShieldCheck", count: kycList.length > 0 ? kycList.filter((k) => k.status === "submitted").length : undefined },
@@ -7010,6 +7012,16 @@ export default function Admin() {
           />
         ) : tab === "extrato" ? (
           <AdminBankStatementPanel
+            authHeaders={authHeaders}
+            onUnauthorized={handleUnauthorized}
+            onGoToOrder={(orderId) => {
+              setSearch(orderId);
+              setTab("orders");
+              setExpandedOrder(orderId);
+            }}
+          />
+        ) : tab === "depositos" ? (
+          <AdminBankDepositsPanel
             authHeaders={authHeaders}
             onUnauthorized={handleUnauthorized}
             onGoToOrder={(orderId) => {
@@ -13982,7 +13994,7 @@ function OrdersPanel({
                               ? `Depósito confirmado 100% · ${(order as any).bankDepositPayerName}`
                               : "Depósito confirmado 100% (nome bateu com o extrato)"}
                           >
-                            Depósito 100%
+                            Depósito pago 100%
                           </span>
                         )}
                         {(order as any).bankDepositMatchStatus === "ok" && (

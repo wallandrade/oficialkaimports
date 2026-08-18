@@ -1,10 +1,11 @@
 import { Router, type IRouter } from "express";
-import { and, eq, gte, inArray, isNotNull, isNull, lte, ne, or } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, lte, ne, or } from "drizzle-orm";
 import { db, ordersTable } from "@workspace/db";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-context";
 import { parseOfxStatement } from "../lib/ofx-bank-statement";
 import { reconcileBankStatement } from "../lib/bank-statement-reconcile";
+import { isManualInterDepositOrder } from "../lib/bank-deposit-manual";
 
 const router: IRouter = Router();
 
@@ -30,6 +31,105 @@ function buildOrderTenantWhere(tenantId: string) {
   }
   return eq(ordersTable.tenantId, tenantId);
 }
+
+// --------------------------------------------------------------------------
+// GET /api/admin/bank-deposits — histórico persistente (confirmed_100 e opcionalmente ok)
+// query: status?=confirmed_100|ok|all  limit?
+// --------------------------------------------------------------------------
+router.get("/admin/bank-deposits", requireAdminAuth, async (req, res) => {
+  try {
+    const adminScope = getAdminScope(req);
+    if (!adminScope) {
+      res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
+      return;
+    }
+
+    const statusFilter = String(req.query.status || "confirmed_100").trim().toLowerCase();
+    const limitRaw = Number(req.query.limit);
+    const limit = Number.isFinite(limitRaw) ? Math.min(500, Math.max(1, limitRaw)) : 200;
+
+    const conditions = [
+      buildOrderTenantWhere(adminScope.tenantId),
+      isNotNull(ordersTable.bankDepositFitid),
+      or(
+        eq(ordersTable.bankDepositMatchStatus, "confirmed_100"),
+        eq(ordersTable.bankDepositMatchStatus, "ok"),
+      )!,
+    ];
+
+    if (statusFilter === "confirmed_100") {
+      conditions.length = 0;
+      conditions.push(
+        buildOrderTenantWhere(adminScope.tenantId),
+        isNotNull(ordersTable.bankDepositFitid),
+        eq(ordersTable.bankDepositMatchStatus, "confirmed_100"),
+      );
+    } else if (statusFilter === "ok") {
+      conditions.length = 0;
+      conditions.push(
+        buildOrderTenantWhere(adminScope.tenantId),
+        isNotNull(ordersTable.bankDepositFitid),
+        eq(ordersTable.bankDepositMatchStatus, "ok"),
+      );
+    }
+
+    if (!adminScope.hasGlobalAccess) {
+      if (!adminScope.sellerCode) {
+        res.status(403).json({ error: "FORBIDDEN", message: "Usuário sem seller vinculado." });
+        return;
+      }
+      conditions.push(eq(ordersTable.sellerCode, adminScope.sellerCode));
+    }
+
+    const rows = await db
+      .select({
+        id: ordersTable.id,
+        orderNumber: ordersTable.orderNumber,
+        clientName: ordersTable.clientName,
+        clientPhone: ordersTable.clientPhone,
+        total: ordersTable.total,
+        status: ordersTable.status,
+        paymentMethod: ordersTable.paymentMethod,
+        sellerCode: ordersTable.sellerCode,
+        createdAt: ordersTable.createdAt,
+        bankDepositMatchStatus: ordersTable.bankDepositMatchStatus,
+        bankDepositFitid: ordersTable.bankDepositFitid,
+        bankDepositAmount: ordersTable.bankDepositAmount,
+        bankDepositPayerName: ordersTable.bankDepositPayerName,
+        bankDepositPostedAt: ordersTable.bankDepositPostedAt,
+        bankDepositMatchedAt: ordersTable.bankDepositMatchedAt,
+      })
+      .from(ordersTable)
+      .where(and(...conditions))
+      .orderBy(desc(ordersTable.bankDepositMatchedAt), desc(ordersTable.createdAt))
+      .limit(limit);
+
+    res.json({
+      ok: true,
+      deposits: rows.map((r) => ({
+        orderId: r.id,
+        orderNumber: r.orderNumber ?? null,
+        clientName: r.clientName,
+        clientPhone: r.clientPhone,
+        orderTotal: Number(r.total),
+        orderStatus: r.status,
+        paymentMethod: r.paymentMethod || "pix",
+        sellerCode: r.sellerCode,
+        orderCreatedAt: r.createdAt?.toISOString?.() ?? null,
+        matchStatus: r.bankDepositMatchStatus,
+        fitid: r.bankDepositFitid,
+        amount: r.bankDepositAmount != null ? Number(r.bankDepositAmount) : null,
+        payerName: r.bankDepositPayerName,
+        postedAt: r.bankDepositPostedAt,
+        matchedAt: r.bankDepositMatchedAt?.toISOString?.() ?? null,
+      })),
+      total: rows.length,
+    });
+  } catch (err) {
+    console.error("[bank-statement] list deposits error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao listar depósitos." });
+  }
+});
 
 // --------------------------------------------------------------------------
 // POST /api/admin/bank-statement/analyze
@@ -103,11 +203,20 @@ router.post("/admin/bank-statement/analyze", requireAdminAuth, async (req, res) 
         total: ordersTable.total,
         createdAt: ordersTable.createdAt,
         status: ordersTable.status,
+        paymentMethod: ordersTable.paymentMethod,
+        transactionId: ordersTable.transactionId,
         bankDepositMatchStatus: ordersTable.bankDepositMatchStatus,
         bankDepositFitid: ordersTable.bankDepositFitid,
       })
       .from(ordersTable)
       .where(and(...conditions));
+
+    const manualRows = rows.filter((r) =>
+      isManualInterDepositOrder({
+        paymentMethod: r.paymentMethod,
+        transactionId: r.transactionId,
+      }),
+    );
 
     const usedFitidRows = await db
       .select({ fitid: ordersTable.bankDepositFitid })
@@ -127,9 +236,12 @@ router.post("/admin/bank-statement/analyze", requireAdminAuth, async (req, res) 
       usedFitidRows.map((r) => String(r.fitid || "").trim()).filter(Boolean),
     );
 
+    const creditsFresh = parsed.credits.filter((c) => !usedFitids.has(c.fitid));
+    const skippedDuplicateCredits = parsed.credits.length - creditsFresh.length;
+
     const report = reconcileBankStatement({
-      credits: parsed.credits,
-      orders: rows.map((r) => ({
+      credits: creditsFresh,
+      orders: manualRows.map((r) => ({
         id: r.id,
         orderNumber: r.orderNumber ?? null,
         clientName: r.clientName,
@@ -147,6 +259,11 @@ router.post("/admin/bank-statement/analyze", requireAdminAuth, async (req, res) 
       ok: true,
       meta: parsed.meta,
       debitCount: parsed.debitCount,
+      skippedDuplicateCredits,
+      ordersInRange: rows.length,
+      ordersManualOnly: manualRows.length,
+      creditsTotal: parsed.credits.length,
+      creditsNew: creditsFresh.length,
       report,
     });
   } catch (err) {
@@ -230,6 +347,15 @@ router.post("/admin/bank-statement/apply", requireAdminAuth, async (req, res) =>
         errors.push({ orderId, message: "Sem permissão neste pedido." });
         continue;
       }
+      if (
+        !isManualInterDepositOrder({
+          paymentMethod: order.paymentMethod,
+          transactionId: order.transactionId,
+        })
+      ) {
+        errors.push({ orderId, message: "Pedido não é depósito Inter manual (PIX gateway)." });
+        continue;
+      }
 
       const dup = await db
         .select({ id: ordersTable.id })
@@ -282,6 +408,14 @@ router.post("/admin/bank-statement/apply", requireAdminAuth, async (req, res) =>
       for (const order of rows) {
         if (!adminScope.hasGlobalAccess && order.sellerCode !== adminScope.sellerCode) {
           errors.push({ orderId: order.id, message: "Sem permissão neste pedido." });
+          continue;
+        }
+        if (
+          !isManualInterDepositOrder({
+            paymentMethod: order.paymentMethod,
+            transactionId: order.transactionId,
+          })
+        ) {
           continue;
         }
         if (order.bankDepositMatchStatus === "ok" || order.bankDepositMatchStatus === "confirmed_100") {

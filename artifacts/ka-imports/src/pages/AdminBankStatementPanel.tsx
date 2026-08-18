@@ -85,6 +85,11 @@ type AnalyzeResponse = {
     dateEnd?: string | null;
   };
   debitCount?: number;
+  skippedDuplicateCredits?: number;
+  ordersInRange?: number;
+  ordersManualOnly?: number;
+  creditsTotal?: number;
+  creditsNew?: number;
   report?: {
     matched: ReportMatch[];
     ambiguous: ReportAmbiguous[];
@@ -293,9 +298,9 @@ export default function AdminBankStatementPanel({ authHeaders, onUnauthorized, o
           <div>
             <h2 className="text-lg font-bold text-foreground">Extrato bancário (OFX)</h2>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Suba o OFX do Inter, analise créditos (PIX recebido) e marque pedidos. Score 100% = nome do pagador
-              igual ao cliente — use “Aplicar só 100%” para salvar como depósito confirmado. Valor precisa bater
-              exatamente; data usa janela (compra → pagamento).
+              Só depósitos manuais Inter (exclui PIX gateway CNPay). O resultado some no F5; o histórico fica na aba{" "}
+              <strong>Depósitos</strong>. FITID já salvo é ignorado no próximo OFX. Score 100% = nome igual —
+              use “Aplicar só 100%”.
             </p>
           </div>
         </div>
@@ -343,7 +348,12 @@ export default function AdminBankStatementPanel({ authHeaders, onUnauthorized, o
           <p className="text-xs text-muted-foreground mt-3">
             {result.meta.org || "Banco"} · conta {result.meta.acctIdMasked || "****"} ·{" "}
             {formatYmd(result.meta.dateStart)} → {formatYmd(result.meta.dateEnd)} ·{" "}
-            {report?.summary.credits ?? 0} créditos · {result.debitCount ?? 0} débitos ignorados
+            {result.creditsNew ?? report?.summary.credits ?? 0} créditos novos
+            {typeof result.skippedDuplicateCredits === "number" && result.skippedDuplicateCredits > 0
+              ? ` · ${result.skippedDuplicateCredits} já registrados (ignorados)`
+              : ""}{" "}
+            · {result.debitCount ?? 0} débitos · pedidos manuais {result.ordersManualOnly ?? "—"}/
+            {result.ordersInRange ?? "—"}
           </p>
         )}
       </div>
