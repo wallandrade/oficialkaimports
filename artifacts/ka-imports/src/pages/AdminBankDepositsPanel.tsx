@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, Landmark, Loader2, RefreshCw } from "lucide-react";
+import { CheckCircle2, Landmark, Loader2, RefreshCw, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { formatCurrency, formatDateBR } from "@/lib/utils";
 
@@ -41,6 +41,7 @@ export default function AdminBankDepositsPanel({ authHeaders, onUnauthorized, on
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<DepositRow[]>([]);
   const [statusFilter, setStatusFilter] = useState<"confirmed_100" | "ok" | "all">("confirmed_100");
+  const [clearingId, setClearingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -70,6 +71,40 @@ export default function AdminBankDepositsPanel({ authHeaders, onUnauthorized, on
     void load();
   }, [load]);
 
+  const clearOne = async (r: DepositRow) => {
+    const label = `#${r.orderNumber ?? r.orderId.slice(0, 8)}`;
+    if (
+      !window.confirm(
+        `Desfazer depósito do pedido ${label}?\n\nO vínculo com o extrato será removido. O crédito poderá aparecer de novo no Extrato. Não altera o status de pagamento do pedido.`,
+      )
+    ) {
+      return;
+    }
+    setClearingId(r.orderId);
+    try {
+      const res = await fetch(`${BASE}/api/admin/bank-statement/clear`, {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId: r.orderId }),
+      });
+      if (res.status === 401) {
+        onUnauthorized();
+        return;
+      }
+      const data = (await res.json()) as { message?: string; ok?: boolean };
+      if (!res.ok) {
+        toast.error(data.message || "Erro ao desfazer.");
+        return;
+      }
+      toast.success(`Depósito desfeito em ${label}.`);
+      setRows((prev) => prev.filter((x) => x.orderId !== r.orderId));
+    } catch {
+      toast.error("Erro ao desfazer depósito.");
+    } finally {
+      setClearingId(null);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border border-border bg-white p-5 shadow-sm">
@@ -81,8 +116,8 @@ export default function AdminBankDepositsPanel({ authHeaders, onUnauthorized, on
             <div>
               <h2 className="text-lg font-bold text-foreground">Depósitos confirmados</h2>
               <p className="text-sm text-muted-foreground mt-0.5">
-                Histórico salvo no banco (não some ao atualizar). Vem do Extrato OFX após aplicar. FITID repetido
-                no próximo OFX é ignorado automaticamente.
+                Histórico salvo no banco (não some ao atualizar). Vem do Extrato OFX após aplicar. Use{" "}
+                <strong>Desfazer</strong> se vinculou errado — o FITID volta a poder aparecer no Extrato.
               </p>
             </div>
           </div>
@@ -125,7 +160,8 @@ export default function AdminBankDepositsPanel({ authHeaders, onUnauthorized, on
                   <th className="py-2 pr-3">Pagou em</th>
                   <th className="py-2 pr-3">Nome no extrato</th>
                   <th className="py-2 pr-3">Status</th>
-                  <th className="py-2">Aplicado em</th>
+                  <th className="py-2 pr-3">Aplicado em</th>
+                  <th className="py-2">Ação</th>
                 </tr>
               </thead>
               <tbody>
@@ -161,8 +197,25 @@ export default function AdminBankDepositsPanel({ authHeaders, onUnauthorized, on
                         </span>
                       )}
                     </td>
-                    <td className="py-2.5 text-muted-foreground">
+                    <td className="py-2.5 pr-3 text-muted-foreground">
                       {r.matchedAt ? formatDateBR(r.matchedAt) : "—"}
+                    </td>
+                    <td className="py-2.5">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5 text-xs"
+                        disabled={clearingId !== null}
+                        onClick={() => void clearOne(r)}
+                      >
+                        {clearingId === r.orderId ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Undo2 className="w-3.5 h-3.5" />
+                        )}
+                        Desfazer
+                      </Button>
                     </td>
                   </tr>
                 ))}

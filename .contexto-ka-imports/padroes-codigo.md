@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-18 | Anti-padrão: desfazer depósito mudando pago ou apagando pedido | `clear` só zera `bank_deposit_*` | Polling PIX inalterado |
 | 2026-08-18 | Anti-padrão: conciliar PIX gateway (CNPay) no OFX ou tratar Extrato como histórico | Só Inter manual; Depósitos = persistente; FITID já salvo skip | Polling PIX inalterado |
 | 2026-08-18 | Anti-padrão: tratar flag de extrato OFX como “pago” do gateway | Só `bank_deposit_*`; paid continua webhook/manual | Polling PIX inalterado |
 | 2026-08-17 | Anti-padrão: manter `PRIORIDADE URGENTE` em pedido já `enviado` | Zerar `is_prioridade` no envio/coleta; esconder no card | SLA 48h e botão em não enviados inalterados |
@@ -126,6 +127,7 @@ Código > memória > suposições.
 - Listar saldo de estoque só por nome, misturando 0 un no topo; positivo primeiro, zeros no fim.
 - Debitar estoque no PATCH de reenvio fora de `reenvio_enviado`, ou não ter **Cancelar Reenvio** para quem não vai mais enviar (`reenvio_cancelado`). “Cancelar Reenvio Enviado” é só o undo do enviado.
 - Marcar pedido `paid` a partir do OFX, ou baixar PDF do Inter para `proofUrl`; conciliação só grava `bank_deposit_*`.
+- Desfazer depósito alterando `status`/`paid` ou apagando o pedido; `POST .../clear` só zera os seis campos `bank_deposit_*`.
 - Cruzar OFX com PIX de gateway (`transactionId` CNPay/DentPeg), cartão simulado ou crédito de afiliado; só Inter manual (`isManualInterDepositOrder`).
 - Tratar o relatório da aba **Extrato** como histórico (some no F5); persistência é a aba **Depósitos** + `GET /api/admin/bank-deposits`. FITID já em `ok`/`confirmed_100` deve ser ignorado, não reanalisado.
 - Manter selo **PRIORIDADE URGENTE** depois de `enviado`/coletado; zerar `is_prioridade` no envio e não exibir a estrela.

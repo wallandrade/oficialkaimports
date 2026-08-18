@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-18 | `POST /api/admin/bank-statement/clear` + botão Desfazer | Desfaz vínculo depósito errado | Webhooks PIX iguais |
 | 2026-08-18 | OFX v2: skip FITID já salvo; só Inter manual; `GET /admin/bank-deposits` | Histórico persistente; gateway PIX fora da conciliação | Webhook PIX e EnvioEcom inalterados |
 | 2026-08-18 | Extrato OFX Inter: `POST /admin/bank-statement/analyze\|apply` | Concilia PIX recebido com pedido; não baixa PDF | Gateway PIX e EnvioEcom inalterados |
 | 2026-08-17 | Vincular EE: cola ID/rastreio no pedido via `POST .../sync` | Envio criado no painel EE liga no card | Cotação/create inalterados |
@@ -68,7 +69,7 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 ## Catálogo auxiliar
 
 - **Google Sheets** fallback de produtos se DB vazio (`routes/products.ts`; env `GOOGLE_SHEET_ID` citada em docs).
-- **Extrato OFX (Banco Inter):** parser `lib/ofx-bank-statement.ts` + match `lib/bank-statement-reconcile.ts` + filtro `lib/bank-deposit-manual.ts`; rotas `POST /api/admin/bank-statement/analyze` e `/apply`, `GET /api/admin/bank-deposits`. Arquivo lido no browser; só créditos novos (FITID ainda não gravado); conta mascarada. Não baixa comprovante do Inter. PIX com `transactionId` (CNPay/DentPeg) não entra no match.
+- **Extrato OFX (Banco Inter):** parser `lib/ofx-bank-statement.ts` + match `lib/bank-statement-reconcile.ts` + filtro `lib/bank-deposit-manual.ts`; rotas `POST /api/admin/bank-statement/analyze`, `/apply`, `/clear`, `GET /api/admin/bank-deposits`. Arquivo lido no browser; só créditos novos (FITID ainda não gravado); conta mascarada. Não baixa comprovante do Inter. PIX com `transactionId` (CNPay/DentPeg) não entra no match. `clear` só zera `bank_deposit_*`.
 
 ## Geo / IP
 

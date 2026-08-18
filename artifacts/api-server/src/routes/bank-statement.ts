@@ -273,6 +273,72 @@ router.post("/admin/bank-statement/analyze", requireAdminAuth, async (req, res) 
 });
 
 // --------------------------------------------------------------------------
+// POST /api/admin/bank-statement/clear
+// body: { orderId }
+// Zera vínculo de depósito no pedido (desfazer apply). Não altera status pago.
+// --------------------------------------------------------------------------
+router.post("/admin/bank-statement/clear", requireAdminAuth, async (req, res) => {
+  try {
+    const adminScope = getAdminScope(req);
+    if (!adminScope) {
+      res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
+      return;
+    }
+
+    const orderId = String(req.body?.orderId || "").trim();
+    if (!orderId) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Informe orderId." });
+      return;
+    }
+
+    const tenantWhere = buildOrderTenantWhere(adminScope.tenantId);
+    const rows = await db
+      .select()
+      .from(ordersTable)
+      .where(and(eq(ordersTable.id, orderId), tenantWhere))
+      .limit(1);
+    const order = rows[0];
+    if (!order) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
+    if (!adminScope.hasGlobalAccess && order.sellerCode !== adminScope.sellerCode) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão neste pedido." });
+      return;
+    }
+
+    const hadMatch =
+      order.bankDepositMatchStatus === "ok" ||
+      order.bankDepositMatchStatus === "confirmed_100" ||
+      Boolean(order.bankDepositFitid);
+
+    await db
+      .update(ordersTable)
+      .set({
+        bankDepositMatchStatus: null,
+        bankDepositFitid: null,
+        bankDepositAmount: null,
+        bankDepositPayerName: null,
+        bankDepositPostedAt: null,
+        bankDepositMatchedAt: null,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(ordersTable.id, orderId), tenantWhere));
+
+    res.json({
+      ok: true,
+      orderId,
+      cleared: hadMatch,
+      previousFitid: order.bankDepositFitid ?? null,
+      previousMatchStatus: order.bankDepositMatchStatus ?? null,
+    });
+  } catch (err) {
+    console.error("[bank-statement] clear error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao desfazer depósito." });
+  }
+});
+
+// --------------------------------------------------------------------------
 // POST /api/admin/bank-statement/apply
 // --------------------------------------------------------------------------
 router.post("/admin/bank-statement/apply", requireAdminAuth, async (req, res) => {

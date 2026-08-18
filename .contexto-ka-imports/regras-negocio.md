@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-18 | Aba Depósitos: **Desfazer** por linha (`POST .../clear`) | Remove vínculo depósito; FITID volta no Extrato | Status pago / Extrato apply iguais |
 | 2026-08-18 | OFX v2: só Inter manual; FITID já salvo ignorado; aba Depósitos persistente | Extrato some no F5; histórico em Depósitos; badge “Depósito pago 100%” | Webhook PIX, paid e comprovante PDF inalterados |
 | 2026-08-18 | Extrato OFX do Inter concilia PIX com pedidos (flag `bank_deposit_*`) | Aba Extrato + badge Depósito 100%; não marca pago | Webhook PIX e comprovante PDF inalterados |
 | 2026-08-17 | Pedido enviado/coletado deixa de ficar como prioridade | Zera `is_prioridade`; card não mostra a estrela | SLA automático e botão em pedidos não enviados inalterados |
@@ -57,7 +58,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 - Fluxo PIX preferencial: `POST /api/checkout/pix` cria pedido + cobrança no gateway (`artifacts/api-server/src/routes/checkout.ts`).
 - Status observados no código: `pending`, `awaiting_payment`, `paid`, `cancelled` (e fluxos admin de marcação manual).
 - Confirmação PIX: **via webhook** (`POST /api/webhook/pix`). Job de reconciliação **não** faz polling de status no gateway — só expira pedidos/cobranças `pending`/`awaiting_payment` > 24h (`artifacts/api-server/src/reconciliation.ts`).
-- **Extrato OFX (Banco Inter):** aba **Extrato** sobe `.ofx`, analisa só créditos (`TRNAMT > 0`) e cruza valor exato + janela de data + score de nome. Só pedidos de **depósito Inter manual** (`whatsapp_pix`, ou PIX **sem** `transactionId`); PIX gateway (CNPay/DentPeg com `transactionId`), cartão simulado e crédito de afiliado ficam de fora. FITID já gravado em `ok`/`confirmed_100` é ignorado no próximo OFX (não 400 se todos já estiverem registrados). **Aplicar só 100%** grava `confirmed_100` no pedido (`bank_deposit_*` + FITID único). Não marca `paid`, não baixa PDF/comprovante, não fala com o gateway. Conta mascarada. Seller-scoped só vê/aplica nos próprios pedidos. O relatório da sessão some no F5; o histórico persistente é a aba **Depósitos**.
+- **Extrato OFX (Banco Inter):** aba **Extrato** sobe `.ofx`, analisa só créditos (`TRNAMT > 0`) e cruza valor exato + janela de data + score de nome. Só pedidos de **depósito Inter manual** (`whatsapp_pix`, ou PIX **sem** `transactionId`); PIX gateway (CNPay/DentPeg com `transactionId`), cartão simulado e crédito de afiliado ficam de fora. FITID já gravado em `ok`/`confirmed_100` é ignorado no próximo OFX (não 400 se todos já estiverem registrados). **Aplicar só 100%** grava `confirmed_100` no pedido (`bank_deposit_*` + FITID único). **Desfazer** na aba Depósitos zera esses campos (`POST /api/admin/bank-statement/clear`) sem mudar `paid`. Não baixa PDF/comprovante, não fala com o gateway. Conta mascarada. Seller-scoped só vê/aplica/desfaz nos próprios pedidos. O relatório da sessão some no F5; o histórico persistente é a aba **Depósitos**.
 - PIX dura ~15 min no gateway (`PIX_DURATION_MS` em `gateway.ts`); regeneração/expiração tratada nas rotas PIX/checkout.
 - Cartão: pedido + fluxo KYC (`/kyc`, `/kyc/:orderId`); parcelas e comunicação WhatsApp no admin/FE.
 - Finalizar no WhatsApp (`whatsapp_pix`): `POST /api/orders` devolve `orderNumber`; a mensagem usa `Pedido: #1841` (número sequencial), não o `id` UUID. Link KYC de cartão continua com o `id`.
@@ -97,7 +98,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 - **Prioridade** no card: botão grava `is_prioridade`; SLA automático (48h úteis, pago/concluído, ainda não enviado). Ao marcar **enviado** (botão, rastreio ou coleta/postagem EnvioEcom) a prioridade manual é zerada e o selo some. Pedido já enviado não mostra nem deixa ligar a estrela.
 - Aba **Rastreios EE**: lista pedidos com barcode/shipment_id/status EnvioEcom; Atualizar lista lê o BD; Sync consulta a API. Campo “Nome do produto no create” (até 120 chars) vale para todos os itens da loja; envios já criados não mudam. **Vincular EE** cola ID ou rastreio de um envio já criado no painel EnvioEcom no pedido (não cotação/create).
 - Aba **Extrato**: upload OFX → Analisar → relatório (100% / outros / ambíguos / PIX sem pedido / pedido sem depósito) → aplicar. Meta mostra créditos novos, FITIDs já registrados (ignorados) e pedidos manuais vs. total no período. Badge no card: **Depósito pago 100%** / Depósito OK / Depósito não encontrado.
-- Aba **Depósitos**: `GET /api/admin/bank-deposits` lista pedidos já aplicados (`confirmed_100` / `ok` / ambos). Não some ao atualizar. Clique no pedido abre o card em Pedidos.
+- Aba **Depósitos**: `GET /api/admin/bank-deposits` lista pedidos já aplicados (`confirmed_100` / `ok` / ambos). Não some ao atualizar. Clique no pedido abre o card em Pedidos. **Desfazer** confirma e zera `bank_deposit_*`; o crédito pode reaparecer no próximo Analisar.
 
 ## KYC
 
