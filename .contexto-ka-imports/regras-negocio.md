@@ -1,12 +1,14 @@
 # Regras de negócio — KA Imports
 
-> **Última atualização:** 2026-08-20  
+> **Última atualização:** 2026-08-21  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-21 | Busca de pedidos com debounce 300ms; data não recarrega o dashboard | Digitação e troca de data mais rápidas | Filtro local e período da API iguais |
+| 2026-08-21 | Lista admin omite comprovante/etiqueta em `data:` + OCR | JSON menor; clique hidrata `GET :id` | Upload/gravação de comprovante iguais |
 | 2026-08-20 | **Envios 48h** (e 72/96h, motoboy, outros) exclui pedidos **Procurando produto** | Esses pedidos só saem no botão Procurando produtos | Compra 48h e fila de alocação inalteradas |
 | 2026-08-20 | Pedidos para enviar: botão **Procurando produtos** copia só os cards com a flag | Lista operacional só desses pedidos | Compra/Envios 48h inalterados |
 | 2026-08-20 | Flag manual **Procurando produto** no card (`is_procurando_produto`) | Selo + aviso nas cópias; não mistura com estoque | Estoque / Faltando estoque / PIX / EnvioEcom inalterados |
@@ -103,7 +105,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 - Auth própria (sessão/cookie); escopo `isPrimary` / seller-scoped / tenant (`admin-auth.ts`, `admin_user_tenants`).
 - Primary-only em vários endpoints (tenants, tracking live, etc. — ver `requirePrimaryAdmin`).
 - Cobranças custom (`custom_charges`), comprovantes múltiplos (`proofUrls`), edição de pedido: primary da loja 1 e admin de filial nos pedidos do próprio tenant (seller-scoped não edita). O PATCH grava nome, telefone, e-mail, CPF, endereço, produtos e desconto; CEP no modal preenche ViaCEP ao sair do campo. Frete e seguro não são editáveis nesse modal. Não atualiza `customer_users`. Comprovante PDF no modal do admin converte `data:` para blob (`frame-src blob:` no CSP).
-- Busca de Pedidos é só no frontend (`search` → `filteredOrders`). Data/status/método/vendedor/grupo vão na API. Só dígitos: **somente** `orderNumber`/id do pedido (não telefone/CEP). Senão `includes` em id, número, nome, telefone, e-mail, CEP e produtos. Fora do período carregado não aparece. Clique no nº a partir do Extrato/Depósitos chama `goToOrder`: amplia o intervalo de datas e zera status/método.
+- Busca de Pedidos é só no frontend (`search` → `filteredOrders`), com debounce de 300ms no input (a lista só filtra quando a digitação para). Data/status/método/vendedor/grupo vão na API; mudar a data **não** recarrega o dashboard de estatísticas (ele tem data própria). Só dígitos: **somente** `orderNumber`/id do pedido (não telefone/CEP). Senão `includes` em id, número, nome, telefone, e-mail, CEP e produtos. Fora do período carregado não aparece. Clique no nº a partir do Extrato/Depósitos chama `goToOrder`: amplia o intervalo de datas e zera status/método. A lista `GET /admin/orders` não manda comprovante/etiqueta em `data:` nem texto de OCR; `GET /admin/orders/:id` carrega na hora de ver o comprovante.
 - **Prioridade** no card: botão grava `is_prioridade`; SLA automático (48h úteis, pago/concluído, ainda não enviado). Ao marcar **enviado** (botão, rastreio ou coleta/postagem EnvioEcom) a prioridade manual é zerada e o selo some. Pedido já enviado não mostra nem deixa ligar a estrela.
 - **Procurando produto** no card: botão grava `is_procurando_produto` (PATCH `/api/admin/orders/:id/procurando-produto`). Liga/desliga à mão; persiste no BD (não some no F5). O card ganha anel amarelo nas laterais (como a prioridade vermelha); o fundo continua normal. Nas cópias (resumo, completo, lista de expedição/fornecedor, motoboy) entra: `NÃO FAZER ETIQUETA AINDA — atrasados para achar o produto do cliente.` Em **Pedidos para enviar**, o botão **Procurando produtos (N)** aparece só se `N > 0` e copia **somente** esses pedidos. **Envios 48h/72h/96h**, Motoboy e Outros **não** incluem os marcados (o contador do Envios também cai). **Compra 48h** continua com todos os pedidos do lote. Não mistura com o badge automático **Faltando estoque**. Não bloqueia a API da EnvioEcom; é aviso operacional. Mensagem de pós-pagamento para o cliente não inclui o aviso. Desligar remove o anel e o texto e o pedido volta ao Envios.
 - Aba **Rastreios EE**: lista pedidos com barcode/shipment_id/status EnvioEcom; Atualizar lista lê o BD; Sync consulta a API. Campo “Nome do produto no create” (até 120 chars) vale para todos os itens da loja; envios já criados não mudam. **Vincular EE** cola ID ou rastreio de um envio já criado no painel EnvioEcom no pedido (não cotação/create).

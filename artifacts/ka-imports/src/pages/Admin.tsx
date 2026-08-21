@@ -1696,6 +1696,42 @@ interface DnsCheckResponse {
   message: string;
 }
 
+function OrdersSearchInput({
+  value,
+  onDebouncedChange,
+  placeholder,
+}: {
+  value: string;
+  onDebouncedChange: (next: string) => void;
+  placeholder: string;
+}) {
+  const [local, setLocal] = useState(value);
+
+  useEffect(() => {
+    setLocal(value);
+  }, [value]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (local !== value) onDebouncedChange(local);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [local, onDebouncedChange, value]);
+
+  return (
+    <div className="relative flex-1">
+      <IconLucide name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+      <input
+        type="text"
+        value={local}
+        onChange={(e) => setLocal(e.target.value)}
+        placeholder={placeholder}
+        className="w-full h-11 pl-10 pr-4 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+      />
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
@@ -2737,6 +2773,25 @@ export default function Admin() {
       /* silent — don't show toast for background refreshes */
     }
   }, [dateFrom, dateTo, statusFilter, methodFilter, sellerFilter, groupFilter, handleUnauthorized]);
+
+  const hydrateOrder = useCallback(async (id: string): Promise<AdminOrder | null> => {
+    const orderId = String(id || "").trim();
+    if (!orderId) return null;
+    try {
+      const res = await fetch(`${BASE}/api/admin/orders/${encodeURIComponent(orderId)}`, {
+        headers: authHeaders(),
+        cache: "no-store",
+      });
+      if (res.status === 401) { handleUnauthorized(); return null; }
+      if (!res.ok) return null;
+      const data = await res.json() as { order?: AdminOrder };
+      if (!data.order) return null;
+      setOrders((prev) => prev.map((order) => (order.id === orderId ? { ...order, ...data.order } : order)));
+      return data.order;
+    } catch {
+      return null;
+    }
+  }, [handleUnauthorized]);
 
   const fetchCharges = useCallback(async (_silent?: boolean) => {
     try {
@@ -4888,7 +4943,6 @@ export default function Admin() {
   }, []);
 
   const fetchAll = useCallback(() => {
-    fetchStatsData();
     if (tab === "orders")          { fetchOrders(); fetchProducts(); fetchInventoryOverview(); }
     else if (tab === "charges")    fetchCharges();
     else if (tab === "users")      fetchUsers();
@@ -4910,7 +4964,7 @@ export default function Admin() {
     else if (tab === "lojas")      { fetchTenants(); fetchDnsGuide(dnsDomainInput); fetchTenantProfitSummary(); fetchFilialPurchaseRequests(selectedFilialTenantId || undefined); }
     else if (tab === "supplierPurchases") { fetchMyFilialPurchaseRequests(); fetchMyFilialPurchaseProductImages(); }
     else setLoading(false);
-  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchSellers, fetchSellerData, fetchShippingOptions, fetchMotoboyNeighborhoods, fetchMotoboyCepRanges, fetchOrderBumpsData, fetchStatsData, fetchKycList, fetchCommissionPayments, fetchSocialProof, fetchRaffles, fetchTenants, fetchDnsGuide, fetchTenantProfitSummary, fetchFilialPurchaseRequests, fetchMyFilialPurchaseRequests, fetchMyFilialPurchaseProductImages, dnsDomainInput, selectedFilialTenantId]);
+  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchSellers, fetchSellerData, fetchShippingOptions, fetchMotoboyNeighborhoods, fetchMotoboyCepRanges, fetchOrderBumpsData, fetchKycList, fetchCommissionPayments, fetchSocialProof, fetchRaffles, fetchTenants, fetchDnsGuide, fetchTenantProfitSummary, fetchFilialPurchaseRequests, fetchMyFilialPurchaseRequests, fetchMyFilialPurchaseProductImages, dnsDomainInput, selectedFilialTenantId]);
 
   // -------------------------------------------------------------------------
   // SSE
@@ -6968,13 +7022,12 @@ export default function Admin() {
 
         {/* Filters (only for orders/charges) */}
         {(tab === "orders" || tab === "charges") && (
-          <div className="flex flex-col sm:flex-row gap-3 mb-6">
-            <div className="relative flex-1">
-              <IconLucide name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
-                placeholder={tab === "orders" ? "Buscar por nome, CEP, pedido ou produto..." : "Buscar por nome, e-mail, telefone ou ID..."}
-                className="w-full h-11 pl-10 pr-4 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm" />
-            </div>
+            <div className="flex flex-col sm:flex-row gap-3 mb-6">
+            <OrdersSearchInput
+              value={search}
+              onDebouncedChange={setSearch}
+              placeholder={tab === "orders" ? "Buscar por nome, CEP, pedido ou produto..." : "Buscar por nome, e-mail, telefone ou ID..."}
+            />
             <div className="flex gap-2 flex-wrap">
               <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm cursor-pointer" />
               <input type="date" value={dateTo}   onChange={(e) => setDateTo(e.target.value)}   className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm cursor-pointer" />
@@ -7048,6 +7101,7 @@ export default function Admin() {
             updateOrderStatus={updateOrderStatus}
             setProofModal={setProofModal}
             setProofViewer={setProofViewer}
+            onHydrateOrder={hydrateOrder}
             openWhatsApp={openOrderWhatsApp}
             onOpenCardPaidModal={(id) => { setCardPaidModal(id); setCardPaidForm({ installments: "", installmentValue: "", totalValue: "" }); }}
             updateOrderObservation={updateOrderObservation}
@@ -12849,7 +12903,7 @@ function OrdersPanel({
   gatewayFeeFixed,
   gatewayFeeMin,
   orders, statusUpdating, expandedOrder, setExpandedOrder,
-  updateOrderStatus, setProofModal, setProofViewer, openWhatsApp,
+  updateOrderStatus, setProofModal, setProofViewer, onHydrateOrder, openWhatsApp,
   onOpenCardPaidModal, updateOrderObservation, isPrimary, canEditOrders, canMarkMotoboy, onMarkOrderMotoboy, onEditOrder, onOpenKycModal,
   onSetOrderEnviado, onSetOrderPatched, availableWhatsappGroups, onSetReshipmentStatus, onRemoveOrder, canManageEnvioEcom,
 }: {
@@ -12875,6 +12929,7 @@ function OrdersPanel({
   ) => Promise<boolean>;
   setProofModal: (id: string) => void;
   setProofViewer: (url: string) => void;
+  onHydrateOrder: (id: string) => Promise<AdminOrder | null>;
   openWhatsApp: (order: AdminOrder) => void;
   onOpenCardPaidModal: (id: string) => void;
   updateOrderObservation: (id: string, observation: string) => void;
@@ -12894,6 +12949,24 @@ function OrdersPanel({
 
   const normalizeIp = (ip?: string | null) => String(ip || "").trim().replace(/^::ffff:/, "") || "-";
   const ordersLookup = allOrders.length > 0 ? allOrders : orders;
+
+  const openOrderProof = async (order: AdminOrder, url?: string) => {
+    const currentUrl = String(url || "").trim();
+    const hasFullInline = String(order.proofUrl || "").startsWith("data:")
+      || (order.proofUrls || []).some((item) => String(item || "").startsWith("data:"));
+    let current = order;
+    if (!!(order as { hasInlineProof?: boolean }).hasInlineProof && !hasFullInline) {
+      const full = await onHydrateOrder(order.id);
+      if (full) current = { ...order, ...full };
+    }
+    const proofs = (current.proofUrls && current.proofUrls.length > 0)
+      ? current.proofUrls
+      : current.proofUrl ? [current.proofUrl] : [];
+    const nextUrl = currentUrl && (currentUrl.startsWith("http") || currentUrl.startsWith("data:"))
+      ? currentUrl
+      : proofs[0];
+    if (nextUrl) setProofViewer(nextUrl);
+  };
 
   // Todos os hooks no topo
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
@@ -14493,7 +14566,7 @@ function OrdersPanel({
                       {order.proofUrls.map((url, i) => (
                         <button key={i} title={`Comprovante ${i + 1}`}
                           className="w-8 h-8 rounded-lg border border-border overflow-hidden hover:ring-2 hover:ring-primary transition"
-                          onClick={() => setProofViewer(url)}>
+                          onClick={() => { void openOrderProof(order, url); }}>
                           {url.startsWith("data:image") ? (
                             <img src={url} alt={`Comp. ${i + 1}`} className="w-full h-full object-cover" />
                           ) : (
@@ -14504,7 +14577,12 @@ function OrdersPanel({
                     </div>
                   )}
                   {!order.proofUrls?.length && order.proofUrl && (
-                    <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setProofViewer(order.proofUrl!)}>
+                    <Button size="sm" variant="outline" className="gap-1.5" onClick={() => { void openOrderProof(order, order.proofUrl!); }}>
+                      <Eye className="w-3.5 h-3.5" />Ver Comprovante
+                    </Button>
+                  )}
+                  {!order.proofUrls?.length && !order.proofUrl && (order as { hasInlineProof?: boolean }).hasInlineProof && (
+                    <Button size="sm" variant="outline" className="gap-1.5" onClick={() => { void openOrderProof(order); }}>
                       <Eye className="w-3.5 h-3.5" />Ver Comprovante
                     </Button>
                   )}

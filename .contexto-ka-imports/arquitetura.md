@@ -1,13 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-08-20  
+> **Última atualização:** 2026-08-21  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
-| 2026-08-20 | Coluna `is_procurando_produto` em `orders` + PATCH admin | Flag persistente no card | Stack FE/API/DB inalterada |
+| 2026-08-21 | Lista de pedidos admin: JSON leve (sem `data:`/OCR); `GET /admin/orders/:id` carrega mídia | Data e lista mais rápidas; comprovante no clique | Filtros e PIX inalterados |
 | 2026-08-18 | Tabela `order_bank_deposits` + resumo em `orders.bank_deposit_*` | Vários PIX por pedido | Stack FE/API inalterada |
 | 2026-08-18 | `POST /admin/bank-statement/clear` zera vínculo no pedido | Desfazer na aba Depósitos | Stack FE/API/DB inalterada |
 | 2026-08-18 | `GET /admin/bank-deposits` + filtro Inter manual no analyze | Aba Depósitos; Extrato não persiste sessão | Stack FE/API/DB inalterada |
@@ -65,13 +65,14 @@ Monorepo **pnpm workspaces** + TypeScript.
 - Jobs no boot: reconciliação (expiração 24h), raffle expiry, reconcile logistics.
 - EnvioEcom: `artifacts/api-server/src/routes/envioecom.ts` + webhook em `webhooks.ts`. Config por `tenant_settings`.
 - Extrato OFX: `artifacts/api-server/src/routes/bank-statement.ts` (`analyze`/`apply`/`clear`/`bank-deposits`) + `order_bank_deposits`. Painéis FE: `AdminBankStatementPanel.tsx` (sessão) e `AdminBankDepositsPanel.tsx` (histórico + Desfazer por FITID).
+- Lista admin: `GET /admin/orders` em modo leve (sem `data:`/OCR); `GET /admin/orders/:id` devolve mídia completa.
 - OpenAPI cobre só um subconjunto (health/products/pix/orders…); **muitas rotas existem só no Express** — não assumir que Orval cobre tudo.
 
 ## Frontend
 
 - Rotas: `artifacts/ka-imports/src/App.tsx` (wouter).
 - Carrinho: Zustand persist `src/store/use-cart.ts`.
-- Admin monolítico: `src/pages/Admin.tsx` (arquivo grande — leitura seletiva). `fetchOrders` usa AbortController + seq e não apaga `envioecomLabelUrl` se o GET vier vazio.
+- Admin monolítico: `src/pages/Admin.tsx` (arquivo grande — leitura seletiva). `fetchOrders` usa AbortController + seq e não apaga `envioecomLabelUrl` se o GET vier vazio. Busca de pedidos: input com debounce 300ms. Troca de data da lista não chama `fetchStatsData`.
 - Proxy/API: requests sob `/api` (Vercel rewrite → Railway).
 - SW: `public/sw.js` — **somente notificações admin**, não PWA offline/sync.
 

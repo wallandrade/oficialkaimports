@@ -1650,7 +1650,7 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
       }
 
       return {
-        ...mapOrder(order),
+        ...mapOrder(order, { light: true }),
         logisticsAllocation: logisticsByOrder.get(order.id) || null,
         isPrioridade: !order.enviado && (manualPriority || automaticPriority),
         isProcurandoProduto: searchingProductByOrder.get(order.id) ?? false,
@@ -1682,6 +1682,35 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
   } catch (err) {
     console.error("Admin orders error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao buscar pedidos." });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/admin/orders/:id  (protected) — mídia completa do card
+// ---------------------------------------------------------------------------
+router.get("/admin/orders/:id", requireAdminAuth, async (req, res) => {
+  try {
+    const adminScope = ensureSellerScopeOnOrderQuery(req, res);
+    if (!adminScope) return;
+
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
+
+    const rows = await db
+      .select()
+      .from(ordersTable)
+      .where(buildAdminOrderWhere(id, adminScope))
+      .limit(1);
+
+    if (!rows[0]) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
+
+    res.json({ order: mapOrder(rows[0]) });
+  } catch (err) {
+    console.error("Admin order detail error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao buscar pedido." });
   }
 });
 
@@ -2388,13 +2417,28 @@ router.get("/admin/export", requireAdminAuth, async (req, res) => {
   }
 });
 
-function mapOrder(o: typeof ordersTable.$inferSelect) {
+function isInlineMediaUrl(value: string | null | undefined): boolean {
+  return /^data:/i.test(String(value || "").trim());
+}
+
+function slimExternalUrl(value: string | null | undefined): string | null {
+  const trimmed = String(value || "").trim();
+  if (!trimmed || isInlineMediaUrl(trimmed)) return null;
+  return trimmed;
+}
+
+function mapOrder(o: typeof ordersTable.$inferSelect, options?: { light?: boolean }) {
+  const light = Boolean(options?.light);
   let proofUrls: string[] = [];
   if (o.proofUrls) {
     try { proofUrls = JSON.parse(o.proofUrls); } catch { proofUrls = []; }
   }
   if (o.proofUrl && !proofUrls.includes(o.proofUrl)) {
     proofUrls = [o.proofUrl, ...proofUrls];
+  }
+  const hasInlineProof = proofUrls.some((url) => isInlineMediaUrl(url));
+  if (light) {
+    proofUrls = proofUrls.filter((url) => !isInlineMediaUrl(url));
   }
 
   let products: Array<{ id: string; name: string; quantity: number; price: number; costPrice?: number }> = [];
@@ -2439,8 +2483,9 @@ function mapOrder(o: typeof ordersTable.$inferSelect) {
     paymentMethod:       o.paymentMethod || "pix",
     whatsappGroup:       o.whatsappGroup ?? null,
     cardInstallments:    o.cardInstallments,
-    proofUrl:            o.proofUrl,
+    proofUrl:            light ? slimExternalUrl(o.proofUrl) : o.proofUrl,
     proofUrls,
+    hasInlineProof,
     transactionId:       o.transactionId,
     sellerCode:             o.sellerCode,
     sellerCommissionRateSnapshot: o.sellerCommissionRateSnapshot ? Number(o.sellerCommissionRateSnapshot) : null,
@@ -2462,8 +2507,8 @@ function mapOrder(o: typeof ordersTable.$inferSelect) {
     isProcurandoProduto:    !!(o as any).isProcurandoProduto,
     enviado:                !!o.enviado,
     trackingCode:           o.trackingCode ?? null,
-    trackingLabelUrl:       o.trackingLabelUrl ?? null,
-    trackingLabelText:      o.trackingLabelText ?? null,
+    trackingLabelUrl:       light ? slimExternalUrl(o.trackingLabelUrl) : (o.trackingLabelUrl ?? null),
+    trackingLabelText:      light ? null : (o.trackingLabelText ?? null),
     trackingDetectedName:   o.trackingDetectedName ?? null,
     trackingDetectedAddress:o.trackingDetectedAddress ?? null,
     envioecomShipmentId:    o.envioecomShipmentId ?? null,
@@ -2473,7 +2518,7 @@ function mapOrder(o: typeof ordersTable.$inferSelect) {
     envioecomStatus:        o.envioecomStatus ?? null,
     envioecomStatusUpdatedAt: o.envioecomStatusUpdatedAt?.toISOString?.() ?? o.envioecomStatusUpdatedAt ?? null,
     envioecomStatusHistory: o.envioecomStatusHistory ?? [],
-    envioecomLabelUrl:      o.envioecomLabelUrl ?? null,
+    envioecomLabelUrl:      light ? slimExternalUrl(o.envioecomLabelUrl) : (o.envioecomLabelUrl ?? null),
     envioecomFreightCost:   o.envioecomFreightCost != null ? Number(o.envioecomFreightCost) : null,
     envioecomExternalOrderNumber: o.envioecomExternalOrderNumber ?? null,
     bankDepositMatchStatus: (o as any).bankDepositMatchStatus ?? null,
