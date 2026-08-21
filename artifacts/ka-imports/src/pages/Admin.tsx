@@ -153,8 +153,16 @@ function getOrderDisplayId(order: any): string {
   return String(order?.id || "-");
 }
 
+function isProcurandoProdutoOrder(order: any): boolean {
+  return !!order?.isProcurandoProduto;
+}
+
+function withoutSearchingProductOrders<T extends { isProcurandoProduto?: boolean }>(orders: T[]): T[] {
+  return orders.filter((order) => !isProcurandoProdutoOrder(order));
+}
+
 function searchingProductCopyLine(order: any): string {
-  return order?.isProcurandoProduto
+  return isProcurandoProdutoOrder(order)
     ? "NÃO FAZER ETIQUETA AINDA — atrasados para achar o produto do cliente."
     : "";
 }
@@ -6205,7 +6213,9 @@ export default function Admin() {
       motoboyOrders,
     };
   })();
-  const searchingProductOrders = ordersParaEnviarCopyBase.filter((order) => !!(order as { isProcurandoProduto?: boolean }).isProcurandoProduto);
+  const searchingProductOrders = ordersParaEnviarCopyBase.filter((order) => isProcurandoProdutoOrder(order));
+  const motoboyCopyOrders = withoutSearchingProductOrders(logisticsCopyGroups.motoboyOrders);
+  const otherCopyOrders = withoutSearchingProductOrders(logisticsCopyGroups.otherOrders);
 
   const copyShoppingList = async (
     shoppingOrders: AdminOrder[],
@@ -6332,8 +6342,13 @@ export default function Admin() {
   ) => {
     event?.preventDefault();
     event?.stopPropagation();
+    const shippingOrders = withoutSearchingProductOrders(group.orders);
+    if (shippingOrders.length === 0) {
+      toast.info("Nenhum pedido neste lote para enviar. Os marcados foram para Procurando produtos.");
+      return;
+    }
     const byDeadline = new Map<string, { allocation: any; orders: AdminOrder[] }>();
-    for (const order of group.orders) {
+    for (const order of shippingOrders) {
       const allocation = (order as any).logisticsAllocation;
       const key = String(allocation.deadlineAt);
       const deadlineGroup = byDeadline.get(key) || { allocation, orders: [] };
@@ -6366,7 +6381,12 @@ export default function Admin() {
   const copyOtherShippingOrders = async (event?: React.MouseEvent<HTMLButtonElement>) => {
     event?.preventDefault();
     event?.stopPropagation();
-    const text = logisticsCopyGroups.otherOrders
+    const otherOrders = withoutSearchingProductOrders(logisticsCopyGroups.otherOrders);
+    if (otherOrders.length === 0) {
+      toast.info("Nenhum pedido em Outros para enviar. Os marcados foram para Procurando produtos.");
+      return;
+    }
+    const text = otherOrders
       .map((order, index) => legacySupplierOrderBlock(order, index + 1))
       .join("\n\n");
     try {
@@ -6380,7 +6400,12 @@ export default function Admin() {
   const copyMotoboyOrders = async (event?: React.MouseEvent<HTMLButtonElement>) => {
     event?.preventDefault();
     event?.stopPropagation();
-    const text = logisticsCopyGroups.motoboyOrders
+    const motoboyOrders = withoutSearchingProductOrders(logisticsCopyGroups.motoboyOrders);
+    if (motoboyOrders.length === 0) {
+      toast.info("Nenhum motoboy para enviar. Os marcados foram para Procurando produtos.");
+      return;
+    }
+    const text = motoboyOrders
       .map(motoboyOrderBlock)
       .join("\n\n");
     try {
@@ -6777,7 +6802,9 @@ export default function Admin() {
                 <Truck className="w-4 h-4" /> Pedidos para Enviar
               </p>
               <div className="flex flex-wrap items-center justify-end gap-2">
-                {logisticsCopyGroups.deadlineGroups.map((group) => (
+                {logisticsCopyGroups.deadlineGroups.map((group) => {
+                  const enviosOrders = withoutSearchingProductOrders(group.orders);
+                  return (
                   <React.Fragment key={group.promisedHours}>
                     <button
                       type="button"
@@ -6787,16 +6814,19 @@ export default function Admin() {
                     >
                       <ShoppingBag className="w-3.5 h-3.5" /> Compra {group.promisedHours}h
                     </button>
+                    {enviosOrders.length > 0 && (
                     <button
                       type="button"
                       onClick={(event) => { void copyLogisticsDeadlineGroup(group, event); }}
                       className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-white/90 px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-white"
-                      title={`Copiar ${group.orders.length} pedido${group.orders.length !== 1 ? "s" : ""} com prazo de ${group.promisedHours} horas`}
+                      title={`Copiar ${enviosOrders.length} pedido${enviosOrders.length !== 1 ? "s" : ""} com prazo de ${group.promisedHours} horas (sem procurando produto)`}
                     >
-                      <Copy className="w-3.5 h-3.5" /> Envios {group.promisedHours}h ({group.orders.length})
+                      <Copy className="w-3.5 h-3.5" /> Envios {group.promisedHours}h ({enviosOrders.length})
                     </button>
+                    )}
                   </React.Fragment>
-                ))}
+                  );
+                })}
                 {searchingProductOrders.length > 0 && (
                   <button
                     type="button"
@@ -6807,24 +6837,24 @@ export default function Admin() {
                     <Search className="w-3.5 h-3.5" /> Procurando produtos ({searchingProductOrders.length})
                   </button>
                 )}
-                {logisticsCopyGroups.motoboyOrders.length > 0 && (
+                {motoboyCopyOrders.length > 0 && (
                   <button
                     type="button"
                     onClick={(event) => { void copyMotoboyOrders(event); }}
                     className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100"
                     title="Copiar pedidos com entrega por motoboy"
                   >
-                    <Bike className="w-3.5 h-3.5" /> Motoboy ({logisticsCopyGroups.motoboyOrders.length})
+                    <Bike className="w-3.5 h-3.5" /> Motoboy ({motoboyCopyOrders.length})
                   </button>
                 )}
-                {logisticsCopyGroups.otherOrders.length > 0 && (
+                {otherCopyOrders.length > 0 && (
                   <button
                     type="button"
                     onClick={(event) => { void copyOtherShippingOrders(event); }}
                     className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-white/90 px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-white"
                     title="Copiar pedidos sem lote de expedição"
                   >
-                    <Copy className="w-3.5 h-3.5" /> Outros ({logisticsCopyGroups.otherOrders.length})
+                    <Copy className="w-3.5 h-3.5" /> Outros ({otherCopyOrders.length})
                   </button>
                 )}
                 <span className="text-[10px] bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-bold">
