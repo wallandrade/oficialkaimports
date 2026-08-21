@@ -606,16 +606,21 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
 
     const originalById = new Map(originalProducts.map((item) => [item.id, item]));
     let commissionableSubtotal = 0;
+    let saleSubtotal = 0;
     for (const item of selectedProducts) {
+      const qty = Number(item.quantity || 0);
+      const unitPrice = Number(item.price || 0);
+      saleSubtotal += qty * unitPrice;
       const original = originalById.get(item.id);
-      const extraQty = Math.max(0, Number(item.quantity || 0) - Number(original?.quantity || 0));
+      const extraQty = Math.max(0, qty - Number(original?.quantity || 0));
       if (extraQty <= 0) continue;
-      const unitPrice = Number(item.price || original?.price || 0);
-      if (unitPrice <= 0) continue;
-      commissionableSubtotal += extraQty * unitPrice;
+      const extraUnitPrice = Number(item.price || original?.price || 0);
+      if (extraUnitPrice <= 0) continue;
+      commissionableSubtotal += extraQty * extraUnitPrice;
     }
     commissionableSubtotal = Math.round(commissionableSubtotal * 100) / 100;
-    const commissionableSubtotalStr = commissionableSubtotal.toFixed(2);
+    saleSubtotal = Math.round(saleSubtotal * 100) / 100;
+    const saleSubtotalStr = saleSubtotal.toFixed(2);
 
     const originalRateRaw = order.sellerCommissionRateSnapshot;
     const originalRate = Number(originalRateRaw ?? 0);
@@ -652,11 +657,11 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
         products: selectedProducts,
         shippingType: "Reenvio",
         includeInsurance: false,
-        subtotal: commissionableSubtotalStr,
+        subtotal: saleSubtotalStr,
         shippingCost: "0.00",
         insuranceAmount: "0.00",
-        total: commissionableSubtotalStr,
-        status: "paid",
+        total: saleSubtotalStr,
+        status: "awaiting_payment",
         paymentMethod: "whatsapp_pix",
         sellerCode: order.sellerCode,
         sellerCommissionRateSnapshot: nextSellerCommissionRateSnapshot,
@@ -668,7 +673,7 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
         cardInstallmentsActual: null,
         cardInstallmentValue: null,
         cardTotalActual: null,
-        paidAmount: commissionableSubtotalStr,
+        paidAmount: "0.00",
         transactionId: null,
         pixCode: null,
         pixBase64: null,

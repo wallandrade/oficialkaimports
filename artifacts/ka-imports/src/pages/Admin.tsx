@@ -353,7 +353,8 @@ export function orderToFullText(order: any): string {
     return sum + (qty * unitPrice);
   }, 0);
 
-  const total = Number(order?.cardTotalActual ?? order?.total) || 0;
+  const discountAmount = Math.max(0, Number(order?.discountAmount) || 0);
+  const storedTotal = Number(order?.cardTotalActual ?? order?.total) || 0;
 
   const freteCandidates = [
     Number(order?.shippingCost),
@@ -364,19 +365,23 @@ export function orderToFullText(order: any): string {
     Number(order?.shippingFee),
   ].filter((value) => Number.isFinite(value) && value >= 0);
 
-  const frete = freteCandidates.length > 0
-    ? freteCandidates[0]
-    : Math.max(0, total - subtotalFromItems);
-
   const subtotalCandidates = [
     Number(order?.subtotal),
     Number(order?.subTotal),
     Number(order?.itemsTotal),
-  ].filter((value) => Number.isFinite(value) && value >= 0);
+  ].filter((value) => Number.isFinite(value) && value > 0.01);
 
   const subtotal = subtotalCandidates.length > 0
     ? subtotalCandidates[0]
-    : Math.max(0, total - frete);
+    : subtotalFromItems;
+
+  const frete = freteCandidates.length > 0
+    ? freteCandidates[0]
+    : 0;
+
+  const total = storedTotal > 0.01
+    ? storedTotal
+    : Math.max(0, subtotal + frete - discountAmount);
 
   const insuranceAmount = Math.max(0, Number(order?.insuranceAmount) || 0);
   const hasInsurance = Boolean(order?.includeInsurance) || insuranceAmount > 0;
@@ -425,6 +430,7 @@ export function orderToFullText(order: any): string {
     `Subtotal: ${formatCurrency(subtotal)}`,
     `Frete: ${formatCurrency(frete)}`,
     hasInsurance ? `Seguro: Sim (${formatCurrency(insuranceAmount)})` : "",
+    discountAmount > 0 ? `Desconto: -${formatCurrency(discountAmount)}` : "",
     `Total: ${formatCurrency(total)}`,
     `Status: ${order?.status || "-"}`,
     `Pagamento: ${paymentLabel}`,
@@ -14186,12 +14192,8 @@ function OrdersPanel({
             ? 0
             : (grossAmount > 0 ? Math.max(gatewayFeeRaw, gatewayFeeMin) : 0);
           const isSupportTicketReshipmentChild = String(order?.observation || "").toUpperCase().includes("REENVIO DO PEDIDO");
-          const commissionBasisAmount = Number(order?.subtotal ?? order?.total) || 0;
-          const hasIncrementalCommission = isSupportTicketReshipmentChild && commissionBasisAmount > 0;
-          const replacementReshipment = isSupportTicketReshipmentChild && !hasIncrementalCommission;
-          const estimatedProfit = replacementReshipment
-            ? 0
-            : grossAmount - orderProductsCost - commissionAmount - gatewayFee;
+          const hasIncrementalCommission = isSupportTicketReshipmentChild && Number(order.sellerCommissionRateSnapshot) > 0;
+          const estimatedProfit = grossAmount - orderProductsCost - commissionAmount - gatewayFee;
           const reshipmentTrackingCode = String(order?.reshipment?.ticketTrackingCode || "").trim();
           const previewProducts = orderProducts.slice(0, 5);
           const hiddenProductsCount = Math.max(0, orderProducts.length - previewProducts.length);
@@ -14429,9 +14431,7 @@ function OrdersPanel({
                   <p className="text-2xl font-bold text-primary">{formatCurrency(order.total)}</p>
                   <p
                     className={`text-xs font-semibold mt-1 ${estimatedProfit >= 0 ? "text-emerald-700" : "text-red-600"}`}
-                    title={replacementReshipment
-                      ? "Reenvio de reposição: sem cobrança nova; o lucro fica no pedido original"
-                      : "Lucro estimado = total - custo dos produtos - comissão - taxa do gateway (exceto WhatsApp)"}
+                    title="Lucro estimado = total - custo dos produtos - comissão - taxa do gateway (exceto WhatsApp)"
                   >
                     Lucro est.: {formatCurrency(estimatedProfit)}
                   </p>
