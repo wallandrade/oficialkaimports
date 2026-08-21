@@ -14113,7 +14113,7 @@ function OrdersPanel({
             return productId ? String(productImageById[productId] || "").trim() : "";
           };
           return (
-            <div key={order.id} className={`border rounded-2xl shadow-sm overflow-hidden ${isProcurandoProduto ? "bg-yellow-200 border-yellow-500" : `bg-card ${eeLabelReady ? "border-emerald-400" : isCard ? "border-purple-200" : "border-border/60"}`} ${isPrioridade ? "ring-2 ring-red-400" : ""}`}>
+            <div key={order.id} className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${eeLabelReady ? "border-emerald-400" : isCard ? "border-purple-200" : "border-border/60"} ${isPrioridade ? "ring-2 ring-red-400" : isProcurandoProduto ? "ring-2 ring-yellow-400" : ""}`}>
             <div className="p-5 sm:p-6">
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                 <div className="flex-1 min-w-0">
