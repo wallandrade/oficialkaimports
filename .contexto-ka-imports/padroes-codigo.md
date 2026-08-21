@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-08-18  
+> **Última atualização:** 2026-08-20  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-20 | Anti-padrão: reusar o badge **Faltando estoque** para “não fazer etiqueta” | Flag manual `is_procurando_produto` no pedido | Saldo / verifyOrderStock inalterados |
 | 2026-08-18 | Anti-padrão: substituir o PIX anterior ao vincular o 2º no mesmo pedido | Tabela `order_bank_deposits` + soma | FITID único; `paid` inalterado |
 | 2026-08-18 | Anti-padrão: Radix `Dialog` no Extrato (React 19 #185, loop de ref) | Overlay `fixed` igual EnvioEcom | Apply/API do motivo inalterados |
 | 2026-08-18 | Anti-padrão: recusar Vincular só porque PIX ≠ total sem pedir motivo | Modal + `amountMismatchNote` no apply `ok` | Lote / 100% ainda exigem valor igual |
@@ -142,6 +143,7 @@ Código > memória > suposições.
 - Cruzar OFX com PIX de gateway (`transactionId` CNPay/DentPeg), cartão simulado ou crédito de afiliado; só Inter manual (`isManualInterDepositOrder`).
 - Tratar o relatório da aba **Extrato** como histórico (some no F5); persistência é a aba **Depósitos** + `GET /api/admin/bank-deposits`. FITID já em `ok`/`confirmed_100` deve ser ignorado, não reanalisado.
 - Manter selo **PRIORIDADE URGENTE** depois de `enviado`/coletado; zerar `is_prioridade` no envio e não exibir a estrela.
+- Reusar **Faltando estoque** (saldo vs pedido) para avisar “não fazer etiqueta / atrasados no fornecedor”. Isso é flag manual `is_procurando_produto` no card, independente do inventário.
 - Tratar `costPrice: 0` no JSON do pedido como custo real (`!= null`); 0/ausente cai na ficha, e o PATCH do produto só preenche esses itens (além da janela de 24h).
 - Abrir comprovante PDF no admin com `<iframe src="data:application/pdf...">` sem `frame-src blob:` no CSP; converter data URL para blob.
 - Mostrar status técnico EnvioEcom (“Pronto para envio”, “Etiqueta emitida”) na Minha conta; traduzir só na UI do cliente (`isPackingBeforePostStatus` / `toCustomerFriendlyShippingLabel`). Admin e banco ficam iguais.

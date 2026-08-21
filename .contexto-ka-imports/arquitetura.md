@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-08-18  
+> **Última atualização:** 2026-08-20  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-20 | Coluna `is_procurando_produto` em `orders` + PATCH admin | Flag persistente no card | Stack FE/API/DB inalterada |
 | 2026-08-18 | Tabela `order_bank_deposits` + resumo em `orders.bank_deposit_*` | Vários PIX por pedido | Stack FE/API inalterada |
 | 2026-08-18 | `POST /admin/bank-statement/clear` zera vínculo no pedido | Desfazer na aba Depósitos | Stack FE/API/DB inalterada |
 | 2026-08-18 | `GET /admin/bank-deposits` + filtro Inter manual no analyze | Aba Depósitos; Extrato não persiste sessão | Stack FE/API/DB inalterada |
@@ -49,7 +50,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 ### Tabelas principais (não exaustivo)
 
 - `tenants`, `admin_users`, `admin_user_tenants`, `admin_sessions`
-- `orders` (incl. `envioecom_*`, `enviado`, `tracking_*`, `bank_deposit_*`), `order_bank_deposits` (vários PIX OFX por pedido), `custom_charges`, `products`, `coupons`, `sellers`
+- `orders` (incl. `envioecom_*`, `enviado`, `is_prioridade`, `is_procurando_produto`, `tracking_*`, `bank_deposit_*`), `order_bank_deposits` (vários PIX OFX por pedido), `custom_charges`, `products`, `coupons`, `sellers`
 - `customer_users`, `affiliates` (+ referrals/commissions/credit uses)
 - `kyc_documents`, `site_settings` / `tenant_settings`
 - `shipping_options`, `motoboy_*`, `order_logistics_allocations`

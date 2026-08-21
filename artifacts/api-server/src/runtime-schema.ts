@@ -273,6 +273,10 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
       name: "is_prioridade",
       sql: "ALTER TABLE orders ADD COLUMN is_prioridade TINYINT(1) NOT NULL DEFAULT 0",
     },
+    {
+      name: "is_procurando_produto",
+      sql: "ALTER TABLE orders ADD COLUMN is_procurando_produto TINYINT(1) NOT NULL DEFAULT 0",
+    },
     // Campos de geolocalização do IP
     { name: "ip_city",     sql: "ALTER TABLE orders ADD COLUMN ip_city VARCHAR(100) NULL" },
     { name: "ip_region",   sql: "ALTER TABLE orders ADD COLUMN ip_region VARCHAR(100) NULL" },

@@ -153,6 +153,12 @@ function getOrderDisplayId(order: any): string {
   return String(order?.id || "-");
 }
 
+function searchingProductCopyLine(order: any): string {
+  return order?.isProcurandoProduto
+    ? "NÃO FAZER ETIQUETA AINDA — atrasados para achar o produto do cliente."
+    : "";
+}
+
 function getOrderLogisticsBlock(order: any): string {
   const allocation = order?.logisticsAllocation;
   if (!allocation || allocation.status !== "allocated") return "";
@@ -236,6 +242,7 @@ function PaymentProofDocument({ src }: { src: string }) {
 export function orderToText(order: any): string {
   const products = getOrderProducts(order?.products);
   const prioridadeLine = order?.isPrioridade ? "PRIORIDADE URGENTE" : "";
+  const searchingLine = searchingProductCopyLine(order);
   const productsText = products.length
     ? products
         .map((p) => {
@@ -260,6 +267,7 @@ export function orderToText(order: any): string {
   if (reshipmentLabel) {
     return [
       prioridadeLine,
+      searchingLine,
       `🚨 REENVIO - ${reshipmentLabel}`,
       `Data do pedido original: ${formatDateBR(dataPrimeiroPedido) || "-"}`,
       trackingCodeInformado ? `Numero rastreio informado: ${trackingCodeInformado}` : "",
@@ -298,6 +306,7 @@ export function orderToText(order: any): string {
     getOrderLogisticsBlock(order),
     `PEDIDO #KA-${getOrderDisplayId(order)}`,
     prioridadeLine,
+    searchingLine,
     addressBlock,
     `Resumo pedido:\n${productsText}`,
     order?.observation ? `Observacao: ${order.observation}` : "",
@@ -307,6 +316,7 @@ export function orderToText(order: any): string {
 export function orderToFullText(order: any): string {
   const products = getOrderProducts(order?.products);
   const prioridadeLine = order?.isPrioridade ? "PRIORIDADE URGENTE" : "";
+  const searchingLine = searchingProductCopyLine(order);
   const productsText = products.length
     ? products
         .map((p) => {
@@ -396,6 +406,7 @@ export function orderToFullText(order: any): string {
 
   return [
     prioridadeLine,
+    searchingLine,
     `Pedido #${getOrderDisplayId(order)}`,
     `Data: ${formatDateBR(order?.createdAt) || "-"}`,
     `Cliente: ${order?.clientName || "-"}`,
@@ -537,6 +548,7 @@ function supplierOrderContent(order: any): { addressBlock: string; resumoPedido:
 function logisticsOrderBlock(order: any): string {
   const { addressBlock, resumoPedido, reshipmentLines } = supplierOrderContent(order);
   return [
+    searchingProductCopyLine(order),
     `PEDIDO #KA-${getOrderDisplayId(order)}`,
     ...reshipmentLines,
     addressBlock,
@@ -548,6 +560,7 @@ function logisticsOrderBlock(order: any): string {
 function motoboyOrderBlock(order: any): string {
   const { addressBlock, resumoPedido, reshipmentLines } = supplierOrderContent(order);
   return [
+    searchingProductCopyLine(order),
     `MOTOBOY - PEDIDO #KA-${getOrderDisplayId(order)}`,
     `Entrega: ${formatDateOnlyLocal(order?.motoboyDeliveryDate) || "-"} às ${order?.motoboyDeliveryTime || "-"}`,
     `Intervalo reservado: ${Number(order?.motoboyDeliveryDurationHours) || 1}h`,
@@ -561,6 +574,7 @@ function motoboyOrderBlock(order: any): string {
 function legacySupplierOrderBlock(order: any, sequence: number): string {
   const { addressBlock, resumoPedido, reshipmentLines } = supplierOrderContent(order);
   return [
+    searchingProductCopyLine(order),
     order?.isPrioridade ? "🚨 PRIORIDADE URGENTE" : "",
     ...reshipmentLines,
     `Pedido numero: ${sequence}`,
@@ -587,7 +601,7 @@ function formatRaffleDescriptionPreview(value: string | undefined | null): strin
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
-import { Loader2, Save, Plus, Trash2, X, CheckCircle, XCircle, Zap, Info, Pencil, MessageCircle, Tag, Bell, RefreshCw, Download, LogOut, QrCode, LinkIcon, Ticket, ShoppingBag, Clock, Upload, ChevronDown, ChevronUp, Copy, Users, Percent, Calendar, DollarSign, ShieldCheck, CreditCard, Truck, RotateCcw, UserPlus, Eye, EyeOff, ToggleLeft, Webhook, ImageOff, Lock, AlertTriangle, Star, Send, Mail, Store, Bike, MapPin } from "lucide-react";
+import { Loader2, Save, Plus, Trash2, X, CheckCircle, XCircle, Zap, Info, Pencil, MessageCircle, Tag, Bell, RefreshCw, Download, LogOut, QrCode, LinkIcon, Ticket, ShoppingBag, Clock, Upload, ChevronDown, ChevronUp, Copy, Users, Percent, Calendar, DollarSign, ShieldCheck, CreditCard, Truck, RotateCcw, UserPlus, Eye, EyeOff, ToggleLeft, Webhook, ImageOff, Lock, AlertTriangle, Star, Send, Mail, Store, Bike, MapPin, Search } from "lucide-react";
 import { IconLucide } from "@/components/ui/IconLucide";
 
 import { toast } from "sonner";
@@ -6191,6 +6205,7 @@ export default function Admin() {
       motoboyOrders,
     };
   })();
+  const searchingProductOrders = ordersParaEnviarCopyBase.filter((order) => !!(order as { isProcurandoProduto?: boolean }).isProcurandoProduto);
 
   const copyShoppingList = async (
     shoppingOrders: AdminOrder[],
@@ -6373,6 +6388,38 @@ export default function Admin() {
       toast.success(mode === "manual" ? "Texto aberto para copia manual." : "Pedidos de motoboy copiados.");
     } catch {
       toast.error("Nao foi possivel copiar os pedidos de motoboy.");
+    }
+  };
+
+  const copySearchingProductOrders = async (event?: React.MouseEvent<HTMLButtonElement>) => {
+    event?.preventDefault();
+    event?.stopPropagation();
+    if (searchingProductOrders.length === 0) {
+      toast.info("Nenhum pedido marcado como procurando produto.");
+      return;
+    }
+
+    const motoboyIds = new Set(logisticsCopyGroups.motoboyOrders.map((order) => order.id));
+    const otherIds = new Set(logisticsCopyGroups.otherOrders.map((order) => order.id));
+    const blocks = searchingProductOrders.map((order, index) => {
+      if (motoboyIds.has(order.id)) return motoboyOrderBlock(order);
+      if (otherIds.has(order.id)) return legacySupplierOrderBlock(order, index + 1);
+      return logisticsOrderBlock(order);
+    });
+    const text = [
+      "NÃO FAZER ETIQUETA AINDA — atrasados para achar o produto do cliente.",
+      `Pedidos: ${searchingProductOrders.length}`,
+      "",
+      blocks.join("\n\n"),
+    ].join("\n");
+
+    try {
+      const mode = await copyText(text);
+      toast.success(mode === "manual"
+        ? "Texto aberto para copia manual."
+        : `${searchingProductOrders.length} pedido${searchingProductOrders.length !== 1 ? "s" : ""} procurando produto copiado${searchingProductOrders.length !== 1 ? "s" : ""}.`);
+    } catch {
+      toast.error("Nao foi possivel copiar os pedidos procurando produto.");
     }
   };
 
@@ -6750,6 +6797,16 @@ export default function Admin() {
                     </button>
                   </React.Fragment>
                 ))}
+                {searchingProductOrders.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={(event) => { void copySearchingProductOrders(event); }}
+                    className="inline-flex items-center gap-1 rounded-md border border-yellow-500 bg-yellow-200 px-2 py-1 text-[11px] font-semibold text-yellow-950 hover:bg-yellow-300"
+                    title={`Copiar só os ${searchingProductOrders.length} pedido${searchingProductOrders.length !== 1 ? "s" : ""} com card amarelo (procurando produto)`}
+                  >
+                    <Search className="w-3.5 h-3.5" /> Procurando produtos ({searchingProductOrders.length})
+                  </button>
+                )}
                 {logisticsCopyGroups.motoboyOrders.length > 0 && (
                   <button
                     type="button"
@@ -12812,6 +12869,8 @@ function OrdersPanel({
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
   const [orderPriorities, setOrderPriorities] = useState<Record<string, boolean>>({});
   const [orderPriorityUpdating, setOrderPriorityUpdating] = useState<Record<string, boolean>>({});
+  const [orderSearchingProducts, setOrderSearchingProducts] = useState<Record<string, boolean>>({});
+  const [orderSearchingUpdating, setOrderSearchingUpdating] = useState<Record<string, boolean>>({});
   const [enviados, setEnviados] = useState<Record<string, boolean>>({});
   const [enviadoLockUntil, setEnviadoLockUntil] = useState<Record<string, number>>({});
   const [imagePreview, setImagePreview] = useState<{ src: string; name: string } | null>(null);
@@ -12896,6 +12955,14 @@ function OrdersPanel({
       map[order.id] = !!(order as any).isPrioridade;
     }
     setOrderPriorities(map);
+  }, [ordersLookup]);
+
+  useEffect(() => {
+    const map: Record<string, boolean> = {};
+    for (const order of ordersLookup) {
+      map[order.id] = !!(order as any).isProcurandoProduto;
+    }
+    setOrderSearchingProducts(map);
   }, [ordersLookup]);
 
   useEffect(() => {
@@ -12985,9 +13052,21 @@ function OrdersPanel({
       : !!(order as any).isPrioridade;
   };
 
+  const resolveSearchingProduct = (order: AdminOrder): boolean => {
+    const id = String(order.id || "").trim();
+    if (!id) return !!(order as any).isProcurandoProduto;
+    return Object.prototype.hasOwnProperty.call(orderSearchingProducts, id)
+      ? !!orderSearchingProducts[id]
+      : !!(order as any).isProcurandoProduto;
+  };
+
   const copyOrder = async (order: AdminOrder) => {
     try {
-      const mode = await copyText(orderToText({ ...order, isPrioridade: resolveOrderPriority(order) }));
+      const mode = await copyText(orderToText({
+        ...order,
+        isPrioridade: resolveOrderPriority(order),
+        isProcurandoProduto: resolveSearchingProduct(order),
+      }));
       setCopiedOrderId(order.id);
       if (mode === "auto") {
         toast.success("Resumo copiado!");
@@ -13003,7 +13082,11 @@ function OrdersPanel({
   // Nova função: copiar resumo completo
   const copyOrderFull = async (order: AdminOrder) => {
     try {
-      const mode = await copyText(orderToFullText({ ...order, isPrioridade: resolveOrderPriority(order) }));
+      const mode = await copyText(orderToFullText({
+        ...order,
+        isPrioridade: resolveOrderPriority(order),
+        isProcurandoProduto: resolveSearchingProduct(order),
+      }));
       setCopiedOrderId(order.id + "-full");
       if (mode === "auto") {
         toast.success("Resumo completo copiado!");
@@ -13073,6 +13156,51 @@ function OrdersPanel({
       toast.error(message);
     } finally {
       setOrderPriorityUpdating((prev) => ({ ...prev, [id]: false }));
+    }
+  };
+
+  const toggleSearchingProduct = async (order: AdminOrder) => {
+    const id = String(order.id || "").trim();
+    if (!id) return;
+
+    const current = resolveSearchingProduct(order);
+    const next = !current;
+
+    setOrderSearchingUpdating((prev) => ({ ...prev, [id]: true }));
+    try {
+      const res = await fetch(`${BASE}/api/admin/orders/${id}/procurando-produto`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({ isProcurandoProduto: next }),
+      });
+
+      const data = await res.json().catch(() => ({})) as {
+        message?: string;
+        order?: AdminOrder;
+      };
+
+      if (!res.ok) {
+        if (res.status === 404 || res.status === 503) {
+          setOrderSearchingProducts((prev) => ({ ...prev, [id]: next }));
+          onSetOrderPatched({ ...order, isProcurandoProduto: next } as AdminOrder);
+          toast.warning("Aviso salvo apenas localmente (migração pendente no servidor).");
+          return;
+        }
+        throw new Error(data?.message || "Erro ao atualizar aviso de produto.");
+      }
+
+      const saved = !!(data.order as any)?.isProcurandoProduto;
+      setOrderSearchingProducts((prev) => ({ ...prev, [id]: saved }));
+
+      if (data.order) onSetOrderPatched(data.order);
+      toast.success(next
+        ? "Pedido marcado: não fazer etiqueta ainda."
+        : "Aviso de produto em busca removido.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erro ao atualizar aviso de produto.";
+      toast.error(message);
+    } finally {
+      setOrderSearchingUpdating((prev) => ({ ...prev, [id]: false }));
     }
   };
 
@@ -13931,6 +14059,7 @@ function OrdersPanel({
         .filter(order => typeof order.id === "string" && order.id.length > 0)
         .map((order) => {
           const isPrioridade = resolveOrderPriority(order);
+          const isProcurandoProduto = resolveSearchingProduct(order);
           const currentOrderStatus = normalizeOrderStatus(order.status);
           const isPaidOrder = currentOrderStatus === "paid" || currentOrderStatus === "completed";
           const isCard     = order.paymentMethod === "card_simulation";
@@ -13984,7 +14113,7 @@ function OrdersPanel({
             return productId ? String(productImageById[productId] || "").trim() : "";
           };
           return (
-            <div key={order.id} className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${eeLabelReady ? "border-emerald-400" : isCard ? "border-purple-200" : "border-border/60"} ${isPrioridade ? "ring-2 ring-red-400" : ""}`}>
+            <div key={order.id} className={`border rounded-2xl shadow-sm overflow-hidden ${isProcurandoProduto ? "bg-yellow-200 border-yellow-500" : `bg-card ${eeLabelReady ? "border-emerald-400" : isCard ? "border-purple-200" : "border-border/60"}`} ${isPrioridade ? "ring-2 ring-red-400" : ""}`}>
             <div className="p-5 sm:p-6">
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                 <div className="flex-1 min-w-0">
@@ -13997,6 +14126,12 @@ function OrdersPanel({
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-600 text-white text-xs font-bold border border-red-700 animate-pulse">
                             <Star className="w-3 h-3 fill-yellow-300 text-yellow-300" />
                             PRIORIDADE URGENTE
+                          </span>
+                        )}
+                        {isProcurandoProduto && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-400 text-yellow-950 text-xs font-bold border border-yellow-600">
+                            <Search className="w-3 h-3" />
+                            Procurando produto
                           </span>
                         )}
                         <span className="font-mono text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">#{getOrderDisplayId(order)}</span>
@@ -14376,6 +14511,21 @@ function OrdersPanel({
                     ? <Loader2 className="w-4 h-4 animate-spin" />
                     : <Star className={`w-4 h-4 ${isPrioridade ? "fill-yellow-300 text-yellow-300" : ""}`} />}
                   {orderPriorityUpdating[order.id] ? "Salvando..." : "Prioridade"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className={`gap-1.5 ${isProcurandoProduto ? "bg-yellow-400 text-yellow-950 border-yellow-600 hover:bg-yellow-300" : "text-yellow-800 border-yellow-300 hover:bg-yellow-50"}`}
+                  title={isProcurandoProduto
+                    ? "Remover aviso: já podem fazer etiqueta"
+                    : "Marcar: atrasados para achar o produto — não fazer etiqueta"}
+                  disabled={!!orderSearchingUpdating[order.id]}
+                  onClick={() => { void toggleSearchingProduct(order); }}
+                >
+                  {orderSearchingUpdating[order.id]
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Search className="w-4 h-4" />}
+                  {orderSearchingUpdating[order.id] ? "Salvando..." : "Procurando produto"}
                 </Button>
                 <Button
                   size="sm"

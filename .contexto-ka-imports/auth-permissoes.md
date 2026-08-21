@@ -1,12 +1,13 @@
 # Auth e permissões — KA Imports
 
-> **Última atualização:** 2026-08-18  
+> **Última atualização:** 2026-08-20  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-20 | `PATCH /api/admin/orders/:id/procurando-produto` com o mesmo escopo da prioridade | Flag no pedido; seller-scoped só o próprio | Primary-only inalterado |
 | 2026-08-18 | `POST /api/admin/bank-statement/clear` com o mesmo escopo do apply | Desfazer depósito; seller-scoped só o próprio | Primary-only inalterado |
 | 2026-08-18 | `GET /api/admin/bank-deposits` com o mesmo escopo do Extrato | Aba Depósitos; seller-scoped só os próprios | Primary-only inalterado |
 | 2026-08-18 | Extrato OFX: `requireAdminAuth` + tenant; seller-scoped só os próprios pedidos | Não marca pago | Primary-only inalterado |
@@ -45,6 +46,7 @@ Código > memória > tipagens.
 - EnvioEcom (cotar/criar/etiqueta/config/shipment-item-name): `hasGlobalAccess` (primary e admin de filial). Seller-scoped recebe 403. Board `tracking-board` lista/sync com filtro de `sellerCode` se não for global.
 - Extrato OFX (`POST /api/admin/bank-statement/analyze|apply|clear`) e histórico (`GET /api/admin/bank-deposits`): `requireAdminAuth`; filtra `tenantId`; seller-scoped só pedidos do próprio `sellerCode`. Não exige primary. `clear` não altera `paid`.
 - Editar pedido (`PATCH /api/admin/orders/:id/edit`): `hasGlobalAccess` (primary da loja 1 e admin de filial). Cada um só no próprio `tenantId`. Seller-scoped 403. O botão no FE usa `isPrimary || adminTenantId !== tenant_loja1`.
+- Procurando produto (`PATCH /api/admin/orders/:id/procurando-produto`): `requireAdminAuth` + escopo do pedido (igual prioridade). Seller-scoped só o próprio `sellerCode`. Não exige primary.
 - Rate limit de login admin (janela/tentativas/block via env).
 - Smoke: scoped admin toma 403 em endpoints primary-only (`scripts/SMOKE_TESTS.md`).
 
