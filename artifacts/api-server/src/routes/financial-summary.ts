@@ -193,6 +193,12 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
     }
 
     for (const order of orders) {
+      const observation = String((order as { observation?: string | null }).observation || "").toUpperCase();
+      const isReplacementReshipment = observation.includes("REENVIO DO PEDIDO")
+        && Number(order.total || 0) <= 0.01
+        && Number((order as { subtotal?: string | number | null }).subtotal || 0) <= 0.01;
+      if (isReplacementReshipment) continue;
+
       const products = parseOrderProducts(order.products);
 
       let orderTotal = 0;

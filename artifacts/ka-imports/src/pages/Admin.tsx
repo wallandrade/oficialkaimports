@@ -14185,7 +14185,13 @@ function OrdersPanel({
           const gatewayFee = isWhatsAppPix
             ? 0
             : (grossAmount > 0 ? Math.max(gatewayFeeRaw, gatewayFeeMin) : 0);
-          const estimatedProfit = grossAmount - orderProductsCost - commissionAmount - gatewayFee;
+          const isSupportTicketReshipmentChild = String(order?.observation || "").toUpperCase().includes("REENVIO DO PEDIDO");
+          const commissionBasisAmount = Number(order?.subtotal ?? order?.total) || 0;
+          const hasIncrementalCommission = isSupportTicketReshipmentChild && commissionBasisAmount > 0;
+          const replacementReshipment = isSupportTicketReshipmentChild && !hasIncrementalCommission;
+          const estimatedProfit = replacementReshipment
+            ? 0
+            : grossAmount - orderProductsCost - commissionAmount - gatewayFee;
           const reshipmentTrackingCode = String(order?.reshipment?.ticketTrackingCode || "").trim();
           const previewProducts = orderProducts.slice(0, 5);
           const hiddenProductsCount = Math.max(0, orderProducts.length - previewProducts.length);
@@ -14206,9 +14212,6 @@ function OrdersPanel({
           const logisticsIsLate = hasLogisticsAllocation && Date.parse(logisticsAllocation!.deadlineAt!) < Date.now();
           // Definir isReshipment no escopo correto
           const isReshipment = Boolean(order?.reshipment?.id) && !isClosedReshipmentStatus((order as { reshipment?: { status?: string } }).reshipment?.status);
-          const isSupportTicketReshipmentChild = String(order?.observation || "").toUpperCase().includes("REENVIO DO PEDIDO");
-          const commissionBasisAmount = Number(order?.subtotal ?? order?.total) || 0;
-          const hasIncrementalCommission = isSupportTicketReshipmentChild && commissionBasisAmount > 0;
           const resolveProductImage = (product: OrderProductLite): string => {
             const fromSnapshot = String(product?.image || "").trim();
             if (fromSnapshot) return fromSnapshot;
@@ -14426,7 +14429,9 @@ function OrdersPanel({
                   <p className="text-2xl font-bold text-primary">{formatCurrency(order.total)}</p>
                   <p
                     className={`text-xs font-semibold mt-1 ${estimatedProfit >= 0 ? "text-emerald-700" : "text-red-600"}`}
-                    title="Lucro estimado = total - custo dos produtos - comissão - taxa do gateway (exceto WhatsApp)"
+                    title={replacementReshipment
+                      ? "Reenvio de reposição: sem cobrança nova; o lucro fica no pedido original"
+                      : "Lucro estimado = total - custo dos produtos - comissão - taxa do gateway (exceto WhatsApp)"}
                   >
                     Lucro est.: {formatCurrency(estimatedProfit)}
                   </p>
