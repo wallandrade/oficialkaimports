@@ -145,6 +145,31 @@ test("parser junta cidade e unidade no evento de rastreio", () => {
   assert.equal(events[1].location, "Ribeirão Preto - SN RAO");
 });
 
+test("parser le cidade em location.name e city_name", () => {
+  const events = extractStatusHistoryFromShipment({
+    status_history: [
+      {
+        status: "Saiu para Entrega",
+        location: { name: "Mossoró - F MVF 02-RN" },
+        updated_at: "2026-08-24T15:08:30.000Z",
+      },
+      {
+        status: "Expedido - CE FOR",
+        location: { city_name: "Fortaleza", unit: "CE FOR" },
+        updated_at: "2026-08-22T20:29:26.000Z",
+      },
+      {
+        status: "Recebido - F MVF 02-RN",
+        municipio: "Mossoró",
+        updated_at: "2026-08-24T05:56:29.000Z",
+      },
+    ],
+  });
+  assert.equal(events[0].location, "Mossoró - F MVF 02-RN");
+  assert.equal(events[1].location, "Fortaleza - CE FOR");
+  assert.equal(events[2].location, "Mossoró - F MVF 02-RN");
+});
+
 test("historico com 2+ eventos substitui; 1 evento faz append", () => {
   const current = [
     { at: "2026-08-13T10:00:00.000Z", status: "Envio criado", location: null, description: null, barcode: "8880" },

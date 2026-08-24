@@ -130,8 +130,12 @@ function sameTrackingText(left: string | null | undefined, right: string | null 
 }
 
 function extractUnitSuffix(status: string): string | null {
-  const match = String(status || "").trim().match(/\s[-–]\s([A-Z]{1,4}\s[A-Z]{2,8})$/i);
-  return match ? match[1].replace(/\s+/g, " ").toUpperCase() : null;
+  const match = String(status || "").trim().match(/\s[-–]\s(.+)$/);
+  const suffix = (match?.[1] || "").replace(/\s+/g, " ").trim();
+  if (!suffix || suffix.length > 48) return null;
+  if (/^F[\s-]/i.test(suffix)) return suffix;
+  if (/^[A-Z]{1,4}(\s[A-Z0-9-]{1,12}){1,4}$/i.test(suffix)) return suffix.toUpperCase();
+  return null;
 }
 
 function looksLikeCityOnly(text: string): boolean {
@@ -151,31 +155,60 @@ export function isSyntheticTrackingNote(text: unknown): boolean {
 function firstLocationRecord(...values: unknown[]): Record<string, unknown> {
   for (const value of values) {
     const rec = asPlainRecord(value);
-    if (rec.cidade || rec.city || rec.unidade || rec.unit) return rec;
+    if (Object.keys(rec).length > 0) return rec;
   }
   return {};
 }
 
+function looksLikeFacilityCode(text: string): boolean {
+  const value = String(text || "").trim();
+  if (!value || value.length > 48) return false;
+  if (/^F[\s-]/i.test(value)) return true;
+  return /^[A-Z]{1,4}(\s[A-Z0-9-]{1,12}){1,4}$/.test(value);
+}
+
 export function normalizeHistoryEvent(raw: unknown): EnvioEcomHistoryEvent | null {
   const item = asPlainRecord(raw);
-  const nestedLocation = firstLocationRecord(item.location, item.local, item.localizacao);
+  const nestedLocation = firstLocationRecord(
+    item.location,
+    item.local,
+    item.localizacao,
+    item.address,
+    item.endereco,
+  );
   const status = pickText(item.status, item.event, item.title, item.situacao, item.name);
   if (!status) return null;
+
+  const nestedName = pickText(nestedLocation.name, nestedLocation.label, nestedLocation.title);
+  const nestedNameIsFacility = nestedName ? looksLikeFacilityCode(nestedName) : false;
 
   const city = pickText(
     item.cidade,
     item.city,
+    item.city_name,
+    item.cityName,
+    item.municipio,
+    item.localidade,
     nestedLocation.cidade,
     nestedLocation.city,
-    nestedLocation.name,
+    nestedLocation.city_name,
+    nestedLocation.cityName,
+    nestedLocation.municipio,
+    nestedLocation.localidade,
+    nestedNameIsFacility ? null : nestedName,
   );
   const unit = pickText(
     item.unidade,
     item.unit,
     item.agency,
     item.agencia,
+    item.facility,
     nestedLocation.unidade,
     nestedLocation.unit,
+    nestedLocation.agency,
+    nestedLocation.agencia,
+    nestedLocation.facility,
+    nestedNameIsFacility ? nestedName : null,
     extractUnitSuffix(status),
   );
   let location = pickText(
@@ -185,6 +218,9 @@ export function normalizeHistoryEvent(raw: unknown): EnvioEcomHistoryEvent | nul
     item.origin,
     item.origem,
   );
+  if (!location && nestedName && nestedName.includes(" - ") && looksLikeCityOnly(nestedName.split(" - ")[0] || "")) {
+    location = nestedName;
+  }
   if (!location && city && unit && !normalizeStatus(city).includes(normalizeStatus(unit))) {
     location = `${city} - ${unit}`;
   } else if (!location && city) {
