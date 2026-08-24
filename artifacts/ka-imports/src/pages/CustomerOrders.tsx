@@ -145,6 +145,12 @@ function isOpenEnvioEcomTracking(status?: string | null): boolean {
   return !normalized.includes("cancelad") && !normalized.includes("entregue");
 }
 
+function trackingHistoryMissingLocation(history?: TrackingEvent[] | null): boolean {
+  const events = Array.isArray(history) ? history : [];
+  if (!events.length) return true;
+  return events.some((event) => !String(event.location || "").trim());
+}
+
 function isPackingBeforePostStatus(status?: string | null): boolean {
   const normalized = normalizeTrackingText(status);
   if (!normalized) return false;
@@ -288,7 +294,10 @@ export default function CustomerOrders() {
 
   const openTrackingKey = useMemo(
     () => orders
-      .filter((order) => hasEnvioEcomTracking(order) && isOpenEnvioEcomTracking(order.envioecomStatus))
+      .filter((order) => hasEnvioEcomTracking(order) && (
+        isOpenEnvioEcomTracking(order.envioecomStatus)
+        || trackingHistoryMissingLocation(order.envioecomStatusHistory)
+      ))
       .map((order) => order.id)
       .sort()
       .join(","),

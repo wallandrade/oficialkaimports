@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-24 | Sync também atualiza entregues sem cidade no histórico | Minha conta mostra location após sync | Pedidos já com cidade não reconsultam |
 | 2026-08-24 | Parser de rastreio EE grava cidade (`location.name` / `city_name` / município) | Timeline mostra “Cidade - unidade” | Status e Sync iguais |
 | 2026-08-24 | Meus pedidos: timeline de rastreio igual à do painel EE (bolinha/linha) | Status técnico + data; Situação continua traduzida | Sync/webhook inalterados |
 | 2026-08-24 | Rastreios EE: clique em Status ordena a lista (A–Z / Z–A) | Agrupa o mesmo status; 3º clique volta à data | Timeline e Sync iguais |

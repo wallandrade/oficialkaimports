@@ -21,7 +21,7 @@ import {
   formatMoney,
   formatWeight,
 } from "../lib/envioecom-package";
-import { isLabelBlockedStatus, isProvisionalBarcode, isUsableLabelBarcode, classifyEnvioEcomTrackingGroup, isOpenEnvioEcomTrackingStatus, resolveStatusAfterLabelGenerated, trackingEventsNewestFirst } from "../lib/envioecom-status";
+import { isLabelBlockedStatus, isProvisionalBarcode, isUsableLabelBarcode, classifyEnvioEcomTrackingGroup, isOpenEnvioEcomTrackingStatus, resolveStatusAfterLabelGenerated, trackingEventsNewestFirst, trackingHistoryMissingLocation } from "../lib/envioecom-status";
 import {
   buildExternalOrderNumber,
   digitsOnly,
@@ -762,7 +762,10 @@ router.post("/admin/envioecom/tracking-board/sync", requireAdminAuth, async (req
           .orderBy(desc(ordersTable.envioecomStatusUpdatedAt), desc(ordersTable.updatedAt))
           .limit(80);
 
-    const targets = rows.filter((order) => isOpenEnvioEcomTrackingStatus(order.envioecomStatus)).slice(0, limit);
+    const targets = rows.filter((order) => (
+      isOpenEnvioEcomTrackingStatus(order.envioecomStatus)
+      || trackingHistoryMissingLocation(order.envioecomStatusHistory)
+    )).slice(0, limit);
     const synced = [];
     for (const order of targets) {
       try {
@@ -852,7 +855,10 @@ router.post("/me/orders/tracking-sync", requireCustomerAuth, async (req, res) =>
       .orderBy(desc(ordersTable.envioecomStatusUpdatedAt), desc(ordersTable.updatedAt))
       .limit(40);
 
-    const targets = rows.filter((order) => isOpenEnvioEcomTrackingStatus(order.envioecomStatus)).slice(0, limit);
+    const targets = rows.filter((order) => (
+      isOpenEnvioEcomTrackingStatus(order.envioecomStatus)
+      || trackingHistoryMissingLocation(order.envioecomStatusHistory)
+    )).slice(0, limit);
     if (!config.configured || !targets.length) {
       res.json({
         ok: true,

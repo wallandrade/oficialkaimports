@@ -115,8 +115,23 @@ function asPlainRecord(value: unknown): Record<string, unknown> {
 }
 
 function pickText(...values: unknown[]): string | null {
+  return pickTextAt(values, 0);
+}
+
+function pickTextAt(values: unknown[], depth: number): string | null {
+  if (depth > 3) return null;
   for (const value of values) {
-    if (value == null || typeof value === "object") continue;
+    if (value == null) continue;
+    if (typeof value === "object") {
+      if (Array.isArray(value)) continue;
+      const rec = value as Record<string, unknown>;
+      const nested = pickTextAt(
+        [rec.nome, rec.name, rec.cidade, rec.city, rec.city_name, rec.cityName, rec.municipio, rec.localidade, rec.label, rec.title],
+        depth + 1,
+      );
+      if (nested) return nested;
+      continue;
+    }
     const text = String(value).trim();
     if (text) return text;
   }
@@ -257,13 +272,22 @@ export function extractStatusHistoryFromShipment(payload: unknown): EnvioEcomHis
         ? root.shipment
         : root,
   );
+  const tracking = asPlainRecord(nested.tracking);
   const raw = Array.isArray(nested.status_history)
     ? nested.status_history
     : Array.isArray(nested.events)
       ? nested.events
-      : Array.isArray(root.status_history)
-        ? root.status_history
-        : [];
+      : Array.isArray(nested.tracking_history)
+        ? nested.tracking_history
+        : Array.isArray(nested.historico)
+          ? nested.historico
+          : Array.isArray(tracking.status_history)
+            ? tracking.status_history
+            : Array.isArray(tracking.events)
+              ? tracking.events
+              : Array.isArray(root.status_history)
+                ? root.status_history
+                : [];
   const events: EnvioEcomHistoryEvent[] = [];
   for (const row of raw) {
     const event = normalizeHistoryEvent(row);
@@ -315,6 +339,12 @@ function parseStoredHistory(current: unknown): EnvioEcomHistoryEvent[] {
     });
   }
   return history;
+}
+
+export function trackingHistoryMissingLocation(current: unknown): boolean {
+  const history = parseStoredHistory(current);
+  if (!history.length) return true;
+  return history.some((event) => !String(event.location || "").trim());
 }
 
 export function trackingEventsNewestFirst(current: unknown, limit = 80): EnvioEcomHistoryEvent[] {

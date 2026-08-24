@@ -170,6 +170,21 @@ test("parser le cidade em location.name e city_name", () => {
   assert.equal(events[2].location, "Mossoró - F MVF 02-RN");
 });
 
+test("parser le cidade quando city vem como objeto", () => {
+  const events = extractStatusHistoryFromShipment({
+    data: {
+      status_history: [
+        {
+          status: "Saiu para Entrega",
+          location: { city: { name: "Mossoró" }, unit: "F MVF 02-RN" },
+          updated_at: "2026-08-24T15:08:30.000Z",
+        },
+      ],
+    },
+  });
+  assert.equal(events[0].location, "Mossoró - F MVF 02-RN");
+});
+
 test("historico com 2+ eventos substitui; 1 evento faz append", () => {
   const current = [
     { at: "2026-08-13T10:00:00.000Z", status: "Envio criado", location: null, description: null, barcode: "8880" },
