@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { Check, ChevronDown, ChevronUp, Clock, ExternalLink, FileText, Loader2, Package, RefreshCw, Save } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronUp, Clock, ExternalLink, FileText, Loader2, Package, RefreshCw, Save } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { formatDateBR } from "@/lib/utils";
@@ -14,6 +14,7 @@ function adminHeaders() {
 }
 
 type TrackingGroup = "all" | "delivered" | "in_transit" | "awaiting" | "cancelled" | "other";
+type StatusSort = "none" | "asc" | "desc";
 
 type TrackingEvent = {
   status?: string | null;
@@ -92,6 +93,22 @@ function statusBadgeClass(status?: string | null, group?: TrackingGroup): string
     return "bg-lime-100 text-lime-800 border-lime-200";
   }
   return "bg-slate-100 text-slate-700 border-slate-200";
+}
+
+function itemUpdatedMs(item: TrackingItem): number {
+  const parsed = Date.parse(String(item.envioecomStatusUpdatedAt || ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function compareByStatus(a: TrackingItem, b: TrackingItem, dir: "asc" | "desc"): number {
+  const left = String(a.envioecomStatus || "").trim();
+  const right = String(b.envioecomStatus || "").trim();
+  if (!left && right) return 1;
+  if (left && !right) return -1;
+  const byStatus = left.localeCompare(right, "pt-BR", { sensitivity: "base" });
+  const statusDelta = dir === "asc" ? byStatus : -byStatus;
+  if (statusDelta !== 0) return statusDelta;
+  return itemUpdatedMs(b) - itemUpdatedMs(a);
 }
 
 const KPI_TONE: Record<TrackingGroup, string> = {
@@ -225,6 +242,7 @@ export function EnvioEcomTrackingBoard({
   const [canEditItemName, setCanEditItemName] = useState(false);
   const [savingName, setSavingName] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [statusSort, setStatusSort] = useState<StatusSort>("none");
 
   async function loadItemName() {
     try {
@@ -284,7 +302,7 @@ export function EnvioEcomTrackingBoard({
 
   const visible = useMemo(() => {
     const query = q.trim().toLowerCase();
-    return items.filter((item) => {
+    const filtered = items.filter((item) => {
       if (group !== "all" && item.trackingGroup !== group) return false;
       if (!query) return true;
       const hay = [
@@ -300,7 +318,9 @@ export function EnvioEcomTrackingBoard({
       ].join(" ").toLowerCase();
       return hay.includes(query);
     });
-  }, [items, q, group]);
+    if (statusSort === "none") return filtered;
+    return [...filtered].sort((a, b) => compareByStatus(a, b, statusSort));
+  }, [items, q, group, statusSort]);
 
   async function syncOpen() {
     setSyncing(true);
@@ -426,7 +446,23 @@ export function EnvioEcomTrackingBoard({
               <tr>
                 <th className="px-3 py-2 font-semibold">Pedido</th>
                 <th className="px-3 py-2 font-semibold">Cliente</th>
-                <th className="px-3 py-2 font-semibold">Status</th>
+                <th className="px-3 py-2 font-semibold">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 uppercase tracking-wide hover:text-foreground"
+                    title="Ordenar por status"
+                    onClick={() => setStatusSort((prev) => (prev === "none" ? "asc" : prev === "asc" ? "desc" : "none"))}
+                  >
+                    Status
+                    {statusSort === "asc" ? (
+                      <ArrowUp className="h-3.5 w-3.5" />
+                    ) : statusSort === "desc" ? (
+                      <ArrowDown className="h-3.5 w-3.5" />
+                    ) : (
+                      <ArrowUpDown className="h-3.5 w-3.5 opacity-60" />
+                    )}
+                  </button>
+                </th>
                 <th className="px-3 py-2 font-semibold">Código</th>
                 <th className="px-3 py-2 font-semibold">Atualizado</th>
                 <th className="px-3 py-2 font-semibold text-right">Ações</th>
