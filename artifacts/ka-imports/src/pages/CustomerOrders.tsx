@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { clearCustomerToken, fetchCustomerProfile, getCustomerAuthHeaders } from "@/lib/customer-auth";
 import { formatCurrency, formatDateBR, getActiveWhatsApp } from "@/lib/utils";
+import { ShippingStatusTimeline } from "@/components/ShippingStatusTimeline";
 import { Copy, DollarSign, Gift, Loader2, LogOut, Package, Save, Ticket, Users, CheckCircle2, Clock, AlertCircle, MessageCircle, Truck, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -190,59 +191,6 @@ function getCustomerSituation(order: CustomerOrder, displayStatus: string): stri
 
 function hasEnvioEcomTracking(order: CustomerOrder): boolean {
   return !!(order.envioecomShipmentId || order.envioecomBarcode || order.envioecomStatus);
-}
-
-function usefulTrackingLocation(event: TrackingEvent): string | null {
-  const location = String(event.location || "").trim();
-  if (!location) return null;
-  if (normalizeTrackingText(location) === normalizeTrackingText(event.status)) return null;
-  return location;
-}
-
-function usefulTrackingDescription(event: TrackingEvent): string | null {
-  const description = String(event.description || "").trim();
-  if (!description) return null;
-  const normalized = normalizeTrackingText(description);
-  if (normalized.includes("status atualizado ao consultar") || normalized.includes("consultando rastreio")) return null;
-  if (normalized === normalizeTrackingText(event.status) || normalized === normalizeTrackingText(event.location)) return null;
-  return description;
-}
-
-function trackingEventTime(event: TrackingEvent): number {
-  const parsed = Date.parse(String(event.at || ""));
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function sortTrackingEventsNewestFirst(events: TrackingEvent[]): TrackingEvent[] {
-  return events
-    .map((event, index) => ({ event, index }))
-    .sort((a, b) => {
-      const delta = trackingEventTime(b.event) - trackingEventTime(a.event);
-      if (delta !== 0) return delta;
-      return a.index - b.index;
-    })
-    .map(({ event }) => event);
-}
-
-function TrackingTimeline({ events }: { events: TrackingEvent[] }) {
-  const items = sortTrackingEventsNewestFirst(events);
-  if (!items.length) return null;
-  return (
-    <div className="mt-3 space-y-2 max-h-64 overflow-y-auto">
-      {items.map((event, index) => {
-        const location = usefulTrackingLocation(event);
-        const description = usefulTrackingDescription(event);
-        return (
-          <div key={`${event.at}-${event.status}-${index}`} className="border-l-2 border-emerald-300 pl-3 py-1">
-            <p className="text-sm font-semibold text-foreground">{toCustomerFriendlyShippingLabel(event.status) || event.status}</p>
-            {location && <p className="text-xs text-muted-foreground">{location}</p>}
-            {description && <p className="text-xs text-muted-foreground">{description}</p>}
-            {event.at && <p className="text-[11px] text-muted-foreground">{formatDateBR(event.at)}</p>}
-          </div>
-        );
-      })}
-    </div>
-  );
 }
 
 export default function CustomerOrders() {
@@ -670,7 +618,10 @@ export default function CustomerOrders() {
                                 <p className="text-xs text-muted-foreground mt-1">{order.envioecomDeliveryMode}</p>
                               )}
                               {(order.envioecomStatusHistory || []).length > 0 ? (
-                                <TrackingTimeline events={order.envioecomStatusHistory || []} />
+                                <ShippingStatusTimeline
+                                  events={order.envioecomStatusHistory || []}
+                                  className="mt-3 max-h-72 overflow-y-auto"
+                                />
                               ) : (
                                 <p className="text-sm font-semibold text-foreground mt-2">{displaySituation}</p>
                               )}

@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, Check, ChevronDown, ChevronUp, Clock, ExternalLink, FileText, Loader2, Package, RefreshCw, Save } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronUp, ExternalLink, FileText, Loader2, RefreshCw, Save } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { formatDateBR } from "@/lib/utils";
+import { ShippingStatusTimeline } from "@/components/ShippingStatusTimeline";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -129,100 +130,11 @@ const KPI_TONE_ACTIVE: Record<TrackingGroup, string> = {
   other: "border-slate-400 bg-slate-100",
 };
 
-function eventAt(event: TrackingEvent): string {
-  return String(event.at || event.updated_at || "").trim();
-}
-
-function eventStatusKey(value: unknown): string {
-  return String(value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLowerCase();
-}
-
-function usefulEventLocation(event: TrackingEvent): string | null {
-  const location = String(event.location || "").trim();
-  if (!location) return null;
-  if (eventStatusKey(location) === eventStatusKey(event.status)) return null;
-  return location;
-}
-
-function usefulEventDescription(event: TrackingEvent): string | null {
-  const description = String(event.description || "").trim();
-  if (!description) return null;
-  const normalized = eventStatusKey(description);
-  if (normalized.includes("status atualizado ao consultar") || normalized.includes("consultando rastreio")) return null;
-  if (normalized === eventStatusKey(event.status) || normalized === eventStatusKey(event.location)) return null;
-  return description;
-}
-
 function resolveTimelineEvents(item: TrackingItem): TrackingEvent[] {
   if (item.events?.length) return item.events;
   if (item.lastEvents?.length) return item.lastEvents;
   const history = item.envioecomStatusHistory || [];
   return [...history].reverse();
-}
-
-function TrackingTimeline({ events }: { events: TrackingEvent[] }) {
-  if (!events.length) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        Sem histórico gravado. Use Sync para buscar na EnvioEcom.
-      </p>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-baseline justify-between gap-2">
-        <p className="text-sm font-semibold text-foreground">Status do envio</p>
-        <p className="text-[11px] text-muted-foreground">mais recente em cima</p>
-      </div>
-      <ol className="space-y-0">
-        {events.map((event, index) => {
-          const status = String(event.status || "").trim() || "Status";
-          const normalized = eventStatusKey(status);
-          const delivered = normalized.includes("entregue");
-          const dce = normalized.includes("dc-e") || normalized.includes("dce emitida");
-          const highlight = delivered || dce;
-          const newest = index === 0;
-          const location = usefulEventLocation(event);
-          const description = usefulEventDescription(event);
-          const at = eventAt(event);
-          const meta = [location, description].filter(Boolean).join(" · ");
-          return (
-            <li key={`${at}-${status}-${index}`} className="flex gap-3">
-              <div className="flex flex-col items-center">
-                <span
-                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border ${
-                    highlight
-                      ? "border-emerald-500 bg-emerald-500 text-white"
-                      : newest
-                        ? "border-sky-600 bg-sky-600 text-white"
-                        : "border-sky-400 bg-white text-sky-600"
-                  }`}
-                >
-                  {highlight ? <Check className="h-3.5 w-3.5" /> : <Package className="h-3.5 w-3.5" />}
-                </span>
-                {index < events.length - 1 ? <span className="w-px flex-1 min-h-4 bg-slate-200" /> : null}
-              </div>
-              <div className={`pb-4 ${index === events.length - 1 ? "pb-0" : ""}`}>
-                <p className="text-sm font-semibold text-foreground">{status}</p>
-                {meta ? <p className="text-xs text-muted-foreground">{meta}</p> : null}
-                {at ? (
-                  <p className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-muted-foreground">
-                    <Clock className="h-3 w-3" />
-                    {formatDateBR(at)}
-                  </p>
-                ) : null}
-              </div>
-            </li>
-          );
-        })}
-      </ol>
-    </div>
-  );
 }
 
 export function EnvioEcomTrackingBoard({
@@ -528,7 +440,10 @@ export function EnvioEcomTrackingBoard({
                     {open ? (
                       <tr className="border-t border-border/40 bg-slate-50/80">
                         <td colSpan={6} className="px-4 py-3">
-                          <TrackingTimeline events={timeline} />
+                          <ShippingStatusTimeline
+                            events={timeline}
+                            emptyText="Sem histórico gravado. Use Sync para buscar na EnvioEcom."
+                          />
                         </td>
                       </tr>
                     ) : null}
