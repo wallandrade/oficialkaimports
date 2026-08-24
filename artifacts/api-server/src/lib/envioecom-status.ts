@@ -281,6 +281,18 @@ function parseStoredHistory(current: unknown): EnvioEcomHistoryEvent[] {
   return history;
 }
 
+export function trackingEventsNewestFirst(current: unknown, limit = 80): EnvioEcomHistoryEvent[] {
+  const chrono = parseStoredHistory(current).slice(-limit);
+  return chrono
+    .map((event, index) => ({ event, index }))
+    .sort((a, b) => {
+      const delta = (Date.parse(b.event.at) || 0) - (Date.parse(a.event.at) || 0);
+      if (delta !== 0) return delta;
+      return b.index - a.index;
+    })
+    .map(({ event }) => event);
+}
+
 export function appendStatusHistory(
   current: unknown,
   event: EnvioEcomHistoryEvent,

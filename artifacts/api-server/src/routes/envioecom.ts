@@ -21,7 +21,7 @@ import {
   formatMoney,
   formatWeight,
 } from "../lib/envioecom-package";
-import { isLabelBlockedStatus, isProvisionalBarcode, isUsableLabelBarcode, classifyEnvioEcomTrackingGroup, isOpenEnvioEcomTrackingStatus, resolveStatusAfterLabelGenerated } from "../lib/envioecom-status";
+import { isLabelBlockedStatus, isProvisionalBarcode, isUsableLabelBarcode, classifyEnvioEcomTrackingGroup, isOpenEnvioEcomTrackingStatus, resolveStatusAfterLabelGenerated, trackingEventsNewestFirst } from "../lib/envioecom-status";
 import {
   buildExternalOrderNumber,
   digitsOnly,
@@ -112,6 +112,7 @@ function publicWebhookUrl(req: Request): string {
 }
 
 function mapEnvioEcomOrder(order: typeof ordersTable.$inferSelect) {
+  const events = trackingEventsNewestFirst(order.envioecomStatusHistory, 80);
   return {
     id: order.id,
     orderNumber: order.orderNumber ?? null,
@@ -130,6 +131,8 @@ function mapEnvioEcomOrder(order: typeof ordersTable.$inferSelect) {
     envioecomStatus: order.envioecomStatus ?? null,
     envioecomStatusUpdatedAt: order.envioecomStatusUpdatedAt?.toISOString?.() ?? order.envioecomStatusUpdatedAt ?? null,
     envioecomStatusHistory: order.envioecomStatusHistory ?? [],
+    events,
+    lastEvents: events.slice(0, 5),
     envioecomLabelUrl: order.envioecomLabelUrl ?? null,
     envioecomFreightCost: order.envioecomFreightCost != null ? Number(order.envioecomFreightCost) : null,
     envioecomExternalOrderNumber: order.envioecomExternalOrderNumber ?? null,

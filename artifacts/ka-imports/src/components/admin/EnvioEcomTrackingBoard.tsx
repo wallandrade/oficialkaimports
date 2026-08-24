@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { ExternalLink, FileText, Loader2, RefreshCw, Save } from "lucide-react";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { Check, ChevronDown, ChevronUp, Clock, ExternalLink, FileText, Loader2, Package, RefreshCw, Save } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { formatDateBR } from "@/lib/utils";
@@ -15,6 +15,15 @@ function adminHeaders() {
 
 type TrackingGroup = "all" | "delivered" | "in_transit" | "awaiting" | "cancelled" | "other";
 
+type TrackingEvent = {
+  status?: string | null;
+  description?: string | null;
+  location?: string | null;
+  at?: string | null;
+  updated_at?: string | null;
+  source?: string | null;
+};
+
 type TrackingItem = {
   id: string;
   orderNumber?: number | null;
@@ -29,6 +38,9 @@ type TrackingItem = {
   envioecomLabelUrl?: string | null;
   trackingLabelUrl?: string | null;
   trackingGroup?: TrackingGroup;
+  events?: TrackingEvent[];
+  lastEvents?: TrackingEvent[];
+  envioecomStatusHistory?: TrackingEvent[];
 };
 
 type Summary = {
@@ -100,6 +112,102 @@ const KPI_TONE_ACTIVE: Record<TrackingGroup, string> = {
   other: "border-slate-400 bg-slate-100",
 };
 
+function eventAt(event: TrackingEvent): string {
+  return String(event.at || event.updated_at || "").trim();
+}
+
+function eventStatusKey(value: unknown): string {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function usefulEventLocation(event: TrackingEvent): string | null {
+  const location = String(event.location || "").trim();
+  if (!location) return null;
+  if (eventStatusKey(location) === eventStatusKey(event.status)) return null;
+  return location;
+}
+
+function usefulEventDescription(event: TrackingEvent): string | null {
+  const description = String(event.description || "").trim();
+  if (!description) return null;
+  const normalized = eventStatusKey(description);
+  if (normalized.includes("status atualizado ao consultar") || normalized.includes("consultando rastreio")) return null;
+  if (normalized === eventStatusKey(event.status) || normalized === eventStatusKey(event.location)) return null;
+  return description;
+}
+
+function resolveTimelineEvents(item: TrackingItem): TrackingEvent[] {
+  if (item.events?.length) return item.events;
+  if (item.lastEvents?.length) return item.lastEvents;
+  const history = item.envioecomStatusHistory || [];
+  return [...history].reverse();
+}
+
+function TrackingTimeline({ events }: { events: TrackingEvent[] }) {
+  if (!events.length) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Sem histórico gravado. Use Sync para buscar na EnvioEcom.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="text-sm font-semibold text-foreground">Status do envio</p>
+        <p className="text-[11px] text-muted-foreground">mais recente em cima</p>
+      </div>
+      <ol className="space-y-0">
+        {events.map((event, index) => {
+          const status = String(event.status || "").trim() || "Status";
+          const normalized = eventStatusKey(status);
+          const delivered = normalized.includes("entregue");
+          const dce = normalized.includes("dc-e") || normalized.includes("dce emitida");
+          const highlight = delivered || dce;
+          const newest = index === 0;
+          const location = usefulEventLocation(event);
+          const description = usefulEventDescription(event);
+          const at = eventAt(event);
+          const meta = [location, description].filter(Boolean).join(" · ");
+          return (
+            <li key={`${at}-${status}-${index}`} className="flex gap-3">
+              <div className="flex flex-col items-center">
+                <span
+                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border ${
+                    highlight
+                      ? "border-emerald-500 bg-emerald-500 text-white"
+                      : newest
+                        ? "border-sky-600 bg-sky-600 text-white"
+                        : "border-sky-400 bg-white text-sky-600"
+                  }`}
+                >
+                  {highlight ? <Check className="h-3.5 w-3.5" /> : <Package className="h-3.5 w-3.5" />}
+                </span>
+                {index < events.length - 1 ? <span className="w-px flex-1 min-h-4 bg-slate-200" /> : null}
+              </div>
+              <div className={`pb-4 ${index === events.length - 1 ? "pb-0" : ""}`}>
+                <p className="text-sm font-semibold text-foreground">{status}</p>
+                {meta ? <p className="text-xs text-muted-foreground">{meta}</p> : null}
+                {at ? (
+                  <p className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                    <Clock className="h-3 w-3" />
+                    {formatDateBR(at)}
+                  </p>
+                ) : null}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
 export function EnvioEcomTrackingBoard({
   onOpenOrder,
 }: {
@@ -116,6 +224,7 @@ export function EnvioEcomTrackingBoard({
   const [itemName, setItemName] = useState("Mercadoria");
   const [canEditItemName, setCanEditItemName] = useState(false);
   const [savingName, setSavingName] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   async function loadItemName() {
     try {
@@ -244,7 +353,7 @@ export function EnvioEcomTrackingBoard({
         <div>
           <h2 className="text-lg font-bold">Rastreios EnvioEcom</h2>
           <p className="text-sm text-muted-foreground">
-            Pedidos desta loja com envio vinculado. Atualizar lista lê o banco; Sync consulta a EnvioEcom.
+            Pedidos desta loja com envio vinculado. Clique na linha para ver o histórico (já vem do banco). Atualizar lista lê o BD; Sync consulta a EnvioEcom.
             {!configured ? " · EnvioEcom ainda não configurado." : ""}
           </p>
         </div>
@@ -329,44 +438,65 @@ export function EnvioEcomTrackingBoard({
                 const updated = item.envioecomStatusUpdatedAt
                   ? formatDateBR(item.envioecomStatusUpdatedAt)
                   : "—";
+                const open = expandedId === item.id;
+                const timeline = resolveTimelineEvents(item);
                 return (
-                  <tr key={item.id} className="border-t border-border/70">
-                    <td className="px-3 py-2 align-top">
-                      <p className="font-semibold">#{displayOrderNumber(item)}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {item.envioecomDeliveryMode || "—"}
-                        {item.envioecomShipmentId ? ` · ID ${item.envioecomShipmentId}` : ""}
-                      </p>
-                    </td>
-                    <td className="px-3 py-2 align-top">
-                      <p>{item.clientName || "—"}</p>
-                      <p className="text-xs text-muted-foreground">{item.clientPhone || ""}</p>
-                    </td>
-                    <td className="px-3 py-2 align-top">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${statusBadgeClass(item.envioecomStatus, item.trackingGroup)}`}>
-                        {item.envioecomStatus || "Sem status"}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 align-top font-mono text-xs">{item.envioecomBarcode || item.trackingCode || "—"}</td>
-                    <td className="px-3 py-2 align-top text-xs text-muted-foreground whitespace-nowrap">{updated}</td>
-                    <td className="px-3 py-2 align-top">
-                      <div className="flex flex-wrap justify-end gap-1.5">
-                        <Button size="sm" variant="outline" disabled={syncingId === item.id} onClick={() => void syncOne(item.id)}>
-                          {syncingId === item.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Sync"}
-                        </Button>
-                        {labelUrl ? (
-                          <Button size="sm" variant="outline" className="gap-1" onClick={() => window.open(labelUrl, "_blank", "noopener,noreferrer")}>
-                            <FileText className="w-3.5 h-3.5" /> PDF
+                  <Fragment key={item.id}>
+                    <tr
+                      className="border-t border-border/70 cursor-pointer hover:bg-muted/40"
+                      onClick={() => setExpandedId((prev) => (prev === item.id ? null : item.id))}
+                    >
+                      <td className="px-3 py-2 align-top">
+                        <p className="font-semibold">#{displayOrderNumber(item)}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {item.envioecomDeliveryMode || "—"}
+                          {item.envioecomShipmentId ? ` · ID ${item.envioecomShipmentId}` : ""}
+                        </p>
+                      </td>
+                      <td className="px-3 py-2 align-top">
+                        <p>{item.clientName || "—"}</p>
+                        <p className="text-xs text-muted-foreground">{item.clientPhone || ""}</p>
+                      </td>
+                      <td className="px-3 py-2 align-top">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${statusBadgeClass(item.envioecomStatus, item.trackingGroup)}`}>
+                          {item.envioecomStatus || "Sem status"}
+                        </span>
+                        <p className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-sky-700">
+                          {open ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                          {open ? "Ocultar rastreio" : "Ver histórico do rastreio"}
+                        </p>
+                      </td>
+                      <td className="px-3 py-2 align-top font-mono text-xs">{item.envioecomBarcode || item.trackingCode || "—"}</td>
+                      <td className="px-3 py-2 align-top text-xs text-muted-foreground whitespace-nowrap">{updated}</td>
+                      <td
+                        className="px-3 py-2 align-top"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <div className="flex flex-wrap justify-end gap-1.5">
+                          <Button size="sm" variant="outline" disabled={syncingId === item.id} onClick={() => void syncOne(item.id)}>
+                            {syncingId === item.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Sync"}
                           </Button>
-                        ) : null}
-                        {onOpenOrder ? (
-                          <Button size="sm" variant="outline" className="gap-1" onClick={() => onOpenOrder(item)}>
-                            <ExternalLink className="w-3.5 h-3.5" /> Pedido
-                          </Button>
-                        ) : null}
-                      </div>
-                    </td>
-                  </tr>
+                          {labelUrl ? (
+                            <Button size="sm" variant="outline" className="gap-1" onClick={() => window.open(labelUrl, "_blank", "noopener,noreferrer")}>
+                              <FileText className="w-3.5 h-3.5" /> PDF
+                            </Button>
+                          ) : null}
+                          {onOpenOrder ? (
+                            <Button size="sm" variant="outline" className="gap-1" onClick={() => onOpenOrder(item)}>
+                              <ExternalLink className="w-3.5 h-3.5" /> Pedido
+                            </Button>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                    {open ? (
+                      <tr className="border-t border-border/40 bg-slate-50/80">
+                        <td colSpan={6} className="px-4 py-3">
+                          <TrackingTimeline events={timeline} />
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
                 );
               })}
             </tbody>

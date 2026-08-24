@@ -1,12 +1,13 @@
 # Integrações externas — KA Imports
 
-> **Última atualização:** 2026-08-18  
+> **Última atualização:** 2026-08-24  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-24 | Board EE devolve `events`/`lastEvents` (mais recente primeiro); UI expande a timeline | Clique não chama a transportadora | Webhook/Sync e Meus pedidos iguais |
 | 2026-08-18 | Tabela `order_bank_deposits`: vários PIX por pedido | Soma no apply/clear/analyze | Parser OFX inalterado; `paid` inalterado |
 | 2026-08-18 | Apply OFX `ok` aceita `amountMismatchNote` se PIX ≠ total | Grava valor do PIX + observação no pedido | `confirmed_100`/lote ainda valor igual; parser inalterado |
 | 2026-08-18 | Analyze OFX devolve `credits` + `linkableOrders` para busca manual | Vincular PIX por nome ao nº do pedido | Parser/apply/clear iguais |
@@ -58,7 +59,7 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 - Config **por tenant** (`tenant_settings`: token/email/senha, CEP origem, medidas default, carriers, `envioecom_shipment_item_name`). Fallback de env (`ENVIOECOM_TOKEN` etc.) só para loja 1.
 - Rotas admin (`hasGlobalAccess`, não seller-scoped): quote/create/labels/sync/cancel/bind-id, tracking-board, config, GET/PUT `shipment-item-name`, registrar webhook.
 - **Vincular EE**: modal no card (não `window.prompt`). Admin cola ID (4–10 dígitos → `shipment_id`) ou rastreio (`barcode`). `POST /api/admin/envioecom/orders/:id/sync` com esse body busca na EE (`getById` / `getByIdentifier`; se o admin colou e falhou, tenta `list` por CPF/CEP/nome) e grava com `persistEnvioEcomShipment`. Não cria envio novo. Etiqueta com barcode `EC…` reabre o mesmo modal.
-- Board `GET /api/admin/envioecom/tracking-board` devolve `{ summary, items, configured }` (grupos delivered/in_transit/awaiting/cancelled/other). `POST .../tracking-board/sync` atualiza até 20–30 abertos. Aba **Rastreios EE** não chama a transportadora até Sync. Campo “Nome do produto no create” grava o setting da loja.
+- Board `GET /api/admin/envioecom/tracking-board` devolve `{ summary, items, configured }` (grupos delivered/in_transit/awaiting/cancelled/other). Cada item inclui `events` (histórico mais recente primeiro, até 80) e `lastEvents` (5). `POST .../tracking-board/sync` atualiza até 20–30 abertos. Aba **Rastreios EE** não chama a transportadora até Sync; o clique só abre a timeline local. Campo “Nome do produto no create” grava o setting da loja.
 - Público: `POST /api/webhook/envioecom` (2xx rápido; match barcode → `external_order_number` → `shipment_id`; aceita body plano ou `data`/`shipment`; eventos com barcode/status não são ignorados). Idempotente barcode+status. Histórico vem de `status_history` (status + `location` cidade/unidade); 2+ eventos substituem o JSON local, 1 evento faz append idempotente. Não grava nota “Status atualizado ao consultar rastreio”.
 - Create (`POST /shipping/create`): `items[].name` é o texto genérico da loja (até 120 chars, default **Mercadoria**). Nunca o nome do produto do catálogo. Quantidade e `unit_cost` vêm do item; pedido sem produtos → 1 item genérico, qty 1, `unit_cost` = subtotal. Envios já criados não mudam; para alterar o nome é cancelar + criar de novo. Antes do create a API recusa CPF/CNPJ que não tenha 11/14 dígitos (ou só zeros), telefone com menos de 10 dígitos e e-mail sem `@`. Não envia mais CPF placeholder `000.000.000-00`. Erro da EnvioEcom é logado (`[EnvioEcom] code/message/details`) e o toast junta `message` + `details`.
 - `enviado=true` via `ensureOrderMarkedEnviado` só em status de coleta/postagem/trânsito, não no PDF/DC-e. Etiqueta pronta ainda chama `completeOrderLogistics` (vaga `shipped`). Ao gerar PDF, status “Envio criado” vira **Etiqueta emitida**. Status **Cancelado** (webhook/sync/cancel): `hasEnvioEcomLabelReady` fica false mesmo com PDF; se `enviado` ainda é false, `allocateOrderLogistics` devolve o pedido à fila 48/72/96h.
