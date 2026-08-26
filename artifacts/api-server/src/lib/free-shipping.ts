@@ -1,13 +1,17 @@
+import { isMotoboyShippingType } from "./motoboy-shipping-type";
+
 export function parseFreeShippingMinSubtotalSetting(raw: unknown): number | null {
   const threshold = Number(raw ?? "");
   if (!Number.isFinite(threshold) || threshold <= 0) return null;
   return threshold;
 }
 
-/** Pedido Motoboy: shippingType costuma ser "Motoboy" (nome da opção no checkout). */
-export function isMotoboyShippingType(shippingType: string | null | undefined): boolean {
-  const lower = String(shippingType || "").toLowerCase().trim();
-  return lower === "motoboy" || lower.startsWith("motoboy");
+export function pickFreeShippingMinSubtotal(input: {
+  shippingType?: unknown;
+  standardMin: number | null;
+  motoboyMin: number | null;
+}): number | null {
+  return isMotoboyShippingType(input.shippingType) ? input.motoboyMin : input.standardMin;
 }
 
 export function resolveShippingCostWithFreeThreshold(input: {

@@ -1136,24 +1136,31 @@ async function ensureFilialPurchaseTables(databaseName: string): Promise<void> {
 }
 
 async function ensureMotoboyNeighborhoodsTable(databaseName: string): Promise<void> {
-  if (await tableExists("motoboy_neighborhoods", databaseName)) return;
+  if (!(await tableExists("motoboy_neighborhoods", databaseName))) {
+    await pool.query(`
+      CREATE TABLE motoboy_neighborhoods (
+        id VARCHAR(255) NOT NULL PRIMARY KEY,
+        tenant_id VARCHAR(255) NOT NULL,
+        neighborhood_name VARCHAR(255) NOT NULL,
+        city VARCHAR(255) NULL,
+        price DECIMAL(10,2) NOT NULL,
+        interval_hours INT NOT NULL DEFAULT 1,
+        sort_order INT NOT NULL DEFAULT 0,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        notes TEXT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY motoboy_neighborhoods_tenant_id_idx (tenant_id),
+        KEY motoboy_neighborhoods_lookup_idx (tenant_id, is_active, sort_order)
+      )
+    `);
+    return;
+  }
 
-  await pool.query(`
-    CREATE TABLE motoboy_neighborhoods (
-      id VARCHAR(255) NOT NULL PRIMARY KEY,
-      tenant_id VARCHAR(255) NOT NULL,
-      neighborhood_name VARCHAR(255) NOT NULL,
-      city VARCHAR(255) NULL,
-      price DECIMAL(10,2) NOT NULL,
-      sort_order INT NOT NULL DEFAULT 0,
-      is_active BOOLEAN NOT NULL DEFAULT TRUE,
-      notes TEXT NULL,
-      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      KEY motoboy_neighborhoods_tenant_id_idx (tenant_id),
-      KEY motoboy_neighborhoods_lookup_idx (tenant_id, is_active, sort_order)
-    )
-  `);
+  if (!(await columnExists("motoboy_neighborhoods", "interval_hours", databaseName))) {
+    await pool.query("ALTER TABLE motoboy_neighborhoods ADD COLUMN interval_hours INT NOT NULL DEFAULT 1");
+    await pool.query("UPDATE motoboy_neighborhoods SET interval_hours = CASE WHEN price <= 75 THEN 1 ELSE 2 END");
+  }
 }
 
 async function ensureMotoboyDeliveryReservationsTable(databaseName: string): Promise<void> {
@@ -1260,17 +1267,18 @@ async function seedDefaultMotoboyNeighborhoods(): Promise<void> {
 
     if (pending.length === 0) continue;
 
-    const placeholders = pending.map(() => "(?, ?, ?, ?, ?, ?, TRUE, NULL)").join(", ");
+    const placeholders = pending.map(() => "(?, ?, ?, ?, ?, ?, ?, TRUE, NULL)").join(", ");
     const values = pending.flatMap((neighborhood) => [
       `seed_motoboy_${crypto.createHash("sha256").update(`${tenantId}|${neighborhood.id}`).digest("hex").slice(0, 24)}`,
       tenantId,
       neighborhood.neighborhoodName,
       neighborhood.city,
       neighborhood.price.toFixed(2),
+      neighborhood.price <= 75 ? 1 : 2,
       neighborhood.sortOrder,
     ]);
     await pool.query(
-      `INSERT IGNORE INTO motoboy_neighborhoods (id, tenant_id, neighborhood_name, city, price, sort_order, is_active, notes) VALUES ${placeholders}`,
+      `INSERT IGNORE INTO motoboy_neighborhoods (id, tenant_id, neighborhood_name, city, price, interval_hours, sort_order, is_active, notes) VALUES ${placeholders}`,
       values,
     );
     console.log(`[RuntimeSchema] Seeded ${pending.length} motoboy neighborhood(s) for tenant ${tenantId}.`);

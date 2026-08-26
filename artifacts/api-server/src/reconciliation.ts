@@ -10,7 +10,7 @@
  * Admins can still manually mark any order as paid using the admin panel.
  */
 
-import { db, ordersTable, customChargesTable } from "@workspace/db";
+import { db, motoboyDeliveryReservationsTable, ordersTable, customChargesTable } from "@workspace/db";
 import { eq, or, lt, and } from "drizzle-orm";
 import { broadcastNotification } from "./routes/notifications";
 
@@ -38,6 +38,10 @@ async function expireStaleOrders(): Promise<void> {
         .update(ordersTable)
         .set({ status: "cancelled", updatedAt: new Date() })
         .where(eq(ordersTable.id, row.id));
+
+      await db.delete(motoboyDeliveryReservationsTable).where(
+        eq(motoboyDeliveryReservationsTable.orderId, row.id),
+      );
 
       broadcastNotification({
         type: "order_expired",

@@ -9,7 +9,6 @@ import {
 
 const FIRST_SLOT_HOUR = 10;
 const END_OF_DAY_HOUR = 20;
-const NEARBY_MAX_PRICE = 75;
 
 type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -78,8 +77,10 @@ function parseSchedule(input: MotoboyScheduleInput): { neighborhoodId: string; d
   return { neighborhoodId, deliveryAreaType, date, hour, time };
 }
 
-export function getMotoboyDurationHours(price: unknown): number {
-  return Number(price) <= NEARBY_MAX_PRICE ? 1 : 2;
+export function resolveMotoboyDurationHours(raw: unknown, fallback = 1): number {
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 8) return fallback;
+  return parsed;
 }
 
 export async function getMotoboyAvailability(tenantId: string, input: MotoboyScheduleInput) {
@@ -99,7 +100,7 @@ export async function getMotoboyAvailability(tenantId: string, input: MotoboySch
         id: motoboyNeighborhoodsTable.id,
         name: motoboyNeighborhoodsTable.neighborhoodName,
         city: motoboyNeighborhoodsTable.city,
-        price: motoboyNeighborhoodsTable.price,
+        durationHours: motoboyNeighborhoodsTable.intervalHours,
       }).from(motoboyNeighborhoodsTable).where(and(
         eq(motoboyNeighborhoodsTable.id, neighborhoodId),
         eq(motoboyNeighborhoodsTable.tenantId, tenantId),
@@ -110,9 +111,7 @@ export async function getMotoboyAvailability(tenantId: string, input: MotoboySch
     throw new MotoboyScheduleError("INVALID_MOTOBOY_SCHEDULE", "Área não disponível para entrega por motoboy.");
   }
 
-  const durationHours = "durationHours" in deliveryArea
-    ? deliveryArea.durationHours
-    : getMotoboyDurationHours(deliveryArea.price);
+  const durationHours = resolveMotoboyDurationHours(deliveryArea.durationHours);
   if (isSunday(date)) {
     return { slots: [], durationHours, deliveryArea };
   }
@@ -167,7 +166,7 @@ export async function reserveMotoboySchedule(
         id: motoboyNeighborhoodsTable.id,
         name: motoboyNeighborhoodsTable.neighborhoodName,
         city: motoboyNeighborhoodsTable.city,
-        price: motoboyNeighborhoodsTable.price,
+        durationHours: motoboyNeighborhoodsTable.intervalHours,
       }).from(motoboyNeighborhoodsTable).where(and(
         eq(motoboyNeighborhoodsTable.id, neighborhoodId),
         eq(motoboyNeighborhoodsTable.tenantId, tenantId),
@@ -181,9 +180,7 @@ export async function reserveMotoboySchedule(
     throw new MotoboyScheduleError("INVALID_MOTOBOY_SCHEDULE", "A faixa de CEP não pertence à cidade informada.");
   }
 
-  const durationHours = "durationHours" in deliveryArea
-    ? deliveryArea.durationHours
-    : getMotoboyDurationHours(deliveryArea.price);
+  const durationHours = resolveMotoboyDurationHours(deliveryArea.durationHours);
   const saoPauloNow = getSaoPauloNow();
   if (isSunday(date)) {
     throw new MotoboyScheduleError("DELIVERY_SLOT_UNAVAILABLE", "Não realizamos entregas por motoboy aos domingos.");

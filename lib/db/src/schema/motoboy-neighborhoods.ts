@@ -6,6 +6,7 @@ export const motoboyNeighborhoodsTable = mysqlTable("motoboy_neighborhoods", {
   neighborhoodName: varchar("neighborhood_name", { length: 255 }).notNull(),
   city: varchar("city", { length: 255 }),
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
+  intervalHours: int("interval_hours").notNull().default(1),
   sortOrder: int("sort_order").notNull().default(0),
   isActive: boolean("is_active").notNull().default(true),
   notes: text("notes"),

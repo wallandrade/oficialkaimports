@@ -109,20 +109,52 @@ function formatCEP(value: string) {
   return `${d.slice(0, 5)}-${d.slice(5)}`;
 }
 
-function getSaoPauloDateKey() {
+function isSunday(date: string) {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay() === 0;
+}
+
+function getSaoPauloNowParts() {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Sao_Paulo",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
   }).formatToParts(new Date());
   const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${value.year}-${value.month}-${value.day}`;
+  return {
+    date: `${value.year}-${value.month}-${value.day}`,
+    hour: Number(value.hour),
+  };
 }
 
-function isSunday(date: string) {
+function addDaysYmd(date: string, days: number) {
   const [year, month, day] = date.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, day)).getUTCDay() === 0;
+  const next = new Date(Date.UTC(year, month - 1, day + days));
+  return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}-${String(next.getUTCDate()).padStart(2, "0")}`;
+}
+
+function getMotoboyCalendarMinDate() {
+  const now = getSaoPauloNowParts();
+  return now.hour >= 18 ? addDaysYmd(now.date, 1) : now.date;
+}
+
+function parseMotoboyEligibleProductIds(raw: unknown): string[] {
+  if (raw == null || raw === "") return [];
+  let parsed: unknown = raw;
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed === "[]") return [];
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(parsed)) return [];
+  return Array.from(new Set(parsed.map((id) => String(id || "").trim()).filter(Boolean)));
 }
 
 const checkoutSchema = z.object({
@@ -199,6 +231,8 @@ export default function Checkout() {
   const [fastLookupStatus, setFastLookupStatus] = useState<"idle" | "checking" | "motoboy" | "unsupported">("idle");
   const [fastWhatsappOpening, setFastWhatsappOpening] = useState(false);
   const [freeShippingMinSubtotal, setFreeShippingMinSubtotal] = useState<number | null>(null);
+  const [freeShippingMinMotoboy, setFreeShippingMinMotoboy] = useState<number | null>(null);
+  const [motoboyEligibleProductIds, setMotoboyEligibleProductIds] = useState<string[]>([]);
   const [pendingCheckoutRetry, setPendingCheckoutRetry] = useState<RetryAction | null>(null);
   const priceSyncRetryCountRef = useRef<Record<RetryAction, number>>({ pix: 0, whatsapp: 0, card: 0 });
   const [productCategoryById, setProductCategoryById] = useState<Map<string, string>>(new Map());
@@ -491,6 +525,8 @@ export default function Checkout() {
           });
           setCheckoutMode(data["checkout_mode"] === "fast" ? "fast" : "standard");
           setFreeShippingMinSubtotal(parseCurrency(data["checkout_free_shipping_min_subtotal"]));
+          setFreeShippingMinMotoboy(parseCurrency(data["checkout_free_shipping_min_motoboy"]));
+          setMotoboyEligibleProductIds(parseMotoboyEligibleProductIds(data["motoboy_eligible_product_ids"]));
         }
       } catch {
         // Keep defaults enabled on network errors.
@@ -710,9 +746,16 @@ export default function Checkout() {
       eligibleSet.has(p.id) ? acc + p.regularPrice * p.quantity : acc
     ), 0);
   }, [appliedCoupon, couponProductsPayload]);
+  const cartProductIds = useMemo(
+    () => Array.from(new Set(items.map((item) => String((item as { bumpProductId?: string }).bumpProductId ?? item.id ?? "").trim()).filter(Boolean))),
+    [items],
+  );
+  const isCartMotoboyEligible = motoboyEligibleProductIds.length === 0
+    || (cartProductIds.length > 0 && cartProductIds.every((id) => motoboyEligibleProductIds.includes(id)));
+
   const availableShippingOptions = useMemo(
-    () => motoboyShippingOption ? [...shippingOptions, motoboyShippingOption] : shippingOptions,
-    [motoboyShippingOption, shippingOptions],
+    () => (motoboyShippingOption && isCartMotoboyEligible ? [...shippingOptions, motoboyShippingOption] : shippingOptions),
+    [motoboyShippingOption, shippingOptions, isCartMotoboyEligible],
   );
   const selectedShipping = availableShippingOptions.find((o) => o.id === selectedShippingId) ?? null;
   const isMotoboySelected = Boolean(selectedShippingId?.startsWith("motoboy_"));
@@ -731,8 +774,17 @@ export default function Checkout() {
       setMotoboyAvailableSlots([]);
       return;
     }
-    setMotoboyDeliveryDate((current) => current || getSaoPauloDateKey());
+    const minDate = getMotoboyCalendarMinDate();
+    setMotoboyDeliveryDate((current) => {
+      if (!current || current < minDate) return minDate;
+      return current;
+    });
   }, [isMotoboySelected]);
+
+  useEffect(() => {
+    if (isCartMotoboyEligible) return;
+    setSelectedShippingId((current) => (current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current));
+  }, [isCartMotoboyEligible, shippingOptions]);
 
   useEffect(() => {
     if (!isMotoboySelected || !motoboyNeighborhoodId || !motoboyDeliveryDate) return;
@@ -767,17 +819,20 @@ export default function Checkout() {
     return false;
   }, [isMotoboySelected, motoboyDeliveryDate, motoboyDeliveryTime]);
   const shippingBaseCost = selectedShipping ? Number(selectedShipping.price) : 0;
-  const isFreeByMinimumSubtotal = freeShippingMinSubtotal != null && subtotal >= freeShippingMinSubtotal;
+  const activeFreeShippingMin = isMotoboySelected ? freeShippingMinMotoboy : freeShippingMinSubtotal;
+  const isFreeByMinimumSubtotal = activeFreeShippingMin != null && subtotal >= activeFreeShippingMin;
   const isSelectedShippingFree = selectedShipping != null && shippingBaseCost <= 0;
   const isFreeShippingEligible = isFreeByMinimumSubtotal || isSelectedShippingFree;
   const freeShippingProgress = isFreeShippingEligible
     ? 100
-    : Math.min(100, (subtotal / freeShippingMinSubtotal!) * 100);
+    : activeFreeShippingMin == null
+      ? 0
+      : Math.min(100, (subtotal / activeFreeShippingMin) * 100);
   const shippingCost = isFreeShippingEligible ? 0 : shippingBaseCost;
   const shippingSavings = isFreeShippingEligible ? shippingBaseCost : 0;
-  const missingForFreeShipping = isFreeShippingEligible || freeShippingMinSubtotal == null
+  const missingForFreeShipping = isFreeShippingEligible || activeFreeShippingMin == null
     ? 0
-    : Math.max(0, freeShippingMinSubtotal - subtotal);
+    : Math.max(0, activeFreeShippingMin - subtotal);
   const baseTotal = subtotal + shippingCost + (includeInsurance ? subtotal * 0.1 : 0);
   const discountAmount = appliedCoupon
     ? appliedCoupon.discountType === "percent"
@@ -996,7 +1051,10 @@ export default function Checkout() {
 
             if (option) {
               setMotoboyShippingOption(option);
-              if (checkoutMode === "fast") setSelectedShippingId(option.id);
+              if (checkoutMode === "fast" && isCartMotoboyEligible) setSelectedShippingId(option.id);
+              if (checkoutMode === "fast" && !isCartMotoboyEligible) {
+                setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
+              }
               setFastLookupStatus("motoboy");
             } else {
               setMotoboyShippingOption(null);
@@ -1024,7 +1082,7 @@ export default function Checkout() {
         setCepLoading(false);
       }
     }
-  }, [checkoutMode, setValue, shippingOptions]);
+  }, [checkoutMode, isCartMotoboyEligible, setValue, shippingOptions]);
 
   const handleFastWhatsApp = useCallback(async () => {
     const name = String(getValues("name") || "").trim();
@@ -1303,6 +1361,8 @@ export default function Checkout() {
               variantLabel: resolveVariantLabel(i as unknown as Record<string, unknown>) || undefined,
             })),
             shippingType:    selectedShipping?.name ?? "Frete",
+            motoboyDeliveryDate: isMotoboySelected ? motoboyDeliveryDate : undefined,
+            motoboyDeliveryTime: isMotoboySelected ? motoboyDeliveryTime : undefined,
             shippingCost,
             includeInsurance,
             insuranceAmount,
@@ -1366,6 +1426,8 @@ export default function Checkout() {
             variantLabel: resolveVariantLabel(i as unknown as Record<string, unknown>) || undefined,
           })),
           shippingType:    selectedShipping?.name ?? "Frete",
+          motoboyDeliveryDate: isMotoboySelected ? motoboyDeliveryDate : undefined,
+          motoboyDeliveryTime: isMotoboySelected ? motoboyDeliveryTime : undefined,
           shippingCost,
           includeInsurance,
           insuranceAmount,
@@ -2239,7 +2301,7 @@ export default function Checkout() {
                       <Input
                         id="motoboy-delivery-date"
                         type="date"
-                        min={getSaoPauloDateKey()}
+                        min={getMotoboyCalendarMinDate()}
                         value={motoboyDeliveryDate}
                         onChange={(event) => setMotoboyDeliveryDate(event.target.value)}
                         className="bg-white"
@@ -2277,7 +2339,7 @@ export default function Checkout() {
                     )}
                   </div>
                 )}
-                {freeShippingMinSubtotal != null && (
+                {activeFreeShippingMin != null && (
                   <div className={`mt-3 rounded-xl border px-3 py-3 ${isFreeShippingEligible ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
                     <div className="flex items-center gap-1.5 mb-2">
                       <Truck className={`w-3.5 h-3.5 shrink-0 ${isFreeShippingEligible ? "text-emerald-700" : "text-amber-700"}`} />
@@ -2461,7 +2523,7 @@ export default function Checkout() {
                 </div>
               )}
 
-              {freeShippingMinSubtotal != null && (
+              {activeFreeShippingMin != null && (
                 <div className={`mb-4 rounded-xl border px-3 py-3 ${isFreeShippingEligible ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
                   <div className="flex items-center gap-1.5 mb-2">
                     <Truck className={`w-3.5 h-3.5 shrink-0 ${isFreeShippingEligible ? "text-emerald-700" : "text-amber-700"}`} />
@@ -2479,7 +2541,7 @@ export default function Checkout() {
                   </div>
                   {!isFreeShippingEligible && (
                     <p className="text-[11px] text-amber-700 mt-1.5">
-                      Pedidos a partir de {formatCurrency(freeShippingMinSubtotal)} têm frete grátis automático.
+                      Pedidos a partir de {formatCurrency(activeFreeShippingMin)} têm frete grátis automático.
                     </p>
                   )}
                 </div>

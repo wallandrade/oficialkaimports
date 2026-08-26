@@ -1,31 +1,32 @@
-﻿import assert from "node:assert/strict";
+import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  cartProductIdsFromItems,
   isCartEligibleForMotoboy,
   parseMotoboyEligibleProductIds,
-  serializeMotoboyEligibleProductIds,
 } from "./motoboy-eligible-products";
 
 test("lista vazia libera qualquer carrinho", () => {
   assert.equal(isCartEligibleForMotoboy(["a", "b"], []), true);
-  assert.equal(isCartEligibleForMotoboy([], []), true);
+  assert.equal(isCartEligibleForMotoboy(["a"], "[]"), true);
+  assert.equal(isCartEligibleForMotoboy(["a"], ""), true);
 });
 
-test("whitelist exige que todos os itens estejam na lista", () => {
-  assert.equal(isCartEligibleForMotoboy(["a"], ["a", "b"]), true);
-  assert.equal(isCartEligibleForMotoboy(["a", "b"], ["a", "b"]), true);
-  assert.equal(isCartEligibleForMotoboy(["a", "c"], ["a", "b"]), false);
-  assert.equal(isCartEligibleForMotoboy(["c"], ["a", "b"]), false);
+test("todos os ids do carrinho precisam estar na lista", () => {
+  assert.equal(isCartEligibleForMotoboy(["p1", "p2"], ["p1", "p2", "p3"]), true);
+  assert.equal(isCartEligibleForMotoboy(["p1", "p9"], ["p1", "p2"]), false);
 });
 
-test("parser aceita JSON e CSV", () => {
-  assert.deepEqual(parseMotoboyEligibleProductIds('["x","y"]'), ["x", "y"]);
-  assert.deepEqual(parseMotoboyEligibleProductIds("x, y"), ["x", "y"]);
-  assert.deepEqual(parseMotoboyEligibleProductIds(""), []);
-  assert.deepEqual(parseMotoboyEligibleProductIds(["a", "a", ""]), ["a"]);
+test("carrinho vazio com lista preenchida nao e elegivel", () => {
+  assert.equal(isCartEligibleForMotoboy([], ["p1"]), false);
 });
 
-test("serialize produz JSON estável", () => {
-  assert.equal(serializeMotoboyEligibleProductIds(["b", "a", "b"]), '["b","a"]');
+test("parse JSON e bumpProductId no carrinho", () => {
+  assert.deepEqual(parseMotoboyEligibleProductIds('["a","b","a"]'), ["a", "b"]);
+  assert.deepEqual(cartProductIdsFromItems([
+    { id: "cart-line", bumpProductId: "real-sku" },
+    { id: "plain" },
+    null,
+  ]), ["real-sku", "plain"]);
 });

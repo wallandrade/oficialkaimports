@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-08-21  
+> **Última atualização:** 2026-08-26  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-26 | Anti-padrão: zerar Motoboy com o limiar de Correios; inferir duração do slot pelo preço | `checkout_free_shipping_min_motoboy` + `interval_hours` no bairro | Capacidade 1 trilha e EnvioEcom inalterados |
 | 2026-08-21 | Anti-padrão: filtrar pedidos no `onChange` de cada tecla no admin monolítico | Input com debounce 300ms | Filtro `filteredOrders` continua local |
 | 2026-08-20 | Anti-padrão: reusar o badge **Faltando estoque** para “não fazer etiqueta” | Flag manual `is_procurando_produto` no pedido | Saldo / verifyOrderStock inalterados |
 | 2026-08-18 | Anti-padrão: substituir o PIX anterior ao vincular o 2º no mesmo pedido | Tabela `order_bank_deposits` + soma | FITID único; `paid` inalterado |
@@ -112,6 +113,8 @@ Código > memória > suposições.
 - Confundir seller ↔ afiliado, pedido ↔ custom charge, tenant ↔ cliente.
 - Inventar NF-e/fiscal sem evidência no código.
 - Chamar EnvioEcom do browser / expor `X-Partner-Token` no FE.
+- Zerar frete Motoboy com `checkout_free_shipping_min_subtotal` (usar `checkout_free_shipping_min_motoboy`).
+- Inferir duração do slot Motoboy pelo preço (usar `interval_hours`).
 - Gerar etiqueta EnvioEcom com barcode provisório `EC…` (usar `shipping_id` / `ids`).
 - Pedir ID EnvioEcom com `window.prompt`; usar o modal **Vincular EE** (ID 4–10 dígitos ou rastreio) e `POST .../sync`.
 - Enviar um produto × N linhas na cotação EnvioEcom (empilha altura → `QUOTE_ERROR`); usar 1 pacote.

@@ -31,6 +31,9 @@ type CustomerOrder = {
   shippingCost?: number;
   insuranceAmount?: number;
   shippingType?: string;
+  motoboyDeliveryDate?: string | null;
+  motoboyDeliveryTime?: string | null;
+  motoboyDeliveryDurationHours?: number | null;
   trackingCode?: string | null;
   envioecomShipmentId?: number | null;
   envioecomStatus?: string | null;
@@ -54,6 +57,28 @@ type AffiliateDashboardResponse = {
     facebookPixelId: string;
   };
 };
+
+function isMotoboyShippingType(value: unknown): boolean {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase()
+    .includes("motoboy");
+}
+
+function shippingTypeLabel(order: CustomerOrder): string {
+  if (isMotoboyShippingType(order.shippingType)) return "Motoboy";
+  if (order.shippingType === "express") return "Expresso";
+  return order.shippingType || "Normal";
+}
+
+function formatMotoboyDate(value?: string | null): string {
+  const raw = String(value || "").trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) return `${match[3]}/${match[2]}/${match[1]}`;
+  return raw;
+}
 
 function getOrderDisplayId(order: { id: string; orderNumber?: number | null }): string {
   const numeric = Number(order.orderNumber);
@@ -721,6 +746,16 @@ export default function CustomerOrders() {
                                 </div>
                               )}
 
+                              {isMotoboyShippingType(order.shippingType) && order.motoboyDeliveryDate && (
+                                <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-100">
+                                  <p className="text-sm font-semibold text-emerald-900 mb-1">Entrega por motoboy</p>
+                                  <p className="text-sm text-emerald-800">
+                                    {formatMotoboyDate(order.motoboyDeliveryDate)} às {order.motoboyDeliveryTime || "-"}
+                                    {order.motoboyDeliveryDurationHours ? ` · intervalo de ${order.motoboyDeliveryDurationHours}h` : ""}
+                                  </p>
+                                </div>
+                              )}
+
                               {(order.envioecomStatus || order.envioecomBarcode || order.trackingCode) && (
                                 <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-100">
                                   <p className="text-sm font-semibold text-emerald-900 mb-1">Envio / Rastreio</p>
@@ -748,7 +783,7 @@ export default function CustomerOrders() {
                                   {order.shippingCost && (
                                     <div className="flex justify-between text-sm">
                                       <span className="text-muted-foreground">
-                                        Frete ({order.shippingType === "express" ? "Expresso" : "Normal"}):
+                                        Frete ({shippingTypeLabel(order)}):
                                       </span>
                                       <span className="font-medium">{formatCurrency(order.shippingCost)}</span>
                                     </div>

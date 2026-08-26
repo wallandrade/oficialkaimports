@@ -15,9 +15,7 @@ const router: IRouter = Router();
 
 const PUBLIC_KEYS  = [
   "logo", "banner_desktop", "banner_mobile", "catalog_banner_desktop", "catalog_banner_mobile", "site_name", "site_protected", "payment_protected",
-  "checkout_enable_pix", "checkout_enable_card", "checkout_enable_whatsapp", "checkout_pix_gateway", "checkout_free_shipping_min_subtotal", "checkout_free_shipping_min_motoboy",
-  "motoboy_eligible_product_ids",
-  "checkout_mode",
+  "checkout_enable_pix", "checkout_enable_card", "checkout_enable_whatsapp", "checkout_pix_gateway", "checkout_free_shipping_min_subtotal", "checkout_free_shipping_min_motoboy", "motoboy_eligible_product_ids", "checkout_mode",
   "logo_scale",
   "catalog_banner_product_id",
   "support_whatsapp",

@@ -571,18 +571,47 @@ function logisticsOrderBlock(order: any): string {
   ].filter(Boolean).join("\n\n");
 }
 
+function isMotoboyShippingOrder(order: any): boolean {
+  const shipping = String(order?.shippingType || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  return shipping.includes("motoboy") || Boolean(order?.motoboyDeliveryDate && order?.motoboyDeliveryTime);
+}
+
 function motoboyOrderBlock(order: any): string {
-  const { addressBlock, resumoPedido, reshipmentLines } = supplierOrderContent(order);
+  const products = getOrderProducts(order?.products);
+  const paid = order?.status === "paid" || order?.status === "completed";
+  const itemsText = products.length
+    ? products.map((p) => {
+        const qty = Number(p?.quantity) || 0;
+        const line = (Number(p?.price) || 0) * qty;
+        return `• ${qty} x ${p?.name || "Produto"} — ${formatCurrency(line)}`;
+      }).join("\n")
+    : "• Sem itens";
+  const productsTotal = Number(order?.subtotal) || products.reduce((sum, p) => sum + (Number(p?.price) || 0) * (Number(p?.quantity) || 0), 0);
+  const motoboyFreight = Number(order?.shippingCost) || 0;
+  const motoboyTotal = productsTotal + motoboyFreight;
+  const rua = [order?.addressStreet, order?.addressNumber].filter(Boolean).join(", ") || "-";
+  const addressLine = [rua, order?.addressComplement].filter(Boolean).join(" – ");
+
   return [
     searchingProductCopyLine(order),
-    `MOTOBOY - PEDIDO #KA-${getOrderDisplayId(order)}`,
-    `Entrega: ${formatDateOnlyLocal(order?.motoboyDeliveryDate) || "-"} às ${order?.motoboyDeliveryTime || "-"}`,
-    `Intervalo reservado: ${Number(order?.motoboyDeliveryDurationHours) || 1}h`,
-    ...reshipmentLines,
-    addressBlock,
-    `Resumo pedido:\n${resumoPedido}`,
+    `ENTREGA #KA-${getOrderDisplayId(order)}`,
+    `Pagamento: ${paid ? "confirmado" : "PENDENTE"}`,
+    `Cliente: ${order?.clientName || "-"}`,
+    `Endereço: ${addressLine}`,
+    `Bairro: ${order?.addressNeighborhood || "-"}`,
+    `Cidade: ${order?.addressCity || "-"}`,
+    `CEP: ${order?.addressCep || "-"}`,
+    `Agendamento: ${formatDateOnlyLocal(order?.motoboyDeliveryDate) || "-"} às ${order?.motoboyDeliveryTime || "-"} (${Number(order?.motoboyDeliveryDurationHours) || 1}h)`,
+    `Itens:\n${itemsText}`,
+    `Produtos: ${formatCurrency(productsTotal)}`,
+    `Frete Motoboy: ${formatCurrency(motoboyFreight)}`,
+    `Total (produtos + Motoboy): ${formatCurrency(motoboyTotal)}`,
     "_______________________________",
-  ].filter(Boolean).join("\n\n");
+  ].filter(Boolean).join("\n");
 }
 
 function legacySupplierOrderBlock(order: any, sequence: number): string {
@@ -4961,7 +4990,7 @@ export default function Admin() {
     else if (tab === "configuracoes") { fetchSettings(); fetchClientErrors(); fetchBrevoStatus(); }
     else if (tab === "checkout") { fetchSettings(); }
     else if (tab === "sellers")    { fetchSellers(); fetchSellerData(); }
-    else if (tab === "fretes")     { fetchShippingOptions(); fetchMotoboyNeighborhoods(); fetchMotoboyCepRanges(); }
+    else if (tab === "fretes")     { fetchShippingOptions(); fetchMotoboyNeighborhoods(); fetchMotoboyCepRanges(); fetchProducts(); fetchSettings(); }
     else if (tab === "orderBumps") { fetchProducts(); fetchOrderBumpsData(); }
     else if (tab === "kyc")        fetchKycList();
     else if (tab === "commissions") { fetchCommissionPayments(); }
@@ -6248,14 +6277,10 @@ export default function Admin() {
   const logisticsCopyGroups = (() => {
     const byPromisedHours = new Map<number, { promisedHours: number; orders: AdminOrder[] }>();
     const otherOrders: AdminOrder[] = [];
-    const motoboyOrders: AdminOrder[] = [];
 
     for (const order of ordersParaEnviarCopyBase) {
       if (hasEnvioEcomLabelReady(order as any)) continue;
-      if (order.motoboyDeliveryDate && order.motoboyDeliveryTime) {
-        motoboyOrders.push(order);
-        continue;
-      }
+      if (isMotoboyShippingOrder(order)) continue;
       const allocation = (order as any)?.logisticsAllocation;
       const promisedHours = Number(allocation?.promisedHours);
       if (!allocation || allocation.status !== "allocated" || !allocation.deadlineAt || !Number.isFinite(promisedHours)) {
@@ -6270,7 +6295,13 @@ export default function Admin() {
     return {
       deadlineGroups: [...byPromisedHours.values()].sort((left, right) => left.promisedHours - right.promisedHours),
       otherOrders,
-      motoboyOrders,
+      motoboyOrders: orders.filter((order) => {
+        const status = String(order.status || "").toLowerCase();
+        if (status === "cancelled") return false;
+        if (order.enviado) return false;
+        if (hasEnvioEcomLabelReady(order as any)) return false;
+        return isMotoboyShippingOrder(order);
+      }),
     };
   })();
   const searchingProductOrders = ordersParaEnviarCopyBase.filter((order) => isProcurandoProdutoOrder(order));
@@ -6465,9 +6496,12 @@ export default function Admin() {
       toast.info("Nenhum motoboy para enviar. Os marcados foram para Procurando produtos.");
       return;
     }
-    const text = motoboyOrders
-      .map(motoboyOrderBlock)
-      .join("\n\n");
+    const text = [
+      "ENTREGAS MOTOBOY",
+      `Pedidos: ${motoboyOrders.length}`,
+      "",
+      motoboyOrders.map(motoboyOrderBlock).join("\n\n"),
+    ].join("\n");
     try {
       const mode = await copyText(text);
       toast.success(mode === "manual" ? "Texto aberto para copia manual." : "Pedidos de motoboy copiados.");
@@ -7723,7 +7757,7 @@ export default function Admin() {
                 const res = await fetch(`${BASE}/api/admin/motoboy-neighborhoods`, {
                   method: "POST",
                   headers: { ...authHeaders(), "Content-Type": "application/json" },
-                  body: JSON.stringify({ ...motoboyForm, price: Number(motoboyForm.price), sortOrder: Number(motoboyForm.sortOrder) }),
+                  body: JSON.stringify({ ...motoboyForm, price: Number(motoboyForm.price), intervalHours: Number(motoboyForm.intervalHours), sortOrder: Number(motoboyForm.sortOrder) }),
                 });
                 const data = await res.json().catch(() => null) as { message?: string } | null;
                 if (!res.ok) toast.error(data?.message || "Erro ao cadastrar bairro.");
@@ -7821,6 +7855,11 @@ export default function Admin() {
               } catch { toast.error("Erro ao excluir faixa de CEP."); }
               finally { setMotoboyCepRangeDeleting(null); }
             }}
+            products={(Array.isArray(products) ? products : []).map((p) => ({ id: p.id, name: p.name, image: p.image }))}
+            settings={settings}
+            settingsLoading={settingsLoading}
+            onSaveSetting={saveSetting}
+            onDeleteSetting={deleteSetting}
           />
         ) : tab === "envioecom" ? (
           <EnvioEcomTrackingBoard
@@ -19777,6 +19816,7 @@ interface MotoboyNeighborhood {
   neighborhoodName: string;
   city: string | null;
   price: string | number;
+  intervalHours?: number;
   sortOrder: number;
   isActive: boolean;
   notes: string | null;
@@ -19786,6 +19826,7 @@ interface MotoboyNeighborhoodForm {
   neighborhoodName: string;
   city: string;
   price: string;
+  intervalHours: string;
   sortOrder: string;
   notes: string;
 }
@@ -19794,6 +19835,7 @@ const EMPTY_MOTOBOY_NEIGHBORHOOD_FORM: MotoboyNeighborhoodForm = {
   neighborhoodName: "",
   city: "",
   price: "",
+  intervalHours: "1",
   sortOrder: "0",
   notes: "",
 };
@@ -19828,7 +19870,7 @@ const EMPTY_MOTOBOY_CEP_RANGE_FORM: MotoboyCepRangeForm = {
   cepStart: "",
   cepEnd: "",
   price: "",
-  intervalHours: "1",
+  intervalHours: "2",
   sortOrder: "0",
   notes: "",
 };
@@ -19865,6 +19907,11 @@ interface FretePanelProps {
   onCreateMotoboyCepRange: () => void;
   onUpdateMotoboyCepRange: (id: string, patch: Partial<MotoboyCepRange>) => void;
   onDeleteMotoboyCepRange: (id: string) => void;
+  products: Array<{ id: string; name: string; image?: string | null }>;
+  settings: Record<string, string>;
+  settingsLoading: Record<string, boolean>;
+  onSaveSetting: (key: string, value: string) => void;
+  onDeleteSetting: (key: string) => void;
 }
 
 function FretePanel({
@@ -19872,10 +19919,30 @@ function FretePanel({
   motoboyNeighborhoods, motoboyForm, setMotoboyForm, motoboyCreating, motoboyDeleting,
   motoboyEditing, setMotoboyEditing, motoboyUpdating, onCreateMotoboy, onUpdateMotoboy, onDeleteMotoboy,
   motoboyCepRanges, motoboyCepRangeForm, setMotoboyCepRangeForm, motoboyCepRangeCreating,
-  motoboyCepRangeUpdating, motoboyCepRangeDeleting, onCreateMotoboyCepRange, onUpdateMotoboyCepRange, onDeleteMotoboyCepRange,
+  motoboyCepRangeUpdating, motoboyCepRangeDeleting,   onCreateMotoboyCepRange, onUpdateMotoboyCepRange, onDeleteMotoboyCepRange,
+  products, settings, settingsLoading, onSaveSetting, onDeleteSetting,
 }: FretePanelProps) {
   const [editForm, setEditForm] = useState({ name: "", description: "", price: "", sortOrder: "0" });
   const [motoboyEditForm, setMotoboyEditForm] = useState<MotoboyNeighborhoodForm>(EMPTY_MOTOBOY_NEIGHBORHOOD_FORM);
+  const [freeShippingMinMotoboy, setFreeShippingMinMotoboy] = useState(settings["checkout_free_shipping_min_motoboy"] ?? "");
+  const [eligibleDraft, setEligibleDraft] = useState<string[]>(() => {
+    try {
+      const parsed = JSON.parse(settings["motoboy_eligible_product_ids"] || "[]");
+      return Array.isArray(parsed) ? parsed.map((id) => String(id || "").trim()).filter(Boolean) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    setFreeShippingMinMotoboy(settings["checkout_free_shipping_min_motoboy"] ?? "");
+    try {
+      const parsed = JSON.parse(settings["motoboy_eligible_product_ids"] || "[]");
+      setEligibleDraft(Array.isArray(parsed) ? parsed.map((id) => String(id || "").trim()).filter(Boolean) : []);
+    } catch {
+      setEligibleDraft([]);
+    }
+  }, [settings]);
   const formatCepRangeValue = (value: number) => String(value).padStart(8, "0").replace(/^(\d{5})(\d{3})$/, "$1-$2");
 
   const startEdit = (o: ShippingOption) => {
@@ -19889,6 +19956,7 @@ function FretePanel({
       neighborhoodName: neighborhood.neighborhoodName,
       city: neighborhood.city || "",
       price: String(neighborhood.price),
+      intervalHours: String(neighborhood.intervalHours || 1),
       sortOrder: String(neighborhood.sortOrder),
       notes: neighborhood.notes || "",
     });
@@ -19896,6 +19964,84 @@ function FretePanel({
 
   return (
     <div className="space-y-6">
+      <div className="bg-white rounded-2xl shadow-sm border border-border p-6 space-y-4">
+        <h3 className="font-semibold text-base">Frete grátis Motoboy</h3>
+        <p className="text-sm text-muted-foreground">Limiar só para Motoboy. Em branco = desativado. Não usa o mínimo dos Correios.</p>
+        <div className="flex gap-2">
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={freeShippingMinMotoboy}
+            onChange={(event) => setFreeShippingMinMotoboy(event.target.value)}
+            placeholder="Ex: 400"
+            className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm"
+            disabled={!!settingsLoading["checkout_free_shipping_min_motoboy"]}
+          />
+          <Button
+            size="sm"
+            disabled={!!settingsLoading["checkout_free_shipping_min_motoboy"]}
+            onClick={() => {
+              const raw = freeShippingMinMotoboy.trim();
+              if (!raw) {
+                onDeleteSetting("checkout_free_shipping_min_motoboy");
+                return;
+              }
+              const value = Number(raw);
+              if (!Number.isFinite(value) || value < 0) {
+                toast.error("Valor inválido para frete grátis Motoboy.");
+                return;
+              }
+              onSaveSetting("checkout_free_shipping_min_motoboy", String(value));
+            }}
+          >
+            {settingsLoading["checkout_free_shipping_min_motoboy"] ? <Loader2 className="w-4 h-4 animate-spin" /> : "Salvar"}
+          </Button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-sm border border-border p-6 space-y-4">
+        <h3 className="font-semibold text-base">Produtos elegíveis para Motoboy</h3>
+        <p className="text-sm text-muted-foreground">Lista vazia = todos os produtos. Carrinho com algum item fora da lista não mostra Motoboy.</p>
+        <div className="max-h-64 overflow-auto rounded-xl border border-border bg-white p-2 space-y-1">
+          {products.length === 0 ? (
+            <p className="text-xs text-muted-foreground px-2 py-1">Nenhum produto carregado.</p>
+          ) : (
+            products.map((product) => {
+              const checked = eligibleDraft.includes(product.id);
+              return (
+                <label key={product.id} className="flex items-center gap-2 text-sm px-2 py-1 rounded-lg hover:bg-muted/50 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(event) => {
+                      setEligibleDraft((current) => event.target.checked
+                        ? [...current, product.id]
+                        : current.filter((id) => id !== product.id));
+                    }}
+                  />
+                  {product.image ? (
+                    <img src={product.image} alt="" className="w-8 h-8 rounded object-cover shrink-0" />
+                  ) : (
+                    <span className="w-8 h-8 rounded bg-muted shrink-0" />
+                  )}
+                  <span className="truncate">{product.name}</span>
+                </label>
+              );
+            })
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground">{eligibleDraft.length} produto(s) na whitelist.</p>
+        <Button
+          size="sm"
+          disabled={!!settingsLoading["motoboy_eligible_product_ids"]}
+          onClick={() => onSaveSetting("motoboy_eligible_product_ids", JSON.stringify(eligibleDraft))}
+        >
+          {settingsLoading["motoboy_eligible_product_ids"] ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
+          Salvar produtos Motoboy
+        </Button>
+      </div>
+
       {/* Add new frete */}
       <div className="bg-white rounded-2xl shadow-sm border border-border p-6">
         <h3 className="font-semibold text-base mb-4 flex items-center gap-2">
@@ -20089,6 +20235,18 @@ function FretePanel({
             />
           </div>
           <div>
+            <label className="block text-xs font-medium mb-1">Intervalo de horas *</label>
+            <select
+              value={motoboyForm.intervalHours}
+              onChange={(event) => setMotoboyForm({ ...motoboyForm, intervalHours: event.target.value })}
+              className="w-full h-10 px-3 rounded-xl border-2 border-border bg-white outline-none focus:border-primary text-sm"
+            >
+              {["1", "2", "3", "4"].map((hours) => (
+                <option key={hours} value={hours}>{hours} hora{hours === "1" ? "" : "s"}</option>
+              ))}
+            </select>
+          </div>
+          <div>
             <label className="block text-xs font-medium mb-1">Ordem de exibição</label>
             <input
               type="number" min="0"
@@ -20132,6 +20290,11 @@ function FretePanel({
                       <input value={motoboyEditForm.neighborhoodName} onChange={(event) => setMotoboyEditForm({ ...motoboyEditForm, neighborhoodName: event.target.value })} placeholder="Bairro" className="w-full h-9 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm" />
                       <input value={motoboyEditForm.city} onChange={(event) => setMotoboyEditForm({ ...motoboyEditForm, city: event.target.value })} placeholder="Cidade" className="w-full h-9 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm" />
                       <input type="number" min="0" step="0.01" value={motoboyEditForm.price} onChange={(event) => setMotoboyEditForm({ ...motoboyEditForm, price: event.target.value })} placeholder="Valor" className="w-full h-9 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm" />
+                      <select value={motoboyEditForm.intervalHours} onChange={(event) => setMotoboyEditForm({ ...motoboyEditForm, intervalHours: event.target.value })} className="w-full h-9 px-3 rounded-xl border-2 border-border bg-white outline-none focus:border-primary text-sm">
+                        {["1", "2", "3", "4"].map((hours) => (
+                          <option key={hours} value={hours}>{hours}h</option>
+                        ))}
+                      </select>
                       <input type="number" min="0" value={motoboyEditForm.sortOrder} onChange={(event) => setMotoboyEditForm({ ...motoboyEditForm, sortOrder: event.target.value })} placeholder="Ordem" className="w-full h-9 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm" />
                       <input value={motoboyEditForm.notes} onChange={(event) => setMotoboyEditForm({ ...motoboyEditForm, notes: event.target.value })} placeholder="Observação" className="w-full h-9 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm sm:col-span-2" />
                     </div>
@@ -20140,6 +20303,7 @@ function FretePanel({
                         neighborhoodName: motoboyEditForm.neighborhoodName,
                         city: motoboyEditForm.city,
                         price: Number(motoboyEditForm.price),
+                        intervalHours: Number(motoboyEditForm.intervalHours),
                         sortOrder: Number(motoboyEditForm.sortOrder),
                         notes: motoboyEditForm.notes,
                       })}>
@@ -20161,7 +20325,7 @@ function FretePanel({
                         <span className="text-xs text-muted-foreground">Ordem: {neighborhood.sortOrder}</span>
                       </div>
                       {neighborhood.notes ? <p className="text-xs text-muted-foreground mt-1">{neighborhood.notes}</p> : null}
-                      <p className="text-lg font-bold text-primary mt-1">{formatCurrency(Number(neighborhood.price))}</p>
+                      <p className="text-lg font-bold text-primary mt-1">{formatCurrency(Number(neighborhood.price))} · {neighborhood.intervalHours || 1}h</p>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <button onClick={() => onUpdateMotoboy(neighborhood.id, { isActive: !neighborhood.isActive })} disabled={motoboyUpdating === neighborhood.id} className="text-muted-foreground hover:text-primary transition-colors p-1.5" title={neighborhood.isActive ? "Desativar" : "Ativar"}>

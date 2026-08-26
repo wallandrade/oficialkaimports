@@ -24,6 +24,8 @@ interface OrderInfo {
   };
   products?: Array<{ name: string; quantity: number; price: number }>;
   shippingType?: string;
+  motoboyDeliveryDate?: string;
+  motoboyDeliveryTime?: string;
   shippingCost?: number;
   includeInsurance?: boolean;
   insuranceAmount?: number;
@@ -73,8 +75,14 @@ function buildTrackingMessage(info: OrderInfo): string {
   lines.push(`*Resumo Financeiro:*`);
   if (info.subtotal != null) lines.push(`  Subtotal: ${formatCurrency(info.subtotal)}`);
   if (info.shippingCost != null) {
-    const label = info.shippingType === "express" ? "Expresso" : "Normal";
+    const isMotoboy = String(info.shippingType || "").toLowerCase().includes("motoboy");
+    const label = isMotoboy ? "Motoboy" : info.shippingType === "express" ? "Expresso" : (info.shippingType || "Normal");
     lines.push(`  Frete (${label}): ${formatCurrency(info.shippingCost)}`);
+    if (isMotoboy && info.motoboyDeliveryDate) {
+      const match = String(info.motoboyDeliveryDate).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      const dateLabel = match ? `${match[3]}/${match[2]}/${match[1]}` : info.motoboyDeliveryDate;
+      lines.push(`  Agendamento: ${dateLabel} às ${info.motoboyDeliveryTime || "-"}`);
+    }
   }
   if (info.includeInsurance && info.insuranceAmount) {
     lines.push(`  Seguro de Envio: +${formatCurrency(info.insuranceAmount)}`);
@@ -155,6 +163,14 @@ export default function Success() {
           <p className="text-muted-foreground mb-8 leading-relaxed">
             Seu pedido já está sendo processado e em breve entraremos em contato.
           </p>
+          {orderInfo && String(orderInfo.shippingType || "").toLowerCase().includes("motoboy") && orderInfo.motoboyDeliveryDate && (
+            <p className="text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-3 mb-6 text-sm">
+              Entrega por motoboy: {(() => {
+                const match = String(orderInfo.motoboyDeliveryDate).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                return match ? `${match[3]}/${match[2]}/${match[1]}` : orderInfo.motoboyDeliveryDate;
+              })()} às {orderInfo.motoboyDeliveryTime || "-"}
+            </p>
+          )}
 
           <div className="space-y-4">
             <Button

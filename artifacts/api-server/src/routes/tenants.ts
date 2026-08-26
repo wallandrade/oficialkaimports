@@ -1110,6 +1110,7 @@ router.post("/admin/tenants", requirePrimaryAdmin, async (req, res) => {
           neighborhoodName: neighborhood.neighborhoodName,
           city: neighborhood.city,
           price: neighborhood.price.toFixed(2),
+          intervalHours: neighborhood.price <= 75 ? 1 : 2,
           sortOrder: neighborhood.sortOrder,
           isActive: true,
           notes: null,

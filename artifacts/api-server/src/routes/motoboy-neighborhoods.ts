@@ -4,17 +4,15 @@ import { and, asc, eq } from "drizzle-orm";
 import { db, motoboyNeighborhoodsTable } from "@workspace/db";
 import { resolvePublicTenantId } from "../lib/tenant-context";
 import { getMotoboyAvailability, MotoboyScheduleError } from "../lib/motoboy-delivery-schedule";
+import { normalizeMotoboyPlaceName } from "../lib/motoboy-neighborhood-normalize";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 
 const router: IRouter = Router();
 const DEFAULT_TENANT_ID = "tenant_loja1";
 
-function normalizeNeighborhoodName(value: unknown): string {
-  return String(value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLowerCase();
+function parseIntervalHours(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 8 ? parsed : null;
 }
 
 function parsePrice(value: unknown): number | null {
@@ -25,8 +23,8 @@ function parsePrice(value: unknown): number | null {
 
 router.get("/motoboy-neighborhoods/lookup", async (req, res) => {
   try {
-    const lookupName = normalizeNeighborhoodName(req.query.bairro);
-    const lookupCity = normalizeNeighborhoodName(req.query.cidade);
+    const lookupName = normalizeMotoboyPlaceName(req.query.bairro);
+    const lookupCity = normalizeMotoboyPlaceName(req.query.cidade);
     if (!lookupName) {
       res.json({ neighborhood: null });
       return;
@@ -43,8 +41,8 @@ router.get("/motoboy-neighborhoods/lookup", async (req, res) => {
       .orderBy(asc(motoboyNeighborhoodsTable.sortOrder), asc(motoboyNeighborhoodsTable.createdAt));
 
     const neighborhood = neighborhoods.find((item) => (
-      normalizeNeighborhoodName(item.neighborhoodName) === lookupName
-      && (!lookupCity || normalizeNeighborhoodName(item.city) === lookupCity)
+      normalizeMotoboyPlaceName(item.neighborhoodName) === lookupName
+      && (!lookupCity || normalizeMotoboyPlaceName(item.city) === lookupCity)
     )) || null;
 
     res.json({ neighborhood });
@@ -94,12 +92,17 @@ router.post("/admin/motoboy-neighborhoods", requireAdminAuth, async (req, res) =
     const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const neighborhoodName = String(req.body?.neighborhoodName || "").trim();
     const price = parsePrice(req.body?.price);
+    const intervalHours = parseIntervalHours(req.body?.intervalHours ?? 1);
     if (!neighborhoodName) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Bairro é obrigatório." });
       return;
     }
     if (price == null) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Valor da entrega é inválido." });
+      return;
+    }
+    if (intervalHours == null) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Intervalo de horas inválido." });
       return;
     }
 
@@ -110,6 +113,7 @@ router.post("/admin/motoboy-neighborhoods", requireAdminAuth, async (req, res) =
       neighborhoodName,
       city: String(req.body?.city || "").trim() || null,
       price: price.toFixed(2),
+      intervalHours,
       sortOrder: Number.isFinite(Number(req.body?.sortOrder)) ? Math.trunc(Number(req.body.sortOrder)) : 0,
       isActive: true,
       notes: String(req.body?.notes || "").trim() || null,
@@ -162,6 +166,14 @@ router.patch("/admin/motoboy-neighborhoods/:id", requireAdminAuth, async (req, r
         return;
       }
       updates.price = price.toFixed(2);
+    }
+    if (req.body?.intervalHours !== undefined) {
+      const intervalHours = parseIntervalHours(req.body.intervalHours);
+      if (intervalHours == null) {
+        res.status(400).json({ error: "INVALID_INPUT", message: "Intervalo de horas inválido." });
+        return;
+      }
+      updates.intervalHours = intervalHours;
     }
     if (req.body?.isActive !== undefined) updates.isActive = Boolean(req.body.isActive);
 

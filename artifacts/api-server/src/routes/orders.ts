@@ -24,13 +24,14 @@ import { createOrRefreshReshipment, getReshipmentByOrderIds, registerInventoryEn
 import { lookupIpGeo } from "../lib/ip-geo";
 import { getR2MissingConfig, isR2Configured, uploadOrderTrackingLabelToR2 } from "../lib/r2";
 import { sendOutboundWebhook } from "../lib/outbound-webhook";
-import { isMotoboyShippingType, parseFreeShippingMinSubtotalSetting, resolveShippingCostWithFreeThreshold } from "../lib/free-shipping";
-import { isCartEligibleForMotoboy, parseMotoboyEligibleProductIds } from "../lib/motoboy-eligible-products";
+import { parseFreeShippingMinSubtotalSetting, pickFreeShippingMinSubtotal, resolveShippingCostWithFreeThreshold } from "../lib/free-shipping";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 import { reserveNextOrderNumber } from "../lib/order-number";
 import { MotoboyScheduleError, reserveMotoboySchedule } from "../lib/motoboy-delivery-schedule";
 import { allocateOrderLogistics, completeOrderLogistics, releaseOrderLogistics } from "../lib/order-logistics";
 import { clearOrderManualPriority } from "../lib/order-priority";
+import { isMotoboyShippingType } from "../lib/motoboy-shipping-type";
+import { cartProductIdsFromItems, isCartEligibleForMotoboy } from "../lib/motoboy-eligible-products";
 
 const router: IRouter = Router();
 
@@ -301,14 +302,16 @@ async function getActivePixGateway(tenantId: string): Promise<"appcnpay" | "dent
   return normalizePixGatewayProvider(value ?? null);
 }
 
-async function getFreeShippingMinSubtotal(tenantId: string): Promise<number | null> {
-  const value = await getSettingValue("checkout_free_shipping_min_subtotal", tenantId);
-  return parseFreeShippingMinSubtotalSetting(value ?? "");
-}
-
-async function getMotoboyEligibleProductIds(tenantId: string): Promise<string[]> {
-  const value = await getSettingValue("motoboy_eligible_product_ids", tenantId);
-  return parseMotoboyEligibleProductIds(value ?? "");
+async function getFreeShippingMinSubtotal(tenantId: string, shippingType?: unknown): Promise<number | null> {
+  const [standardRaw, motoboyRaw] = await Promise.all([
+    getSettingValue("checkout_free_shipping_min_subtotal", tenantId),
+    getSettingValue("checkout_free_shipping_min_motoboy", tenantId),
+  ]);
+  return pickFreeShippingMinSubtotal({
+    shippingType,
+    standardMin: parseFreeShippingMinSubtotalSetting(standardRaw ?? ""),
+    motoboyMin: parseFreeShippingMinSubtotalSetting(motoboyRaw ?? ""),
+  });
 }
 
 type BulkDiscountTierInput = {
@@ -1275,12 +1278,11 @@ router.post("/orders", async (req, res) => {
     }
 
     if (isMotoboyShippingType(shippingType)) {
-      const eligibleIds = await getMotoboyEligibleProductIds(tenantId);
-      const cartIds = orderProducts.map((p: { id: string }) => p.id);
-      if (!isCartEligibleForMotoboy(cartIds, eligibleIds)) {
+      const eligibleRaw = await getSettingValue("motoboy_eligible_product_ids", tenantId);
+      if (!isCartEligibleForMotoboy(cartProductIdsFromItems(orderProducts), eligibleRaw)) {
         res.status(400).json({
           error: "MOTOBOY_NOT_ELIGIBLE",
-          message: "Um ou mais produtos do carrinho não podem ser entregues por Motoboy. Escolha o frete padrão da loja.",
+          message: "Este carrinho não é elegível para entrega por motoboy.",
         });
         return;
       }
@@ -1292,7 +1294,7 @@ router.post("/orders", async (req, res) => {
       return acc + qty * price;
     }, 0);
     const shippingBaseCost = Math.max(0, Number(shippingCost) || 0);
-    const freeShippingMinSubtotal = await getFreeShippingMinSubtotal(tenantId);
+    const freeShippingMinSubtotal = await getFreeShippingMinSubtotal(tenantId, shippingType);
     const computedShippingCost = resolveShippingCostWithFreeThreshold({
       subtotal: computedSubtotal,
       shippingBaseCost,
@@ -1334,7 +1336,7 @@ router.post("/orders", async (req, res) => {
     let assignedOrderNumber = 0;
     await db.transaction(async (tx) => {
       assignedOrderNumber = await reserveNextOrderNumber(tx, tenantId);
-      const motoboySchedule = String(shippingType).trim().toLowerCase() === "motoboy"
+      const motoboySchedule = isMotoboyShippingType(shippingType)
         ? await reserveMotoboySchedule(tx, tenantId, id, req.body?.motoboySchedule || {})
         : null;
 

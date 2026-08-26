@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-08-21  
+> **Última atualização:** 2026-08-26  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-26 | `motoboy_neighborhoods.interval_hours`; settings Motoboy no checkout | Duração do slot e whitelist/frete grátis 2× | Portal/estoque Motoboy e EnvioEcom inalterados |
 | 2026-08-21 | Lista de pedidos admin: JSON leve (sem `data:`/OCR); `GET /admin/orders/:id` carrega mídia | Data e lista mais rápidas; comprovante no clique | Filtros e PIX inalterados |
 | 2026-08-18 | Tabela `order_bank_deposits` + resumo em `orders.bank_deposit_*` | Vários PIX por pedido | Stack FE/API inalterada |
 | 2026-08-18 | `POST /admin/bank-statement/clear` zera vínculo no pedido | Desfazer na aba Depósitos | Stack FE/API/DB inalterada |

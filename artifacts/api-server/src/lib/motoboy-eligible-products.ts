@@ -1,48 +1,50 @@
-﻿/** Setting: `motoboy_eligible_product_ids` — JSON array de IDs. Vazio = todos elegíveis. */
-
 export function parseMotoboyEligibleProductIds(raw: unknown): string[] {
-  if (raw == null) return [];
-  if (Array.isArray(raw)) {
-    return uniqueIds(raw);
+  if (raw == null || raw === "") return [];
+
+  let parsed: unknown = raw;
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed === "[]") return [];
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      return [];
+    }
   }
-  const str = String(raw).trim();
-  if (!str) return [];
-  try {
-    const parsed = JSON.parse(str) as unknown;
-    if (Array.isArray(parsed)) return uniqueIds(parsed);
-  } catch {
-    /* fallback abaixo */
-  }
-  return uniqueIds(str.split(","));
+
+  if (!Array.isArray(parsed)) return [];
+  return Array.from(new Set(
+    parsed
+      .map((id) => String(id || "").trim())
+      .filter(Boolean),
+  ));
 }
 
-export function serializeMotoboyEligibleProductIds(ids: string[]): string {
-  return JSON.stringify(uniqueIds(ids));
+export function cartProductIdsFromItems(items: unknown): string[] {
+  if (!Array.isArray(items)) return [];
+  return Array.from(new Set(
+    items
+      .map((item) => {
+        if (!item || typeof item !== "object") return "";
+        const record = item as { id?: unknown; bumpProductId?: unknown };
+        return String(record.bumpProductId ?? record.id ?? "").trim();
+      })
+      .filter(Boolean),
+  ));
 }
 
-/**
- * Lista vazia = Motoboy liberado para qualquer produto (comportamento legado).
- * Lista preenchida = todos os IDs do carrinho precisam estar na lista.
- */
 export function isCartEligibleForMotoboy(
-  cartProductIds: Array<string | null | undefined>,
-  eligibleProductIds: string[],
+  cartProductIds: unknown,
+  eligibleProductIds: unknown,
 ): boolean {
-  if (eligibleProductIds.length === 0) return true;
-  const cartIds = uniqueIds(cartProductIds);
-  if (cartIds.length === 0) return false;
-  const allowed = new Set(eligibleProductIds);
-  return cartIds.every((id) => allowed.has(id));
-}
+  const eligible = parseMotoboyEligibleProductIds(eligibleProductIds);
+  if (eligible.length === 0) return true;
 
-function uniqueIds(values: unknown[]): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const value of values) {
-    const id = String(value ?? "").trim();
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    out.push(id);
-  }
-  return out;
+  const cartIds = Array.isArray(cartProductIds)
+    ? cartProductIds.map((id) => String(id || "").trim()).filter(Boolean)
+    : [];
+  if (cartIds.length === 0) return false;
+
+  const allowed = new Set(eligible);
+  return cartIds.every((id) => allowed.has(id));
 }
