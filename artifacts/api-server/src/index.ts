@@ -3,6 +3,7 @@ import { startReconciliationJob } from "./reconciliation";
 import { ensureRuntimeSchema } from "./runtime-schema";
 import { startRaffleExpiryJob } from "./raffle-expiry";
 import { reconcilePendingOrderLogistics } from "./lib/order-logistics";
+import { startYuryMotoboyCoverageSyncJob } from "./lib/motoboy-yury-sync-job";
 
 const rawPort = process.env["PORT"];
 
@@ -36,6 +37,7 @@ async function bootstrap(): Promise<void> {
     console.log(`Server listening on port ${port}`);
     startReconciliationJob();
     startRaffleExpiryJob();
+    startYuryMotoboyCoverageSyncJob();
     void reconcilePendingOrderLogistics().catch((error) => {
       console.error("[OrderLogistics] Startup reconciliation failed:", error);
     });

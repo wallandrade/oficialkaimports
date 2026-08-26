@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-26 | Anti-padrão: cadastrar bairro Motoboy neste repo como verdade quando o sync Yury está ligado | Espelho `yury_id` + webhook HMAC; CRUD local 409 | Agenda e EnvioEcom inalterados |
 | 2026-08-26 | Anti-padrão: zerar Motoboy com o limiar de Correios; inferir duração do slot pelo preço | `checkout_free_shipping_min_motoboy` + `interval_hours` no bairro | Capacidade 1 trilha e EnvioEcom inalterados |
 | 2026-08-21 | Anti-padrão: filtrar pedidos no `onChange` de cada tecla no admin monolítico | Input com debounce 300ms | Filtro `filteredOrders` continua local |
 | 2026-08-20 | Anti-padrão: reusar o badge **Faltando estoque** para “não fazer etiqueta” | Flag manual `is_procurando_produto` no pedido | Saldo / verifyOrderStock inalterados |
@@ -115,6 +116,7 @@ Código > memória > suposições.
 - Chamar EnvioEcom do browser / expor `X-Partner-Token` no FE.
 - Zerar frete Motoboy com `checkout_free_shipping_min_subtotal` (usar `checkout_free_shipping_min_motoboy`).
 - Inferir duração do slot Motoboy pelo preço (usar `interval_hours`).
+- Cadastrar bairro/faixa Motoboy neste repo como fonte da verdade quando `YURY_MOTOBOY_SYNC_TOKEN` está setado (espelho Yury; CRUD local 409).
 - Gerar etiqueta EnvioEcom com barcode provisório `EC…` (usar `shipping_id` / `ids`).
 - Pedir ID EnvioEcom com `window.prompt`; usar o modal **Vincular EE** (ID 4–10 dígitos ou rastreio) e `POST .../sync`.
 - Enviar um produto × N linhas na cotação EnvioEcom (empilha altura → `QUOTE_ERROR`); usar 1 pacote.

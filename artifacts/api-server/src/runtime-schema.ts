@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { pool } from "@workspace/db";
 import { DEFAULT_MOTOBOY_NEIGHBORHOODS } from "./lib/default-motoboy-neighborhoods";
+import { isYuryMotoboySyncConfigured } from "./lib/motoboy-yury-config";
 
 const DEFAULT_TENANT_ID = "tenant_loja1";
 const DEFAULT_TENANT_SLUG = "loja-1";
@@ -1148,10 +1149,14 @@ async function ensureMotoboyNeighborhoodsTable(databaseName: string): Promise<vo
         sort_order INT NOT NULL DEFAULT 0,
         is_active BOOLEAN NOT NULL DEFAULT TRUE,
         notes TEXT NULL,
+        yury_id VARCHAR(255) NULL,
+        remote_updated_at TIMESTAMP NULL,
+        synced_at TIMESTAMP NULL,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         KEY motoboy_neighborhoods_tenant_id_idx (tenant_id),
-        KEY motoboy_neighborhoods_lookup_idx (tenant_id, is_active, sort_order)
+        KEY motoboy_neighborhoods_lookup_idx (tenant_id, is_active, sort_order),
+        UNIQUE KEY motoboy_neighborhoods_tenant_yury_id_unique (tenant_id, yury_id)
       )
     `);
     return;
@@ -1160,6 +1165,19 @@ async function ensureMotoboyNeighborhoodsTable(databaseName: string): Promise<vo
   if (!(await columnExists("motoboy_neighborhoods", "interval_hours", databaseName))) {
     await pool.query("ALTER TABLE motoboy_neighborhoods ADD COLUMN interval_hours INT NOT NULL DEFAULT 1");
     await pool.query("UPDATE motoboy_neighborhoods SET interval_hours = CASE WHEN price <= 75 THEN 1 ELSE 2 END");
+  }
+
+  if (!(await columnExists("motoboy_neighborhoods", "yury_id", databaseName))) {
+    await pool.query("ALTER TABLE motoboy_neighborhoods ADD COLUMN yury_id VARCHAR(255) NULL");
+  }
+  if (!(await columnExists("motoboy_neighborhoods", "remote_updated_at", databaseName))) {
+    await pool.query("ALTER TABLE motoboy_neighborhoods ADD COLUMN remote_updated_at TIMESTAMP NULL");
+  }
+  if (!(await columnExists("motoboy_neighborhoods", "synced_at", databaseName))) {
+    await pool.query("ALTER TABLE motoboy_neighborhoods ADD COLUMN synced_at TIMESTAMP NULL");
+  }
+  if (!(await indexExists("motoboy_neighborhoods", "motoboy_neighborhoods_tenant_yury_id_unique", databaseName))) {
+    await pool.query("ALTER TABLE motoboy_neighborhoods ADD UNIQUE KEY motoboy_neighborhoods_tenant_yury_id_unique (tenant_id, yury_id)");
   }
 }
 
@@ -1210,26 +1228,44 @@ async function ensureOrderLogisticsAllocationsTable(databaseName: string): Promi
 }
 
 async function ensureMotoboyCepRangesTable(databaseName: string): Promise<void> {
-  if (await tableExists("motoboy_cep_ranges", databaseName)) return;
+  if (!(await tableExists("motoboy_cep_ranges", databaseName))) {
+    await pool.query(`
+      CREATE TABLE motoboy_cep_ranges (
+        id VARCHAR(255) NOT NULL PRIMARY KEY,
+        tenant_id VARCHAR(255) NOT NULL,
+        yury_id VARCHAR(255) NULL,
+        label VARCHAR(255) NOT NULL,
+        city VARCHAR(255) NULL,
+        cep_start INT NOT NULL,
+        cep_end INT NOT NULL,
+        price DECIMAL(10,2) NOT NULL,
+        interval_hours INT NOT NULL DEFAULT 1,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        sort_order INT NOT NULL DEFAULT 0,
+        notes TEXT NULL,
+        remote_updated_at TIMESTAMP NULL,
+        synced_at TIMESTAMP NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY motoboy_cep_ranges_lookup_idx (tenant_id, is_active, cep_start, cep_end),
+        UNIQUE KEY motoboy_cep_ranges_tenant_yury_id_unique (tenant_id, yury_id)
+      )
+    `);
+    return;
+  }
 
-  await pool.query(`
-    CREATE TABLE motoboy_cep_ranges (
-      id VARCHAR(255) NOT NULL PRIMARY KEY,
-      tenant_id VARCHAR(255) NOT NULL,
-      label VARCHAR(255) NOT NULL,
-      city VARCHAR(255) NULL,
-      cep_start INT NOT NULL,
-      cep_end INT NOT NULL,
-      price DECIMAL(10,2) NOT NULL,
-      interval_hours INT NOT NULL DEFAULT 1,
-      is_active BOOLEAN NOT NULL DEFAULT TRUE,
-      sort_order INT NOT NULL DEFAULT 0,
-      notes TEXT NULL,
-      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      KEY motoboy_cep_ranges_lookup_idx (tenant_id, is_active, cep_start, cep_end)
-    )
-  `);
+  if (!(await columnExists("motoboy_cep_ranges", "yury_id", databaseName))) {
+    await pool.query("ALTER TABLE motoboy_cep_ranges ADD COLUMN yury_id VARCHAR(255) NULL");
+  }
+  if (!(await columnExists("motoboy_cep_ranges", "remote_updated_at", databaseName))) {
+    await pool.query("ALTER TABLE motoboy_cep_ranges ADD COLUMN remote_updated_at TIMESTAMP NULL");
+  }
+  if (!(await columnExists("motoboy_cep_ranges", "synced_at", databaseName))) {
+    await pool.query("ALTER TABLE motoboy_cep_ranges ADD COLUMN synced_at TIMESTAMP NULL");
+  }
+  if (!(await indexExists("motoboy_cep_ranges", "motoboy_cep_ranges_tenant_yury_id_unique", databaseName))) {
+    await pool.query("ALTER TABLE motoboy_cep_ranges ADD UNIQUE KEY motoboy_cep_ranges_tenant_yury_id_unique (tenant_id, yury_id)");
+  }
 }
 
 function normalizeMotoboySeedValue(value: unknown): string {
@@ -1371,6 +1407,18 @@ async function seedDefaultMotoboyCepRanges(): Promise<void> {
   }
 }
 
+async function ensureYuryWebhookEventsProcessedTable(databaseName: string): Promise<void> {
+  if (await tableExists("yury_webhook_events_processed", databaseName)) return;
+
+  await pool.query(`
+    CREATE TABLE yury_webhook_events_processed (
+      event_id VARCHAR(255) NOT NULL PRIMARY KEY,
+      event_type VARCHAR(128) NOT NULL,
+      processed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+}
+
 export async function ensureRuntimeSchema(): Promise<void> {
   try {
     const databaseName = getDatabaseName();
@@ -1406,9 +1454,14 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureMotoboyCepRangesTable(databaseName);
     await ensureMotoboyDeliveryReservationsTable(databaseName);
     await ensureOrderLogisticsAllocationsTable(databaseName);
+    await ensureYuryWebhookEventsProcessedTable(databaseName);
     await seedDefaultTenantAndBackfill(databaseName);
-    await seedDefaultMotoboyNeighborhoods();
-    await seedDefaultMotoboyCepRanges();
+    if (isYuryMotoboySyncConfigured()) {
+      console.log("[RuntimeSchema] Skipping Motoboy seed; Yury coverage sync is configured.");
+    } else {
+      await seedDefaultMotoboyNeighborhoods();
+      await seedDefaultMotoboyCepRanges();
+    }
 
     console.log("[RuntimeSchema] Schema sync completed.");
   } catch (error) {

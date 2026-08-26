@@ -1,12 +1,13 @@
 # Integrações externas — KA Imports
 
-> **Última atualização:** 2026-08-24  
+> **Última atualização:** 2026-08-26  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-26 | Espelho Motoboy da Yury: pull + webhook HMAC de bairros/faixas CEP | Checkout lê cobertura local sincronizada | Agenda, estoque, last-mile e portal de preço inalterados |
 | 2026-08-24 | Parser EE lê cidade em `location.name` / `city_name` / município | Timeline grava “Cidade - unidade” | Webhook/Sync iguais |
 | 2026-08-24 | Board EE devolve `events`/`lastEvents` (mais recente primeiro); UI expande a timeline | Clique não chama a transportadora | Webhook/Sync e Meus pedidos iguais |
 | 2026-08-18 | Tabela `order_bank_deposits`: vários PIX por pedido | Soma no apply/clear/analyze | Parser OFX inalterado; `paid` inalterado |
@@ -76,6 +77,15 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 
 - **Google Sheets** fallback de produtos se DB vazio (`routes/products.ts`; env `GOOGLE_SHEET_ID` citada em docs).
 - **Extrato OFX (Banco Inter):** parser `lib/ofx-bank-statement.ts` + match `lib/bank-statement-reconcile.ts` (`matchIdentityScore`: CPF/CNPJ em NAME/MEMO = 1.0) + filtro `lib/bank-deposit-manual.ts`; rotas `POST /api/admin/bank-statement/analyze`, `/apply`, `/clear`, `GET /api/admin/bank-deposits`. Analyze também devolve `credits` (todos os PIX, `alreadyUsed`) e `linkableOrders` (pedidos manuais + `bankDepositFitids`/`bankDepositAmount`) para busca/vínculo manual. Arquivo lido no browser; só créditos novos entram no match automático (FITID ainda não gravado); conta mascarada. Não baixa comprovante do Inter. PIX com `transactionId` (CNPay/DentPeg) não entra no match. `clear` aceita `fitid` opcional. Apply `ok` com soma ≠ total exige `amountMismatchNote`; `confirmed_100` recusa valor diferente. Vários PIX por pedido em `order_bank_deposits` (FITID único).
+
+## Motoboy cobertura (Yury → KA)
+
+- Este repo é **espelho**. Fonte: Yury (`YURY_API_BASE`, default `https://api.yury-imports.com`).
+- Pull: `GET /api/integrations/motoboy/coverage` com `Authorization: Bearer` / `X-Api-Key` (`YURY_MOTOBOY_SYNC_TOKEN`). Job a cada 15 min + botão Admin Fretes. Replica em tenants ativos. `yury_id` unique por loja; `id` local permanece para reservas.
+- Webhook: `POST /api/webhooks/yury/motoboy-coverage` e `POST /webhooks/yury/motoboy-coverage`. Body **cru** + `X-Yury-Signature: sha256=<hmac>` + timestamp ≤ 5 min (`YURY_MOTOBOY_WEBHOOK_SECRET`). Idempotência em `yury_webhook_events_processed`.
+- Eventos: `motoboy.neighborhood|cep_range.upserted|deactivated|deleted` e `motoboy.coverage.full_sync_requested`.
+- Com token configurado, CRUD local de bairro/faixa retorna 409 `YURY_COVERAGE_LOCKED`. Seed Motoboy é pulado no boot.
+- **Não inclui:** propostas de bairro (fase 2), portal de preço, pool de estoque, agenda, last-mile.
 
 ## Geo / IP
 

@@ -6,6 +6,7 @@ import { resolvePublicTenantId } from "../lib/tenant-context";
 import { getMotoboyAvailability, MotoboyScheduleError } from "../lib/motoboy-delivery-schedule";
 import { normalizeMotoboyPlaceName } from "../lib/motoboy-neighborhood-normalize";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
+import { isMotoboyCoverageWriteLocked } from "../lib/motoboy-yury-sync";
 
 const router: IRouter = Router();
 const DEFAULT_TENANT_ID = "tenant_loja1";
@@ -89,6 +90,10 @@ router.get("/admin/motoboy-neighborhoods", requireAdminAuth, async (req, res) =>
 
 router.post("/admin/motoboy-neighborhoods", requireAdminAuth, async (req, res) => {
   try {
+    if (isMotoboyCoverageWriteLocked()) {
+      res.status(409).json({ error: "YURY_COVERAGE_LOCKED", message: "Cadastro de bairro Motoboy só na Yury. Use Sincronizar." });
+      return;
+    }
     const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const neighborhoodName = String(req.body?.neighborhoodName || "").trim();
     const price = parsePrice(req.body?.price);
@@ -137,6 +142,10 @@ router.post("/admin/motoboy-neighborhoods", requireAdminAuth, async (req, res) =
 
 router.patch("/admin/motoboy-neighborhoods/:id", requireAdminAuth, async (req, res) => {
   try {
+    if (isMotoboyCoverageWriteLocked()) {
+      res.status(409).json({ error: "YURY_COVERAGE_LOCKED", message: "Cadastro de bairro Motoboy só na Yury. Use Sincronizar." });
+      return;
+    }
     const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const id = String(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id || "").trim();
     const updates: Partial<typeof motoboyNeighborhoodsTable.$inferInsert> = { updatedAt: new Date() };
@@ -208,6 +217,10 @@ router.patch("/admin/motoboy-neighborhoods/:id", requireAdminAuth, async (req, r
 
 router.delete("/admin/motoboy-neighborhoods/:id", requireAdminAuth, async (req, res) => {
   try {
+    if (isMotoboyCoverageWriteLocked()) {
+      res.status(409).json({ error: "YURY_COVERAGE_LOCKED", message: "Cadastro de bairro Motoboy só na Yury. Use Sincronizar." });
+      return;
+    }
     const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const id = String(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id || "").trim();
     await db.delete(motoboyNeighborhoodsTable).where(and(

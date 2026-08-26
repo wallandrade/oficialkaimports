@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-26 | Espelho Motoboy Yury: `yury_id` + tabela `yury_webhook_events_processed` | Pull/webhook de cobertura | Pedidos/agenda Motoboy inalterados |
 | 2026-08-26 | `motoboy_neighborhoods.interval_hours`; settings Motoboy no checkout | Duração do slot e whitelist/frete grátis 2× | Portal/estoque Motoboy e EnvioEcom inalterados |
 | 2026-08-21 | Lista de pedidos admin: JSON leve (sem `data:`/OCR); `GET /admin/orders/:id` carrega mídia | Data e lista mais rápidas; comprovante no clique | Filtros e PIX inalterados |
 | 2026-08-18 | Tabela `order_bank_deposits` + resumo em `orders.bank_deposit_*` | Vários PIX por pedido | Stack FE/API inalterada |
@@ -54,7 +55,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 - `orders` (incl. `envioecom_*`, `enviado`, `is_prioridade`, `is_procurando_produto`, `tracking_*`, `bank_deposit_*`), `order_bank_deposits` (vários PIX OFX por pedido), `custom_charges`, `products`, `coupons`, `sellers`
 - `customer_users`, `affiliates` (+ referrals/commissions/credit uses)
 - `kyc_documents`, `site_settings` / `tenant_settings`
-- `shipping_options`, `motoboy_*`, `order_logistics_allocations`
+- `shipping_options`, `motoboy_*` (incl. `yury_id` na cobertura), `yury_webhook_events_processed`, `order_logistics_allocations`
 - `inventory_balances` / `inventory_movements`, `reshipments`, `manual_*`
 - `raffles*`, `order_bumps`, `support_tickets`, `filial_purchase_*`
 - `marketing_expenses`, `seller_commission_payments`, `social_proof_*`, `product_cost_history`
@@ -63,7 +64,8 @@ Monorepo **pnpm workspaces** + TypeScript.
 
 - Entry: `artifacts/api-server/src/index.ts` → `app.ts` → `routes/index.ts`.
 - Health: `GET /healthz`.
-- Jobs no boot: reconciliação (expiração 24h), raffle expiry, reconcile logistics.
+- Jobs no boot: reconciliação (expiração 24h), raffle expiry, reconcile logistics, pull de cobertura Motoboy Yury (15 min, se token).
+- Webhook cobertura Motoboy: `POST /api/webhooks/yury/motoboy-coverage` (body cru + HMAC) **antes** de `express.json()`.
 - EnvioEcom: `artifacts/api-server/src/routes/envioecom.ts` + webhook em `webhooks.ts`. Config por `tenant_settings`.
 - Extrato OFX: `artifacts/api-server/src/routes/bank-statement.ts` (`analyze`/`apply`/`clear`/`bank-deposits`) + `order_bank_deposits`. Painéis FE: `AdminBankStatementPanel.tsx` (sessão) e `AdminBankDepositsPanel.tsx` (histórico + Desfazer por FITID).
 - Lista admin: `GET /admin/orders` em modo leve (sem `data:`/OCR); `GET /admin/orders/:id` devolve mídia completa.

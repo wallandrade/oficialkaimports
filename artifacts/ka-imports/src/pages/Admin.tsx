@@ -2051,6 +2051,9 @@ export default function Admin() {
   const [motoboyCepRangeCreating, setMotoboyCepRangeCreating] = useState(false);
   const [motoboyCepRangeUpdating, setMotoboyCepRangeUpdating] = useState<string | null>(null);
   const [motoboyCepRangeDeleting, setMotoboyCepRangeDeleting] = useState<string | null>(null);
+  const [yuryCoverageConfigured, setYuryCoverageConfigured] = useState(false);
+  const [yuryCoverageSyncing, setYuryCoverageSyncing] = useState(false);
+  const [yuryCoverageLastSyncedAt, setYuryCoverageLastSyncedAt] = useState<string | null>(null);
   // Order Bumps
   const [orderBumps, setOrderBumps] = useState<OrderBump[]>([]);
   const [bumpForm, setBumpForm] = useState<BumpFormType>(EMPTY_BUMP_FORM);
@@ -4755,6 +4758,43 @@ export default function Admin() {
     } catch { /* ignore */ }
   }, []);
 
+  const fetchYuryCoverageStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`${BASE}/api/admin/motoboy-coverage/yury`, { headers: authHeaders() });
+      const data = await res.json() as { configured?: boolean; lastSyncedAt?: string | null };
+      if (res.ok) {
+        setYuryCoverageConfigured(Boolean(data.configured));
+        setYuryCoverageLastSyncedAt(data.lastSyncedAt || null);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  const syncYuryCoverage = useCallback(async () => {
+    setYuryCoverageSyncing(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/motoboy-coverage/yury/sync`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      const data = await res.json() as { message?: string; skipped?: boolean; syncedAt?: string };
+      if (!res.ok) {
+        toast.error(data.message || "Falha ao sincronizar cobertura Yury.");
+        return;
+      }
+      if (data.skipped) {
+        toast.info(data.message || "Sync Yury não configurado.");
+      } else {
+        toast.success("Cobertura Motoboy sincronizada da Yury.");
+      }
+      setYuryCoverageLastSyncedAt(data.syncedAt || null);
+      await Promise.all([fetchMotoboyNeighborhoods(), fetchMotoboyCepRanges(), fetchYuryCoverageStatus()]);
+    } catch {
+      toast.error("Erro ao sincronizar cobertura Yury.");
+    } finally {
+      setYuryCoverageSyncing(false);
+    }
+  }, [fetchMotoboyCepRanges, fetchMotoboyNeighborhoods, fetchYuryCoverageStatus]);
+
   const fetchOrderBumpsData = useCallback(async () => {
     try {
       const res = await fetch(`${BASE}/api/admin/order-bumps`, { headers: authHeaders() });
@@ -4990,7 +5030,7 @@ export default function Admin() {
     else if (tab === "configuracoes") { fetchSettings(); fetchClientErrors(); fetchBrevoStatus(); }
     else if (tab === "checkout") { fetchSettings(); }
     else if (tab === "sellers")    { fetchSellers(); fetchSellerData(); }
-    else if (tab === "fretes")     { fetchShippingOptions(); fetchMotoboyNeighborhoods(); fetchMotoboyCepRanges(); fetchProducts(); fetchSettings(); }
+    else if (tab === "fretes")     { fetchShippingOptions(); fetchMotoboyNeighborhoods(); fetchMotoboyCepRanges(); fetchProducts(); fetchSettings(); fetchYuryCoverageStatus(); }
     else if (tab === "orderBumps") { fetchProducts(); fetchOrderBumpsData(); }
     else if (tab === "kyc")        fetchKycList();
     else if (tab === "commissions") { fetchCommissionPayments(); }
@@ -4999,7 +5039,7 @@ export default function Admin() {
     else if (tab === "lojas")      { fetchTenants(); fetchDnsGuide(dnsDomainInput); fetchTenantProfitSummary(); fetchFilialPurchaseRequests(selectedFilialTenantId || undefined); }
     else if (tab === "supplierPurchases") { fetchMyFilialPurchaseRequests(); fetchMyFilialPurchaseProductImages(); }
     else setLoading(false);
-  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchSellers, fetchSellerData, fetchShippingOptions, fetchMotoboyNeighborhoods, fetchMotoboyCepRanges, fetchOrderBumpsData, fetchKycList, fetchCommissionPayments, fetchSocialProof, fetchRaffles, fetchTenants, fetchDnsGuide, fetchTenantProfitSummary, fetchFilialPurchaseRequests, fetchMyFilialPurchaseRequests, fetchMyFilialPurchaseProductImages, dnsDomainInput, selectedFilialTenantId]);
+  }, [tab, fetchOrders, fetchCharges, fetchUsers, fetchCustomers, fetchRecurringCustomers, fetchSupportTickets, fetchInventoryOverview, fetchCoupons, fetchProducts, fetchSettings, fetchClientErrors, fetchSellers, fetchSellerData, fetchShippingOptions, fetchMotoboyNeighborhoods, fetchMotoboyCepRanges, fetchYuryCoverageStatus, fetchOrderBumpsData, fetchKycList, fetchCommissionPayments, fetchSocialProof, fetchRaffles, fetchTenants, fetchDnsGuide, fetchTenantProfitSummary, fetchFilialPurchaseRequests, fetchMyFilialPurchaseRequests, fetchMyFilialPurchaseProductImages, dnsDomainInput, selectedFilialTenantId]);
 
   // -------------------------------------------------------------------------
   // SSE
@@ -7860,6 +7900,10 @@ export default function Admin() {
             settingsLoading={settingsLoading}
             onSaveSetting={saveSetting}
             onDeleteSetting={deleteSetting}
+            yuryCoverageConfigured={yuryCoverageConfigured}
+            yuryCoverageSyncing={yuryCoverageSyncing}
+            yuryCoverageLastSyncedAt={yuryCoverageLastSyncedAt}
+            onSyncYuryCoverage={() => { void syncYuryCoverage(); }}
           />
         ) : tab === "envioecom" ? (
           <EnvioEcomTrackingBoard
@@ -19820,6 +19864,7 @@ interface MotoboyNeighborhood {
   sortOrder: number;
   isActive: boolean;
   notes: string | null;
+  yuryId?: string | null;
 }
 
 interface MotoboyNeighborhoodForm {
@@ -19851,6 +19896,7 @@ interface MotoboyCepRange {
   isActive: boolean;
   sortOrder: number;
   notes: string | null;
+  yuryId?: string | null;
 }
 
 interface MotoboyCepRangeForm {
@@ -19912,6 +19958,10 @@ interface FretePanelProps {
   settingsLoading: Record<string, boolean>;
   onSaveSetting: (key: string, value: string) => void;
   onDeleteSetting: (key: string) => void;
+  yuryCoverageConfigured: boolean;
+  yuryCoverageSyncing: boolean;
+  yuryCoverageLastSyncedAt: string | null;
+  onSyncYuryCoverage: () => void;
 }
 
 function FretePanel({
@@ -19921,6 +19971,7 @@ function FretePanel({
   motoboyCepRanges, motoboyCepRangeForm, setMotoboyCepRangeForm, motoboyCepRangeCreating,
   motoboyCepRangeUpdating, motoboyCepRangeDeleting,   onCreateMotoboyCepRange, onUpdateMotoboyCepRange, onDeleteMotoboyCepRange,
   products, settings, settingsLoading, onSaveSetting, onDeleteSetting,
+  yuryCoverageConfigured, yuryCoverageSyncing, yuryCoverageLastSyncedAt, onSyncYuryCoverage,
 }: FretePanelProps) {
   const [editForm, setEditForm] = useState({ name: "", description: "", price: "", sortOrder: "0" });
   const [motoboyEditForm, setMotoboyEditForm] = useState<MotoboyNeighborhoodForm>(EMPTY_MOTOBOY_NEIGHBORHOOD_FORM);
@@ -19964,6 +20015,26 @@ function FretePanel({
 
   return (
     <div className="space-y-6">
+      <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 space-y-3">
+        <h3 className="font-semibold text-base flex items-center gap-2">
+          <Bike className="w-4 h-4 text-amber-700" />
+          Cobertura Motoboy (espelho Yury)
+        </h3>
+        <p className="text-sm text-amber-900">
+          Bairros e faixas de CEP vêm da Yury. Cadastro só lá. Pull a cada 15 min + webhook; este botão força um sync agora.
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button size="sm" onClick={onSyncYuryCoverage} disabled={yuryCoverageSyncing || !yuryCoverageConfigured}>
+            {yuryCoverageSyncing ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <RefreshCw className="w-4 h-4 mr-1" />}
+            Sincronizar Motoboy Yury
+          </Button>
+          <span className="text-xs text-amber-800">
+            {yuryCoverageConfigured
+              ? (yuryCoverageLastSyncedAt ? `Último sync: ${new Date(yuryCoverageLastSyncedAt).toLocaleString("pt-BR")}` : "Token configurado; ainda sem sync.")
+              : "Configure YURY_MOTOBOY_SYNC_TOKEN na API para habilitar."}
+          </span>
+        </div>
+      </div>
       <div className="bg-white rounded-2xl shadow-sm border border-border p-6 space-y-4">
         <h3 className="font-semibold text-base">Frete grátis Motoboy</h3>
         <p className="text-sm text-muted-foreground">Limiar só para Motoboy. Em branco = desativado. Não usa o mínimo dos Correios.</p>
@@ -20203,8 +20274,12 @@ function FretePanel({
           Entrega por Motoboy — Bairros Atendidos
         </h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          Cadastre o nome exatamente como a ViaCEP retorna para liberar esta opção no checkout.
+          {yuryCoverageConfigured
+            ? "Lista espelhada da Yury. Checkout usa estes bairros."
+            : "Cadastre o nome exatamente como a ViaCEP retorna para liberar esta opção no checkout."}
         </p>
+        {!yuryCoverageConfigured && (
+        <>
         <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-xs font-medium mb-1">Bairro *</label>
@@ -20269,6 +20344,8 @@ function FretePanel({
           {motoboyCreating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
           Adicionar Bairro
         </Button>
+        </>
+        )}
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-border overflow-hidden">
@@ -20322,11 +20399,12 @@ function FretePanel({
                         <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${neighborhood.isActive ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>
                           {neighborhood.isActive ? "Ativo" : "Inativo"}
                         </span>
-                        <span className="text-xs text-muted-foreground">Ordem: {neighborhood.sortOrder}</span>
+                        {neighborhood.yuryId ? <span className="text-xs font-mono text-muted-foreground">Yury {neighborhood.yuryId}</span> : null}
                       </div>
                       {neighborhood.notes ? <p className="text-xs text-muted-foreground mt-1">{neighborhood.notes}</p> : null}
                       <p className="text-lg font-bold text-primary mt-1">{formatCurrency(Number(neighborhood.price))} · {neighborhood.intervalHours || 1}h</p>
                     </div>
+                    {!yuryCoverageConfigured && (
                     <div className="flex items-center gap-1 shrink-0">
                       <button onClick={() => onUpdateMotoboy(neighborhood.id, { isActive: !neighborhood.isActive })} disabled={motoboyUpdating === neighborhood.id} className="text-muted-foreground hover:text-primary transition-colors p-1.5" title={neighborhood.isActive ? "Desativar" : "Ativar"}>
                         {neighborhood.isActive ? <IconLucide name="ToggleRight" className="w-5 h-5 text-green-600" /> : <ToggleLeft className="w-5 h-5" />}
@@ -20336,6 +20414,7 @@ function FretePanel({
                         {motoboyDeleting === neighborhood.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                       </button>
                     </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -20352,6 +20431,8 @@ function FretePanel({
         <p className="mt-1 text-xs text-muted-foreground">
           Usadas quando o sub-bairro retornado pela ViaCEP não corresponde a um bairro cadastrado.
         </p>
+        {!yuryCoverageConfigured && (
+        <>
         <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <div>
             <label className="block text-xs font-medium mb-1">Descrição da região *</label>
@@ -20393,6 +20474,8 @@ function FretePanel({
           {motoboyCepRangeCreating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Plus className="w-4 h-4 mr-2" />}
           Adicionar Faixa
         </Button>
+        </>
+        )}
       </div>
 
       <div className="bg-white rounded-2xl shadow-sm border border-border overflow-hidden">
@@ -20412,11 +20495,13 @@ function FretePanel({
                     <span className="font-semibold text-sm">{cepRange.label}</span>
                     {cepRange.city && <span className="text-xs text-muted-foreground">{cepRange.city}</span>}
                     <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${cepRange.isActive ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>{cepRange.isActive ? "Ativa" : "Inativa"}</span>
+                    {cepRange.yuryId ? <span className="text-xs font-mono text-muted-foreground">Yury {cepRange.yuryId}</span> : null}
                   </div>
                   <p className="mt-1 font-mono text-xs text-muted-foreground">{formatCepRangeValue(cepRange.cepStart)} até {formatCepRangeValue(cepRange.cepEnd)}</p>
                   <p className="mt-1 text-sm"><strong className="text-primary">{formatCurrency(Number(cepRange.price))}</strong> · intervalo de {cepRange.intervalHours}h · ordem {cepRange.sortOrder}</p>
                   {cepRange.notes && <p className="mt-1 text-xs text-muted-foreground">{cepRange.notes}</p>}
                 </div>
+                {!yuryCoverageConfigured && (
                 <div className="flex items-center gap-1 shrink-0">
                   <button onClick={() => onUpdateMotoboyCepRange(cepRange.id, { isActive: !cepRange.isActive })} disabled={motoboyCepRangeUpdating === cepRange.id} className="p-1.5 text-muted-foreground hover:text-primary" title={cepRange.isActive ? "Desativar" : "Ativar"}>
                     {cepRange.isActive ? <IconLucide name="ToggleRight" className="w-5 h-5 text-green-600" /> : <ToggleLeft className="w-5 h-5" />}
@@ -20425,6 +20510,7 @@ function FretePanel({
                     {motoboyCepRangeDeleting === cepRange.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                   </button>
                 </div>
+                )}
               </div>
             ))}
           </div>

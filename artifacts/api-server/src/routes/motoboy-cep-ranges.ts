@@ -4,6 +4,7 @@ import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
 import { db, motoboyCepRangesTable } from "@workspace/db";
 import { resolvePublicTenantId } from "../lib/tenant-context";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
+import { isMotoboyCoverageWriteLocked } from "../lib/motoboy-yury-sync";
 
 const router: IRouter = Router();
 const DEFAULT_TENANT_ID = "tenant_loja1";
@@ -88,6 +89,10 @@ router.get("/admin/motoboy-cep-ranges", requireAdminAuth, async (req, res) => {
 
 router.post("/admin/motoboy-cep-ranges", requireAdminAuth, async (req, res) => {
   try {
+    if (isMotoboyCoverageWriteLocked()) {
+      res.status(409).json({ error: "YURY_COVERAGE_LOCKED", message: "Cadastro de faixa Motoboy só na Yury. Use Sincronizar." });
+      return;
+    }
     const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const label = String(req.body?.label || "").trim();
     const cepStart = parseCep(req.body?.cepStart);
@@ -129,6 +134,10 @@ router.post("/admin/motoboy-cep-ranges", requireAdminAuth, async (req, res) => {
 
 router.patch("/admin/motoboy-cep-ranges/:id", requireAdminAuth, async (req, res) => {
   try {
+    if (isMotoboyCoverageWriteLocked()) {
+      res.status(409).json({ error: "YURY_COVERAGE_LOCKED", message: "Cadastro de faixa Motoboy só na Yury. Use Sincronizar." });
+      return;
+    }
     const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const id = String(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id || "").trim();
     const [existing] = await db.select().from(motoboyCepRangesTable).where(and(
@@ -197,6 +206,10 @@ router.patch("/admin/motoboy-cep-ranges/:id", requireAdminAuth, async (req, res)
 
 router.delete("/admin/motoboy-cep-ranges/:id", requireAdminAuth, async (req, res) => {
   try {
+    if (isMotoboyCoverageWriteLocked()) {
+      res.status(409).json({ error: "YURY_COVERAGE_LOCKED", message: "Cadastro de faixa Motoboy só na Yury. Use Sincronizar." });
+      return;
+    }
     const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const id = String(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id || "").trim();
     await db.delete(motoboyCepRangesTable).where(and(
