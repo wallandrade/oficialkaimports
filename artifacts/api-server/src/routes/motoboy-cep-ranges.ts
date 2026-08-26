@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { Router, type IRouter } from "express";
 import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
 import { db, motoboyCepRangesTable } from "@workspace/db";
+import { pickMotoboyCepRange } from "../lib/motoboy-cep-range-pick";
 import { resolvePublicTenantId } from "../lib/tenant-context";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { isMotoboyCoverageWriteLocked } from "../lib/motoboy-yury-sync";
@@ -32,20 +33,11 @@ function parseSortOrder(value: unknown): number | null {
   return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
 }
 
-function normalizeCity(value: unknown): string {
-  return String(value || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLowerCase();
-}
-
 router.get("/motoboy-cep-ranges/lookup", async (req, res) => {
   try {
     const cep = parseCep(req.query.cep);
-    const city = normalizeCity(req.query.cidade);
-    if (cep == null || !city) {
-      res.status(400).json({ error: "INVALID_INPUT", message: "CEP e cidade são obrigatórios." });
+    if (cep == null) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "CEP é obrigatório." });
       return;
     }
 
@@ -63,7 +55,7 @@ router.get("/motoboy-cep-ranges/lookup", async (req, res) => {
         sql`${motoboyCepRangesTable.cepEnd} - ${motoboyCepRangesTable.cepStart} asc`,
         asc(motoboyCepRangesTable.sortOrder),
       );
-    const cepRange = candidates.find((candidate) => normalizeCity(candidate.city) === city) || null;
+    const cepRange = pickMotoboyCepRange(candidates, req.query.cidade);
 
     res.json({ cepRange });
   } catch (error) {

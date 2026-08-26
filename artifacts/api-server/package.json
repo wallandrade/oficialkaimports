@@ -9,7 +9,7 @@
     "start": "cd ../../lib/db && drizzle-kit push --force --config ./drizzle.config.ts && cd ../../artifacts/api-server && node dist/index.cjs",
     "start-only": "cross-env TZ=America/Sao_Paulo node dist/index.cjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:free-shipping": "node --test --import tsx ./src/lib/free-shipping.test.ts ./src/lib/motoboy-eligible-products.test.ts ./src/lib/motoboy-neighborhood-normalize.test.ts ./src/lib/motoboy-yury-hmac.test.ts"
+    "test:free-shipping": "node --test --import tsx ./src/lib/free-shipping.test.ts ./src/lib/motoboy-eligible-products.test.ts ./src/lib/motoboy-neighborhood-normalize.test.ts ./src/lib/motoboy-cep-range-pick.test.ts ./src/lib/motoboy-yury-hmac.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.916.0",
