@@ -15,7 +15,8 @@ import { getCustomerSession } from "../middlewares/customer-auth";
 import { applyAffiliateCreditToOrder, ensureOrderCommission, normalizeAffiliateCode, registerAffiliateLead, resolveAffiliateByCode } from "../lib/affiliates";
 import { sendOutboundWebhook } from "../lib/outbound-webhook";
 import { lookupIpGeo } from "../lib/ip-geo";
-import { parseFreeShippingMinSubtotalSetting, resolveShippingCostWithFreeThreshold } from "../lib/free-shipping";
+import { isMotoboyShippingType, parseFreeShippingMinSubtotalSetting, resolveShippingCostWithFreeThreshold } from "../lib/free-shipping";
+import { isCartEligibleForMotoboy, parseMotoboyEligibleProductIds } from "../lib/motoboy-eligible-products";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 import { enqueueFilialOrderPurchaseRequest } from "../lib/filial-purchase-queue";
 import { reserveNextOrderNumber } from "../lib/order-number";
@@ -182,6 +183,11 @@ async function getActivePixGateway(tenantId: string): Promise<"appcnpay" | "dent
 async function getFreeShippingMinSubtotal(tenantId: string): Promise<number | null> {
   const value = await getSettingValue("checkout_free_shipping_min_subtotal", tenantId);
   return parseFreeShippingMinSubtotalSetting(value ?? "");
+}
+
+async function getMotoboyEligibleProductIds(tenantId: string): Promise<string[]> {
+  const value = await getSettingValue("motoboy_eligible_product_ids", tenantId);
+  return parseMotoboyEligibleProductIds(value ?? "");
 }
 
 async function getSettingValue(key: string, tenantId = DEFAULT_TENANT_ID): Promise<string | null> {
@@ -382,6 +388,18 @@ router.post("/checkout/pix", async (req, res) => {
         items: priceChanges,
       });
       return;
+    }
+
+    if (isMotoboyShippingType(shippingType)) {
+      const eligibleIds = await getMotoboyEligibleProductIds(tenantId);
+      const cartIds = orderProducts.map((p) => p.id);
+      if (!isCartEligibleForMotoboy(cartIds, eligibleIds)) {
+        res.status(400).json({
+          error: "MOTOBOY_NOT_ELIGIBLE",
+          message: "Um ou mais produtos do carrinho não podem ser entregues por Motoboy. Escolha o frete padrão da loja.",
+        });
+        return;
+      }
     }
 
     const computedSubtotal = orderProducts.reduce((acc, p) => acc + (Number(p.quantity) || 0) * (Number(p.price) || 0), 0);
