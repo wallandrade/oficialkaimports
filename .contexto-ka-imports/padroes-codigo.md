@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-27 | Anti-padrão: copiar lote da filial sem o nome da loja no título | `site_name` no Motoboy/48h/Outros | Loja 1 e card individual inalterados |
 | 2026-08-27 | Anti-padrão: prefixar cópia Motoboy com `#KA-` ou incluir agendamento | Layout Yury (`#161`, emoji, sem slot) | Cópia 48h/EnvioEcom inalterada |
 | 2026-08-26 | Anti-padrão: exigir cidade da faixa CEP igual à ViaCEP para mostrar Motoboy | CEP na faixa libera; cidade só desempata | Whitelist e EnvioEcom inalterados |
 | 2026-08-26 | Anti-padrão: cadastrar bairro Motoboy neste repo como verdade quando o sync Yury está ligado | Espelho `yury_id` + webhook HMAC; CRUD local 409 | Agenda e EnvioEcom inalterados |
@@ -131,6 +132,7 @@ Código > memória > suposições.
 - Tratar PDF da etiqueta EnvioEcom como “Pronto para envio” se o status for **Cancelado**.
 - Colocar o UUID do pedido (`orders.id`) na mensagem WhatsApp do checkout ou no card da Minha conta; usar `orderNumber`.
 - Prefixar a cópia Motoboy com `#KA-` ou incluir agendamento/telefone; usar `#161` e o layout Yury.
+- Copiar lote Motoboy/48h da filial sem o nome da loja; usar `site_name` no título (loja 1 fica sem sufixo).
 - Tratar status EnvioEcom como enum rígido (é texto livre).
 - Inventar histórico de rastreio EnvioEcom (ex. “Status atualizado ao consultar rastreio”); usar `status_history` da API, com `location` cidade/unidade, e não duplicar `description` igual ao status.
 - No `fetchOrders` do admin, substituir a lista com um GET iniciado antes de gerar a etiqueta (apaga o PDF na tela). Abortar o request anterior e não limpar `envioecomLabelUrl` local.

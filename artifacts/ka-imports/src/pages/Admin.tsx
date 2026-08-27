@@ -49,6 +49,15 @@ function getAdminTenantId() {
   return localStorage.getItem("adminTenantId") || "tenant_loja1";
 }
 
+function filialCopyStoreLabel(tenantId: string, settings: Record<string, string>): string | null {
+  const id = String(tenantId || "").trim();
+  if (!id || id === "tenant_loja1") return null;
+  const siteName = String(settings["site_name"] || "").trim();
+  if (siteName) return siteName;
+  const slug = id.replace(/^tenant_/i, "").trim();
+  return slug || id;
+}
+
 // Recupera o token do admin do localStorage
 function getToken() {
   return sessionStorage.getItem("adminToken") || localStorage.getItem("adminToken") || "";
@@ -6352,6 +6361,7 @@ export default function Admin() {
   const searchingProductOrders = ordersParaEnviarCopyBase.filter((order) => isProcurandoProdutoOrder(order));
   const motoboyCopyOrders = withoutSearchingProductOrders(logisticsCopyGroups.motoboyOrders);
   const otherCopyOrders = withoutSearchingProductOrders(logisticsCopyGroups.otherOrders);
+  const copyStoreLabel = filialCopyStoreLabel(adminTenantId, settings);
 
   const copyShoppingList = async (
     shoppingOrders: AdminOrder[],
@@ -6450,7 +6460,9 @@ export default function Admin() {
       : "Itens ja cobertos por estoque (nao comprar):\n- Estoque nao carregado";
 
     const text = [
-      `Lista de Compra - Envios em ${promisedHours}h - ${shoppingOrders.length} pedido${shoppingOrders.length !== 1 ? "s" : ""}`,
+      copyStoreLabel
+        ? `Lista de Compra - ${copyStoreLabel} - Envios em ${promisedHours}h - ${shoppingOrders.length} pedido${shoppingOrders.length !== 1 ? "s" : ""}`
+        : `Lista de Compra - Envios em ${promisedHours}h - ${shoppingOrders.length} pedido${shoppingOrders.length !== 1 ? "s" : ""}`,
       "",
       "Comprar agora:",
       buyLines.length ? buyLines.join("\n") : "- Nada para comprar",
@@ -6500,10 +6512,11 @@ export default function Admin() {
           - Number((right as any)?.logisticsAllocation?.slotPosition || 0)
         ));
         const header = [
+          copyStoreLabel ? `Loja: ${copyStoreLabel}` : null,
           `🚨 POSTAR ATÉ: ${formatDateBR(allocation.deadlineAt) || "-"} às ${formatTimeBR(allocation.deadlineAt) || "18:00"}`,
           `Lote de expedição: ${groupedOrders.length} pedido${groupedOrders.length !== 1 ? "s" : ""} de ${allocation.capacity} vagas`,
           `Prazo de postagem: até ${allocation.promisedHours} horas`,
-        ].join("\n");
+        ].filter((line) => line != null).join("\n");
         return `${header}\n\n${sortedOrders.map(logisticsOrderBlock).join("\n\n")}`;
       }).join("\n\n");
     try {
@@ -6522,9 +6535,10 @@ export default function Admin() {
       toast.info("Nenhum pedido em Outros para enviar. Os marcados foram para Procurando produtos.");
       return;
     }
-    const text = otherOrders
+    const blocks = otherOrders
       .map((order, index) => legacySupplierOrderBlock(order, index + 1))
       .join("\n\n");
+    const text = copyStoreLabel ? `Loja: ${copyStoreLabel}\n\n${blocks}` : blocks;
     try {
       const mode = await copyText(text);
       toast.success(mode === "manual" ? "Texto aberto para copia manual." : "Outros pedidos copiados.");
@@ -6542,7 +6556,7 @@ export default function Admin() {
       return;
     }
     const text = [
-      "🛵 ENTREGAS MOTOBOY",
+      copyStoreLabel ? `🛵 ENTREGAS MOTOBOY — ${copyStoreLabel}` : "🛵 ENTREGAS MOTOBOY",
       "━━━━━━━━━━━━━━━━━━",
       "",
       motoboyOrders.map(motoboyOrderBlock).join("\n\n"),
@@ -6571,11 +6585,12 @@ export default function Admin() {
       return logisticsOrderBlock(order);
     });
     const text = [
+      copyStoreLabel ? `Loja: ${copyStoreLabel}` : null,
       "NÃO FAZER ETIQUETA AINDA — atrasados para achar o produto do cliente.",
       `Pedidos: ${searchingProductOrders.length}`,
       "",
       blocks.join("\n\n"),
-    ].join("\n");
+    ].filter((line) => line != null).join("\n");
 
     try {
       const mode = await copyText(text);
