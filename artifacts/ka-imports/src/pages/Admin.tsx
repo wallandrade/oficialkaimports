@@ -587,7 +587,7 @@ function motoboyOrderBlock(order: any): string {
     ? products.map((p) => {
         const qty = Number(p?.quantity) || 0;
         const line = (Number(p?.price) || 0) * qty;
-        return `• ${qty} x ${p?.name || "Produto"} — ${formatCurrency(line)}`;
+        return `• ${qty}x ${p?.name || "Produto"} — ${formatCurrency(line)}`;
       }).join("\n")
     : "• Sem itens";
   const productsTotal = Number(order?.subtotal) || products.reduce((sum, p) => sum + (Number(p?.price) || 0) * (Number(p?.quantity) || 0), 0);
@@ -595,23 +595,28 @@ function motoboyOrderBlock(order: any): string {
   const motoboyTotal = productsTotal + motoboyFreight;
   const rua = [order?.addressStreet, order?.addressNumber].filter(Boolean).join(", ") || "-";
   const addressLine = [rua, order?.addressComplement].filter(Boolean).join(" – ");
+  const city = String(order?.addressCity || "-").trim() || "-";
+  const state = String(order?.addressState || "").trim();
+  const cityLine = state ? `${city} / ${state}` : city;
 
   return [
-    searchingProductCopyLine(order),
-    `ENTREGA #KA-${getOrderDisplayId(order)}`,
-    `Pagamento: ${paid ? "confirmado" : "PENDENTE"}`,
-    `Cliente: ${order?.clientName || "-"}`,
-    `Endereço: ${addressLine}`,
-    `Bairro: ${order?.addressNeighborhood || "-"}`,
-    `Cidade: ${order?.addressCity || "-"}`,
-    `CEP: ${order?.addressCep || "-"}`,
-    `Agendamento: ${formatDateOnlyLocal(order?.motoboyDeliveryDate) || "-"} às ${order?.motoboyDeliveryTime || "-"} (${Number(order?.motoboyDeliveryDurationHours) || 1}h)`,
-    `Itens:\n${itemsText}`,
-    `Produtos: ${formatCurrency(productsTotal)}`,
-    `Frete Motoboy: ${formatCurrency(motoboyFreight)}`,
-    `Total (produtos + Motoboy): ${formatCurrency(motoboyTotal)}`,
-    "_______________________________",
-  ].filter(Boolean).join("\n");
+    searchingProductCopyLine(order) || null,
+    `📦 ENTREGA #${getOrderDisplayId(order)}`,
+    `${paid ? "✅" : "⚠️"} Pagamento: ${paid ? "confirmado" : "PENDENTE"}`,
+    `👤 Cliente: ${order?.clientName || "-"}`,
+    `📍 Endereço: ${addressLine}`,
+    `🏘️ Bairro: ${order?.addressNeighborhood || "-"}`,
+    `🏙️ Cidade: ${cityLine}`,
+    `📮 CEP: ${order?.addressCep || "-"}`,
+    "",
+    `📦 Itens:`,
+    itemsText,
+    "",
+    `💰 Produtos: ${formatCurrency(productsTotal)}`,
+    `🛵 Frete Motoboy: ${formatCurrency(motoboyFreight)}`,
+    `💵 Total (produtos + Motoboy): ${formatCurrency(motoboyTotal)}`,
+    "━━━━━━━━━━━━━━━━━━",
+  ].filter((line) => line != null).join("\n");
 }
 
 function legacySupplierOrderBlock(order: any, sequence: number): string {
@@ -6537,8 +6542,8 @@ export default function Admin() {
       return;
     }
     const text = [
-      "ENTREGAS MOTOBOY",
-      `Pedidos: ${motoboyOrders.length}`,
+      "🛵 ENTREGAS MOTOBOY",
+      "━━━━━━━━━━━━━━━━━━",
       "",
       motoboyOrders.map(motoboyOrderBlock).join("\n\n"),
     ].join("\n");

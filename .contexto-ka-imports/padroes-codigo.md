@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-08-26  
+> **Última atualização:** 2026-08-27  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-27 | Anti-padrão: prefixar cópia Motoboy com `#KA-` ou incluir agendamento | Layout Yury (`#161`, emoji, sem slot) | Cópia 48h/EnvioEcom inalterada |
 | 2026-08-26 | Anti-padrão: exigir cidade da faixa CEP igual à ViaCEP para mostrar Motoboy | CEP na faixa libera; cidade só desempata | Whitelist e EnvioEcom inalterados |
 | 2026-08-26 | Anti-padrão: cadastrar bairro Motoboy neste repo como verdade quando o sync Yury está ligado | Espelho `yury_id` + webhook HMAC; CRUD local 409 | Agenda e EnvioEcom inalterados |
 | 2026-08-26 | Anti-padrão: zerar Motoboy com o limiar de Correios; inferir duração do slot pelo preço | `checkout_free_shipping_min_motoboy` + `interval_hours` no bairro | Capacidade 1 trilha e EnvioEcom inalterados |
@@ -129,6 +130,7 @@ Código > memória > suposições.
 - Restaurar vaga `allocated` no reconcile só porque `enviado` é false quando a etiqueta EnvioEcom já existe.
 - Tratar PDF da etiqueta EnvioEcom como “Pronto para envio” se o status for **Cancelado**.
 - Colocar o UUID do pedido (`orders.id`) na mensagem WhatsApp do checkout ou no card da Minha conta; usar `orderNumber`.
+- Prefixar a cópia Motoboy com `#KA-` ou incluir agendamento/telefone; usar `#161` e o layout Yury.
 - Tratar status EnvioEcom como enum rígido (é texto livre).
 - Inventar histórico de rastreio EnvioEcom (ex. “Status atualizado ao consultar rastreio”); usar `status_history` da API, com `location` cidade/unidade, e não duplicar `description` igual ao status.
 - No `fetchOrders` do admin, substituir a lista com um GET iniciado antes de gerar a etiqueta (apaga o PDF na tela). Abortar o request anterior e não limpar `envioecomLabelUrl` local.
