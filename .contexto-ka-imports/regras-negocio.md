@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-28 | PIX APPCNPay com chaves por loja (`gateway_appcnpay_*`) | Filial recebe na própria conta; sem par cai no env global | DentPeg, webhook e `checkout_pix_gateway` inalterados |
 | 2026-08-28 | Backup JSON de produtos selecionados (`?ids=`) | Catálogo: checkbox + Backup selecionados | Backup completo e restore merge inalterados |
 | 2026-08-27 | Cópia de lote da filial inclui `site_name` no título | WhatsApp Motoboy/48h/Outros distingue a loja | Loja 1 sem sufixo; card individual inalterado |
 | 2026-08-27 | Cópia Motoboy no admin: layout Yury (emoji, `#161`, sem `KA-`, sem agendamento) | WhatsApp do lote Motoboy | 48h/EnvioEcom e whitelist inalterados |
@@ -78,7 +79,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 
 ## Pedidos e pagamento
 
-- Fluxo PIX preferencial: `POST /api/checkout/pix` cria pedido + cobrança no gateway (`artifacts/api-server/src/routes/checkout.ts`).
+- Fluxo PIX preferencial: `POST /api/checkout/pix` cria pedido + cobrança no gateway (`artifacts/api-server/src/routes/checkout.ts`). APPCNPay usa o par de chaves da loja em `tenant_settings` quando as duas existem; senão as globais do servidor.
 - Status observados no código: `pending`, `awaiting_payment`, `paid`, `cancelled` (e fluxos admin de marcação manual).
 - Confirmação PIX: **via webhook** (`POST /api/webhook/pix`). Job de reconciliação **não** faz polling de status no gateway — só expira pedidos/cobranças `pending`/`awaiting_payment` > 24h (`artifacts/api-server/src/reconciliation.ts`).
 - **Extrato OFX (Banco Inter):** aba **Extrato** sobe `.ofx`, analisa só créditos (`TRNAMT > 0`) e cruza valor exato + janela de data + score de nome. Se o CPF (11) ou CNPJ (14) do pedido aparecer nos dígitos de `NAME`/`MEMO` do crédito, o score vira **100%** mesmo com nome diferente. Só pedidos de **depósito Inter manual** (`whatsapp_pix`, ou PIX **sem** `transactionId`); PIX gateway (CNPay/DentPeg com `transactionId`), cartão simulado e crédito de afiliado ficam de fora. FITID já gravado em `ok`/`confirmed_100` é ignorado no próximo OFX (não 400 se todos já estiverem registrados). **Aplicar só 100%** grava `confirmed_100` no pedido (`bank_deposit_*` + FITID único). Um pedido pode ter **vários PIX** (`order_bank_deposits`); `orders.bank_deposit_amount` é a soma. O 2º PIX não desfaz o 1º. Motivo só se a soma ainda ≠ total. **Desfazer** na aba Depósitos remove um PIX (`POST /api/admin/bank-statement/clear` com `fitid`) sem mudar `paid`. Não baixa PDF/comprovante, não fala com o gateway. Conta mascarada. Seller-scoped só vê/aplica/desfaz nos próprios pedidos. O relatório da sessão some no F5; o histórico persistente é a aba **Depósitos**.

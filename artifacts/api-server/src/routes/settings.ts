@@ -5,6 +5,11 @@ import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { getR2MissingConfig, isR2Configured, uploadSiteSettingImageToR2 } from "../lib/r2";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 import {
+  isMaskedGatewaySecret,
+  maskGatewaySecret,
+  PIX_GATEWAY_SETTING_KEYS,
+} from "../lib/pix-gateway-credentials";
+import {
   TENANT_SUPPLY_MARGIN_FIXED_BRL_KEY,
   TENANT_SUPPLY_MARGIN_PERCENT_KEY,
   TENANT_SYNC_PRODUCTS_FROM_LOJA1_KEY,
@@ -35,6 +40,8 @@ const ALLOWED_KEYS = [
   "gateway_fee_min",
   "gateway_withdraw_percent",
   "gateway_withdraw_fixed",
+  PIX_GATEWAY_SETTING_KEYS.publicKey,
+  PIX_GATEWAY_SETTING_KEYS.secretKey,
   // Webhook de saída (Pushcut/automations)
   "outbound_webhook_url",
   "outbound_webhook_secret",
@@ -238,6 +245,9 @@ router.get("/admin/settings", requireAdminAuth, async (req, res) => {
     for (const key of ALLOWED_KEYS) {
       if (key in allSettings) out[key] = allSettings[key]!;
     }
+    for (const secretKey of [PIX_GATEWAY_SETTING_KEYS.publicKey, PIX_GATEWAY_SETTING_KEYS.secretKey]) {
+      if (out[secretKey]) out[secretKey] = maskGatewaySecret(out[secretKey]!);
+    }
     res.json(out);
   } catch {
     res.status(500).json({});
@@ -260,6 +270,13 @@ router.put("/admin/settings/:key", requireAdminAuth, async (req, res) => {
       return;
     }
     const { value } = req.body as { value?: string };
+    if (
+      (key === PIX_GATEWAY_SETTING_KEYS.publicKey || key === PIX_GATEWAY_SETTING_KEYS.secretKey)
+      && isMaskedGatewaySecret(value)
+    ) {
+      res.json({ ok: true, unchanged: true });
+      return;
+    }
     if (!value) {
       await deleteTenantSetting(tenantId, key);
       if (tenantId !== DEFAULT_TENANT_ID && (key === TENANT_SUPPLY_MARGIN_PERCENT_KEY || key === TENANT_SUPPLY_MARGIN_FIXED_BRL_KEY)) {

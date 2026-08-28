@@ -1,12 +1,13 @@
 # Auth e permissões — KA Imports
 
-> **Última atualização:** 2026-08-27  
+> **Última atualização:** 2026-08-28  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-28 | Chaves APPCNPay no mesmo `canManageSettings` (primary ou filial ≠ loja1) | Filial grava o próprio par; GET mascara | Seller-scoped da loja 1 continua sem Configurações |
 | 2026-08-27 | Aba Rifas no admin da filial (`isPrimary \|\| tenant ≠ loja1`) | Filial gerencia rifas do próprio tenant | Cupons/checkout/bumps/usuários continuam primary |
 | 2026-08-21 | `GET /api/admin/orders/:id` com o mesmo escopo da lista | Comprovante/etiqueta sob demanda | Primary-only inalterado |
 | 2026-08-18 | `POST /api/admin/bank-statement/clear` com o mesmo escopo do apply | Desfazer depósito; seller-scoped só o próprio | Primary-only inalterado |
@@ -48,6 +49,7 @@ Código > memória > tipagens.
 - Extrato OFX (`POST /api/admin/bank-statement/analyze|apply|clear`) e histórico (`GET /api/admin/bank-deposits`): `requireAdminAuth`; filtra `tenantId`; seller-scoped só pedidos do próprio `sellerCode`. Não exige primary. `clear` não altera `paid`.
 - Editar pedido (`PATCH /api/admin/orders/:id/edit`): `hasGlobalAccess` (primary da loja 1 e admin de filial). Cada um só no próprio `tenantId`. Seller-scoped 403. O botão no FE usa `isPrimary || adminTenantId !== tenant_loja1`.
 - Rifas no admin: aba visível com `isPrimary || tenant ≠ tenant_loja1` (igual Produtos). API `/api/admin/raffles*` é `requireAdminAuth` + `tenantId`; seller-scoped da loja 1 não vê a aba.
+- Configurações (`GET`/`PUT`/`DELETE /api/admin/settings*`): `canManageSettings` = `isPrimary` **ou** `tenantId ≠ tenant_loja1`. Chaves APPCNPay (`gateway_appcnpay_public_key` / `_secret_key`) estão na allowlist admin, **fora** de `PUBLIC_KEYS`; GET devolve mascarado; PUT com `***` não grava. Escopo é o `tenantId` da sessão (filial não lê/grava as chaves da loja 1).
 - Procurando produto (`PATCH /api/admin/orders/:id/procurando-produto`): `requireAdminAuth` + escopo do pedido (igual prioridade). Seller-scoped só o próprio `sellerCode`. Não exige primary.
 - Detalhe do pedido (`GET /api/admin/orders/:id`): mesmo escopo da lista. Usado para comprovante/etiqueta em `data:` que a lista não envia.
 - Rate limit de login admin (janela/tentativas/block via env).

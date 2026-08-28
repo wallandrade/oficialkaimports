@@ -1,12 +1,13 @@
 # Integrações externas — KA Imports
 
-> **Última atualização:** 2026-08-26  
+> **Última atualização:** 2026-08-28  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-28 | APPCNPay por tenant: `gateway_appcnpay_*` em `tenant_settings`; fallback `GATEWAY_IDENTIFIER`/`GATEWAY_SECRET` | Filial PIX na própria conta; webhook resolve tenant pelo `transactionId` | DentPeg continua env global; confirmação via webhook |
 | 2026-08-26 | Espelho Motoboy da Yury: pull + webhook HMAC de bairros/faixas CEP | Checkout lê cobertura local sincronizada | Agenda, estoque, last-mile e portal de preço inalterados |
 | 2026-08-24 | Parser EE lê cidade em `location.name` / `city_name` / município | Timeline grava “Cidade - unidade” | Webhook/Sync iguais |
 | 2026-08-24 | Board EE devolve `events`/`lastEvents` (mais recente primeiro); UI expande a timeline | Clique não chama a transportadora | Webhook/Sync e Meus pedidos iguais |
@@ -39,11 +40,13 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 
 | Provider | Uso | Código |
 |----------|-----|--------|
-| **APPCNPay** | Default PIX | `artifacts/api-server/src/gateway.ts` — `GATEWAY_PIX_URL`, headers `GATEWAY_IDENTIFIER` / `GATEWAY_SECRET` |
-| **DentPeg** | Alternativa; fallback para APPCNPay se limite/`too_big` | `DENTPEG_API_KEY`, `DENTPEG_BASE_URL` |
+| **APPCNPay** | Default PIX | `artifacts/api-server/src/gateway.ts` + `lib/pix-gateway-credentials.ts` |
+| **DentPeg** | Alternativa; fallback para APPCNPay se limite/`too_big` | `DENTPEG_API_KEY`, `DENTPEG_BASE_URL` (env global, não por loja) |
 
 - Seleção: setting `checkout_pix_gateway` / normalizer `normalizePixGatewayProvider`.
-- Webhook confirmação: `/api/webhook/pix` (+ webhook universal `/api/webhook`).
+- **Credenciais APPCNPay por loja:** `tenant_settings` `gateway_appcnpay_public_key` + `gateway_appcnpay_secret_key` (as duas juntas). Sem o par, usa env `GATEWAY_IDENTIFIER` / `GATEWAY_SECRET`. Não mistura pública da loja com secret do env. GET admin mascara; PUT com valor `***` é no-op. Admin Configurações: bloco “Credenciais APPCNPay desta loja”; “Usar chaves globais” = DELETE. Chaves **não** vão para `localStorage` nem `PUBLIC_KEYS`.
+- Checkout, `/pix/generate`, cobrança custom, PIX de diferença, rifas passam `tenantId` em `createPixCharge*`. Webhook não confiável: `findTenantIdByPixTransactionId` (pedido / cobrança / reserva) e `fetchTransactionStatus(txId, tenantId)`.
+- Webhook confirmação: `/api/webhook/pix` (+ webhook universal `/api/webhook`). No painel APPCNPay da conta da loja: `{origin}/api/webhook/pix`.
 - **Não** depender de GET transactions para confirmação (polling bloqueado no APPCNPay).
 - Status local: endpoints de status leem BD.
 

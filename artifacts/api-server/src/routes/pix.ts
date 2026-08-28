@@ -96,6 +96,7 @@ router.post("/pix/generate", async (req, res) => {
         identifier,
         amount: Number(amount),
         provider: gatewayProvider,
+        tenantId,
         client: {
           name:     client.name,
           email:    client.email,

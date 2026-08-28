@@ -17,6 +17,7 @@ import { db, ordersTable, customChargesTable } from "@workspace/db";
 import { and, eq, or } from "drizzle-orm";
 import { broadcastNotification } from "./notifications";
 import { fetchTransactionStatus, isPaymentConfirmed } from "../gateway";
+import { findTenantIdByPixTransactionId } from "../lib/pix-gateway-credentials";
 import { incrementCouponUse } from "./coupons";
 import { ensureOrderCommission } from "../lib/affiliates";
 import { sendOutboundWebhook } from "../lib/outbound-webhook";
@@ -278,7 +279,8 @@ router.post("/webhook/pix", async (req, res) => {
         return;
       }
 
-      const gatewayStatus = await fetchTransactionStatus(normalized.transactionId);
+      const tenantId = await findTenantIdByPixTransactionId(normalized.transactionId);
+      const gatewayStatus = await fetchTransactionStatus(normalized.transactionId, tenantId);
       if (!gatewayStatus?.status) {
         console.warn("[WEBHOOK/pix] Rejected untrusted webhook due to unverifiable transaction", {
           transactionId: normalized.transactionId,
@@ -366,7 +368,8 @@ router.post("/webhook", async (req, res) => {
         return;
       }
 
-      const gatewayStatus = await fetchTransactionStatus(rawTxId);
+      const tenantId = await findTenantIdByPixTransactionId(rawTxId);
+      const gatewayStatus = await fetchTransactionStatus(rawTxId, tenantId);
       if (!gatewayStatus?.status) {
         console.warn("[WEBHOOK/universal] Rejected untrusted webhook due to unverifiable transaction", {
           transactionId: rawTxId,

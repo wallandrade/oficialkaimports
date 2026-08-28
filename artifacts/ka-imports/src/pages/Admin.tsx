@@ -4651,15 +4651,23 @@ export default function Admin() {
         method: "PUT", headers: authHeaders(), body: JSON.stringify({ value }),
       });
       if (!res.ok) { toast.error("Erro ao salvar configuração."); return; }
-      setSettings((p) => ({ ...p, [key]: value }));
+      const secretSettingKeys = new Set(["gateway_appcnpay_public_key", "gateway_appcnpay_secret_key"]);
+      setSettings((p) => ({
+        ...p,
+        [key]: secretSettingKeys.has(key) && value && !value.startsWith("*")
+          ? `${"*".repeat(Math.max(4, value.length - 4))}${value.slice(-4)}`
+          : value,
+      }));
 
-      try {
-        const cached = JSON.parse(localStorage.getItem("siteSettings") || "{}") as Record<string, string>;
-        const next = { ...cached, [key]: value };
-        localStorage.setItem("siteSettings", JSON.stringify(next));
-        window.dispatchEvent(new CustomEvent("ka-site-settings-updated", { detail: next }));
-      } catch {
-        // ignore storage issues
+      if (!secretSettingKeys.has(key)) {
+        try {
+          const cached = JSON.parse(localStorage.getItem("siteSettings") || "{}") as Record<string, string>;
+          const next = { ...cached, [key]: value };
+          localStorage.setItem("siteSettings", JSON.stringify(next));
+          window.dispatchEvent(new CustomEvent("ka-site-settings-updated", { detail: next }));
+        } catch {
+          // ignore storage issues
+        }
       }
 
       toast.success("Configuração salva!");
@@ -4683,7 +4691,7 @@ export default function Admin() {
         // ignore storage issues
       }
 
-      toast.success("Imagem removida.");
+      toast.success("Configuração removida.");
     } catch { toast.error("Erro ao remover."); }
     finally { setSettingsLoading((p) => ({ ...p, [key]: false })); }
   }, []);
@@ -11084,6 +11092,7 @@ export default function Admin() {
               brevoConfigured={brevoConfigured}
               brevoTesting={brevoTesting}
               onTestBrevoConnection={testBrevoConnection}
+              webhookPixUrl={webhookUrl}
             />
           </div>
         ) : null}
@@ -18881,7 +18890,7 @@ function ImageUploadCard({
   );
 }
 
-function ConfiguracoesPanel({ adminTenantId, settings, loading, products, clientErrors, clientErrorsLoading, onRefreshClientErrors, onTestOutboundWebhook, onSave, onDelete, brevoApiKey, setBrevoApiKey, brevoConfigured, brevoTesting, onTestBrevoConnection }: {
+function ConfiguracoesPanel({ adminTenantId, settings, loading, products, clientErrors, clientErrorsLoading, onRefreshClientErrors, onTestOutboundWebhook, onSave, onDelete, brevoApiKey, setBrevoApiKey, brevoConfigured, brevoTesting, onTestBrevoConnection, webhookPixUrl }: {
   adminTenantId: string;
   settings: Record<string, string>;
   loading: Record<string, boolean>;
@@ -18897,6 +18906,7 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
   brevoConfigured: boolean;
   brevoTesting: boolean;
   onTestBrevoConnection: () => void;
+  webhookPixUrl: string;
 }) {
   const [sitePw, setSitePw] = useState(settings["site_password"] ?? "");
   const [paymentPw, setPaymentPw] = useState(settings["payment_password"] ?? "");
@@ -18905,6 +18915,9 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
   const [showSitePw, setShowSitePw] = useState(false);
   const [showPaymentPw, setShowPaymentPw] = useState(false);
   const [showOutboundSecret, setShowOutboundSecret] = useState(false);
+  const [appcnpayPublicKey, setAppcnpayPublicKey] = useState("");
+  const [appcnpaySecretKey, setAppcnpaySecretKey] = useState("");
+  const [showAppcnpaySecret, setShowAppcnpaySecret] = useState(false);
   const [freeShippingMinSubtotal, setFreeShippingMinSubtotal] = useState(settings["checkout_free_shipping_min_subtotal"] ?? "");
   const [siteDisplayName, setSiteDisplayName] = useState(settings["site_name"] ?? "");
   const [supportWhatsapp, setSupportWhatsapp] = useState(String(settings["support_whatsapp"] ?? "").replace(/\D/g, ""));
@@ -19538,6 +19551,95 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
               />
             </div>
           </label>
+        </div>
+
+        <div className="mt-4 bg-card border border-border/60 rounded-2xl p-5 space-y-3">
+          <p className="font-semibold">Credenciais APPCNPay desta loja</p>
+          <p className="text-xs text-muted-foreground">
+            {adminTenantId === "tenant_loja1"
+              ? "Se vazio, o PIX usa as chaves globais do servidor. Preencha as duas para substituir só nesta loja."
+              : "Preencha chave pública e secreta da conta APPCNPay desta filial. Sem as duas, o PIX continua na conta global."}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            No painel APPCNPay, configure o webhook para: <span className="font-mono break-all text-foreground">{webhookPixUrl}</span>
+          </p>
+          {(settings["gateway_appcnpay_public_key"] || settings["gateway_appcnpay_secret_key"]) ? (
+            <p className="text-xs text-emerald-700">
+              Já configurado
+              {settings["gateway_appcnpay_public_key"] ? ` · pública ${settings["gateway_appcnpay_public_key"]}` : ""}
+              {settings["gateway_appcnpay_secret_key"] ? ` · secreta ${settings["gateway_appcnpay_secret_key"]}` : ""}
+            </p>
+          ) : (
+            <p className="text-xs text-amber-700">Nenhuma credencial desta loja. Usando as chaves globais do servidor.</p>
+          )}
+          <div>
+            <label className="text-xs font-medium text-muted-foreground block mb-1">Chave pública (x-public-key)</label>
+            <input
+              type="text"
+              value={appcnpayPublicKey}
+              onChange={(e) => setAppcnpayPublicKey(e.target.value)}
+              placeholder={settings["gateway_appcnpay_public_key"] ? "Nova chave pública" : "Cole a chave pública"}
+              className="w-full h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+              autoComplete="off"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground block mb-1">Chave secreta (x-secret-key)</label>
+            <div className="relative">
+              <input
+                type={showAppcnpaySecret ? "text" : "password"}
+                value={appcnpaySecretKey}
+                onChange={(e) => setAppcnpaySecretKey(e.target.value)}
+                placeholder={settings["gateway_appcnpay_secret_key"] ? "Nova chave secreta" : "Cole a chave secreta"}
+                className="w-full h-11 px-3 pr-10 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+                autoComplete="new-password"
+              />
+              <button
+                type="button"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground"
+                onClick={() => setShowAppcnpaySecret((current) => !current)}
+              >
+                {showAppcnpaySecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              disabled={
+                !!loading["gateway_appcnpay_public_key"]
+                || !!loading["gateway_appcnpay_secret_key"]
+                || !appcnpayPublicKey.trim()
+                || !appcnpaySecretKey.trim()
+              }
+              onClick={() => {
+                onSave("gateway_appcnpay_public_key", appcnpayPublicKey.trim());
+                onSave("gateway_appcnpay_secret_key", appcnpaySecretKey.trim());
+                setAppcnpayPublicKey("");
+                setAppcnpaySecretKey("");
+              }}
+            >
+              {(loading["gateway_appcnpay_public_key"] || loading["gateway_appcnpay_secret_key"]) ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              Salvar credenciais
+            </Button>
+            {(settings["gateway_appcnpay_public_key"] || settings["gateway_appcnpay_secret_key"]) ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={!!loading["gateway_appcnpay_public_key"] || !!loading["gateway_appcnpay_secret_key"]}
+                onClick={() => {
+                  onDelete("gateway_appcnpay_public_key");
+                  onDelete("gateway_appcnpay_secret_key");
+                  setAppcnpayPublicKey("");
+                  setAppcnpaySecretKey("");
+                }}
+              >
+                Usar chaves globais
+              </Button>
+            ) : null}
+          </div>
         </div>
       </div>
 

@@ -609,6 +609,7 @@ router.post("/checkout/pix", async (req, res) => {
         identifier,
         amount: payableAmount,
         provider: gatewayProvider,
+        tenantId,
         client: {
           name:     client.name,
           email:    client.email,

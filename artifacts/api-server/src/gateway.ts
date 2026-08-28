@@ -5,6 +5,7 @@
  *           x-secret-key  (GATEWAY_SECRET)
  */
 import crypto from "crypto";
+import { getAppcnpayGatewayHeaders } from "./lib/pix-gateway-credentials";
 
 export const GATEWAY_PIX_URL = "https://painel.appcnpay.com/api/v1/gateway/pix/receive";
 export const DENTPEG_BASE_URL = "https://api.dentpeg.com/api/v1";
@@ -18,19 +19,8 @@ export function normalizePixGatewayProvider(raw: string | null | undefined): Pix
   return normalized === "dentpeg" ? "dentpeg" : "appcnpay";
 }
 
-export function getGatewayHeaders(): Record<string, string> {
-  const publicKey  = process.env["GATEWAY_IDENTIFIER"] || "";
-  const secretKey  = process.env["GATEWAY_SECRET"] || "";
-
-  if (!publicKey || !secretKey) {
-    throw new Error("GATEWAY_IDENTIFIER and GATEWAY_SECRET must be set.");
-  }
-
-  return {
-    "Content-Type": "application/json",
-    "x-public-key": publicKey,
-    "x-secret-key": secretKey,
-  };
+export async function getGatewayHeaders(tenantId?: string | null): Promise<Record<string, string>> {
+  return getAppcnpayGatewayHeaders(tenantId);
 }
 
 export function getDueDate(): string {
@@ -185,10 +175,11 @@ export async function createPixCharge(payload: {
   dueDate?: string;
   metadata?: Record<string, string>;
   callbackUrl?: string;
+  tenantId?: string | null;
 }): Promise<GatewayPixResponse> {
   let headers: Record<string, string>;
   try {
-    headers = getGatewayHeaders();
+    headers = await getGatewayHeaders(payload.tenantId);
   } catch (err) {
     throw new Error("Gateway credentials not configured.");
   }
@@ -257,6 +248,7 @@ export async function createPixChargeWithProvider(payload: {
   metadata?: Record<string, string>;
   callbackUrl?: string;
   provider: PixGatewayProvider;
+  tenantId?: string | null;
 }): Promise<GatewayPixResponse> {
   if (payload.provider === "dentpeg") {
     const amountInCents = Math.round(Number(payload.amount || 0) * 100);
@@ -340,10 +332,11 @@ export const GATEWAY_TRANSACTIONS_URL =
  */
 export async function fetchTransactionStatus(
   transactionId: string,
+  tenantId?: string | null,
 ): Promise<{ status: string; payedAt?: string | null } | null> {
   let headers: Record<string, string>;
   try {
-    headers = getGatewayHeaders();
+    headers = await getGatewayHeaders(tenantId);
   } catch {
     return null;
   }

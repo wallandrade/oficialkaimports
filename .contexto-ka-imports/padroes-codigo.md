@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-28 | Anti-padrão: PIX da filial só com env global, ou misturar chave da loja com secret do env | Par `gateway_appcnpay_*` por tenant; GET mascara; sem `localStorage` | DentPeg e webhook PIX inalterados |
 | 2026-08-28 | Anti-padrão: backup de produto só no catálogo inteiro | `?ids=` + checkbox; substituir avisa se parcial | Restore merge inalterado |
 | 2026-08-27 | Anti-padrão: copiar lote da filial sem o nome da loja no título | `site_name` no Motoboy/48h/Outros | Loja 1 e card individual inalterados |
 | 2026-08-27 | Anti-padrão: prefixar cópia Motoboy com `#KA-` ou incluir agendamento | Layout Yury (`#161`, emoji, sem slot) | Cópia 48h/EnvioEcom inalterada |
@@ -112,6 +113,8 @@ Código > memória > suposições.
 
 - Assumir PostgreSQL / Prisma / Next / Nest.
 - Polling de status no gateway APPCNPay (bloqueado; usar webhook + BD local).
+- Usar só `GATEWAY_IDENTIFIER`/`GATEWAY_SECRET` para PIX da filial, ou misturar pública da loja com secret do env. Par completo em `tenant_settings` ou fallback env.
+- Devolver chave APPCNPay crua no GET settings, gravar no `localStorage` (`siteSettings`) ou incluir em `PUBLIC_KEYS`. Mascarar no GET; PUT `***` é no-op.
 - Tratar `mockup-sandbox` como app de produção.
 - Editar clients Orval gerados.
 - Ler dumps/gerados/docs longos em toda tarefa.

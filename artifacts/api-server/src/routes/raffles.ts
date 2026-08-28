@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, rafflesTable, raffleReservationsTable, raffleResultsTable, rafflePromotionsTable, siteSettingsTable } from "@workspace/db";
+import { db, rafflesTable, raffleReservationsTable, raffleResultsTable, rafflePromotionsTable, siteSettingsTable, tenantSettingsTable } from "@workspace/db";
 import { eq, and, inArray, isNull, or, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
@@ -55,7 +55,15 @@ function buildRafflePromotionsTenantWhere(tenantId: string) {
   return eq(rafflePromotionsTable.tenantId, tenantId);
 }
 
-async function getActivePixGateway(): Promise<"appcnpay" | "dentpeg"> {
+async function getActivePixGateway(tenantId: string): Promise<"appcnpay" | "dentpeg"> {
+  const tenantRow = await db
+    .select({ value: tenantSettingsTable.value })
+    .from(tenantSettingsTable)
+    .where(and(eq(tenantSettingsTable.tenantId, tenantId), eq(tenantSettingsTable.key, "checkout_pix_gateway")))
+    .limit(1);
+  if (tenantRow[0]?.value != null) {
+    return normalizePixGatewayProvider(tenantRow[0].value);
+  }
   const row = await db
     .select({ value: siteSettingsTable.value })
     .from(siteSettingsTable)
@@ -339,7 +347,7 @@ router.post("/raffles/:id/reserve", async (req, res) => {
   });
 
   // Generate PIX
-  const gatewayProvider = await getActivePixGateway();
+  const gatewayProvider = await getActivePixGateway(tenantId);
   const identifier = genIdentifier();
   const callbackUrl = buildCallbackUrl(req as never, "/webhook/raffle-pix");
 
@@ -349,6 +357,7 @@ router.post("/raffles/:id/reserve", async (req, res) => {
       identifier,
       amount: totalAmount,
       provider: gatewayProvider,
+      tenantId,
       client: {
         name: client.name,
         email: client.email,
@@ -551,7 +560,7 @@ router.post("/raffles/reservations/:reservationId/refresh-pix", async (req, res)
   }
 
   const identifier = genIdentifier();
-  const gatewayProvider = await getActivePixGateway();
+  const gatewayProvider = await getActivePixGateway(tenantId);
   const callbackUrl = buildCallbackUrl(req as never, "/webhook/raffle-pix");
   const totalAmount = Number(reservation.totalAmount);
 
@@ -561,6 +570,7 @@ router.post("/raffles/reservations/:reservationId/refresh-pix", async (req, res)
       identifier,
       amount: totalAmount,
       provider: gatewayProvider,
+      tenantId,
       client: {
         name: reservation.clientName,
         email: reservation.clientEmail,

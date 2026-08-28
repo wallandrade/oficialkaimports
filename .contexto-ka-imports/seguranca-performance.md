@@ -1,12 +1,13 @@
 # Segurança e performance — KA Imports
 
-> **Última atualização:** 2026-08-21  
+> **Última atualização:** 2026-08-28  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-28 | Chaves APPCNPay mascaradas no GET admin; PUT `***` no-op; fora de `PUBLIC_KEYS` e `localStorage` | Segredo não vaza no browser/cache | CSP / CORS / rate limit iguais |
 | 2026-08-21 | Lista admin leve + debounce na busca; data não dispara GET de stats | Menos JSON e menos rerender | CSP / CORS / rate limit iguais |
 | 2026-08-16 | CSP do FE: `frame-src 'self' blob: data: https:` | Comprovante PDF no admin abre no iframe | `object-src 'none'` e `frame-ancestors 'none'` iguais |
 | 2026-08-11 | Extração de hardening/ops do código | Evitar remover proteções | Sem tuning de infra |
@@ -23,6 +24,7 @@
 - **Erros 500**: menos detalhes em produção.
 - Password gates no FE (site/pagamento).
 - Isolamento tenant/seller (ver `auth-permissoes.md` + smoke scripts).
+- Credenciais APPCNPay da loja: GET `/api/admin/settings` mascara `gateway_appcnpay_*`; PUT com valor já mascarado não sobrescreve; FE não persiste essas keys em `siteSettings`.
 - **CSP do FE** (`index.html` + `vercel.json`): `default-src 'self'`; `object-src 'none'`; `frame-ancestors 'none'`; `frame-src 'self' blob: data: https:` (comprovante PDF no admin usa iframe + blob). `img-src` já permite `data:`/`blob:`/`https:`.
 
 ## Ops / health
