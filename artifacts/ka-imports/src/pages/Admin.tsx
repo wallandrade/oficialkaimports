@@ -1148,7 +1148,6 @@ const PRIMARY_ONLY_TABS = new Set<TabType>([
   "orderBumps",
   "checkout",
   "socialProof",
-  "raffles",
   "lojas",
 ]);
 
@@ -2197,6 +2196,7 @@ export default function Admin() {
   const canManageInventoryTab = isPrimary || adminTenantId !== "tenant_loja1";
   const canManageShippingTab = isPrimary || adminTenantId !== "tenant_loja1";
   const canManageSellerLinks = isPrimary || adminTenantId !== "tenant_loja1";
+  const canManageRafflesTab = isPrimary || adminTenantId !== "tenant_loja1";
   const canEditOrders = isPrimary || adminTenantId !== "tenant_loja1";
   const canViewSupplierPurchasesTab = adminTenantId !== "tenant_loja1";
   const filialTenantOptions = tenants.filter((tenant) => tenant.id !== "tenant_loja1");
@@ -5342,10 +5342,10 @@ export default function Admin() {
   }, [tab, authChecked, fetchUsers, fetchCustomers, fetchRecurringCustomers]);
 
   useEffect(() => {
-    if ((tab === "products" && !canManageProductsTab) || (!isPrimary && PRIMARY_ONLY_TABS.has(tab)) || (tab === "lojas" && !canManageTenants) || (tab === "supplierPurchases" && !canViewSupplierPurchasesTab) || (tab === "envioecom" && !canManageShippingTab)) {
+    if ((tab === "products" && !canManageProductsTab) || (tab === "raffles" && !canManageRafflesTab) || (!isPrimary && PRIMARY_ONLY_TABS.has(tab)) || (tab === "lojas" && !canManageTenants) || (tab === "supplierPurchases" && !canViewSupplierPurchasesTab) || (tab === "envioecom" && !canManageShippingTab)) {
       setTab("orders");
     }
-  }, [isPrimary, tab, canManageTenants, canManageProductsTab, canViewSupplierPurchasesTab, canManageShippingTab]);
+  }, [isPrimary, tab, canManageTenants, canManageProductsTab, canManageRafflesTab, canViewSupplierPurchasesTab, canManageShippingTab]);
 
   useEffect(() => {
     if (!authChecked || tab !== "supplierPurchases") return;
@@ -7093,6 +7093,9 @@ export default function Admin() {
             ...(canManageInventoryTab ? [
               { key: "inventory" as TabType, label: "Estoque", icon: "Package", count: pendingReshipments.length || undefined },
             ] : []),
+            ...(canManageRafflesTab ? [
+              { key: "raffles" as TabType, label: "Rifas", icon: "Ticket", count: rafflesList.length || undefined },
+            ] : []),
             ...(canViewSupplierPurchasesTab ? [
               { key: "supplierPurchases" as TabType, label: "Compra fornecedor", icon: "ShoppingBag", count: myFilialPurchaseRequests.length || undefined },
             ] : []),
@@ -7102,7 +7105,6 @@ export default function Admin() {
               { key: "orderBumps",    label: "Order Bumps",      icon: "Zap",         count: orderBumps.length },
               { key: "users",         label: "Usuários",         icon: "User" },
               { key: "socialProof",   label: "Prova Social",     icon: "ShoppingBag" },
-              { key: "raffles",       label: "Rifas",            icon: "Ticket",      count: rafflesList.length || undefined },
               ...(canManageTenants ? [{ key: "lojas" as TabType, label: "Lojas", icon: "Store" }] : []),
             ] : []),
             { key: "webhook",       label: "Webhook",          icon: "Link" },
@@ -8668,7 +8670,7 @@ export default function Admin() {
               </>
             )}
           </div>
-        ) : tab === "raffles" ? (
+        ) : tab === "raffles" && canManageRafflesTab ? (
           <div className="space-y-6">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold text-foreground flex items-center gap-2">

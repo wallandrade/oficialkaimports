@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-27 | Aba Rifas no admin da filial (`canManageRafflesTab`) | Cada loja gerencia as próprias rifas | Cupons/checkout/bumps/usuários continuam primary |
 | 2026-08-27 | Cópia de lote da filial inclui `site_name` no título | WhatsApp Motoboy/48h/Outros distingue a loja | Loja 1 sem sufixo; card individual inalterado |
 | 2026-08-27 | Cópia Motoboy no admin: layout Yury (emoji, `#161`, sem `KA-`, sem agendamento) | WhatsApp do lote Motoboy | 48h/EnvioEcom e whitelist inalterados |
 | 2026-08-26 | Lookup Motoboy de faixa CEP não exige cidade igual | CEP 044 (Eldorado) mostra Motoboy como na Yury | Whitelist de SKUs e agenda inalteradas |
@@ -137,7 +138,8 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 
 ## Rifas
 
-- Tabelas `raffles`, `raffle_reservations`, `raffle_results`, `raffle_promotions`.
+- Tabelas `raffles`, `raffle_reservations`, `raffle_results`, `raffle_promotions`. Isoladas por `tenantId`.
+- Admin: aba Rifas para primary da loja 1 **e** admin de filial (`isPrimary || tenant ≠ tenant_loja1`). Seller-scoped da loja 1 não vê. API já era `requireAdminAuth` + `buildRafflesTenantWhere`.
 - Job de expiração: `raffle-expiry.ts`.
 - Páginas FE: `/rifas`, `/rifas/:id`, `/rifas/pix/:id`, `/rifas/consulta`.
 
