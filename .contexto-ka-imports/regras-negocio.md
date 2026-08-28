@@ -1,13 +1,13 @@
 # Regras de negócio — KA Imports
 
-> **Última atualização:** 2026-08-27  
+> **Última atualização:** 2026-08-28  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
-| 2026-08-27 | Aba Rifas no admin da filial (`canManageRafflesTab`) | Cada loja gerencia as próprias rifas | Cupons/checkout/bumps/usuários continuam primary |
+| 2026-08-28 | Backup JSON de produtos selecionados (`?ids=`) | Catálogo: checkbox + Backup selecionados | Backup completo e restore merge inalterados |
 | 2026-08-27 | Cópia de lote da filial inclui `site_name` no título | WhatsApp Motoboy/48h/Outros distingue a loja | Loja 1 sem sufixo; card individual inalterado |
 | 2026-08-27 | Cópia Motoboy no admin: layout Yury (emoji, `#161`, sem `KA-`, sem agendamento) | WhatsApp do lote Motoboy | 48h/EnvioEcom e whitelist inalterados |
 | 2026-08-26 | Lookup Motoboy de faixa CEP não exige cidade igual | CEP 044 (Eldorado) mostra Motoboy como na Yury | Whitelist de SKUs e agenda inalteradas |
@@ -98,6 +98,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 - Fallback documentado no código: Google Sheets se DB vazio (`products.ts`).
 - Flags: `isActive`, `isSoldOut`, `isLaunch`, promo com `promoPrice`/`promoEndsAt`, desconto por volume (`bulkDiscountTiers`), variantes (`variantGroups`).
 - Imagens: URL pública R2/CDN; base64 legado ainda suportado na migração.
+- Admin: **Backup JSON** exporta o catálogo do tenant; **Backup selecionados** usa `GET /api/admin/products/backup?ids=` (máx. 500, só IDs da loja). Arquivo parcial marca `partial: true`. Restore **mesclar** atualiza só os itens do JSON; **substituir** apaga o catálogo — confirma extra se o arquivo for parcial.
 - Checkout grava `costPrice` no item do pedido (snapshot; `0` se a ficha ainda não tinha custo). Ao **salvar** um custo novo no produto: pedidos das **últimas 24h** da loja com aquele item são sobrescritos; pedidos mais antigos **só** recebem o custo se o item ainda estiver `0`/ausente. O **Lucro est.** do card (e o dashboard) trata `0` como sem snapshot e cai no custo atual da ficha até o backfill gravar.
 
 ## Multi-tenant e filiais

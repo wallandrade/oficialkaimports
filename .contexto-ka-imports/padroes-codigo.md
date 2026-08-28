@@ -1,13 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-08-27  
+> **Última atualização:** 2026-08-28  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
-| 2026-08-27 | Anti-padrão: esconder Rifas da filial com `isPrimary` | `canManageRafflesTab` como Produtos | Cupons/checkout/bumps inalterados |
+| 2026-08-28 | Anti-padrão: backup de produto só no catálogo inteiro | `?ids=` + checkbox; substituir avisa se parcial | Restore merge inalterado |
 | 2026-08-27 | Anti-padrão: copiar lote da filial sem o nome da loja no título | `site_name` no Motoboy/48h/Outros | Loja 1 e card individual inalterados |
 | 2026-08-27 | Anti-padrão: prefixar cópia Motoboy com `#KA-` ou incluir agendamento | Layout Yury (`#161`, emoji, sem slot) | Cópia 48h/EnvioEcom inalterada |
 | 2026-08-26 | Anti-padrão: exigir cidade da faixa CEP igual à ViaCEP para mostrar Motoboy | CEP na faixa libera; cidade só desempata | Whitelist e EnvioEcom inalterados |
@@ -140,6 +140,7 @@ Código > memória > suposições.
 - Impersonar cliente sem `tenantId` na sessão (`/auth/me` 404 → tela de login) ou gravar o token só no `localStorage` da aba do admin.
 - Esconder “Editar Pedido” da filial com `isPrimary`; pedidos já são isolados por tenant — usar `hasGlobalAccess` (primary e admin de filial).
 - Esconder a aba Rifas da filial com `isPrimary`; API já isola por tenant — usar `canManageRafflesTab` (como Produtos).
+- Backup de produtos só no catálogo inteiro quando o admin marcou alguns; usar `GET /admin/products/backup?ids=` e **Restaurar** (mesclar) no parcial.
 - Editar pedido sem persistir telefone, e-mail e CPF (`clientPhone` / `clientEmail` / `clientDocument`); não são só o card.
 - Enviar CPF placeholder `000.000.000-00` no create EnvioEcom, ou devolver 400 da EnvioEcom sem logar `message`/`details` e sem juntar `details` no toast.
 - Usar `<datalist>` nativo na busca de produto do estoque (não mostra foto); usar combobox com `products[].image` igual ao saldo.

@@ -17466,6 +17466,7 @@ function ProductsPanel({
   const [productImageUploading, setProductImageUploading] = useState(false);
   const [productBackupExporting, setProductBackupExporting] = useState(false);
   const [productBackupImporting, setProductBackupImporting] = useState(false);
+  const [selectedProductBackupIds, setSelectedProductBackupIds] = useState<string[]>([]);
   const [pendingRestoreMode, setPendingRestoreMode] = useState<"merge" | "replace">("merge");
   const [costHistoryProductId, setCostHistoryProductId] = useState<string | null>(null);
   const [costHistoryProductName, setCostHistoryProductName] = useState("");
@@ -17554,10 +17555,16 @@ function ProductsPanel({
     };
   }, [loadSavedBrands]);
 
-  const handleBackupDownload = async () => {
+  const handleBackupDownload = async (productIds?: string[]) => {
+    const selectedIds = [...new Set((productIds || []).map((id) => String(id || "").trim()).filter(Boolean))];
+    if (productIds && selectedIds.length === 0) {
+      toast.info("Selecione pelo menos um produto para o backup.");
+      return;
+    }
     setProductBackupExporting(true);
     try {
-      const res = await fetch(`${BASE}/api/admin/products/backup`, { headers: authHeaders() });
+      const qs = selectedIds.length > 0 ? `?ids=${selectedIds.map(encodeURIComponent).join(",")}` : "";
+      const res = await fetch(`${BASE}/api/admin/products/backup${qs}`, { headers: authHeaders() });
       if (!res.ok) {
         const err = await res.json().catch(() => ({} as { message?: string }));
         toast.error(err.message || "Erro ao gerar backup dos produtos.");
@@ -17567,7 +17574,10 @@ function ProductsPanel({
       const blob = await res.blob();
       const disposition = res.headers.get("content-disposition") || "";
       const match = disposition.match(/filename="?([^";]+)"?/i);
-      const filename = match?.[1] || `produtos-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      const filename = match?.[1] || (selectedIds.length > 0
+        ? `produtos-backup-parcial-${dateStamp}.json`
+        : `produtos-backup-${dateStamp}.json`);
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
@@ -17576,7 +17586,9 @@ function ProductsPanel({
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
-      toast.success("Backup dos produtos baixado com sucesso!");
+      toast.success(selectedIds.length > 0
+        ? `Backup de ${selectedIds.length} produto${selectedIds.length !== 1 ? "s" : ""} baixado.`
+        : "Backup dos produtos baixado com sucesso!");
     } catch {
       toast.error("Erro ao gerar backup dos produtos.");
     } finally {
@@ -17586,7 +17598,7 @@ function ProductsPanel({
 
   const openRestorePicker = (mode: "merge" | "replace") => {
     if (mode === "replace") {
-      const confirmed = window.confirm("Isso vai substituir todo o catálogo atual pelo conteúdo do backup. Deseja continuar?");
+      const confirmed = window.confirm("Isso vai substituir todo o catálogo atual pelo conteúdo do backup. Se o arquivo for parcial, os outros produtos serão apagados. Deseja continuar?");
       if (!confirmed) return;
     }
 
@@ -17601,7 +17613,11 @@ function ProductsPanel({
     setProductBackupImporting(true);
     try {
       const raw = await file.text();
-      const backup = JSON.parse(raw) as unknown;
+      const backup = JSON.parse(raw) as { partial?: boolean; products?: unknown[] };
+      if (pendingRestoreMode === "replace" && (backup.partial || (Array.isArray(backup.products) && backup.products.length < products.length))) {
+        const confirmed = window.confirm("Este arquivo parece um backup parcial. Substituir apaga os outros produtos do catálogo. Continuar?");
+        if (!confirmed) return;
+      }
       const res = await fetch(`${BASE}/api/admin/products/restore`, {
         method: "POST",
         headers: authHeaders(),
@@ -17648,6 +17664,30 @@ function ProductsPanel({
 
   const normalizedProductSearch = productSearch.trim().toLowerCase();
   const visibleProducts = products.filter((p) => p.name.toLowerCase().includes(normalizedProductSearch));
+  const selectedProductBackupSet = new Set(selectedProductBackupIds);
+  const visibleProductIds = visibleProducts.map((product) => product.id);
+  const allVisibleBackupSelected = visibleProductIds.length > 0
+    && visibleProductIds.every((id) => selectedProductBackupSet.has(id));
+
+  const toggleProductBackupSelection = (productId: string) => {
+    setSelectedProductBackupIds((current) => (
+      current.includes(productId)
+        ? current.filter((id) => id !== productId)
+        : [...current, productId]
+    ));
+  };
+
+  const toggleAllVisibleProductBackup = () => {
+    setSelectedProductBackupIds((current) => {
+      const next = new Set(current);
+      if (allVisibleBackupSelected) {
+        for (const id of visibleProductIds) next.delete(id);
+      } else {
+        for (const id of visibleProductIds) next.add(id);
+      }
+      return [...next];
+    });
+  };
 
   const copyLink = (link: string, key: string) => {
     navigator.clipboard.writeText(link).then(() => {
@@ -17917,6 +17957,7 @@ function ProductsPanel({
           <h2 className="text-lg font-bold flex items-center gap-2"><ShoppingBag className="w-5 h-5 text-primary" />Catálogo de Produtos</h2>
           <p className="text-sm text-muted-foreground mt-0.5">
             {visibleProducts.length} de {products.length} produto{products.length !== 1 ? "s" : ""}
+            {selectedProductBackupIds.length > 0 ? ` · ${selectedProductBackupIds.length} selecionado${selectedProductBackupIds.length !== 1 ? "s" : ""}` : ""}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 justify-end">
@@ -17927,9 +17968,19 @@ function ProductsPanel({
             className="hidden"
             onChange={handleBackupRestore}
           />
-          <Button variant="outline" onClick={handleBackupDownload} disabled={productBackupExporting || productBackupImporting} className="gap-2">
+          <Button variant="outline" onClick={() => { void handleBackupDownload(); }} disabled={productBackupExporting || productBackupImporting} className="gap-2">
             {productBackupExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
             Backup JSON
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => { void handleBackupDownload(selectedProductBackupIds); }}
+            disabled={productBackupExporting || productBackupImporting || selectedProductBackupIds.length === 0}
+            className="gap-2"
+            title={selectedProductBackupIds.length === 0 ? "Selecione produtos na lista para backup parcial" : `Baixar backup de ${selectedProductBackupIds.length} produto(s)`}
+          >
+            {productBackupExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            Backup selecionados ({selectedProductBackupIds.length})
           </Button>
           <Button variant="outline" onClick={() => openRestorePicker("merge")} disabled={productBackupExporting || productBackupImporting} className="gap-2">
             {productBackupImporting && pendingRestoreMode === "merge" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
@@ -17949,15 +18000,28 @@ function ProductsPanel({
         </div>
       </div>
 
-      <div className="relative">
-        <IconLucide name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <input
-          type="text"
-          value={productSearch}
-          onChange={(e) => setProductSearch(e.target.value)}
-          placeholder="Pesquisar produto por nome..."
-          className="w-full h-11 pl-10 pr-4 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
-        />
+      <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+        <div className="relative flex-1">
+          <IconLucide name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <input
+            type="text"
+            value={productSearch}
+            onChange={(e) => setProductSearch(e.target.value)}
+            placeholder="Pesquisar produto por nome..."
+            className="w-full h-11 pl-10 pr-4 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+          />
+        </div>
+        {visibleProducts.length > 0 && (
+          <label className="flex items-center gap-2 h-11 px-3 rounded-xl border-2 border-border bg-white text-sm text-muted-foreground cursor-pointer shrink-0">
+            <input
+              type="checkbox"
+              className="rounded"
+              checked={allVisibleBackupSelected}
+              onChange={toggleAllVisibleProductBackup}
+            />
+            Marcar todos visíveis
+          </label>
+        )}
       </div>
 
       {/* Product form modal */}
@@ -18411,8 +18475,16 @@ function ProductsPanel({
           {visibleProducts.map((p) => {
             const effectivePrice = (p.promoPrice && (!p.promoEndsAt || new Date() < new Date(p.promoEndsAt))) ? p.promoPrice : p.price;
             return (
-              <div key={p.id} className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${!p.isActive ? "opacity-60" : ""}`}>
+              <div key={p.id} className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${!p.isActive ? "opacity-60" : ""} ${selectedProductBackupSet.has(p.id) ? "ring-2 ring-primary/30 border-primary/40" : ""}`}>
                 <div className="flex gap-4 p-4">
+                  <label className="flex items-start pt-1 shrink-0 cursor-pointer" title="Selecionar para backup">
+                    <input
+                      type="checkbox"
+                      className="rounded mt-0.5"
+                      checked={selectedProductBackupSet.has(p.id)}
+                      onChange={() => toggleProductBackupSelection(p.id)}
+                    />
+                  </label>
                   {/* Image */}
                   <div className="w-16 h-16 rounded-xl flex-shrink-0 overflow-hidden border border-border bg-muted flex items-center justify-center">
                     {p.image ? (

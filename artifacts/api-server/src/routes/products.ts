@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, productsTable, productCostHistoryTable, ordersTable, siteSettingsTable } from "@workspace/db";
-import { and, eq, asc, desc, isNull, or } from "drizzle-orm";
+import { and, eq, asc, desc, isNull, or, inArray } from "drizzle-orm";
 import crypto from "crypto";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { getR2MissingConfig, isR2Configured, uploadProductImageToR2 } from "../lib/r2";
@@ -390,10 +390,21 @@ router.get("/admin/products/backup", requireAdminAuth, async (req, res) => {
       return;
     }
     const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
+    const requestedIds = [...new Set(
+      String(req.query.ids || "")
+        .split(",")
+        .map((id) => id.trim())
+        .filter(Boolean),
+    )].slice(0, 500);
+    const partial = requestedIds.length > 0;
     const rows = await db
       .select()
       .from(productsTable)
-      .where(buildProductTenantWhere(tenantId))
+      .where(
+        partial
+          ? and(buildProductTenantWhere(tenantId), inArray(productsTable.id, requestedIds))
+          : buildProductTenantWhere(tenantId),
+      )
       .orderBy(asc(productsTable.sortOrder), asc(productsTable.createdAt));
 
     const tenantBrandsKey = getAdminSavedBrandsKey(tenantId);
@@ -407,13 +418,17 @@ router.get("/admin/products/backup", requireAdminAuth, async (req, res) => {
     const payload = {
       version: PRODUCT_BACKUP_VERSION,
       exportedAt,
+      partial,
       productCount: rows.length,
       savedBrands,
       products: rows.map((row) => mapProductForBackup(row)),
     };
 
+    const filename = partial
+      ? `produtos-backup-parcial-${exportedAt.slice(0, 10)}.json`
+      : `produtos-backup-${exportedAt.slice(0, 10)}.json`;
     res.setHeader("Content-Type", "application/json; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename="produtos-backup-${exportedAt.slice(0, 10)}.json"`);
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.json(payload);
   } catch (err) {
     console.error("Product backup export error:", err);
