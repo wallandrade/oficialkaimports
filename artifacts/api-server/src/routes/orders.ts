@@ -2542,6 +2542,7 @@ function mapOrder(o: typeof ordersTable.$inferSelect, options?: { light?: boolea
     envioecomLabelUrl:      light ? slimExternalUrl(o.envioecomLabelUrl) : (o.envioecomLabelUrl ?? null),
     envioecomFreightCost:   o.envioecomFreightCost != null ? Number(o.envioecomFreightCost) : null,
     envioecomExternalOrderNumber: o.envioecomExternalOrderNumber ?? null,
+    envioecomAccountId:          o.envioecomAccountId ?? null,
     bankDepositMatchStatus: (o as any).bankDepositMatchStatus ?? null,
     bankDepositFitid:       (o as any).bankDepositFitid ?? null,
     bankDepositAmount:      (o as any).bankDepositAmount != null ? Number((o as any).bankDepositAmount) : null,

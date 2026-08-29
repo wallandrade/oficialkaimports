@@ -1,12 +1,13 @@
 # Integrações externas — KA Imports
 
-> **Última atualização:** 2026-08-28  
+> **Última atualização:** 2026-08-29  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-29 | Catálogo EnvioEcom multi-conta (`envioecom-accounts.ts`) + CRUD `/admin/envioecom/accounts` | Token por conta; cache de login por `tenantId:accountId` | Webhook público por código; create/quote iguais no restante |
 | 2026-08-28 | APPCNPay por tenant: `gateway_appcnpay_*` em `tenant_settings`; fallback `GATEWAY_IDENTIFIER`/`GATEWAY_SECRET` | Filial PIX na própria conta; webhook resolve tenant pelo `transactionId` | DentPeg continua env global; confirmação via webhook |
 | 2026-08-26 | Espelho Motoboy da Yury: pull + webhook HMAC de bairros/faixas CEP | Checkout lê cobertura local sincronizada | Agenda, estoque, last-mile e portal de preço inalterados |
 | 2026-08-24 | Parser EE lê cidade em `location.name` / `city_name` / município | Timeline grava “Cidade - unidade” | Webhook/Sync iguais |
@@ -61,8 +62,8 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 - Base: `https://envioecom.com.br/api/v1/whitelabel` (override `ENVIOECOM_BASE_URL`).
 - Auth: header `X-Partner-Token`. Client em `artifacts/api-server/src/lib/envioecom-client.ts`.
 - **Frontend nunca chama a EnvioEcom.** Só o backend.
-- Config **por tenant** (`tenant_settings`: token/email/senha, CEP origem, medidas default, carriers, `envioecom_shipment_item_name`). Fallback de env (`ENVIOECOM_TOKEN` etc.) só para loja 1.
-- Rotas admin (`hasGlobalAccess`, não seller-scoped): quote/create/labels/sync/cancel/bind-id, tracking-board, config, GET/PUT `shipment-item-name`, registrar webhook.
+- Config **por tenant**: medidas default, carriers e `envioecom_shipment_item_name` continuam da loja. Credencial + CEP origem são **por conta** (`env` do Railway só loja 1; `tenant` nas keys `envioecom_token` etc.; extras JSON `envioecom_accounts`). Env **não** entra no JSON. GET `/admin/envioecom/accounts` mascara token/e-mail; POST/PUT/DELETE extras com `hasGlobalAccess` (filial no próprio tenant). Campo em branco no PUT = manter.
+- Rotas admin (`hasGlobalAccess`, não seller-scoped): quote/create/labels/sync/cancel/bind-id, tracking-board, config, CRUD accounts, GET/PUT `shipment-item-name`, registrar webhook em **todas** as contas. Quote/create aceitam `accountId` no body e devolvem `accountId`. Sync/labels/cancel fazem fallback entre contas.
 - **Vincular EE**: modal no card (não `window.prompt`). Admin cola ID (4–10 dígitos → `shipment_id`) ou rastreio (`barcode`). `POST /api/admin/envioecom/orders/:id/sync` com esse body busca na EE (`getById` / `getByIdentifier`; se o admin colou e falhou, tenta `list` por CPF/CEP/nome) e grava com `persistEnvioEcomShipment`. Não cria envio novo. Etiqueta com barcode `EC…` reabre o mesmo modal.
 - Board `GET /api/admin/envioecom/tracking-board` devolve `{ summary, items, configured }` (grupos delivered/in_transit/awaiting/cancelled/other). Cada item inclui `events` (histórico mais recente primeiro, até 80) e `lastEvents` (5). `POST .../tracking-board/sync` atualiza até 20–30 abertos. Aba **Rastreios EE** não chama a transportadora até Sync; o clique só abre a timeline local. Campo “Nome do produto no create” grava o setting da loja.
 - Público: `POST /api/webhook/envioecom` (2xx rápido; match barcode → `external_order_number` → `shipment_id`; aceita body plano ou `data`/`shipment`; eventos com barcode/status não são ignorados). Idempotente barcode+status. Histórico vem de `status_history` (status + `location` cidade/unidade, também `location.name`, `city_name`, `municipio`); 2+ eventos substituem o JSON local, 1 evento faz append idempotente. Não grava nota “Status atualizado ao consultar rastreio”.

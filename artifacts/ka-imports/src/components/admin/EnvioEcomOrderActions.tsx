@@ -27,6 +27,15 @@ export type EnvioEcomOrderFields = {
   envioecomStatus?: string | null;
   envioecomLabelUrl?: string | null;
   envioecomFreightCost?: number | null;
+  envioecomAccountId?: string | null;
+  envioecomAccountName?: string | null;
+};
+
+type EnvioEcomAccountOption = {
+  id: string;
+  name: string;
+  configured: boolean;
+  originCep?: string;
 };
 
 const DEFAULT_CARRIER_FILTERS = [
@@ -69,6 +78,13 @@ function parseEnvioEcomLinkRef(raw: unknown): { shipmentId?: number; barcode?: s
     return { shipmentId: Number(digits) };
   }
   return { barcode: compact };
+}
+
+function prettyAccountName(order: EnvioEcomOrderFields) {
+  if (order.envioecomAccountName) return order.envioecomAccountName;
+  if (order.envioecomAccountId === "env") return "Padrão (servidor)";
+  if (order.envioecomAccountId === "tenant") return "Conta da loja";
+  return order.envioecomAccountId || "";
 }
 
 function quoteCarrier(quote: QuoteOption) {
@@ -137,6 +153,11 @@ export function EnvioEcomOrderActions({
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkRef, setLinkRef] = useState("");
   const [continueToLabel, setContinueToLabel] = useState(false);
+  const [quoteAccountId, setQuoteAccountId] = useState(order.envioecomAccountId || "");
+  const [accountPickerOpen, setAccountPickerOpen] = useState(false);
+  const [accountPickerAction, setAccountPickerAction] = useState<"quote" | "link" | null>(null);
+  const [accountOptions, setAccountOptions] = useState<EnvioEcomAccountOption[]>([]);
+  const [pendingLinkContinueToLabel, setPendingLinkContinueToLabel] = useState(false);
 
   const carrierFilters = useMemo(() => {
     const fromResults = [
@@ -167,14 +188,36 @@ export function EnvioEcomOrderActions({
     ));
   }
 
-  async function quote(carriers = selectedCarriers) {
+  async function loadConfiguredAccounts(): Promise<EnvioEcomAccountOption[]> {
+    const res = await fetch(`${BASE}/api/admin/envioecom/accounts`, { headers: adminHeaders() });
+    if (!res.ok) throw new Error(await readError(res));
+    const data = await res.json() as { accounts?: EnvioEcomAccountOption[] };
+    return (data.accounts || []).filter((account) => account.configured);
+  }
+
+  async function resolveAccountId(opts: { skipIfBound?: boolean } = {}): Promise<string | null> {
+    if (opts.skipIfBound && order.envioecomAccountId) return order.envioecomAccountId;
+    const accounts = await loadConfiguredAccounts();
+    setAccountOptions(accounts);
+    if (!accounts.length) {
+      toast.error("Cadastre uma API EnvioEcom em Configurações.");
+      return null;
+    }
+    if (accounts.length === 1) return accounts[0].id;
+    return "PICK";
+  }
+
+  async function quote(carriers = selectedCarriers, accountId = quoteAccountId) {
     setQuoteOpen(true);
     setBusy("quote");
     try {
       const res = await fetch(`${BASE}/api/admin/envioecom/orders/${order.id}/quote`, {
         method: "POST",
         headers: adminHeaders(),
-        body: JSON.stringify(carriers.length ? { carriers } : {}),
+        body: JSON.stringify({
+          ...(carriers.length ? { carriers } : {}),
+          ...(accountId ? { accountId } : {}),
+        }),
       });
       if (!res.ok) throw new Error(await readError(res));
       const data = await res.json() as {
@@ -182,6 +225,7 @@ export function EnvioEcomOrderActions({
         unavailableCarriers?: Array<{ carrier?: string; reason?: string; message?: string }>;
         originZipcode?: string;
         package?: Record<string, unknown>;
+        accountId?: string;
       };
       setQuotes(data.quotes || []);
       setUnavailable((data.unavailableCarriers || []).map((row) => ({
@@ -190,6 +234,7 @@ export function EnvioEcomOrderActions({
       })));
       setOriginZipcode(String(data.originZipcode || ""));
       setPackageInfo(data.package || null);
+      if (data.accountId) setQuoteAccountId(data.accountId);
       if (!(data.quotes || []).length) toast.error("Nenhuma transportadora disponível para este CEP.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Falha ao cotar.");
@@ -218,6 +263,7 @@ export function EnvioEcomOrderActions({
           width: packageInfo?.width,
           length: packageInfo?.length,
           weight: packageInfo?.weight,
+          accountId: quoteAccountId || undefined,
         }),
       });
       if (!res.ok) throw new Error(await readError(res));
@@ -232,9 +278,59 @@ export function EnvioEcomOrderActions({
     }
   }
 
+  async function startQuote() {
+    try {
+      const picked = await resolveAccountId();
+      if (!picked) return;
+      if (picked === "PICK") {
+        setAccountPickerAction("quote");
+        setAccountPickerOpen(true);
+        return;
+      }
+      setQuoteAccountId(picked);
+      await quote(selectedCarriers, picked);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Falha ao listar contas EnvioEcom.");
+    }
+  }
+
   function openEnvioEcomLinkModal(nextContinueToLabel = false) {
     setContinueToLabel(nextContinueToLabel);
-    setLinkOpen(true);
+    void startLink(nextContinueToLabel);
+  }
+
+  async function startLink(nextContinueToLabel = false) {
+    try {
+      const picked = await resolveAccountId({ skipIfBound: true });
+      if (!picked) return;
+      if (picked === "PICK") {
+        setPendingLinkContinueToLabel(nextContinueToLabel);
+        setAccountPickerAction("link");
+        setAccountPickerOpen(true);
+        return;
+      }
+      setQuoteAccountId(picked);
+      setContinueToLabel(nextContinueToLabel);
+      setLinkOpen(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Falha ao listar contas EnvioEcom.");
+    }
+  }
+
+  async function chooseAccount(accountId: string) {
+    setAccountPickerOpen(false);
+    setQuoteAccountId(accountId);
+    const action = accountPickerAction;
+    setAccountPickerAction(null);
+    if (action === "quote") {
+      await quote(selectedCarriers, accountId);
+      return;
+    }
+    if (action === "link") {
+      setContinueToLabel(pendingLinkContinueToLabel);
+      setPendingLinkContinueToLabel(false);
+      setLinkOpen(true);
+    }
   }
 
   async function linkEnvioEcomShipment() {
@@ -248,7 +344,9 @@ export function EnvioEcomOrderActions({
       const res = await fetch(`${BASE}/api/admin/envioecom/orders/${order.id}/sync`, {
         method: "POST",
         headers: adminHeaders(),
-        body: JSON.stringify(parsed.shipmentId ? { shipment_id: parsed.shipmentId } : { barcode: parsed.barcode }),
+        body: JSON.stringify(parsed.shipmentId
+          ? { shipment_id: parsed.shipmentId, accountId: quoteAccountId || order.envioecomAccountId || undefined }
+          : { barcode: parsed.barcode, accountId: quoteAccountId || order.envioecomAccountId || undefined }),
       });
       if (!res.ok) throw new Error(await readError(res));
       const data = await res.json() as { order?: EnvioEcomOrderFields };
@@ -343,7 +441,7 @@ export function EnvioEcomOrderActions({
 
   return (
     <>
-      <Button size="sm" variant="outline" className="gap-1.5 text-emerald-700 border-emerald-200 hover:bg-emerald-50" disabled={!!busy} onClick={() => void quote()}>
+      <Button size="sm" variant="outline" className="gap-1.5 text-emerald-700 border-emerald-200 hover:bg-emerald-50" disabled={!!busy} onClick={() => void startQuote()}>
         {busy === "quote" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Truck className="w-3.5 h-3.5" />}
         EnvioEcom
       </Button>
@@ -383,6 +481,7 @@ export function EnvioEcomOrderActions({
       {order.envioecomStatus && (
         <p className={`basis-full text-xs ${String(order.envioecomStatus).toLowerCase().includes("cancel") ? "text-rose-700" : "text-emerald-800"}`}>
           EnvioEcom: {order.envioecomStatus}
+          {prettyAccountName(order) ? ` · ${prettyAccountName(order)}` : ""}
           {order.envioecomDeliveryMode ? ` · ${order.envioecomDeliveryMode}` : ""}
           {barcode ? ` · ${barcode}` : ""}
           {order.envioecomFreightCost != null ? ` · ${formatCurrency(order.envioecomFreightCost)}` : ""}
@@ -532,6 +631,38 @@ export function EnvioEcomOrderActions({
                 </Button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {accountPickerOpen && (
+        <div className="fixed inset-0 z-[80] bg-black/40 flex items-center justify-center p-4" onClick={() => setAccountPickerOpen(false)}>
+          <div className="bg-white rounded-[28px] max-w-md w-full shadow-xl p-5 sm:p-6" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3 pb-4 border-b border-neutral-200">
+              <div>
+                <h2 className="text-lg font-bold text-neutral-900 leading-tight">Escolher API EnvioEcom</h2>
+                <p className="text-sm text-neutral-500 mt-1">
+                  Pedido #{orderDisplayId}{order.clientName ? ` · ${order.clientName}` : ""}
+                </p>
+              </div>
+              <button type="button" className="text-neutral-500 hover:text-neutral-800 p-1 -mt-1" onClick={() => setAccountPickerOpen(false)} aria-label="Fechar">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-sm text-neutral-600 mt-4">A cotação e a etiqueta precisam ser da mesma conta.</p>
+            <div className="mt-4 space-y-2">
+              {accountOptions.map((account) => (
+                <button
+                  key={account.id}
+                  type="button"
+                  className="w-full text-left rounded-2xl border border-neutral-200 hover:border-emerald-400 hover:bg-emerald-50 px-4 py-3"
+                  onClick={() => void chooseAccount(account.id)}
+                >
+                  <p className="text-sm font-bold text-neutral-900">{account.name}</p>
+                  {account.originCep ? <p className="text-xs text-neutral-500 mt-0.5">CEP origem {account.originCep}</p> : null}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}

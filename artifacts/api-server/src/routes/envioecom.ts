@@ -13,7 +13,21 @@ import {
   maskSecret,
   saveEnvioEcomConfig,
 } from "../lib/envioecom-config";
-import { createEnvioEcomClient, EnvioEcomApiError, type EnvioEcomClient } from "../lib/envioecom-client";
+import {
+  createEnvioEcomClientForAccount,
+  createEnvioEcomExtraAccount,
+  deleteEnvioEcomAccount,
+  getEnvioEcomAccountNameMap,
+  hasAnyEnvioEcomAccount,
+  isEnvioEcomAccountConfigured,
+  listEnvioEcomAccounts,
+  orderEnvioEcomAccountsForFallback,
+  pickWriteEnvioEcomAccount,
+  toPublicEnvioEcomAccount,
+  updateEnvioEcomAccount,
+  type EnvioEcomAccountAuth,
+} from "../lib/envioecom-accounts";
+import { EnvioEcomApiError, type EnvioEcomClient } from "../lib/envioecom-client";
 import {
   applyGenericShipmentItemName,
   buildConsolidatedQuotePackage,
@@ -80,20 +94,70 @@ function sendEnvioEcomError(res: Response, err: unknown) {
   res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro na integração EnvioEcom." });
 }
 
-async function getClientOrReject(tenantId: string, res: Response): Promise<EnvioEcomClient | null> {
-  const config = await loadEnvioEcomConfig(tenantId);
-  if (!config.configured) {
-    res.status(400).json({ error: "ENVIOECOM_NOT_CONFIGURED", message: "EnvioEcom não configurado para esta loja." });
+function rejectNoAccounts(res: Response) {
+  res.status(503).json({
+    error: "ENVIOECOM_NOT_CONFIGURED",
+    message: "Cadastre uma API EnvioEcom em Configurações.",
+  });
+}
+
+async function withEnvioEcomAccount(
+  tenantId: string,
+  accountId: string | undefined,
+  res: Response,
+): Promise<{ client: EnvioEcomClient; account: EnvioEcomAccountAuth } | null> {
+  const picked = pickWriteEnvioEcomAccount(await listEnvioEcomAccounts(tenantId), accountId);
+  if ("error" in picked && picked.error === "NONE") {
+    rejectNoAccounts(res);
     return null;
   }
-  return createEnvioEcomClient({
-    tenantId,
-    baseUrl: config.baseUrl,
-    token: config.token,
-    email: config.email,
-    password: config.password,
-    neverExpires: config.neverExpires,
-  });
+  if ("error" in picked) {
+    res.status(404).json({ error: "NOT_FOUND", message: "Conta EnvioEcom não encontrada." });
+    return null;
+  }
+  return {
+    client: createEnvioEcomClientForAccount(tenantId, picked.account),
+    account: picked.account,
+  };
+}
+
+function isFallbackMiss(err: unknown): boolean {
+  if (!(err instanceof EnvioEcomApiError)) return false;
+  return err.httpStatus === 404
+    || err.httpStatus === 400
+    || err.httpStatus === 401
+    || err.httpStatus === 403
+    || err.code === "SHIPMENT_NOT_FOUND";
+}
+
+async function withEnvioEcomAccountFallback<T>(
+  tenantId: string,
+  preferredId: string | null | undefined,
+  res: Response,
+  fn: (client: EnvioEcomClient, account: EnvioEcomAccountAuth) => Promise<T>,
+  isFound: (result: T) => boolean,
+): Promise<{ result: T; account: EnvioEcomAccountAuth } | null> {
+  const ordered = orderEnvioEcomAccountsForFallback(await listEnvioEcomAccounts(tenantId), preferredId);
+  if (!ordered.length) {
+    rejectNoAccounts(res);
+    return null;
+  }
+  let lastError: unknown = null;
+  let lastHit: { result: T; account: EnvioEcomAccountAuth } | null = null;
+  for (const account of ordered) {
+    try {
+      const result = await fn(createEnvioEcomClientForAccount(tenantId, account), account);
+      lastHit = { result, account };
+      if (isFound(result)) return lastHit;
+    } catch (err) {
+      lastError = err;
+      if (isFallbackMiss(err)) continue;
+      throw err;
+    }
+  }
+  if (lastHit) return lastHit;
+  if (lastError) throw lastError;
+  return null;
 }
 
 async function loadTenantOrder(orderId: string, tenantId: string) {
@@ -111,8 +175,12 @@ function publicWebhookUrl(req: Request): string {
   return buildCallbackUrl(req as never, "/webhook/envioecom");
 }
 
-function mapEnvioEcomOrder(order: typeof ordersTable.$inferSelect) {
+function mapEnvioEcomOrder(
+  order: typeof ordersTable.$inferSelect,
+  extra?: { accountName?: string | null },
+) {
   const events = trackingEventsNewestFirst(order.envioecomStatusHistory, 80);
+  const accountId = order.envioecomAccountId ?? null;
   return {
     id: order.id,
     orderNumber: order.orderNumber ?? null,
@@ -136,6 +204,8 @@ function mapEnvioEcomOrder(order: typeof ordersTable.$inferSelect) {
     envioecomLabelUrl: order.envioecomLabelUrl ?? null,
     envioecomFreightCost: order.envioecomFreightCost != null ? Number(order.envioecomFreightCost) : null,
     envioecomExternalOrderNumber: order.envioecomExternalOrderNumber ?? null,
+    envioecomAccountId: accountId,
+    envioecomAccountName: extra?.accountName || null,
     trackingGroup: classifyEnvioEcomTrackingGroup(order.envioecomStatus),
   };
 }
@@ -170,14 +240,45 @@ function matchesTrackingQuery(order: ReturnType<typeof mapEnvioEcomOrder>, q: st
     order.envioecomDeliveryMode,
     order.envioecomShipmentId,
     order.envioecomExternalOrderNumber,
+    order.envioecomAccountName,
+    order.envioecomAccountId,
   ].join(" ").toLowerCase();
   return hay.includes(q);
 }
 
-async function refreshShipment(client: EnvioEcomClient, order: typeof ordersTable.$inferSelect) {
+async function persistShipmentForAccount(
+  order: typeof ordersTable.$inferSelect,
+  patch: Parameters<typeof persistEnvioEcomShipment>[1],
+  account?: EnvioEcomAccountAuth,
+) {
+  return persistEnvioEcomShipment(order, {
+    ...patch,
+    accountId: account?.accountId || patch.accountId || order.envioecomAccountId,
+  });
+}
+
+async function refreshShipment(
+  client: EnvioEcomClient,
+  order: typeof ordersTable.$inferSelect,
+  account?: EnvioEcomAccountAuth,
+) {
   const details = await resolveLiveShipmentRefs(client, order, {});
   if (!details) return order;
-  return persistEnvioEcomShipment(order, parseShipmentDetails(details));
+  return persistShipmentForAccount(order, parseShipmentDetails(details), account);
+}
+
+async function softRefreshOrderWithFallback(tenantId: string, order: typeof ordersTable.$inferSelect) {
+  const ordered = orderEnvioEcomAccountsForFallback(await listEnvioEcomAccounts(tenantId), order.envioecomAccountId);
+  for (const account of ordered) {
+    try {
+      const details = await resolveLiveShipmentRefs(createEnvioEcomClientForAccount(tenantId, account), order, {});
+      if (details) return persistShipmentForAccount(order, parseShipmentDetails(details), account);
+    } catch (err) {
+      if (isFallbackMiss(err)) continue;
+      throw err;
+    }
+  }
+  return order;
 }
 
 function firstShipmentFromList(payload: unknown): unknown | null {
@@ -270,14 +371,16 @@ router.get("/admin/envioecom/status", requireAdminAuth, async (req, res) => {
     const admin = requireEnvioEcomAdmin(req, res);
     if (!admin) return;
     const config = await loadEnvioEcomConfig(admin.tenantId);
+    const accounts = (await listEnvioEcomAccounts(admin.tenantId)).map(toPublicEnvioEcomAccount);
     res.json({
-      configured: config.configured,
+      configured: accounts.some((account) => account.configured),
       hasToken: !!config.token,
       tokenMasked: maskSecret(config.token),
       hasEmail: !!config.email,
       originCep: config.originCep || null,
       carriers: config.carriers,
       defaults: config.defaults,
+      accounts,
     });
   } catch (err) {
     sendEnvioEcomError(res, err);
@@ -289,13 +392,15 @@ router.get("/admin/envioecom/config", requireAdminAuth, async (req, res) => {
     const admin = requireEnvioEcomAdmin(req, res);
     if (!admin) return;
     const config = await loadEnvioEcomConfig(admin.tenantId);
+    const accounts = (await listEnvioEcomAccounts(admin.tenantId)).map(toPublicEnvioEcomAccount);
     res.json({
-      configured: config.configured,
+      configured: accounts.some((account) => account.configured),
       tokenMasked: maskSecret(config.token),
-      email: config.email || "",
+      emailMasked: accounts.find((account) => account.id === "tenant")?.emailMasked || null,
       originCep: config.originCep || "",
       carriers: config.carriers,
       defaults: config.defaults,
+      accounts,
     });
   } catch (err) {
     sendEnvioEcomError(res, err);
@@ -320,6 +425,64 @@ router.put("/admin/envioecom/config", requireAdminAuth, async (req, res) => {
     });
     const config = await loadEnvioEcomConfig(admin.tenantId);
     res.json({ ok: true, configured: config.configured, originCep: config.originCep });
+  } catch (err) {
+    sendEnvioEcomError(res, err);
+  }
+});
+
+router.get("/admin/envioecom/accounts", requireAdminAuth, async (req, res) => {
+  try {
+    const admin = requireEnvioEcomAdmin(req, res);
+    if (!admin) return;
+    const accounts = (await listEnvioEcomAccounts(admin.tenantId)).map(toPublicEnvioEcomAccount);
+    res.json({ accounts, configured: accounts.some((account) => account.configured) });
+  } catch (err) {
+    sendEnvioEcomError(res, err);
+  }
+});
+
+router.post("/admin/envioecom/accounts", requireAdminAuth, async (req, res) => {
+  try {
+    const admin = requireEnvioEcomAdmin(req, res);
+    if (!admin) return;
+    const body = (req.body || {}) as Record<string, unknown>;
+    const account = await createEnvioEcomExtraAccount(admin.tenantId, {
+      name: body.name == null ? undefined : String(body.name),
+      token: body.token == null ? undefined : String(body.token),
+      email: body.email == null ? undefined : String(body.email),
+      password: body.password == null ? undefined : String(body.password),
+      originCep: body.originCep == null ? undefined : String(body.originCep),
+    });
+    res.status(201).json({ ok: true, account: toPublicEnvioEcomAccount(account) });
+  } catch (err) {
+    sendEnvioEcomError(res, err);
+  }
+});
+
+router.put("/admin/envioecom/accounts/:id", requireAdminAuth, async (req, res) => {
+  try {
+    const admin = requireEnvioEcomAdmin(req, res);
+    if (!admin) return;
+    const body = (req.body || {}) as Record<string, unknown>;
+    const account = await updateEnvioEcomAccount(admin.tenantId, String(req.params.id), {
+      name: body.name === undefined ? undefined : String(body.name ?? ""),
+      token: body.token === undefined ? undefined : String(body.token ?? ""),
+      email: body.email === undefined ? undefined : String(body.email ?? ""),
+      password: body.password === undefined ? undefined : String(body.password ?? ""),
+      originCep: body.originCep === undefined ? undefined : String(body.originCep ?? ""),
+    });
+    res.json({ ok: true, account: toPublicEnvioEcomAccount(account) });
+  } catch (err) {
+    sendEnvioEcomError(res, err);
+  }
+});
+
+router.delete("/admin/envioecom/accounts/:id", requireAdminAuth, async (req, res) => {
+  try {
+    const admin = requireEnvioEcomAdmin(req, res);
+    if (!admin) return;
+    await deleteEnvioEcomAccount(admin.tenantId, String(req.params.id));
+    res.json({ ok: true });
   } catch (err) {
     sendEnvioEcomError(res, err);
   }
@@ -360,13 +523,38 @@ router.get("/admin/envioecom/webhook", requireAdminAuth, async (req, res) => {
   try {
     const admin = requireEnvioEcomAdmin(req, res);
     if (!admin) return;
-    const client = await getClientOrReject(admin.tenantId, res);
-    if (!client) return;
-    const current = await client.getWebhook();
+    const accounts = (await listEnvioEcomAccounts(admin.tenantId)).filter(isEnvioEcomAccountConfigured);
+    const suggestedUrl = publicWebhookUrl(req);
+    if (!accounts.length) {
+      res.json({ url: null, enabled: false, suggestedUrl, accounts: [] });
+      return;
+    }
+    const perAccount = [];
+    for (const account of accounts) {
+      try {
+        const current = await createEnvioEcomClientForAccount(admin.tenantId, account).getWebhook();
+        perAccount.push({
+          id: account.accountId,
+          name: account.name,
+          url: current.url ?? null,
+          enabled: !!current.enabled,
+        });
+      } catch (err) {
+        perAccount.push({
+          id: account.accountId,
+          name: account.name,
+          url: null,
+          enabled: false,
+          error: err instanceof EnvioEcomApiError ? err.message : "Falha ao ler webhook.",
+        });
+      }
+    }
+    const first = perAccount.find((row) => row.url) || perAccount[0];
     res.json({
-      url: current.url ?? null,
-      enabled: !!current.enabled,
-      suggestedUrl: publicWebhookUrl(req),
+      url: first?.url ?? null,
+      enabled: !!first?.enabled,
+      suggestedUrl,
+      accounts: perAccount,
     });
   } catch (err) {
     sendEnvioEcomError(res, err);
@@ -377,11 +565,46 @@ router.post("/admin/envioecom/webhook", requireAdminAuth, async (req, res) => {
   try {
     const admin = requireEnvioEcomAdmin(req, res);
     if (!admin) return;
-    const client = await getClientOrReject(admin.tenantId, res);
-    if (!client) return;
+    const accounts = (await listEnvioEcomAccounts(admin.tenantId)).filter(isEnvioEcomAccountConfigured);
+    if (!accounts.length) {
+      rejectNoAccounts(res);
+      return;
+    }
     const url = String((req.body as { url?: string })?.url || publicWebhookUrl(req)).trim();
-    const saved = await client.setWebhook({ url, enabled: true });
-    res.json({ ok: true, url: saved.url ?? url, enabled: saved.enabled !== false, message: saved.message });
+    const registered = [];
+    let lastMessage: string | undefined;
+    for (const account of accounts) {
+      try {
+        const saved = await createEnvioEcomClientForAccount(admin.tenantId, account).setWebhook({ url, enabled: true });
+        lastMessage = saved.message;
+        registered.push({
+          id: account.accountId,
+          name: account.name,
+          ok: true,
+          url: saved.url ?? url,
+        });
+      } catch (err) {
+        registered.push({
+          id: account.accountId,
+          name: account.name,
+          ok: false,
+          error: err instanceof EnvioEcomApiError ? err.message : "Falha ao registrar webhook.",
+        });
+      }
+    }
+    const okCount = registered.filter((row) => row.ok).length;
+    if (!okCount) {
+      res.status(400).json({ error: "WEBHOOK_FAILED", message: "Não foi possível registrar o webhook em nenhuma conta.", accounts: registered });
+      return;
+    }
+    res.json({
+      ok: true,
+      url,
+      enabled: true,
+      message: lastMessage,
+      registered: okCount,
+      accounts: registered,
+    });
   } catch (err) {
     sendEnvioEcomError(res, err);
   }
@@ -410,25 +633,27 @@ router.post("/admin/envioecom/orders/:id/quote", requireAdminAuth, async (req, r
       return;
     }
     const config = await loadEnvioEcomConfig(admin.tenantId);
-    const client = await getClientOrReject(admin.tenantId, res);
-    if (!client) return;
+    const body = (req.body || {}) as { carriers?: string[]; accountId?: string };
+    const scoped = await withEnvioEcomAccount(admin.tenantId, body.accountId, res);
+    if (!scoped) return;
     const packed = buildConsolidatedQuotePackage({ products: order.products, defaults: config.defaults });
-    const carriersFilter = Array.isArray((req.body as { carriers?: string[] })?.carriers)
-      ? (req.body as { carriers: string[] }).carriers
-      : config.carriers;
+    const carriersFilter = Array.isArray(body.carriers) ? body.carriers : config.carriers;
     const payload: Record<string, unknown> = {
       postal_code_destination: destination,
       aviso_recebimento: false,
       products: [packed.product],
     };
+    if (scoped.account.originCep.length === 8) payload.postal_code_origin = scoped.account.originCep;
     if (carriersFilter.length) payload.carriers = carriersFilter;
-    const quoted = await client.quote(payload);
+    const quoted = await scoped.client.quote(payload);
     res.json({
-      originZipcode: quoted.origin_zipcode || quoted.origin_zip || config.originCep,
+      originZipcode: quoted.origin_zipcode || quoted.origin_zip || scoped.account.originCep,
       destinationZipcode: quoted.destination_zipcode || destination,
       quotes: quoted.quotes || [],
       unavailableCarriers: quoted.unavailable_carriers || [],
       package: packed.product,
+      accountId: scoped.account.accountId,
+      accountName: scoped.account.name,
     });
   } catch (err) {
     sendEnvioEcomError(res, err);
@@ -461,16 +686,19 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       width?: string | number;
       length?: string | number;
       weight?: string | number;
+      accountId?: string;
     };
     const shippingCompany = String(body.shippingCompany || "").trim();
     if (!shippingCompany) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Informe a transportadora exatamente como na cotação." });
       return;
     }
+    const scoped = await withEnvioEcomAccount(admin.tenantId, body.accountId, res);
+    if (!scoped) return;
     const config = await loadEnvioEcomConfig(admin.tenantId);
-    const originCep = digitsOnly(body.originCep || config.originCep);
+    const originCep = digitsOnly(body.originCep || scoped.account.originCep);
     if (originCep.length !== 8) {
-      res.status(400).json({ error: "ORIGIN_CEP_REQUIRED", message: "CEP de origem obrigatório. Configure nas settings da loja." });
+      res.status(400).json({ error: "ORIGIN_CEP_REQUIRED", message: "CEP de origem obrigatório. Configure na conta EnvioEcom." });
       return;
     }
     const destination = digitsOnly(order.addressCep);
@@ -484,10 +712,8 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       return;
     }
     const packed = buildConsolidatedQuotePackage({ products: order.products, defaults: config.defaults });
-    const client = await getClientOrReject(admin.tenantId, res);
-    if (!client) return;
     const externalOrderNumber = order.envioecomExternalOrderNumber || buildExternalOrderNumber(order);
-    const created = await client.create({
+    const created = await scoped.client.create({
       defer_payment: false,
       shipments: [{
         orderId: externalOrderNumber,
@@ -515,17 +741,23 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       }],
     });
 
-    let persisted = await persistEnvioEcomShipment(order, {
+    let persisted = await persistShipmentForAccount(order, {
       ...parseCreatedShipment(created),
       deliveryMode: shippingCompany,
       externalOrderNumber,
-    });
+    }, scoped.account);
     try {
-      persisted = await refreshShipment(client, persisted);
+      persisted = await refreshShipment(scoped.client, persisted, scoped.account);
     } catch (err) {
       console.warn("[EnvioEcom] Sync pós-create falhou:", err);
     }
-    res.json({ ok: true, order: mapEnvioEcomOrder(persisted), raw: created });
+    res.json({
+      ok: true,
+      order: mapEnvioEcomOrder(persisted, { accountName: scoped.account.name }),
+      accountId: scoped.account.accountId,
+      accountName: scoped.account.name,
+      raw: created,
+    });
   } catch (err) {
     sendEnvioEcomError(res, err);
   }
@@ -540,16 +772,27 @@ router.post("/admin/envioecom/orders/:id/bind-id", requireAdminAuth, async (req,
       res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
       return;
     }
-    const shipmentId = Number((req.body as { shipmentId?: number })?.shipmentId);
+    const body = (req.body || {}) as { shipmentId?: number; accountId?: string };
+    const shipmentId = Number(body.shipmentId);
     if (!Number.isFinite(shipmentId) || shipmentId <= 0) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Informe o ID numérico do envio no painel EnvioEcom." });
       return;
     }
-    const client = await getClientOrReject(admin.tenantId, res);
-    if (!client) return;
-    const details = await client.getById(shipmentId);
-    const persisted = await persistEnvioEcomShipment(order, parseShipmentDetails(details));
-    res.json({ ok: true, order: mapEnvioEcomOrder(persisted) });
+    const preferred = String(body.accountId || order.envioecomAccountId || "").trim() || undefined;
+    const found = await withEnvioEcomAccountFallback(
+      admin.tenantId,
+      preferred,
+      res,
+      async (client) => tryEnvioEcomLookup(() => client.getById(shipmentId)),
+      (details) => !!details,
+    );
+    if (!found) return;
+    if (!found.result) {
+      res.status(404).json({ error: "SHIPMENT_NOT_FOUND", message: "Não encontramos esse envio na EnvioEcom." });
+      return;
+    }
+    const persisted = await persistShipmentForAccount(order, parseShipmentDetails(found.result), found.account);
+    res.json({ ok: true, order: mapEnvioEcomOrder(persisted, { accountName: found.account.name }), accountId: found.account.accountId });
   } catch (err) {
     sendEnvioEcomError(res, err);
   }
@@ -564,7 +807,7 @@ router.post("/admin/envioecom/orders/:id/labels", requireAdminAuth, async (req, 
       res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
       return;
     }
-    const requestedId = Number((req.body as { shipmentId?: number })?.shipmentId);
+    const requestedId = Number((req.body as { shipmentId?: number; accountId?: string })?.shipmentId);
     const shipmentId = Number.isFinite(requestedId) && requestedId > 0 ? requestedId : order.envioecomShipmentId;
     if (!shipmentId) {
       const barcode = String(order.envioecomBarcode || order.trackingCode || "").trim();
@@ -591,29 +834,42 @@ router.post("/admin/envioecom/orders/:id/labels", requireAdminAuth, async (req, 
       });
       return;
     }
-    const client = await getClientOrReject(admin.tenantId, res);
-    if (!client) return;
     const payload = shipmentId
       ? { ids: [Number(shipmentId)] }
       : { barcodes: [String(order.envioecomBarcode || order.trackingCode)] };
-    const result = await client.generateLabels(payload);
+    const preferred = String((req.body as { accountId?: string })?.accountId || order.envioecomAccountId || "").trim() || undefined;
+    const found = await withEnvioEcomAccountFallback(
+      admin.tenantId,
+      preferred,
+      res,
+      async (client) => client.generateLabels(payload),
+      (result) => result.kind === "pdf",
+    );
+    if (!found) return;
+    const result = found.result;
     if (result.kind !== "pdf") {
       const code = String((result.json as { error?: { code?: string } } | null)?.error?.code || "LABEL_PROCESSING");
       res.status(202).json({
         error: code,
         message: "Etiqueta ainda em processamento. Tente novamente em instantes.",
         details: result.json,
+        accountId: found.account.accountId,
       });
       return;
     }
     const labelUrl = await uploadShipmentLabelPdfToR2({ buffer: result.buffer, orderId: order.id });
-    const persisted = await persistEnvioEcomShipment(order, {
+    const persisted = await persistShipmentForAccount(order, {
       shipmentId: shipmentId || order.envioecomShipmentId,
       barcode: isUsableLabelBarcode(order.envioecomBarcode) ? order.envioecomBarcode : order.trackingCode,
       labelUrl,
       status: resolveStatusAfterLabelGenerated(order.envioecomStatus),
+    }, found.account);
+    res.json({
+      ok: true,
+      labelUrl,
+      order: mapEnvioEcomOrder(persisted, { accountName: found.account.name }),
+      accountId: found.account.accountId,
     });
-    res.json({ ok: true, labelUrl, order: mapEnvioEcomOrder(persisted) });
   } catch (err) {
     sendEnvioEcomError(res, err);
   }
@@ -628,30 +884,37 @@ router.post("/admin/envioecom/orders/:id/sync", requireAdminAuth, async (req, re
       res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
       return;
     }
-    const client = await getClientOrReject(admin.tenantId, res);
-    if (!client) return;
-
     const body = (req.body || {}) as {
       shipment_id?: number | string;
       shipmentId?: number | string;
       barcode?: string;
       ref?: string;
+      accountId?: string;
     };
     const parsed = parseEnvioEcomLinkRef(body.ref);
     const shipmentIdRaw = Number(body.shipment_id || body.shipmentId || parsed.shipmentId);
     const shipmentId = Number.isFinite(shipmentIdRaw) && shipmentIdRaw > 0 ? Math.trunc(shipmentIdRaw) : undefined;
     const barcode = String(body.barcode || parsed.barcode || "").trim() || undefined;
+    const preferred = String(body.accountId || order.envioecomAccountId || "").trim() || undefined;
 
-    const details = await resolveLiveShipmentRefs(client, order, { shipmentId, barcode });
-    if (!details) {
+    const found = await withEnvioEcomAccountFallback(
+      admin.tenantId,
+      preferred,
+      res,
+      async (client) => resolveLiveShipmentRefs(client, order, { shipmentId, barcode }),
+      (details) => !!details,
+    );
+    if (!found) return;
+    if (!found.result) {
       res.json({ ok: true, order: mapEnvioEcomOrder(order), resolved: false });
       return;
     }
-    const persisted = await persistEnvioEcomShipment(order, parseShipmentDetails(details));
+    const persisted = await persistShipmentForAccount(order, parseShipmentDetails(found.result), found.account);
     res.json({
       ok: true,
-      order: mapEnvioEcomOrder(persisted),
+      order: mapEnvioEcomOrder(persisted, { accountName: found.account.name }),
       resolved: true,
+      accountId: found.account.accountId,
       tracking: {
         shipmentId: persisted.envioecomShipmentId ?? null,
         barcode: persisted.envioecomBarcode ?? persisted.trackingCode ?? null,
@@ -677,19 +940,26 @@ router.post("/admin/envioecom/orders/:id/cancel", requireAdminAuth, async (req, 
       res.status(400).json({ error: "NO_SHIPMENT", message: "Este pedido ainda não tem envio EnvioEcom." });
       return;
     }
-    const client = await getClientOrReject(admin.tenantId, res);
-    if (!client) return;
-    const reason = String((req.body as { reason?: string })?.reason || "").trim();
-    const cancelled = await client.cancel(identifier, reason || undefined);
-    const persisted = await persistEnvioEcomShipment(order, {
-      status: String(cancelled.status || "Cancelado"),
-      description: String(cancelled.message || ""),
-    });
+    const reason = String((req.body as { reason?: string; accountId?: string })?.reason || "").trim();
+    const preferred = String((req.body as { accountId?: string })?.accountId || order.envioecomAccountId || "").trim() || undefined;
+    const found = await withEnvioEcomAccountFallback(
+      admin.tenantId,
+      preferred,
+      res,
+      async (client) => client.cancel(identifier, reason || undefined),
+      (cancelled) => !!cancelled,
+    );
+    if (!found) return;
+    const persisted = await persistShipmentForAccount(order, {
+      status: String(found.result.status || "Cancelado"),
+      description: String(found.result.message || ""),
+    }, found.account);
     res.json({
       ok: true,
-      autoCancelled: !!cancelled.auto_cancelled,
-      message: cancelled.message,
-      order: mapEnvioEcomOrder(persisted),
+      autoCancelled: !!found.result.auto_cancelled,
+      message: found.result.message,
+      order: mapEnvioEcomOrder(persisted, { accountName: found.account.name }),
+      accountId: found.account.accountId,
     });
   } catch (err) {
     sendEnvioEcomError(res, err);
@@ -720,7 +990,10 @@ router.get("/admin/envioecom/tracking-board", requireAdminAuth, async (req, res)
       .where(and(...conditions))
       .orderBy(desc(ordersTable.envioecomStatusUpdatedAt), desc(ordersTable.updatedAt))
       .limit(500);
-    const mapped = rows.map(mapEnvioEcomOrder).filter((order) => matchesTrackingQuery(order, q));
+    const names = await getEnvioEcomAccountNameMap(admin.tenantId);
+    const mapped = rows.map((order) => mapEnvioEcomOrder(order, {
+      accountName: order.envioecomAccountId ? names[order.envioecomAccountId] || null : null,
+    })).filter((order) => matchesTrackingQuery(order, q));
     const summary = {
       total: mapped.length,
       in_transit: mapped.filter((order) => order.trackingGroup === "in_transit").length,
@@ -730,8 +1003,7 @@ router.get("/admin/envioecom/tracking-board", requireAdminAuth, async (req, res)
       other: mapped.filter((order) => order.trackingGroup === "other").length,
     };
     const items = (group && group !== "all" ? mapped.filter((order) => order.trackingGroup === group) : mapped).slice(0, limit);
-    const config = await loadEnvioEcomConfig(admin.tenantId);
-    res.json({ summary, items, configured: config.configured });
+    res.json({ summary, items, configured: await hasAnyEnvioEcomAccount(admin.tenantId) });
   } catch (err) {
     sendEnvioEcomError(res, err);
   }
@@ -741,14 +1013,16 @@ router.post("/admin/envioecom/tracking-board/sync", requireAdminAuth, async (req
   try {
     const admin = requireEnvioEcomBoardAdmin(req, res);
     if (!admin) return;
-    const client = await getClientOrReject(admin.tenantId, res);
-    if (!client) return;
     const body = req.body as { orderIds?: string[]; limit?: number };
     const requestedIds = Array.isArray(body?.orderIds) ? body.orderIds.map(String).filter(Boolean) : [];
     const limit = Math.min(30, Math.max(1, Number(body?.limit) || 20));
     const scopeConditions = [buildOrderTenantWhere(admin.tenantId)];
     if (!admin.hasGlobalAccess && admin.sellerCode) {
       scopeConditions.push(eq(ordersTable.sellerCode, admin.sellerCode));
+    }
+    if (!(await hasAnyEnvioEcomAccount(admin.tenantId))) {
+      rejectNoAccounts(res);
+      return;
     }
     const rows = requestedIds.length
       ? await db.select().from(ordersTable).where(and(...scopeConditions, inArray(ordersTable.id, requestedIds.slice(0, limit))))
@@ -766,10 +1040,14 @@ router.post("/admin/envioecom/tracking-board/sync", requireAdminAuth, async (req
       isOpenEnvioEcomTrackingStatus(order.envioecomStatus)
       || trackingHistoryMissingLocation(order.envioecomStatusHistory)
     )).slice(0, limit);
+    const names = await getEnvioEcomAccountNameMap(admin.tenantId);
     const synced = [];
     for (const order of targets) {
       try {
-        synced.push(mapEnvioEcomOrder(await refreshShipment(client, order)));
+        const updated = await softRefreshOrderWithFallback(admin.tenantId, order);
+        synced.push(mapEnvioEcomOrder(updated, {
+          accountName: updated.envioecomAccountId ? names[updated.envioecomAccountId] || null : null,
+        }));
       } catch (err) {
         console.warn("[EnvioEcom] sync lote falhou", order.id, err);
       }
@@ -801,18 +1079,9 @@ router.get("/me/orders/:id/tracking", requireCustomerAuth, async (req, res) => {
     }
 
     let current = order;
-    const config = await loadEnvioEcomConfig(tenantId);
-    if (config.configured && (order.envioecomShipmentId || isUsableLabelBarcode(order.envioecomBarcode || order.trackingCode))) {
+    if (order.envioecomShipmentId || isUsableLabelBarcode(order.envioecomBarcode || order.trackingCode)) {
       try {
-        const client = createEnvioEcomClient({
-          tenantId,
-          baseUrl: config.baseUrl,
-          token: config.token,
-          email: config.email,
-          password: config.password,
-          neverExpires: config.neverExpires,
-        });
-        current = await refreshShipment(client, order);
+        current = await softRefreshOrderWithFallback(tenantId, order);
       } catch (err) {
         console.warn("[EnvioEcom] soft-sync cliente falhou:", err);
       }
@@ -843,7 +1112,7 @@ router.post("/me/orders/tracking-sync", requireCustomerAuth, async (req, res) =>
     }
 
     const limit = Math.min(10, Math.max(1, Number((req.body as { limit?: number })?.limit) || 8));
-    const config = await loadEnvioEcomConfig(tenantId);
+    const configured = await hasAnyEnvioEcomAccount(tenantId);
     const rows = await db
       .select()
       .from(ordersTable)
@@ -859,7 +1128,7 @@ router.post("/me/orders/tracking-sync", requireCustomerAuth, async (req, res) =>
       isOpenEnvioEcomTrackingStatus(order.envioecomStatus)
       || trackingHistoryMissingLocation(order.envioecomStatusHistory)
     )).slice(0, limit);
-    if (!config.configured || !targets.length) {
+    if (!configured || !targets.length) {
       res.json({
         ok: true,
         synced: 0,
@@ -877,19 +1146,10 @@ router.post("/me/orders/tracking-sync", requireCustomerAuth, async (req, res) =>
       return;
     }
 
-    const client = createEnvioEcomClient({
-      tenantId,
-      baseUrl: config.baseUrl,
-      token: config.token,
-      email: config.email,
-      password: config.password,
-      neverExpires: config.neverExpires,
-    });
-
     const synced = [];
     for (const order of targets) {
       try {
-        const current = await refreshShipment(client, order);
+        const current = await softRefreshOrderWithFallback(tenantId, order);
         synced.push({
           id: current.id,
           enviado: !!current.enviado,

@@ -26,6 +26,7 @@ export type EnvioEcomShipmentPatch = {
   labelUrl?: string | null;
   description?: string | null;
   history?: EnvioEcomHistoryEvent[] | null;
+  accountId?: string | null;
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -129,6 +130,7 @@ export async function persistEnvioEcomShipment(order: typeof ordersTable.$inferS
   if (history) updates.envioecomStatusHistory = history;
   if (patch.freightCost != null && String(patch.freightCost).trim()) updates.envioecomFreightCost = String(patch.freightCost);
   if (patch.externalOrderNumber) updates.envioecomExternalOrderNumber = patch.externalOrderNumber;
+  if (patch.accountId) updates.envioecomAccountId = String(patch.accountId).trim().slice(0, 64);
   if (patch.labelUrl) {
     updates.envioecomLabelUrl = patch.labelUrl;
     updates.trackingLabelUrl = patch.labelUrl;

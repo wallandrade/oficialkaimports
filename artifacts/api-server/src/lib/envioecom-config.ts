@@ -2,6 +2,9 @@ import { db, tenantSettingsTable } from "@workspace/db";
 import { and, eq, isNull, or } from "drizzle-orm";
 import { DEFAULT_TENANT_ID } from "./tenant-context";
 import type { EnvioEcomPackageDefaults } from "./envioecom-package";
+import { maskEmail, maskSecret } from "./envioecom-accounts-core";
+
+export { maskEmail, maskSecret };
 
 export const ENVIOECOM_SETTING_KEYS = {
   token: "envioecom_token",
@@ -14,6 +17,7 @@ export const ENVIOECOM_SETTING_KEYS = {
   defaultWidth: "envioecom_default_width",
   carriers: "envioecom_carriers",
   shipmentItemName: "envioecom_shipment_item_name",
+  accounts: "envioecom_accounts",
 } as const;
 
 export const ENVIOECOM_DEFAULT_SHIPMENT_ITEM_NAME = "Mercadoria";
@@ -31,7 +35,7 @@ export type EnvioEcomTenantConfig = {
   neverExpires: boolean;
 };
 
-function buildTenantSettingsWhere(tenantId: string) {
+export function buildTenantSettingsWhere(tenantId: string) {
   if (tenantId === DEFAULT_TENANT_ID) {
     return or(
       eq(tenantSettingsTable.tenantId, tenantId),
@@ -42,7 +46,7 @@ function buildTenantSettingsWhere(tenantId: string) {
   return eq(tenantSettingsTable.tenantId, tenantId);
 }
 
-async function getTenantSettingsMap(tenantId: string): Promise<Record<string, string>> {
+export async function getTenantSettingsMap(tenantId: string): Promise<Record<string, string>> {
   const rows = await db
     .select()
     .from(tenantSettingsTable)
@@ -144,9 +148,15 @@ export async function saveEnvioEcomConfig(tenantId: string, patch: {
   }
 }
 
-export function maskSecret(value: string): string | null {
-  const trimmed = String(value || "").trim();
-  if (!trimmed) return null;
-  if (trimmed.length <= 4) return "****";
-  return `${"*".repeat(Math.max(4, trimmed.length - 4))}${trimmed.slice(-4)}`;
+export async function upsertTenantSetting(tenantId: string, key: string, value: string | null | undefined): Promise<void> {
+  if (value === undefined) return;
+  const next = String(value || "").trim();
+  if (!next) {
+    await db.delete(tenantSettingsTable).where(and(buildTenantSettingsWhere(tenantId), eq(tenantSettingsTable.key, key)));
+    return;
+  }
+  await db
+    .insert(tenantSettingsTable)
+    .values({ tenantId, key, value: next, updatedAt: new Date() })
+    .onDuplicateKeyUpdate({ set: { value: next, updatedAt: new Date() } });
 }

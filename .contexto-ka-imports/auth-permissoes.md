@@ -1,12 +1,13 @@
 # Auth e permissões — KA Imports
 
-> **Última atualização:** 2026-08-28  
+> **Última atualização:** 2026-08-29  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-29 | CRUD contas EnvioEcom com `hasGlobalAccess` (filial no próprio tenant); GET mascara segredo | Vendedor seller-scoped continua sem cotar/criar | Papéis inalterados |
 | 2026-08-28 | Chaves APPCNPay no mesmo `canManageSettings` (primary ou filial ≠ loja1) | Filial grava o próprio par; GET mascara | Seller-scoped da loja 1 continua sem Configurações |
 | 2026-08-27 | Aba Rifas no admin da filial (`isPrimary \|\| tenant ≠ loja1`) | Filial gerencia rifas do próprio tenant | Cupons/checkout/bumps/usuários continuam primary |
 | 2026-08-21 | `GET /api/admin/orders/:id` com o mesmo escopo da lista | Comprovante/etiqueta sob demanda | Primary-only inalterado |
@@ -45,7 +46,7 @@ Código > memória > tipagens.
 - Primary → `hasGlobalAccess: true`, `sellerCode: null`.
 - Seller map: env JSON `ADMIN_SELLER_SCOPE_MAP` `{"usuario":"seller-slug"}`.
 - Middleware: `requireAdminAuth`; subset: `requirePrimaryAdmin`.
-- EnvioEcom (cotar/criar/etiqueta/config/shipment-item-name): `hasGlobalAccess` (primary e admin de filial). Seller-scoped recebe 403. Board `tracking-board` lista/sync com filtro de `sellerCode` se não for global.
+- EnvioEcom (cotar/criar/etiqueta/config/accounts/shipment-item-name): `hasGlobalAccess` (primary e admin de filial). Seller-scoped recebe 403. GET accounts mascara token/e-mail. POST/PUT/DELETE extras no próprio tenant; não apaga/edita `id=env`. Board `tracking-board` lista/sync com filtro de `sellerCode` se não for global.
 - Extrato OFX (`POST /api/admin/bank-statement/analyze|apply|clear`) e histórico (`GET /api/admin/bank-deposits`): `requireAdminAuth`; filtra `tenantId`; seller-scoped só pedidos do próprio `sellerCode`. Não exige primary. `clear` não altera `paid`.
 - Editar pedido (`PATCH /api/admin/orders/:id/edit`): `hasGlobalAccess` (primary da loja 1 e admin de filial). Cada um só no próprio `tenantId`. Seller-scoped 403. O botão no FE usa `isPrimary || adminTenantId !== tenant_loja1`.
 - Rifas no admin: aba visível com `isPrimary || tenant ≠ tenant_loja1` (igual Produtos). API `/api/admin/raffles*` é `requireAdminAuth` + `tenantId`; seller-scoped da loja 1 não vê a aba.

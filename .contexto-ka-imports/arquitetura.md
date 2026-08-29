@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-08-28  
+> **Última atualização:** 2026-08-29  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-29 | `orders.envioecom_account_id` + catálogo de contas EnvioEcom em `tenant_settings` | Roteamento de credencial; ALTER runtime | Stack FE/API e demais colunas EE iguais |
 | 2026-08-28 | PIX APPCNPay: `createPixCharge*` / `fetchTransactionStatus` recebem `tenantId`; chaves em `tenant_settings` | Conta gateway por loja | Stack FE/API/DB e DentPeg inalterados |
 | 2026-08-26 | Espelho Motoboy Yury: `yury_id` + tabela `yury_webhook_events_processed` | Pull/webhook de cobertura | Pedidos/agenda Motoboy inalterados |
 | 2026-08-26 | `motoboy_neighborhoods.interval_hours`; settings Motoboy no checkout | Duração do slot e whitelist/frete grátis 2× | Portal/estoque Motoboy e EnvioEcom inalterados |
@@ -67,7 +68,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 - Health: `GET /healthz`.
 - Jobs no boot: reconciliação (expiração 24h), raffle expiry, reconcile logistics, pull de cobertura Motoboy Yury (15 min, se token).
 - Webhook cobertura Motoboy: `POST /api/webhooks/yury/motoboy-coverage` (body cru + HMAC) **antes** de `express.json()`.
-- EnvioEcom: `artifacts/api-server/src/routes/envioecom.ts` + webhook em `webhooks.ts`. Config por `tenant_settings`.
+- EnvioEcom: `artifacts/api-server/src/routes/envioecom.ts` + webhook em `webhooks.ts`. Contas em `lib/envioecom-accounts.ts` (env + tenant + JSON `envioecom_accounts`). Client cacheia token por `tenantId:accountId`. Coluna `orders.envioecom_account_id`.
 - APPCNPay: `gateway.ts` + `lib/pix-gateway-credentials.ts`. Par por tenant (`gateway_appcnpay_public_key` / `_secret_key`); fallback env. Webhook PIX resolve tenant pelo `transactionId`.
 - Extrato OFX: `artifacts/api-server/src/routes/bank-statement.ts` (`analyze`/`apply`/`clear`/`bank-deposits`) + `order_bank_deposits`. Painéis FE: `AdminBankStatementPanel.tsx` (sessão) e `AdminBankDepositsPanel.tsx` (histórico + Desfazer por FITID).
 - Lista admin: `GET /admin/orders` em modo leve (sem `data:`/OCR); `GET /admin/orders/:id` devolve mídia completa.

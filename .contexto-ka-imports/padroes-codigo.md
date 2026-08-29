@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-08-28  
+> **Última atualização:** 2026-08-29  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-29 | Anti-padrão: uma credencial EnvioEcom global, cache de token por tenant, mixar env no JSON de extras | Catálogo por loja + cache `accountId`; write na conta do quote | Cotação/Mercadoria/webhook por barcode iguais |
 | 2026-08-28 | Anti-padrão: PIX da filial só com env global, ou misturar chave da loja com secret do env | Par `gateway_appcnpay_*` por tenant; GET mascara; sem `localStorage` | DentPeg e webhook PIX inalterados |
 | 2026-08-28 | Anti-padrão: backup de produto só no catálogo inteiro | `?ids=` + checkbox; substituir avisa se parcial | Restore merge inalterado |
 | 2026-08-27 | Anti-padrão: copiar lote da filial sem o nome da loja no título | `site_name` no Motoboy/48h/Outros | Loja 1 e card individual inalterados |
@@ -126,6 +127,9 @@ Código > memória > suposições.
 - Cadastrar bairro/faixa Motoboy neste repo como fonte da verdade quando `YURY_MOTOBOY_SYNC_TOKEN` está setado (espelho Yury; CRUD local 409).
 - Exigir cidade da faixa CEP igual à ViaCEP para mostrar Motoboy (CEP na faixa já libera; cidade só desempata).
 - Gerar etiqueta EnvioEcom com barcode provisório `EC…` (usar `shipping_id` / `ids`).
+- Cachear token EnvioEcom só por `tenantId` com N contas (login A vira B). Chave = `tenantId:accountId`.
+- Gravar extras EnvioEcom misturando a conta `env` no JSON; env = Railway, painel só cria extras. CEP origem é da conta, não um setting global de quote/create.
+- Cotar numa API EnvioEcom e criar a etiqueta em outra; o `accountId` do quote vai no create. 0 contas → Configurações; 1 → direto; 2+ → modal.
 - Pedir ID EnvioEcom com `window.prompt`; usar o modal **Vincular EE** (ID 4–10 dígitos ou rastreio) e `POST .../sync`.
 - Enviar um produto × N linhas na cotação EnvioEcom (empilha altura → `QUOTE_ERROR`); usar 1 pacote.
 - Cotar EnvioEcom com caixa 10×15×20 e valor declarado = total do pedido; o simulador usa 2×12×17, 0,3 kg, R$ 5.

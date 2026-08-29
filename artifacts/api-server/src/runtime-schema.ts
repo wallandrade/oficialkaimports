@@ -302,6 +302,7 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
     { name: "envioecom_label_url", sql: "ALTER TABLE orders ADD COLUMN envioecom_label_url MEDIUMTEXT NULL" },
     { name: "envioecom_freight_cost", sql: "ALTER TABLE orders ADD COLUMN envioecom_freight_cost DECIMAL(10,2) NULL" },
     { name: "envioecom_external_order_number", sql: "ALTER TABLE orders ADD COLUMN envioecom_external_order_number VARCHAR(255) NULL" },
+    { name: "envioecom_account_id", sql: "ALTER TABLE orders ADD COLUMN envioecom_account_id VARCHAR(64) NULL" },
     { name: "bank_deposit_match_status", sql: "ALTER TABLE orders ADD COLUMN bank_deposit_match_status VARCHAR(32) NULL" },
     { name: "bank_deposit_fitid", sql: "ALTER TABLE orders ADD COLUMN bank_deposit_fitid VARCHAR(64) NULL" },
     { name: "bank_deposit_amount", sql: "ALTER TABLE orders ADD COLUMN bank_deposit_amount DECIMAL(10,2) NULL" },

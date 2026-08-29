@@ -79,6 +79,7 @@ async function readResponseBody(res: Response): Promise<{ json: unknown | null; 
 
 export type EnvioEcomClientOptions = {
   tenantId: string;
+  accountId?: string;
   baseUrl: string;
   token?: string;
   email?: string;
@@ -86,8 +87,13 @@ export type EnvioEcomClientOptions = {
   neverExpires?: boolean;
 };
 
+function tokenCacheKey(options: EnvioEcomClientOptions): string {
+  return `${options.tenantId}:${options.accountId || "default"}`;
+}
+
 export function createEnvioEcomClient(options: EnvioEcomClientOptions) {
   const baseUrl = options.baseUrl.replace(/\/$/, "");
+  const cacheKey = tokenCacheKey(options);
 
   async function generateToken(): Promise<string> {
     if (!options.email || !options.password) {
@@ -107,13 +113,13 @@ export function createEnvioEcomClient(options: EnvioEcomClientOptions) {
     const token = String((body.json as { token?: string } | null)?.token || "").trim();
     if (!token) throw new EnvioEcomApiError("TOKEN_INVALID", "A EnvioEcom não retornou token.", 502);
     const expiresAt = options.neverExpires !== false ? Date.now() + 30 * 24 * 60 * 60 * 1000 : Date.now() + 170 * 24 * 60 * 60 * 1000;
-    tokenCache.set(options.tenantId, { token, expiresAt });
+    tokenCache.set(cacheKey, { token, expiresAt });
     return token;
   }
 
   async function getToken(forceRefresh = false): Promise<string> {
     if (!forceRefresh && options.token) return options.token;
-    const cached = tokenCache.get(options.tenantId);
+    const cached = tokenCache.get(cacheKey);
     if (!forceRefresh && cached && cached.expiresAt > Date.now() + 60_000) return cached.token;
     return generateToken();
   }
