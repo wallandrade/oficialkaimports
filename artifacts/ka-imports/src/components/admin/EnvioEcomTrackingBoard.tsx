@@ -151,6 +151,8 @@ export function EnvioEcomTrackingBoard({
   const [summary, setSummary] = useState<Summary>(EMPTY_SUMMARY);
   const [configured, setConfigured] = useState(true);
   const [itemName, setItemName] = useState("Mercadoria");
+  const [itemQuantity, setItemQuantity] = useState("1");
+  const [itemUnitCost, setItemUnitCost] = useState("5");
   const [canEditItemName, setCanEditItemName] = useState(false);
   const [savingName, setSavingName] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -163,8 +165,17 @@ export function EnvioEcomTrackingBoard({
         setCanEditItemName(false);
         return;
       }
-      const data = await res.json() as { name?: string; defaultName?: string };
+      const data = await res.json() as {
+        name?: string;
+        quantity?: number;
+        unitCost?: number;
+        defaultName?: string;
+        defaultQuantity?: number;
+        defaultUnitCost?: number;
+      };
       setItemName(data.name || data.defaultName || "Mercadoria");
+      setItemQuantity(String(data.quantity ?? data.defaultQuantity ?? 1));
+      setItemUnitCost(String(data.unitCost ?? data.defaultUnitCost ?? 5));
       setCanEditItemName(true);
     } catch {
       setCanEditItemName(false);
@@ -199,12 +210,23 @@ export function EnvioEcomTrackingBoard({
       const res = await fetch(`${BASE}/api/admin/envioecom/shipment-item-name`, {
         method: "PUT",
         headers: adminHeaders(),
-        body: JSON.stringify({ name: itemName }),
+        body: JSON.stringify({
+          name: itemName,
+          quantity: itemQuantity,
+          unitCost: itemUnitCost,
+        }),
       });
-      const data = await res.json().catch(() => ({})) as { name?: string; message?: string };
-      if (!res.ok) throw new Error(data.message || "Falha ao salvar o nome do produto.");
+      const data = await res.json().catch(() => ({})) as {
+        name?: string;
+        quantity?: number;
+        unitCost?: number;
+        message?: string;
+      };
+      if (!res.ok) throw new Error(data.message || "Falha ao salvar o item da etiqueta.");
       setItemName(data.name || "Mercadoria");
-      toast.success("Nome do produto no create salvo.");
+      setItemQuantity(String(data.quantity ?? 1));
+      setItemUnitCost(String(data.unitCost ?? 5));
+      toast.success("Item da etiqueta salvo.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao salvar.");
     } finally {
@@ -302,27 +324,56 @@ export function EnvioEcomTrackingBoard({
       </div>
 
       {canEditItemName ? (
-        <div className="rounded-xl border border-border bg-white p-4 space-y-2">
-          <label className="text-sm font-semibold" htmlFor="envioecom-shipment-item-name">
-            Nome do produto no create
-          </label>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <input
-              id="envioecom-shipment-item-name"
-              className="flex-1 h-11 px-3 rounded-xl border-2 border-border bg-white text-sm"
-              maxLength={120}
-              placeholder="Mercadoria"
-              value={itemName}
-              onChange={(event) => setItemName(event.target.value)}
-            />
+        <div className="rounded-xl border border-border bg-white p-4 space-y-3">
+          <p className="text-sm font-semibold">Item da etiqueta no create</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <label className="space-y-1 min-w-0">
+              <span className="text-xs font-medium text-muted-foreground">Nome</span>
+              <input
+                id="envioecom-shipment-item-name"
+                className="w-full h-11 px-3 rounded-xl border-2 border-border bg-white text-sm"
+                maxLength={120}
+                placeholder="Mercadoria"
+                value={itemName}
+                onChange={(event) => setItemName(event.target.value)}
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs font-medium text-muted-foreground">Quantidade na etiqueta</span>
+              <input
+                id="envioecom-shipment-item-qty"
+                type="number"
+                min={1}
+                max={99}
+                step={1}
+                className="w-full h-11 px-3 rounded-xl border-2 border-border bg-white text-sm"
+                value={itemQuantity}
+                onChange={(event) => setItemQuantity(event.target.value)}
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs font-medium text-muted-foreground">Valor global (R$)</span>
+              <input
+                id="envioecom-shipment-item-cost"
+                type="number"
+                min={0.01}
+                max={3000}
+                step={0.01}
+                className="w-full h-11 px-3 rounded-xl border-2 border-border bg-white text-sm"
+                value={itemUnitCost}
+                onChange={(event) => setItemUnitCost(event.target.value)}
+              />
+            </label>
+          </div>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
             <Button onClick={() => void saveItemName()} disabled={savingName} className="gap-1.5 shrink-0">
               {savingName ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               Salvar
             </Button>
+            <p className="text-xs text-muted-foreground">
+              A etiqueta sai com 1 linha (esse nome, quantidade e valor). Pedido, estoque e comissão da loja não mudam. Envios já criados não mudam.
+            </p>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Vale para todos os itens; envios já criados não mudam.
-          </p>
         </div>
       ) : null}
 

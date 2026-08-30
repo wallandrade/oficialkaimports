@@ -36,20 +36,21 @@ test("cotacao usa 1 pacote padrao 2x12x17 0.3kg R$5", () => {
   assert.equal(packed.items.every((item) => item.name === ""), true);
 });
 
-test("create usa nome generico e nunca o catalogo", () => {
+test("create usa 1 item generico com qty e valor do setting", () => {
   const packed = buildConsolidatedQuotePackage({
     products: [
       { name: "Whey Isolado 900g", quantity: 2, price: 180 },
       { name: "Creatina", quantity: 1, price: 90 },
     ],
   });
-  const items = applyGenericShipmentItemName(packed.items, "Suplementos", packed.declaredValue);
-  assert.equal(items.length, 2);
-  assert.deepEqual(items.map((item) => item.name), ["Suplementos", "Suplementos"]);
-  assert.equal(items[0].quantity, 2);
-  assert.equal(items[0].unit_cost, 180);
-  assert.equal(items[1].quantity, 1);
-  assert.equal(items[1].unit_cost, 90);
+  const items = applyGenericShipmentItemName(packed.items, "Suplementos", packed.declaredValue, {
+    quantity: 1,
+    unitCost: 5,
+  });
+  assert.equal(items.length, 1);
+  assert.equal(items[0].name, "Suplementos");
+  assert.equal(items[0].quantity, 1);
+  assert.equal(items[0].unit_cost, 5);
   assert.equal(items.some((item) => /whey|creatina/i.test(item.name)), false);
 });
 
@@ -59,6 +60,21 @@ test("create sem produtos usa 1 item generico com o subtotal", () => {
   assert.equal(items[0].name, "Mercadoria");
   assert.equal(items[0].quantity, 1);
   assert.equal(items[0].unit_cost, 49.9);
+});
+
+test("create colapsa pedido com 10 produtos em 1 linha da etiqueta", () => {
+  const packed = buildConsolidatedQuotePackage({
+    products: Array.from({ length: 10 }, (_, i) => ({ name: `Peca ${i + 1}`, quantity: 1, price: 80 })),
+  });
+  const items = applyGenericShipmentItemName(packed.items, "Tela de celular", packed.declaredValue, {
+    quantity: 1,
+    unitCost: 25.5,
+  });
+  assert.equal(packed.items.length, 10);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].name, "Tela de celular");
+  assert.equal(items[0].quantity, 1);
+  assert.equal(items[0].unit_cost, 25.5);
 });
 
 test("medidas reais no produto usam caixa e valor do pedido", () => {

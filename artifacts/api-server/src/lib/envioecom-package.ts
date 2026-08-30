@@ -167,21 +167,21 @@ export function buildConsolidatedQuotePackage(input: {
   };
 }
 
-/** Nome genérico do setting no create — nunca o nome do catálogo. */
+/** 1 linha genérica no create: nome/qty/valor do setting — nunca catálogo nem qty do pedido. */
 export function applyGenericShipmentItemName(
-  items: EnvioEcomCreateItem[],
+  _items: EnvioEcomCreateItem[],
   genericName: string,
   fallbackUnitCost: number,
+  options?: { quantity?: number; unitCost?: number },
 ): EnvioEcomCreateItem[] {
   const name = String(genericName || "").trim().slice(0, 120) || "Mercadoria";
-  if (!items.length) {
-    return [{ name, quantity: 1, unit_cost: round2(fallbackUnitCost) }];
-  }
-  return items.map((item) => ({
-    name,
-    quantity: item.quantity,
-    unit_cost: item.unit_cost,
-  }));
+  const quantityRaw = Math.trunc(Number(options?.quantity));
+  const quantity = Number.isFinite(quantityRaw) && quantityRaw >= 1 ? Math.min(quantityRaw, 99) : 1;
+  const costRaw = Number(options?.unitCost);
+  const unitCost = Number.isFinite(costRaw) && costRaw > 0
+    ? round2(Math.min(costRaw, MAX_DECLARED_VALUE))
+    : round2(fallbackUnitCost);
+  return [{ name, quantity, unit_cost: unitCost }];
 }
 
 export function formatDimension(value: number): string {

@@ -17,10 +17,14 @@ export const ENVIOECOM_SETTING_KEYS = {
   defaultWidth: "envioecom_default_width",
   carriers: "envioecom_carriers",
   shipmentItemName: "envioecom_shipment_item_name",
+  shipmentItemQuantity: "envioecom_shipment_item_quantity",
+  shipmentItemUnitCost: "envioecom_shipment_item_unit_cost",
   accounts: "envioecom_accounts",
 } as const;
 
 export const ENVIOECOM_DEFAULT_SHIPMENT_ITEM_NAME = "Mercadoria";
+export const ENVIOECOM_DEFAULT_SHIPMENT_ITEM_QUANTITY = 1;
+export const ENVIOECOM_DEFAULT_SHIPMENT_ITEM_UNIT_COST = 5;
 
 export type EnvioEcomTenantConfig = {
   configured: boolean;
@@ -31,6 +35,8 @@ export type EnvioEcomTenantConfig = {
   carriers: string[];
   defaults: EnvioEcomPackageDefaults;
   shipmentItemName: string;
+  shipmentItemQuantity: number;
+  shipmentItemUnitCost: number;
   baseUrl: string;
   neverExpires: boolean;
 };
@@ -77,6 +83,18 @@ export function normalizeShipmentItemName(value: unknown): string {
   return trimmed || ENVIOECOM_DEFAULT_SHIPMENT_ITEM_NAME;
 }
 
+export function normalizeShipmentItemQuantity(value: unknown): number {
+  const parsed = Math.trunc(Number(String(value ?? "").replace(",", ".")));
+  if (!Number.isFinite(parsed) || parsed < 1) return ENVIOECOM_DEFAULT_SHIPMENT_ITEM_QUANTITY;
+  return Math.min(parsed, 99);
+}
+
+export function normalizeShipmentItemUnitCost(value: unknown): number {
+  const parsed = Number(String(value ?? "").replace(",", "."));
+  if (!Number.isFinite(parsed) || parsed <= 0) return ENVIOECOM_DEFAULT_SHIPMENT_ITEM_UNIT_COST;
+  return Math.min(Math.round(parsed * 100) / 100, 3000);
+}
+
 function looksLikeEmailPasswordMix(token: string): boolean {
   return token.includes(":") || token.includes("@");
 }
@@ -105,6 +123,8 @@ export async function loadEnvioEcomConfig(tenantId: string): Promise<EnvioEcomTe
       widthCm: parseNumber(settings[ENVIOECOM_SETTING_KEYS.defaultWidth] || process.env.ENVIOECOM_DEFAULT_WIDTH, 12),
     },
     shipmentItemName: normalizeShipmentItemName(settings[ENVIOECOM_SETTING_KEYS.shipmentItemName]),
+    shipmentItemQuantity: normalizeShipmentItemQuantity(settings[ENVIOECOM_SETTING_KEYS.shipmentItemQuantity]),
+    shipmentItemUnitCost: normalizeShipmentItemUnitCost(settings[ENVIOECOM_SETTING_KEYS.shipmentItemUnitCost]),
     baseUrl: String(process.env.ENVIOECOM_BASE_URL || "https://envioecom.com.br/api/v1/whitelabel").replace(/\/$/, ""),
     neverExpires: String(process.env.ENVIOECOM_TOKEN_NEVER_EXPIRES || "true").toLowerCase() !== "false",
   };
@@ -121,6 +141,8 @@ export async function saveEnvioEcomConfig(tenantId: string, patch: {
   defaultWidth?: string | number | null;
   carriers?: string[] | string | null;
   shipmentItemName?: string | null;
+  shipmentItemQuantity?: string | number | null;
+  shipmentItemUnitCost?: string | number | null;
 }): Promise<void> {
   const entries: Array<[string, string | null | undefined]> = [
     [ENVIOECOM_SETTING_KEYS.token, patch.token === undefined ? undefined : String(patch.token || "").trim()],
@@ -133,6 +155,8 @@ export async function saveEnvioEcomConfig(tenantId: string, patch: {
     [ENVIOECOM_SETTING_KEYS.defaultWidth, patch.defaultWidth === undefined ? undefined : String(patch.defaultWidth ?? "").trim()],
     [ENVIOECOM_SETTING_KEYS.carriers, patch.carriers === undefined ? undefined : (Array.isArray(patch.carriers) ? patch.carriers.join(",") : String(patch.carriers || "")).trim()],
     [ENVIOECOM_SETTING_KEYS.shipmentItemName, patch.shipmentItemName === undefined ? undefined : normalizeShipmentItemName(patch.shipmentItemName)],
+    [ENVIOECOM_SETTING_KEYS.shipmentItemQuantity, patch.shipmentItemQuantity === undefined ? undefined : String(normalizeShipmentItemQuantity(patch.shipmentItemQuantity))],
+    [ENVIOECOM_SETTING_KEYS.shipmentItemUnitCost, patch.shipmentItemUnitCost === undefined ? undefined : String(normalizeShipmentItemUnitCost(patch.shipmentItemUnitCost))],
   ];
 
   for (const [key, value] of entries) {

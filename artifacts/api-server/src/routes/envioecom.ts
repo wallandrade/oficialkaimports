@@ -9,6 +9,8 @@ import { buildCallbackUrl } from "../gateway";
 import { getR2MissingConfig, isR2Configured, uploadShipmentLabelPdfToR2 } from "../lib/r2";
 import {
   ENVIOECOM_DEFAULT_SHIPMENT_ITEM_NAME,
+  ENVIOECOM_DEFAULT_SHIPMENT_ITEM_QUANTITY,
+  ENVIOECOM_DEFAULT_SHIPMENT_ITEM_UNIT_COST,
   loadEnvioEcomConfig,
   maskSecret,
   saveEnvioEcomConfig,
@@ -495,7 +497,11 @@ router.get("/admin/envioecom/shipment-item-name", requireAdminAuth, async (req, 
     const config = await loadEnvioEcomConfig(admin.tenantId);
     res.json({
       name: config.shipmentItemName,
+      quantity: config.shipmentItemQuantity,
+      unitCost: config.shipmentItemUnitCost,
       defaultName: ENVIOECOM_DEFAULT_SHIPMENT_ITEM_NAME,
+      defaultQuantity: ENVIOECOM_DEFAULT_SHIPMENT_ITEM_QUANTITY,
+      defaultUnitCost: ENVIOECOM_DEFAULT_SHIPMENT_ITEM_UNIT_COST,
     });
   } catch (err) {
     sendEnvioEcomError(res, err);
@@ -506,13 +512,21 @@ router.put("/admin/envioecom/shipment-item-name", requireAdminAuth, async (req, 
   try {
     const admin = requireEnvioEcomAdmin(req, res);
     if (!admin) return;
-    const name = String((req.body as { name?: string })?.name ?? "");
-    await saveEnvioEcomConfig(admin.tenantId, { shipmentItemName: name });
+    const body = (req.body || {}) as { name?: string; quantity?: string | number; unitCost?: string | number };
+    await saveEnvioEcomConfig(admin.tenantId, {
+      shipmentItemName: String(body.name ?? ""),
+      shipmentItemQuantity: body.quantity,
+      shipmentItemUnitCost: body.unitCost,
+    });
     const config = await loadEnvioEcomConfig(admin.tenantId);
     res.json({
       ok: true,
       name: config.shipmentItemName,
+      quantity: config.shipmentItemQuantity,
+      unitCost: config.shipmentItemUnitCost,
       defaultName: ENVIOECOM_DEFAULT_SHIPMENT_ITEM_NAME,
+      defaultQuantity: ENVIOECOM_DEFAULT_SHIPMENT_ITEM_QUANTITY,
+      defaultUnitCost: ENVIOECOM_DEFAULT_SHIPMENT_ITEM_UNIT_COST,
     });
   } catch (err) {
     sendEnvioEcomError(res, err);
@@ -737,7 +751,10 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
         bairro: String(order.addressNeighborhood || "").trim() || "Centro",
         localidade: String(order.addressCity || "").trim() || "Cidade",
         uf: sanitizeUf(order.addressState),
-        items: applyGenericShipmentItemName(packed.items, config.shipmentItemName, packed.declaredValue),
+        items: applyGenericShipmentItemName(packed.items, config.shipmentItemName, packed.declaredValue, {
+          quantity: config.shipmentItemQuantity,
+          unitCost: config.shipmentItemUnitCost,
+        }),
       }],
     });
 
