@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { applyGenericShipmentItemName, buildConsolidatedQuotePackage } from "./envioecom-package";
+import { applyGenericShipmentItemName, buildConsolidatedQuotePackage, buildGenericShipmentItem } from "./envioecom-package";
 import { formatEnvioEcomDetails } from "./envioecom-client";
 import {
   appendStatusHistory,
@@ -75,6 +75,23 @@ test("create colapsa pedido com 10 produtos em 1 linha da etiqueta", () => {
   assert.equal(items[0].name, "Tela de celular");
   assert.equal(items[0].quantity, 1);
   assert.equal(items[0].unit_cost, 25.5);
+});
+
+test("DACE usa cost do valor global, nao o R$5 da cotacao", () => {
+  const packed = buildConsolidatedQuotePackage({
+    products: [{ name: "Peca", quantity: 10, price: 80 }],
+  });
+  const line = buildGenericShipmentItem({
+    name: "Tela de celular",
+    quantity: 1,
+    unitCost: "89,9",
+    fallbackUnitCost: packed.declaredValue,
+  });
+  assert.equal(packed.declaredValue, 5);
+  assert.equal(line.items[0].name, "Tela de celular");
+  assert.equal(line.items[0].quantity, 1);
+  assert.equal(line.items[0].unit_cost, 89.9);
+  assert.equal(line.declaredCost, 89.9);
 });
 
 test("medidas reais no produto usam caixa e valor do pedido", () => {

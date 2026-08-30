@@ -83,14 +83,24 @@ export function normalizeShipmentItemName(value: unknown): string {
   return trimmed || ENVIOECOM_DEFAULT_SHIPMENT_ITEM_NAME;
 }
 
+function parseLooseDecimal(value: unknown): number {
+  const raw = String(value ?? "").trim().replace(/[R$\s]/gi, "");
+  if (!raw) return NaN;
+  const normalized = raw.includes(",") && raw.includes(".")
+    ? raw.replace(/\./g, "").replace(",", ".")
+    : raw.replace(",", ".");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : NaN;
+}
+
 export function normalizeShipmentItemQuantity(value: unknown): number {
-  const parsed = Math.trunc(Number(String(value ?? "").replace(",", ".")));
+  const parsed = Math.trunc(parseLooseDecimal(value));
   if (!Number.isFinite(parsed) || parsed < 1) return ENVIOECOM_DEFAULT_SHIPMENT_ITEM_QUANTITY;
   return Math.min(parsed, 99);
 }
 
 export function normalizeShipmentItemUnitCost(value: unknown): number {
-  const parsed = Number(String(value ?? "").replace(",", "."));
+  const parsed = parseLooseDecimal(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return ENVIOECOM_DEFAULT_SHIPMENT_ITEM_UNIT_COST;
   return Math.min(Math.round(parsed * 100) / 100, 3000);
 }

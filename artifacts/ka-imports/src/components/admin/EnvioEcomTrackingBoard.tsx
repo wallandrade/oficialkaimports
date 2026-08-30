@@ -342,10 +342,7 @@ export function EnvioEcomTrackingBoard({
               <span className="text-xs font-medium text-muted-foreground">Quantidade na etiqueta</span>
               <input
                 id="envioecom-shipment-item-qty"
-                type="number"
-                min={1}
-                max={99}
-                step={1}
+                inputMode="numeric"
                 className="w-full h-11 px-3 rounded-xl border-2 border-border bg-white text-sm"
                 value={itemQuantity}
                 onChange={(event) => setItemQuantity(event.target.value)}
@@ -355,11 +352,9 @@ export function EnvioEcomTrackingBoard({
               <span className="text-xs font-medium text-muted-foreground">Valor global (R$)</span>
               <input
                 id="envioecom-shipment-item-cost"
-                type="number"
-                min={0.01}
-                max={3000}
-                step={0.01}
+                inputMode="decimal"
                 className="w-full h-11 px-3 rounded-xl border-2 border-border bg-white text-sm"
+                placeholder="89,90"
                 value={itemUnitCost}
                 onChange={(event) => setItemUnitCost(event.target.value)}
               />
@@ -371,7 +366,7 @@ export function EnvioEcomTrackingBoard({
               Salvar
             </Button>
             <p className="text-xs text-muted-foreground">
-              A etiqueta sai com 1 linha (esse nome, quantidade e valor). Pedido, estoque e comissão da loja não mudam. Envios já criados não mudam.
+              Salve antes de criar o envio. A DACE usa esse valor (não o R$ 5 da cotação). Pedido e estoque não mudam. Etiqueta já emitida não atualiza — cancele e crie de novo.
             </p>
           </div>
         </div>

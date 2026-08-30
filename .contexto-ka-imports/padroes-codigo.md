@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-30 | Anti-padrão: mandar `cost` R$ 5 da cotação no create quando o valor da etiqueta é outro | `cost` = qty × unit_cost do setting | Cotação inalterada |
 | 2026-08-30 | Anti-padrão: mandar N linhas / qty / preço reais do pedido no create EnvioEcom | 1 linha com settings globais da loja | Cotação e pedido KA inalterados |
 | 2026-08-30 | Ordem das abas do admin: Pedidos, Estoque, Produtos, Rastreios, Configuração, Fretes, Extrato, Depósitos, Vendedores, Comissão, Clientes, Clientes recorrentes | Menu operacional na frente | Permissões e abas extras (Links, KYC, etc.) iguais |
 | 2026-08-30 | Anti-padrão: somar Motoboy+Minas, gravar no estoque da loja, aplicar delta do webhook Yury ou chamar `/api/admin/inventory` deles | Espelho `yury_inventory_balances`; snapshot + `balances` | `inventory_balances` e baixa de pedido KA inalterados |
@@ -138,6 +139,7 @@ Código > memória > suposições.
 - Enviar um produto × N linhas na cotação EnvioEcom (empilha altura → `QUOTE_ERROR`); usar 1 pacote.
 - Cotar EnvioEcom com caixa 10×15×20 e valor declarado = total do pedido; o simulador usa 2×12×17, 0,3 kg, R$ 5.
 - Enviar o nome, a quantidade ou o preço reais do pedido/catálogo em `items[]` no create EnvioEcom; usar 1 linha com `envioecom_shipment_item_name` / `_quantity` / `_unit_cost` (defaults Mercadoria, 1, R$ 5).
+- Mandar `cost` R$ 5 (valor da cotação) no create se o admin configurou outro valor na etiqueta; a DACE lê `cost`, então `cost` = qty × unit_cost.
 - Setar `orders.enviado` na etiqueta EnvioEcom sem passar por `ensureOrderMarkedEnviado` (estoque/logística).
 - Marcar `enviado` ao gerar etiqueta / DC-e / “Pronto para envio”; isso só na coleta/postagem da API.
 - Restaurar vaga `allocated` no reconcile só porque `enviado` é false quando a etiqueta EnvioEcom já existe.

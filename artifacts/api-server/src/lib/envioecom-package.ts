@@ -70,6 +70,17 @@ function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+/** Aceita 89.9 ou 89,9 (e 1.234,56). */
+function parseLooseDecimal(value: unknown): number {
+  const raw = String(value ?? "").trim().replace(/[R$\s]/gi, "");
+  if (!raw) return NaN;
+  const normalized = raw.includes(",") && raw.includes(".")
+    ? raw.replace(/\./g, "").replace(",", ".")
+    : raw.replace(",", ".");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : NaN;
+}
+
 export function parseOrderProducts(raw: unknown): Array<ParsedQuoteItem> {
   const parsed = Array.isArray(raw)
     ? raw
@@ -172,16 +183,31 @@ export function applyGenericShipmentItemName(
   _items: EnvioEcomCreateItem[],
   genericName: string,
   fallbackUnitCost: number,
-  options?: { quantity?: number; unitCost?: number },
+  options?: { quantity?: number | string; unitCost?: number | string },
 ): EnvioEcomCreateItem[] {
   const name = String(genericName || "").trim().slice(0, 120) || "Mercadoria";
-  const quantityRaw = Math.trunc(Number(options?.quantity));
+  const quantityRaw = Math.trunc(parseLooseDecimal(options?.quantity));
   const quantity = Number.isFinite(quantityRaw) && quantityRaw >= 1 ? Math.min(quantityRaw, 99) : 1;
-  const costRaw = Number(options?.unitCost);
+  const costRaw = parseLooseDecimal(options?.unitCost);
   const unitCost = Number.isFinite(costRaw) && costRaw > 0
     ? round2(Math.min(costRaw, MAX_DECLARED_VALUE))
     : round2(fallbackUnitCost);
   return [{ name, quantity, unit_cost: unitCost }];
+}
+
+/** DACE usa `cost` (valor declarado), não só `items[].unit_cost`. */
+export function buildGenericShipmentItem(input: {
+  name: string;
+  quantity?: number | string;
+  unitCost?: number | string;
+  fallbackUnitCost: number;
+}): { items: EnvioEcomCreateItem[]; declaredCost: number } {
+  const items = applyGenericShipmentItemName([], input.name, input.fallbackUnitCost, {
+    quantity: input.quantity,
+    unitCost: input.unitCost,
+  });
+  const declaredCost = round2(clamp(items[0].quantity * items[0].unit_cost, 0.01, MAX_DECLARED_VALUE));
+  return { items, declaredCost };
 }
 
 export function formatDimension(value: number): string {

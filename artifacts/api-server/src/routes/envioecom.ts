@@ -31,8 +31,8 @@ import {
 } from "../lib/envioecom-accounts";
 import { EnvioEcomApiError, type EnvioEcomClient } from "../lib/envioecom-client";
 import {
-  applyGenericShipmentItemName,
   buildConsolidatedQuotePackage,
+  buildGenericShipmentItem,
   formatDimension,
   formatMoney,
   formatWeight,
@@ -726,6 +726,12 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       return;
     }
     const packed = buildConsolidatedQuotePackage({ products: order.products, defaults: config.defaults });
+    const labelItem = buildGenericShipmentItem({
+      name: config.shipmentItemName,
+      quantity: config.shipmentItemQuantity,
+      unitCost: config.shipmentItemUnitCost,
+      fallbackUnitCost: packed.declaredValue,
+    });
     const externalOrderNumber = order.envioecomExternalOrderNumber || buildExternalOrderNumber(order);
     const created = await scoped.client.create({
       defer_payment: false,
@@ -740,7 +746,7 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
         width: formatDimension(Number(body.width || packed.product.width)),
         length: formatDimension(Number(body.length || packed.product.length)),
         weight: formatWeight(Number(body.weight || packed.product.weight)),
-        cost: formatMoney(packed.declaredValue),
+        cost: formatMoney(labelItem.declaredCost),
         name: String(order.clientName || "Cliente").slice(0, 120),
         document_number: sanitizeDocument(order.clientDocument),
         phone_number: digitsOnly(order.clientPhone).slice(-11),
@@ -751,10 +757,7 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
         bairro: String(order.addressNeighborhood || "").trim() || "Centro",
         localidade: String(order.addressCity || "").trim() || "Cidade",
         uf: sanitizeUf(order.addressState),
-        items: applyGenericShipmentItemName(packed.items, config.shipmentItemName, packed.declaredValue, {
-          quantity: config.shipmentItemQuantity,
-          unitCost: config.shipmentItemUnitCost,
-        }),
+        items: labelItem.items,
       }],
     });
 
