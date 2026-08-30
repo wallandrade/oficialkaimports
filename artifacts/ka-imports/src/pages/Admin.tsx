@@ -1263,6 +1263,13 @@ interface InventoryBalanceRecord {
   quantity: number;
 }
 
+interface YuryInventoryBalanceRecord {
+  productId: string;
+  productName: string;
+  qtyMotoboy: number;
+  qtyMinas: number;
+}
+
 interface InventoryMovementRecord {
   id: string;
   productId: string;
@@ -12474,6 +12481,12 @@ function InventoryPanel({
   const [entryProductQuery, setEntryProductQuery] = useState("");
   const [manualProductQuery, setManualProductQuery] = useState("");
   const [balanceSearch, setBalanceSearch] = useState("");
+  const [yuryBalances, setYuryBalances] = useState<YuryInventoryBalanceRecord[]>([]);
+  const [yuryLoading, setYuryLoading] = useState(false);
+  const [yurySyncing, setYurySyncing] = useState(false);
+  const [yuryConfigured, setYuryConfigured] = useState(false);
+  const [yuryLastSyncedAt, setYuryLastSyncedAt] = useState<string | null>(null);
+  const [yurySearch, setYurySearch] = useState("");
   const [imagePreview, setImagePreview] = useState<{ src: string; name: string } | null>(null);
   const [reshipmentActionLoading, setReshipmentActionLoading] = useState<Record<string, boolean>>({});
   const [manualReturnDraft, setManualReturnDraft] = useState({
@@ -12515,6 +12528,61 @@ function InventoryPanel({
     setManualForm((prev) => ({ ...prev, productId: selected?.id || "" }));
   };
 
+  const applyYuryPayload = (data: {
+    configured?: boolean;
+    lastSyncedAt?: string | null;
+    balances?: YuryInventoryBalanceRecord[];
+  }) => {
+    setYuryConfigured(Boolean(data.configured));
+    setYuryLastSyncedAt(data.lastSyncedAt || null);
+    setYuryBalances(Array.isArray(data.balances) ? data.balances : []);
+  };
+
+  const loadYuryInventory = async (pull: boolean) => {
+    if (pull) setYurySyncing(true);
+    else setYuryLoading(true);
+    try {
+      if (pull) {
+        const syncRes = await fetch(`${BASE}/api/admin/yury-inventory/sync`, {
+          method: "POST",
+          headers: authHeaders(),
+        });
+        const syncData = await syncRes.json().catch(() => ({})) as {
+          configured?: boolean;
+          lastSyncedAt?: string | null;
+          syncedAt?: string;
+          balances?: YuryInventoryBalanceRecord[];
+          message?: string;
+        };
+        if (syncRes.ok) {
+          applyYuryPayload({
+            configured: true,
+            lastSyncedAt: syncData.lastSyncedAt || syncData.syncedAt || null,
+            balances: syncData.balances,
+          });
+          return;
+        }
+      }
+      const res = await fetch(`${BASE}/api/admin/yury-inventory`, { headers: authHeaders() });
+      if (!res.ok) return;
+      const data = await res.json() as {
+        configured?: boolean;
+        lastSyncedAt?: string | null;
+        balances?: YuryInventoryBalanceRecord[];
+      };
+      applyYuryPayload(data);
+    } catch {
+      // silent
+    } finally {
+      setYuryLoading(false);
+      setYurySyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadYuryInventory(true);
+  }, []);
+
   const normalizedBalanceSearch = balanceSearch.trim().toLowerCase();
   const filteredBalances = (normalizedBalanceSearch
     ? balances.filter((row) => {
@@ -12525,6 +12593,17 @@ function InventoryPanel({
   ).slice().sort((a, b) => {
     const aPositive = Number(a.quantity) > 0 ? 1 : 0;
     const bPositive = Number(b.quantity) > 0 ? 1 : 0;
+    if (aPositive !== bPositive) return bPositive - aPositive;
+    return String(a.productName || "").localeCompare(String(b.productName || ""), "pt-BR");
+  });
+
+  const normalizedYurySearch = yurySearch.trim().toLowerCase();
+  const filteredYuryBalances = (normalizedYurySearch
+    ? yuryBalances.filter((row) => String(row.productName || "").toLowerCase().includes(normalizedYurySearch))
+    : yuryBalances
+  ).slice().sort((a, b) => {
+    const aPositive = a.qtyMotoboy > 0 || a.qtyMinas > 0 ? 1 : 0;
+    const bPositive = b.qtyMotoboy > 0 || b.qtyMinas > 0 ? 1 : 0;
     if (aPositive !== bPositive) return bPositive - aPositive;
     return String(a.productName || "").localeCompare(String(b.productName || ""), "pt-BR");
   });
@@ -12650,9 +12729,64 @@ function InventoryPanel({
             <p className="text-sm font-semibold">Estoque e Reenvios</p>
             <p className="text-xs text-muted-foreground">Registre entrada ou saída de estoque. Entradas por compra ou devolução liberam reenvios automaticamente.</p>
           </div>
-          <Button variant="outline" size="sm" onClick={onRefresh} className="gap-1.5">
+          <Button variant="outline" size="sm" onClick={() => { onRefresh(); void loadYuryInventory(true); }} className="gap-1.5">
             <RefreshCw className="w-3.5 h-3.5" />Atualizar
           </Button>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/70 p-3">
+          <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
+            <div>
+              <p className="text-sm font-semibold text-amber-950">Estoque Yury — Motoboy e Minas</p>
+              <p className="text-xs text-amber-900 mt-0.5">
+                Espelho só leitura. Pools separados, sem soma e sem baixa de pedido KA. Fonte: Yury.
+              </p>
+              <p className="text-xs text-amber-800 mt-1">
+                {yuryConfigured
+                  ? (yuryLastSyncedAt ? `Último sync: ${new Date(yuryLastSyncedAt).toLocaleString("pt-BR")}` : "Token configurado; ainda sem sync.")
+                  : "Configure YURY_MOTOBOY_SYNC_TOKEN na API para puxar o snapshot."}
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8"
+              disabled={yurySyncing}
+              onClick={() => void loadYuryInventory(true)}
+            >
+              {yurySyncing ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <RefreshCw className="w-3.5 h-3.5 mr-1" />}
+              Sincronizar Yury
+            </Button>
+          </div>
+          <input
+            className="h-9 w-full rounded-lg border border-amber-200 bg-white px-3 text-sm mb-2"
+            placeholder="Pesquisar produto Yury por nome"
+            value={yurySearch}
+            onChange={(e) => setYurySearch(e.target.value)}
+          />
+          {yuryLoading && yuryBalances.length === 0 ? (
+            <p className="text-sm text-amber-900">Carregando estoque Yury...</p>
+          ) : yuryBalances.length === 0 ? (
+            <p className="text-sm text-amber-900">Nenhum saldo Motoboy/Minas sincronizado ainda.</p>
+          ) : filteredYuryBalances.length === 0 ? (
+            <p className="text-sm text-amber-900">Nenhum produto encontrado para essa busca.</p>
+          ) : (
+            <div className="max-h-64 overflow-auto pr-1 space-y-1.5">
+              {filteredYuryBalances.map((row) => (
+                <div key={row.productId} className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2">
+                  <span className="text-sm truncate min-w-0">{row.productName}</span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${row.qtyMotoboy > 0 ? "bg-green-100 text-green-800 border-green-200" : "bg-red-100 text-red-700 border-red-200"}`}>
+                      Motoboy {row.qtyMotoboy}
+                    </span>
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${row.qtyMinas > 0 ? "bg-green-100 text-green-800 border-green-200" : "bg-red-100 text-red-700 border-red-200"}`}>
+                      Minas {row.qtyMinas}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="mt-4 grid grid-cols-1 md:grid-cols-5 gap-2">

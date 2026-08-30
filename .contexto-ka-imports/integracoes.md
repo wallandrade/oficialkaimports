@@ -1,12 +1,13 @@
 # Integrações externas — KA Imports
 
-> **Última atualização:** 2026-08-29  
+> **Última atualização:** 2026-08-30  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-30 | Espelho estoque Yury Motoboy/Minas (`yury_inventory_balances` + GET snapshot + webhook) | Pools separados só leitura | `inventory_balances` da loja, cobertura Motoboy, baixa de pedido KA |
 | 2026-08-29 | Catálogo EnvioEcom multi-conta (`envioecom-accounts.ts`) + CRUD `/admin/envioecom/accounts` | Token por conta; cache de login por `tenantId:accountId` | Webhook público por código; create/quote iguais no restante |
 | 2026-08-28 | APPCNPay por tenant: `gateway_appcnpay_*` em `tenant_settings`; fallback `GATEWAY_IDENTIFIER`/`GATEWAY_SECRET` | Filial PIX na própria conta; webhook resolve tenant pelo `transactionId` | DentPeg continua env global; confirmação via webhook |
 | 2026-08-26 | Espelho Motoboy da Yury: pull + webhook HMAC de bairros/faixas CEP | Checkout lê cobertura local sincronizada | Agenda, estoque, last-mile e portal de preço inalterados |
@@ -89,7 +90,17 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 - Webhook: `POST /api/webhooks/yury/motoboy-coverage` e `POST /webhooks/yury/motoboy-coverage`. Body **cru** + `X-Yury-Signature: sha256=<hmac>` + timestamp ≤ 5 min (`YURY_MOTOBOY_WEBHOOK_SECRET`). Idempotência em `yury_webhook_events_processed`.
 - Eventos: `motoboy.neighborhood|cep_range.upserted|deactivated|deleted` e `motoboy.coverage.full_sync_requested`.
 - Com token configurado, CRUD local de bairro/faixa retorna 409 `YURY_COVERAGE_LOCKED`. Seed Motoboy é pulado no boot.
-- **Não inclui:** propostas de bairro (fase 2), portal de preço, pool de estoque, agenda, last-mile.
+- **Não inclui:** propostas de bairro (fase 2), portal de preço, agenda, last-mile.
+
+## Estoque Motoboy / Minas (Yury → KA)
+
+- Espelho **só leitura**. Fonte: Yury (`GET /api/integrations/inventory/snapshot`). KA **não escreve** na Yury e **não** usa `/api/admin/inventory/...` deles.
+- Token: `YURY_INVENTORY_SYNC_TOKEN` se existir; senão o mesmo `YURY_MOTOBOY_SYNC_TOKEN` da cobertura. Headers `Authorization: Bearer` + `X-Api-Key`.
+- Persistência: tabela `yury_inventory_balances` (`product_id` da Yury, `qty_motoboy`, `qty_minas`). **Não** mistura com `inventory_balances` (estoque da loja). Não soma os dois pools. Não dá baixa de pedido KA nesses saldos.
+- Snapshot: linha com `quantity: 0` permanece. Produto só em `motoboy[]` → Minas = 0 (Motoboy do array). Zerar os dois só se o `productId` sumir dos dois arrays.
+- Job: boot (~20s) + a cada 3 min. Admin Estoque puxa ao abrir e no botão Sincronizar Yury (`POST /api/admin/yury-inventory/sync`). Lista: `GET /api/admin/yury-inventory`.
+- Webhook: `POST /api/webhooks/yury/inventory` (+ `/webhooks/yury/inventory`). Body cru + HMAC igual à cobertura (`YURY_MOTOBOY_WEBHOOK_SECRET`, `X-Yury-Signature: sha256=<hex>`, timestamp ≤ 5 min). Idempotência em `yury_webhook_events_processed`. Evento `inventory.changed`: **não** aplica `quantityDelta`; grava `data.balances.motoboy` e `data.balances.minas`.
+- Erros do GET remoto: 401 token · 503 sync desligado · 500 retry no próximo ciclo.
 
 ## Geo / IP
 

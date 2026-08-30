@@ -1,12 +1,13 @@
 # Segurança e performance — KA Imports
 
-> **Última atualização:** 2026-08-29  
+> **Última atualização:** 2026-08-30  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-30 | Webhook estoque Yury com body cru + HMAC (igual cobertura) | `POST /api/webhooks/yury/inventory` antes do `json()` | CORS allowlist e rate limit de checkout iguais |
 | 2026-08-29 | GET contas EnvioEcom mascara token/e-mail; senha nunca sai | Extra no JSON só no servidor | CSP / CORS / rate limit iguais |
 | 2026-08-28 | Chaves APPCNPay mascaradas no GET admin; PUT `***` no-op; fora de `PUBLIC_KEYS` e `localStorage` | Segredo não vaza no browser/cache | CSP / CORS / rate limit iguais |
 | 2026-08-21 | Lista admin leve + debounce na busca; data não dispara GET de stats | Menos JSON e menos rerender | CSP / CORS / rate limit iguais |
@@ -31,7 +32,7 @@
 ## Ops / health
 
 - `GET /healthz` → `{ status: "ok" }` (Zod `HealthCheckResponse`).
-- Jobs periódicos: expiração pedidos 24h; raffle expiry; reconcile logistics no boot.
+- Jobs periódicos: expiração pedidos 24h; raffle expiry; reconcile logistics no boot; cobertura Motoboy Yury 15 min; estoque Motoboy/Minas Yury 3 min.
 - Unhandled rejection / uncaughtException: log sem derrubar processo (`index.ts`).
 
 ## Performance / cache (código)

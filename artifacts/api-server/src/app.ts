@@ -3,6 +3,7 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import router from "./routes";
 import yuryMotoboyCoverageWebhookRouter from "./routes/yury-motoboy-coverage-webhook";
+import yuryInventoryWebhookRouter from "./routes/yury-inventory-webhook";
 import { exec } from "child_process";
 import crypto from "crypto";
 import { db, tenantsTable } from "@workspace/db";
@@ -430,6 +431,8 @@ app.use((req, res, next) => {
 
 app.use("/api/webhooks/yury/motoboy-coverage", express.raw({ type: () => true, limit: "1mb" }), yuryMotoboyCoverageWebhookRouter);
 app.use("/webhooks/yury/motoboy-coverage", express.raw({ type: () => true, limit: "1mb" }), yuryMotoboyCoverageWebhookRouter);
+app.use("/api/webhooks/yury/inventory", express.raw({ type: () => true, limit: "1mb" }), yuryInventoryWebhookRouter);
+app.use("/webhooks/yury/inventory", express.raw({ type: () => true, limit: "1mb" }), yuryInventoryWebhookRouter);
 
 app.use(cors({
   origin: async (origin, callback) => {
@@ -441,7 +444,7 @@ app.use(cors({
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Yury-Signature", "X-Yury-Timestamp"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Yury-Signature", "X-Yury-Timestamp", "X-Yury-Event-Id"],
 }));
 
 app.use((req, res, next) => {

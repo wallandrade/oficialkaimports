@@ -1420,6 +1420,21 @@ async function ensureYuryWebhookEventsProcessedTable(databaseName: string): Prom
   `);
 }
 
+async function ensureYuryInventoryBalancesTable(databaseName: string): Promise<void> {
+  if (await tableExists("yury_inventory_balances", databaseName)) return;
+
+  await pool.query(`
+    CREATE TABLE yury_inventory_balances (
+      product_id VARCHAR(255) NOT NULL PRIMARY KEY,
+      product_name VARCHAR(255) NOT NULL,
+      qty_motoboy INT NOT NULL DEFAULT 0,
+      qty_minas INT NOT NULL DEFAULT 0,
+      synced_at TIMESTAMP NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+}
+
 export async function ensureRuntimeSchema(): Promise<void> {
   try {
     const databaseName = getDatabaseName();
@@ -1456,6 +1471,7 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureMotoboyDeliveryReservationsTable(databaseName);
     await ensureOrderLogisticsAllocationsTable(databaseName);
     await ensureYuryWebhookEventsProcessedTable(databaseName);
+    await ensureYuryInventoryBalancesTable(databaseName);
     await seedDefaultTenantAndBackfill(databaseName);
     if (isYuryMotoboySyncConfigured()) {
       console.log("[RuntimeSchema] Skipping Motoboy seed; Yury coverage sync is configured.");

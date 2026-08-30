@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-08-29  
+> **Última atualização:** 2026-08-30  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-30 | Anti-padrão: somar Motoboy+Minas, gravar no estoque da loja, aplicar delta do webhook Yury ou chamar `/api/admin/inventory` deles | Espelho `yury_inventory_balances`; snapshot + `balances` | `inventory_balances` e baixa de pedido KA inalterados |
 | 2026-08-29 | Anti-padrão: uma credencial EnvioEcom global, cache de token por tenant, mixar env no JSON de extras | Catálogo por loja + cache `accountId`; write na conta do quote | Cotação/Mercadoria/webhook por barcode iguais |
 | 2026-08-28 | Anti-padrão: PIX da filial só com env global, ou misturar chave da loja com secret do env | Par `gateway_appcnpay_*` por tenant; GET mascara; sem `localStorage` | DentPeg e webhook PIX inalterados |
 | 2026-08-28 | Anti-padrão: backup de produto só no catálogo inteiro | `?ids=` + checkbox; substituir avisa se parcial | Restore merge inalterado |
@@ -125,6 +126,7 @@ Código > memória > suposições.
 - Zerar frete Motoboy com `checkout_free_shipping_min_subtotal` (usar `checkout_free_shipping_min_motoboy`).
 - Inferir duração do slot Motoboy pelo preço (usar `interval_hours`).
 - Cadastrar bairro/faixa Motoboy neste repo como fonte da verdade quando `YURY_MOTOBOY_SYNC_TOKEN` está setado (espelho Yury; CRUD local 409).
+- Somar Motoboy + Minas, gravar esses saldos em `inventory_balances`, aplicar `quantityDelta` do webhook Yury, ou puxar estoque deles em `/api/admin/inventory/...` (usar snapshot + tabela `yury_inventory_balances`).
 - Exigir cidade da faixa CEP igual à ViaCEP para mostrar Motoboy (CEP na faixa já libera; cidade só desempata).
 - Gerar etiqueta EnvioEcom com barcode provisório `EC…` (usar `shipping_id` / `ids`).
 - Cachear token EnvioEcom só por `tenantId` com N contas (login A vira B). Chave = `tenantId:accountId`.
