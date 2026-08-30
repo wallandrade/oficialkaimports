@@ -12283,6 +12283,26 @@ function InventoryProductThumb({
   );
 }
 
+function normalizeInventoryProductName(value: string): string {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function findCatalogProductForYuryRow(
+  products: Array<{ id: string; name: string; image?: string | null }>,
+  row: { productId: string; productName: string },
+) {
+  const byId = products.find((item) => item.id === row.productId);
+  if (byId) return byId;
+  const target = normalizeInventoryProductName(row.productName);
+  if (!target) return undefined;
+  return products.find((item) => normalizeInventoryProductName(item.name) === target);
+}
+
 function InventoryImageLightbox({
   preview,
   onClose,
@@ -13186,9 +13206,17 @@ function InventoryPanel({
           <div className="space-y-2 max-h-[560px] overflow-auto pr-1">
             {filteredYuryPoolBalances.map((row) => {
               const qty = yuryPoolQty(row);
+              const prod = findCatalogProductForYuryRow(products, row);
               return (
                 <div key={row.productId} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 gap-2">
-                  <span className="text-sm truncate min-w-0">{row.productName}</span>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <InventoryProductThumb
+                      name={row.productName}
+                      image={prod?.image}
+                      onPreview={prod?.image ? () => setImagePreview({ src: String(prod.image), name: row.productName }) : undefined}
+                    />
+                    <span className="text-sm truncate">{row.productName}</span>
+                  </div>
                   <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border shrink-0 ${qty > 0 ? "bg-green-100 text-green-800 border-green-200" : "bg-red-100 text-red-700 border-red-200"}`}>
                     {qty} un
                   </span>
