@@ -82,7 +82,7 @@ function parseEnvioEcomLinkRef(raw: unknown): { shipmentId?: number; barcode?: s
 
 function prettyAccountName(order: EnvioEcomOrderFields) {
   if (order.envioecomAccountName) return order.envioecomAccountName;
-  if (order.envioecomAccountId === "env") return "Padrão (servidor)";
+  if (order.envioecomAccountId === "env") return "São Paulo";
   if (order.envioecomAccountId === "tenant") return "Conta da loja";
   return order.envioecomAccountId || "";
 }

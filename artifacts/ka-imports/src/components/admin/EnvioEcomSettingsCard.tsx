@@ -250,7 +250,7 @@ export function EnvioEcomSettingsCard() {
                 <div>
                   <p className="text-sm font-semibold text-neutral-900">{account.name}</p>
                   <p className="text-xs text-neutral-500">
-                    {account.fromEnv ? "Padrão (servidor) · só leitura" : account.id === "tenant" ? "Conta da loja" : "Conta extra"}
+                    {account.fromEnv ? "São Paulo · só leitura" : account.id === "tenant" ? "Conta da loja" : "Conta extra"}
                     {account.tokenMasked ? ` · token ${account.tokenMasked}` : ""}
                     {account.emailMasked ? ` · ${account.emailMasked}` : ""}
                   </p>

@@ -151,7 +151,7 @@ function readEnvAccount(settings: Record<string, string>): EnvioEcomAccountAuth 
   const originFromSettings = digitsOnly(settings[ENVIOECOM_ACCOUNT_SETTING_KEYS.originCep]).slice(0, 8);
   return {
     accountId: ENVIOECOM_ENV_ACCOUNT_ID,
-    name: "Padrão (servidor)",
+    name: "São Paulo",
     token,
     email,
     password,

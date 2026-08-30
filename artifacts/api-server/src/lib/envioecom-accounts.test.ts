@@ -62,7 +62,7 @@ test("write sem accountId usa a primeira configurada; id inexistente 404", () =>
 
 test("fallback prefere a conta do pedido, depois env, depois o resto", () => {
   const ordered = orderEnvioEcomAccountsForFallback([
-    { accountId: "env", name: "Padrão (servidor)", token: "e", email: "", password: "", originCep: "01310100", fromEnv: true },
+    { accountId: "env", name: "São Paulo", token: "e", email: "", password: "", originCep: "01310100", fromEnv: true },
     { accountId: "tenant", name: "Conta da loja", token: "t", email: "", password: "", originCep: "01310100", fromEnv: false },
     { accountId: "aaaa", name: "Conta 2", token: "x", email: "", password: "", originCep: "04001000", fromEnv: false },
   ], "aaaa");

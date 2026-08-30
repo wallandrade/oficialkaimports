@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-30 | Conta EnvioEcom `env` (Railway) se chama **São Paulo** na UI | Cotação/etiqueta e Configurações | `accountId` continua `env`; Minas e extras iguais |
 | 2026-08-30 | Espelho estoque Yury Motoboy/Minas (`yury_inventory_balances` + GET snapshot + webhook) | Pools separados só leitura | `inventory_balances` da loja, cobertura Motoboy, baixa de pedido KA |
 | 2026-08-29 | Catálogo EnvioEcom multi-conta (`envioecom-accounts.ts`) + CRUD `/admin/envioecom/accounts` | Token por conta; cache de login por `tenantId:accountId` | Webhook público por código; create/quote iguais no restante |
 | 2026-08-28 | APPCNPay por tenant: `gateway_appcnpay_*` em `tenant_settings`; fallback `GATEWAY_IDENTIFIER`/`GATEWAY_SECRET` | Filial PIX na própria conta; webhook resolve tenant pelo `transactionId` | DentPeg continua env global; confirmação via webhook |
