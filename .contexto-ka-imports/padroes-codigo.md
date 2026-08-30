@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-30 | Ordem das abas do admin: Pedidos, Estoque, Produtos, Rastreios, Configuração, Fretes, Extrato, Depósitos, Vendedores, Comissão, Clientes, Clientes recorrentes | Menu operacional na frente | Permissões e abas extras (Links, KYC, etc.) iguais |
 | 2026-08-30 | Anti-padrão: somar Motoboy+Minas, gravar no estoque da loja, aplicar delta do webhook Yury ou chamar `/api/admin/inventory` deles | Espelho `yury_inventory_balances`; snapshot + `balances` | `inventory_balances` e baixa de pedido KA inalterados |
 | 2026-08-29 | Anti-padrão: uma credencial EnvioEcom global, cache de token por tenant, mixar env no JSON de extras | Catálogo por loja + cache `accountId`; write na conta do quote | Cotação/Mercadoria/webhook por barcode iguais |
 | 2026-08-28 | Anti-padrão: PIX da filial só com env global, ou misturar chave da loja com secret do env | Par `gateway_appcnpay_*` por tenant; GET mascara; sem `localStorage` | DentPeg e webhook PIX inalterados |
@@ -149,6 +150,7 @@ Código > memória > suposições.
 - Impersonar cliente sem `tenantId` na sessão (`/auth/me` 404 → tela de login) ou gravar o token só no `localStorage` da aba do admin.
 - Esconder “Editar Pedido” da filial com `isPrimary`; pedidos já são isolados por tenant — usar `hasGlobalAccess` (primary e admin de filial).
 - Esconder a aba Rifas da filial com `isPrimary`; API já isola por tenant — usar `canManageRafflesTab` (como Produtos).
+- Recolocar Pedidos/Rastreios/Extrato na frente de Estoque/Produtos no menu admin; ordem: Pedidos, Estoque, Produtos, Rastreios, Configuração, Fretes, Extrato, Depósitos, Vendedores, Comissão, Clientes, Clientes recorrentes (o resto depois).
 - Backup de produtos só no catálogo inteiro quando o admin marcou alguns; usar `GET /admin/products/backup?ids=` e **Restaurar** (mesclar) no parcial.
 - Editar pedido sem persistir telefone, e-mail e CPF (`clientPhone` / `clientEmail` / `clientDocument`); não são só o card.
 - Enviar CPF placeholder `000.000.000-00` no create EnvioEcom, ou devolver 400 da EnvioEcom sem logar `message`/`details` e sem juntar `details` no toast.

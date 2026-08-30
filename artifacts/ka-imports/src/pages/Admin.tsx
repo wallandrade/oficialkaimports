@@ -7085,29 +7085,31 @@ export default function Admin() {
         {/* Tabs */}
         <div className="flex gap-0 mb-6 border-b border-border overflow-x-auto bg-white rounded-t-xl">
           {([
-            { key: "orders",        label: "Pedidos",          icon: "QrCode",      count: orders.length },
-            ...(canManageShippingTab ? [
-              { key: "envioecom" as TabType, label: "Rastreios EE", icon: "Truck" },
+            { key: "orders", label: "Pedidos", icon: "QrCode", count: orders.length },
+            ...(canManageInventoryTab ? [
+              { key: "inventory" as TabType, label: "Estoque", icon: "Package", count: pendingReshipments.length || undefined },
             ] : []),
-            { key: "charges",       label: "Links Pagamento",  icon: "LinkIcon",    count: charges.length },
-            { key: "extrato" as TabType, label: "Extrato", icon: "Landmark" },
-            { key: "depositos" as TabType, label: "Depósitos", icon: "CheckCircle" },
-            { key: "sellers",       label: "Vendedores",       icon: "Tag" },
-            { key: "commissions",   label: "Comissões",        icon: "DollarSign",  count: commissionPendingOrders.length || undefined },
-            { key: "kyc",           label: "KYC",              icon: "ShieldCheck", count: kycList.length > 0 ? kycList.filter((k) => k.status === "submitted").length : undefined },
-            { key: "customers",     label: "Clientes",         icon: "UserPlus",    count: customerUsers.length || undefined },
-            { key: "recurringCustomers", label: "Clientes recorrentes", icon: "RefreshCw", count: recurringCustomers.length || undefined },
-            { key: "support",       label: "Suporte",          icon: "MessageCircle", count: supportTickets.filter((t) => t.status === "open").length || undefined },
             ...(canManageProductsTab ? [
               { key: "products" as TabType, label: "Produtos", icon: "ShoppingBag", count: products.length },
-              { key: "configuracoes" as TabType, label: "Configurações", icon: "Settings" },
+            ] : []),
+            ...(canManageShippingTab ? [
+              { key: "envioecom" as TabType, label: "Rastreios", icon: "Truck" },
+            ] : []),
+            ...(canManageProductsTab ? [
+              { key: "configuracoes" as TabType, label: "Configuração", icon: "Settings" },
             ] : []),
             ...(canManageShippingTab ? [
               { key: "fretes" as TabType, label: "Fretes", icon: "Truck", count: shippingOptions.length },
             ] : []),
-            ...(canManageInventoryTab ? [
-              { key: "inventory" as TabType, label: "Estoque", icon: "Package", count: pendingReshipments.length || undefined },
-            ] : []),
+            { key: "extrato" as TabType, label: "Extrato", icon: "Landmark" },
+            { key: "depositos" as TabType, label: "Depósitos", icon: "CheckCircle" },
+            { key: "sellers", label: "Vendedores", icon: "Tag" },
+            { key: "commissions", label: "Comissão", icon: "DollarSign", count: commissionPendingOrders.length || undefined },
+            { key: "customers", label: "Clientes", icon: "UserPlus", count: customerUsers.length || undefined },
+            { key: "recurringCustomers", label: "Clientes recorrentes", icon: "RefreshCw", count: recurringCustomers.length || undefined },
+            { key: "charges", label: "Links Pagamento", icon: "LinkIcon", count: charges.length },
+            { key: "kyc", label: "KYC", icon: "ShieldCheck", count: kycList.length > 0 ? kycList.filter((k) => k.status === "submitted").length : undefined },
+            { key: "support", label: "Suporte", icon: "MessageCircle", count: supportTickets.filter((t) => t.status === "open").length || undefined },
             ...(canManageRafflesTab ? [
               { key: "raffles" as TabType, label: "Rifas", icon: "Ticket", count: rafflesList.length || undefined },
             ] : []),
@@ -7115,14 +7117,14 @@ export default function Admin() {
               { key: "supplierPurchases" as TabType, label: "Compra fornecedor", icon: "ShoppingBag", count: myFilialPurchaseRequests.length || undefined },
             ] : []),
             ...(isPrimary ? [
-              { key: "checkout",      label: "Checkout",         icon: "Zap" },
-              { key: "coupons",       label: "Cupons",           icon: "Ticket",      count: coupons.length },
-              { key: "orderBumps",    label: "Order Bumps",      icon: "Zap",         count: orderBumps.length },
-              { key: "users",         label: "Usuários",         icon: "User" },
-              { key: "socialProof",   label: "Prova Social",     icon: "ShoppingBag" },
+              { key: "checkout", label: "Checkout", icon: "Zap" },
+              { key: "coupons", label: "Cupons", icon: "Ticket", count: coupons.length },
+              { key: "orderBumps", label: "Order Bumps", icon: "Zap", count: orderBumps.length },
+              { key: "users", label: "Usuários", icon: "User" },
+              { key: "socialProof", label: "Prova Social", icon: "ShoppingBag" },
               ...(canManageTenants ? [{ key: "lojas" as TabType, label: "Lojas", icon: "Store" }] : []),
             ] : []),
-            { key: "webhook",       label: "Webhook",          icon: "Link" },
+            { key: "webhook", label: "Webhook", icon: "Link" },
           ] as Array<{ key: TabType; label: string; icon: string; count?: number }>).map(({ key, label, icon, count }) => (
             <button key={key}
               onClick={() => setTab(key)}
