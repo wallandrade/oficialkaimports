@@ -12752,7 +12752,7 @@ function InventoryPanel({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-1.5">
         {([
-          { id: "loja" as const, label: "Estoque Loja" },
+          { id: "loja" as const, label: "Estoque Fóz Guaçu" },
           { id: "motoboy" as const, label: "Estoque Motoboy" },
           { id: "minas" as const, label: "Estoque Minas" },
         ]).map((item) => (
