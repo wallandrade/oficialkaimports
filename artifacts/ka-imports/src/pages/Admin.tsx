@@ -12487,6 +12487,7 @@ function InventoryPanel({
   const [yuryConfigured, setYuryConfigured] = useState(false);
   const [yuryLastSyncedAt, setYuryLastSyncedAt] = useState<string | null>(null);
   const [yurySearch, setYurySearch] = useState("");
+  const [inventoryPoolTab, setInventoryPoolTab] = useState<"loja" | "motoboy" | "minas">("loja");
   const [imagePreview, setImagePreview] = useState<{ src: string; name: string } | null>(null);
   const [reshipmentActionLoading, setReshipmentActionLoading] = useState<Record<string, boolean>>({});
   const [manualReturnDraft, setManualReturnDraft] = useState({
@@ -12598,15 +12599,19 @@ function InventoryPanel({
   });
 
   const normalizedYurySearch = yurySearch.trim().toLowerCase();
-  const filteredYuryBalances = (normalizedYurySearch
+  const yuryPoolQty = (row: YuryInventoryBalanceRecord) => (
+    inventoryPoolTab === "minas" ? Number(row.qtyMinas) || 0 : Number(row.qtyMotoboy) || 0
+  );
+  const filteredYuryPoolBalances = (normalizedYurySearch
     ? yuryBalances.filter((row) => String(row.productName || "").toLowerCase().includes(normalizedYurySearch))
     : yuryBalances
   ).slice().sort((a, b) => {
-    const aPositive = a.qtyMotoboy > 0 || a.qtyMinas > 0 ? 1 : 0;
-    const bPositive = b.qtyMotoboy > 0 || b.qtyMinas > 0 ? 1 : 0;
+    const aPositive = yuryPoolQty(a) > 0 ? 1 : 0;
+    const bPositive = yuryPoolQty(b) > 0 ? 1 : 0;
     if (aPositive !== bPositive) return bPositive - aPositive;
     return String(a.productName || "").localeCompare(String(b.productName || ""), "pt-BR");
   });
+  const yuryPoolLabel = inventoryPoolTab === "minas" ? "Minas" : "Motoboy";
 
   const onFillManualReturnEntry = () => {
     const clientName = String(manualReturnDraft.clientName || "").trim();
@@ -12723,70 +12728,41 @@ function InventoryPanel({
 
   return (
     <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-2">
+        {([
+          { id: "loja" as const, label: "Estoque Loja" },
+          { id: "motoboy" as const, label: "Estoque Motoboy" },
+          { id: "minas" as const, label: "Estoque Minas" },
+        ]).map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => {
+              setInventoryPoolTab(item.id);
+              if (item.id !== "loja") void loadYuryInventory(true);
+            }}
+            className={`h-11 rounded-xl text-sm font-semibold border transition-colors ${
+              inventoryPoolTab === item.id
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-card text-muted-foreground border-border hover:text-foreground"
+            }`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      {inventoryPoolTab === "loja" ? (
+      <>
       <div className="rounded-2xl border border-border bg-card p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-sm font-semibold">Estoque e Reenvios</p>
             <p className="text-xs text-muted-foreground">Registre entrada ou saída de estoque. Entradas por compra ou devolução liberam reenvios automaticamente.</p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => { onRefresh(); void loadYuryInventory(true); }} className="gap-1.5">
+          <Button variant="outline" size="sm" onClick={onRefresh} className="gap-1.5">
             <RefreshCw className="w-3.5 h-3.5" />Atualizar
           </Button>
-        </div>
-
-        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/70 p-3">
-          <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
-            <div>
-              <p className="text-sm font-semibold text-amber-950">Estoque Yury — Motoboy e Minas</p>
-              <p className="text-xs text-amber-900 mt-0.5">
-                Espelho só leitura. Pools separados, sem soma e sem baixa de pedido KA. Fonte: Yury.
-              </p>
-              <p className="text-xs text-amber-800 mt-1">
-                {yuryConfigured
-                  ? (yuryLastSyncedAt ? `Último sync: ${new Date(yuryLastSyncedAt).toLocaleString("pt-BR")}` : "Token configurado; ainda sem sync.")
-                  : "Configure YURY_MOTOBOY_SYNC_TOKEN na API para puxar o snapshot."}
-              </p>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8"
-              disabled={yurySyncing}
-              onClick={() => void loadYuryInventory(true)}
-            >
-              {yurySyncing ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <RefreshCw className="w-3.5 h-3.5 mr-1" />}
-              Sincronizar Yury
-            </Button>
-          </div>
-          <input
-            className="h-9 w-full rounded-lg border border-amber-200 bg-white px-3 text-sm mb-2"
-            placeholder="Pesquisar produto Yury por nome"
-            value={yurySearch}
-            onChange={(e) => setYurySearch(e.target.value)}
-          />
-          {yuryLoading && yuryBalances.length === 0 ? (
-            <p className="text-sm text-amber-900">Carregando estoque Yury...</p>
-          ) : yuryBalances.length === 0 ? (
-            <p className="text-sm text-amber-900">Nenhum saldo Motoboy/Minas sincronizado ainda.</p>
-          ) : filteredYuryBalances.length === 0 ? (
-            <p className="text-sm text-amber-900">Nenhum produto encontrado para essa busca.</p>
-          ) : (
-            <div className="max-h-64 overflow-auto pr-1 space-y-1.5">
-              {filteredYuryBalances.map((row) => (
-                <div key={row.productId} className="flex items-center justify-between gap-2 rounded-lg border border-amber-200 bg-white px-3 py-2">
-                  <span className="text-sm truncate min-w-0">{row.productName}</span>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${row.qtyMotoboy > 0 ? "bg-green-100 text-green-800 border-green-200" : "bg-red-100 text-red-700 border-red-200"}`}>
-                      Motoboy {row.qtyMotoboy}
-                    </span>
-                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${row.qtyMinas > 0 ? "bg-green-100 text-green-800 border-green-200" : "bg-red-100 text-red-700 border-red-200"}`}>
-                      Minas {row.qtyMinas}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
 
         <div className="mt-4 grid grid-cols-1 md:grid-cols-5 gap-2">
@@ -13141,6 +13117,88 @@ function InventoryPanel({
           </div>
         )}
       </div>
+      </>
+      ) : (
+      <div className="rounded-2xl border border-border bg-card p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold">Estoque {yuryPoolLabel}</p>
+            <p className="text-xs text-muted-foreground">
+              Espelho só leitura da Yury. Sem entrada, saída ou baixa de pedido KA neste pool.
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {yuryConfigured
+                ? (yuryLastSyncedAt ? `Último sync: ${new Date(yuryLastSyncedAt).toLocaleString("pt-BR")}` : "Token configurado; ainda sem sync.")
+                : "Configure YURY_MOTOBOY_SYNC_TOKEN na API para puxar o snapshot."}
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            disabled={yurySyncing}
+            onClick={() => void loadYuryInventory(true)}
+          >
+            {yurySyncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            Sincronizar Yury
+          </Button>
+        </div>
+        <div className="mt-4 flex items-center justify-between gap-2 mb-3">
+          <p className="text-sm font-semibold">Saldo atual por produto</p>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">
+              {filteredYuryPoolBalances.length}/{yuryBalances.length}
+            </span>
+            <button
+              type="button"
+              title={`Copiar estoque ${yuryPoolLabel}`}
+              onClick={() => {
+                const lines = yuryBalances
+                  .filter((r) => yuryPoolQty(r) > 0)
+                  .sort((a, b) => a.productName.localeCompare(b.productName, "pt-BR"))
+                  .map((r) => `${yuryPoolQty(r)} un - ${r.productName}`);
+                const text = `📦 Estoque ${yuryPoolLabel} (${new Date().toLocaleDateString("pt-BR")}):\n\n${lines.join("\n")}`;
+                navigator.clipboard.writeText(text).then(() => {
+                  toast.success(`Estoque ${yuryPoolLabel} copiado.`);
+                }).catch(() => {
+                  toast.error("Não foi possível copiar o estoque.");
+                });
+              }}
+              className="text-xs px-2 py-1 rounded-md border border-border bg-muted hover:bg-accent transition-colors font-medium"
+            >
+              📋 Copiar estoque
+            </button>
+          </div>
+        </div>
+        <input
+          className="h-10 w-full rounded-lg border border-border px-3 text-sm mb-3"
+          placeholder={`Pesquisar produto ${yuryPoolLabel} por nome`}
+          value={yurySearch}
+          onChange={(e) => setYurySearch(e.target.value)}
+        />
+        {yuryLoading && yuryBalances.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Carregando estoque {yuryPoolLabel}...</p>
+        ) : yuryBalances.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Nenhum saldo {yuryPoolLabel} sincronizado ainda.</p>
+        ) : filteredYuryPoolBalances.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Nenhum produto encontrado para essa busca.</p>
+        ) : (
+          <div className="space-y-2 max-h-[560px] overflow-auto pr-1">
+            {filteredYuryPoolBalances.map((row) => {
+              const qty = yuryPoolQty(row);
+              return (
+                <div key={row.productId} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 gap-2">
+                  <span className="text-sm truncate min-w-0">{row.productName}</span>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border shrink-0 ${qty > 0 ? "bg-green-100 text-green-800 border-green-200" : "bg-red-100 text-red-700 border-red-200"}`}>
+                    {qty} un
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      )}
       <InventoryImageLightbox preview={imagePreview} onClose={() => setImagePreview(null)} />
     </div>
   );
