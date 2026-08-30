@@ -12728,7 +12728,7 @@ function InventoryPanel({
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-2">
+      <div className="flex flex-wrap items-center gap-1.5">
         {([
           { id: "loja" as const, label: "Estoque Loja" },
           { id: "motoboy" as const, label: "Estoque Motoboy" },
@@ -12741,10 +12741,10 @@ function InventoryPanel({
               setInventoryPoolTab(item.id);
               if (item.id !== "loja") void loadYuryInventory(true);
             }}
-            className={`h-11 rounded-xl text-sm font-semibold border transition-colors ${
+            className={`h-8 px-3 rounded-full text-xs font-semibold border transition-colors ${
               inventoryPoolTab === item.id
                 ? "bg-primary text-primary-foreground border-primary"
-                : "bg-card text-muted-foreground border-border hover:text-foreground"
+                : "bg-white text-foreground border-border hover:bg-muted"
             }`}
           >
             {item.label}
