@@ -28,6 +28,7 @@ export function isUsableLabelBarcode(barcode: unknown): boolean {
 
 const LABEL_READY_MARKERS = [
   "etiqueta emitida",
+  "etiqueta gerada",
   "pronto para envio",
   "processando envio",
   "aguardando expedicao",

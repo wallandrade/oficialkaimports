@@ -681,6 +681,7 @@ export function hasEnvioEcomLabelReady(order: EnvioEcomOrderFields): boolean {
   if (!normalized) return false;
   return [
     "etiqueta emitida",
+    "etiqueta gerada",
     "pronto para envio",
     "processando envio",
     "aguardando expedicao",

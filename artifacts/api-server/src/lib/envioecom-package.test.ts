@@ -116,6 +116,7 @@ test("etiqueta pronta nao marca enviado; coleta/postagem marca", () => {
   assert.equal(shouldMarkEnviadoFromStatus("Pronto para envio"), false);
   assert.equal(shouldMarkEnviadoFromStatus("DC-e emitida"), false);
   assert.equal(shouldMarkEnviadoFromStatus("Etiqueta emitida"), false);
+  assert.equal(shouldMarkEnviadoFromStatus("Etiqueta gerada"), false);
   assert.equal(shouldMarkEnviadoFromStatus("Aguardando pagamento"), false);
   assert.equal(shouldMarkEnviadoFromStatus("Coletado"), true);
   assert.equal(shouldMarkEnviadoFromStatus("Postado"), true);
@@ -131,6 +132,8 @@ test("etiqueta pronta libera fila mesmo sem status de transito", () => {
     envioecomStatus: "Envio criado",
   }), true);
   assert.equal(hasEnvioEcomLabelReady({ envioecomStatus: "Etiqueta emitida" }), true);
+  assert.equal(hasEnvioEcomLabelReady({ envioecomStatus: "Etiqueta gerada" }), true);
+  assert.equal(hasEnvioEcomLabelReady({ envioecomStatus: "Etiqueta gerada - Minas" }), true);
   assert.equal(hasEnvioEcomLabelReady({ envioecomStatus: "DC-e emitida" }), true);
   assert.equal(hasEnvioEcomLabelReady({
     envioecomLabelUrl: "https://cdn.example/label.pdf",
@@ -149,6 +152,7 @@ test("board classifica status em grupos de rastreio", () => {
   assert.equal(classifyEnvioEcomTrackingGroup("Entregue"), "delivered");
   assert.equal(classifyEnvioEcomTrackingGroup("Em trânsito"), "in_transit");
   assert.equal(classifyEnvioEcomTrackingGroup("DC-e emitida"), "awaiting");
+  assert.equal(classifyEnvioEcomTrackingGroup("Etiqueta gerada"), "awaiting");
   assert.equal(classifyEnvioEcomTrackingGroup("Pronto para envio"), "awaiting");
   assert.equal(classifyEnvioEcomTrackingGroup("Cancelado"), "cancelled");
   assert.equal(isOpenEnvioEcomTrackingStatus("Postado"), true);
@@ -254,6 +258,7 @@ test("gerar etiqueta promove Envio criado para Etiqueta emitida", () => {
   assert.equal(resolveStatusAfterLabelGenerated("Envio criado"), "Etiqueta emitida");
   assert.equal(resolveStatusAfterLabelGenerated(""), "Etiqueta emitida");
   assert.equal(resolveStatusAfterLabelGenerated("DC-e emitida"), "DC-e emitida");
+  assert.equal(resolveStatusAfterLabelGenerated("Etiqueta gerada"), "Etiqueta gerada");
   assert.equal(resolveStatusAfterLabelGenerated("Coletado"), "Coletado");
   assert.equal(resolveStatusAfterLabelGenerated("Cancelado"), "Cancelado");
 });
