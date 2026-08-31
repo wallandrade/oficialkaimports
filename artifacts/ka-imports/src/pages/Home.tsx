@@ -7,6 +7,7 @@ import { Loader2, X, SlidersHorizontal, Search, ArrowRight, Package2, Sparkles }
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { useLiveTracking } from "@/hooks/useLiveTracking";
+import { sortCatalogProducts, topSellerRanksByCategory } from "@/lib/catalog-sales";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -169,7 +170,7 @@ export default function Home() {
 
   const filteredProducts = useMemo(() => {
     if (!data?.products) return [];
-    let filtered = data.products.filter((product) => {
+    const filtered = data.products.filter((product) => {
       const matchesSearch =
         !searchQuery ||
         product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -186,27 +187,13 @@ export default function Home() {
       return matchesSearch && matchesCategory && matchesName && matchesBrand;
     });
 
-    return filtered.sort((a, b) => {
-      const aAny = a as any;
-      const bAny = b as any;
-      const aIsSoldOut = (a as typeof a & { isSoldOut?: boolean }).isSoldOut === true;
-      const bIsSoldOut = (b as typeof b & { isSoldOut?: boolean }).isSoldOut === true;
-      if (aIsSoldOut && !bIsSoldOut) return 1;
-      if (!aIsSoldOut && bIsSoldOut) return -1;
-
-      const aSort = (aAny.sortOrder ?? 0) > 0 ? (aAny.sortOrder ?? 0) : Number.MAX_SAFE_INTEGER;
-      const bSort = (bAny.sortOrder ?? 0) > 0 ? (bAny.sortOrder ?? 0) : Number.MAX_SAFE_INTEGER;
-      const sortDiff = aSort - bSort;
-      if (sortDiff !== 0) return sortDiff;
-
-      const aIsLaunch = (a as typeof a & { isLaunch?: boolean }).isLaunch === true;
-      const bIsLaunch = (b as typeof b & { isLaunch?: boolean }).isLaunch === true;
-      if (aIsLaunch && !bIsLaunch) return -1;
-      if (!aIsLaunch && bIsLaunch) return 1;
-
-      return String(aAny.createdAt).localeCompare(String(bAny.createdAt));
-    });
+    return filtered;
   }, [data, searchQuery, activeCategories, nameFilter, activeBrand]);
+
+  const topSellerRankById = useMemo(
+    () => topSellerRanksByCategory((data?.products ?? []) as Parameters<typeof topSellerRanksByCategory>[0]),
+    [data?.products],
+  );
 
   const groupedFilteredProducts = useMemo(() => {
     const order = data?.categories ?? [];
@@ -226,7 +213,7 @@ export default function Home() {
 
     return orderedCategories.map((category) => ({
       category,
-      products: groups.get(category) ?? [],
+      products: sortCatalogProducts(groups.get(category) ?? [], category),
     }));
   }, [data?.categories, filteredProducts]);
 
@@ -255,9 +242,11 @@ export default function Home() {
 
   const featuredProducts = useMemo(() => {
     if (!isMarketplaceShowcase) return [] as typeof filteredProducts;
-    if (!featuredCategory || featuredCategory === "__all__") return filteredProducts;
-    return filteredProducts
-      .filter((product) => String(product.category || "Sem categoria") === featuredCategory);
+    const list = !featuredCategory || featuredCategory === "__all__"
+      ? filteredProducts
+      : filteredProducts.filter((product) => String(product.category || "Sem categoria") === featuredCategory);
+    const category = !featuredCategory || featuredCategory === "__all__" ? "" : featuredCategory;
+    return sortCatalogProducts(list, category);
   }, [isMarketplaceShowcase, featuredCategory, filteredProducts]);
 
   const brandOptions = useMemo(() => {
@@ -468,7 +457,7 @@ export default function Home() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: Math.min(index * 0.02, 0.2) }}
                   >
-                    <ProductCard product={product} sellerSlug={sellerSlug} priority={index < 4} />
+                    <ProductCard product={product} sellerSlug={sellerSlug} priority={index < 4} topSellerRank={topSellerRankById.get(product.id) ?? null} />
                   </motion.div>
                 ))}
               </div>
@@ -640,7 +629,7 @@ export default function Home() {
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ delay: Math.min(absoluteIndex * 0.02, 0.3) }}
                           >
-                            <ProductCard product={product} sellerSlug={sellerSlug} priority={absoluteIndex < 4} />
+                            <ProductCard product={product} sellerSlug={sellerSlug} priority={absoluteIndex < 4} topSellerRank={topSellerRankById.get(product.id) ?? null} />
                           </motion.div>
                         );
                       })}

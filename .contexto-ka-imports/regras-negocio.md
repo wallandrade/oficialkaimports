@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-30 | Catálogo ordena por vendas (`soldQty`); selo TOP 1–3 por categoria | Home e `/categoria`; Peptídeo agrupa BIOGENESIS | Dashboard admin, cadastro, unidades no card |
 | 2026-08-30 | Restore de produtos é só merge; `mode: replace` / `deleteMissing` são ignorados | Catálogo fora do JSON não apaga | Export `?ids=` e DELETE individual iguais |
 | 2026-08-30 | Pílula do estoque da loja se chama **Estoque Fóz Guaçu** | Só o texto na aba Estoque | Pool `loja`, `inventory_balances` e Motoboy/Minas iguais |
 | 2026-08-30 | DACE EnvioEcom: valor declarado (`cost`) segue o setting global, não o R$ 5 da cotação | Etiqueta nova | Cotação, pedido e envios já emitidos |
@@ -105,6 +106,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 - Fonte principal: tabela `products` (MySQL/Drizzle).
 - Fallback documentado no código: Google Sheets se DB vazio (`products.ts`).
 - Flags: `isActive`, `isSoldOut`, `isLaunch`, promo com `promoPrice`/`promoEndsAt`, desconto por volume (`bulkDiscountTiers`), variantes (`variantGroups`).
+- Home e `/categoria/:nome`: ordem por **mais vendidos** da loja (pedidos `paid`/`completed`, ignora `REENVIO DO PEDIDO`). `GET /api/products` devolve `soldQty` (max por id e nome normalizado). Esgotado por último; empate `sortOrder` (0 = sem prioridade) → `isLaunch` → `createdAt` → nome. **Peptídeo:** depois de esgotado, marca BIOGENESIS → demais A–Z → sem marca; vendas valem **dentro** da marca. Selo **TOP 1/2/3** (esquerda, com OFERTA) nos 3 com `soldQty > 0` da categoria toda, não da posição na grade. Direita: ESGOTADO/LANÇAMENTO. Sem unidades no card; sem flag no cadastro; sem período do dashboard.
 - Imagens: URL pública R2/CDN; base64 legado ainda suportado na migração.
 - Admin: **Backup JSON** exporta o catálogo do tenant; **Backup selecionados** usa `GET /api/admin/products/backup?ids=` (máx. 500, só IDs da loja). Arquivo parcial marca `partial: true`. **Restaurar backup** (`POST /admin/products/restore`) é sempre merge: UPDATE se o id existe, INSERT com o mesmo id se não; o que não está no arquivo não mexe. `mode: "replace"` e `deleteMissing: true` são ignorados (warn, `deleted: 0`). Apagar produto só no botão individual.
 - Checkout grava `costPrice` no item do pedido (snapshot; `0` se a ficha ainda não tinha custo). Ao **salvar** um custo novo no produto: pedidos das **últimas 24h** da loja com aquele item são sobrescritos; pedidos mais antigos **só** recebem o custo se o item ainda estiver `0`/ausente. O **Lucro est.** do card (e o dashboard) trata `0` como sem snapshot e cai no custo atual da ficha até o backfill gravar.

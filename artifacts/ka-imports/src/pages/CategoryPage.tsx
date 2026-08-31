@@ -6,6 +6,7 @@ import { ProductCard } from "@/components/product/ProductCard";
 import { Loader2, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLiveTracking } from "@/hooks/useLiveTracking";
+import { sortCatalogProducts, topSellerRanks } from "@/lib/catalog-sales";
 
 export default function CategoryPage() {
   const [, setLocation] = useLocation();
@@ -28,11 +29,14 @@ export default function CategoryPage() {
 
   const filteredProducts = useMemo(() => {
     if (!data?.products) return [];
-    return data.products.filter((product) => {
-      const matches = product.category === categoryName;
-      return matches;
-    });
+    const categoryProducts = data.products.filter((product) => product.category === categoryName);
+    return sortCatalogProducts(categoryProducts, categoryName);
   }, [data, categoryName]);
+
+  const topSellerRankById = useMemo(
+    () => topSellerRanks(filteredProducts),
+    [filteredProducts],
+  );
 
   if (isLoading) {
     return (
@@ -82,7 +86,7 @@ export default function CategoryPage() {
           <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-4 sm:gap-6 items-stretch">
             {filteredProducts.map((product) => (
               <div key={product.id} className="flex">
-                <ProductCard product={product} sellerSlug={sellerSlug} priority={false} />
+                <ProductCard product={product} sellerSlug={sellerSlug} priority={false} topSellerRank={topSellerRankById.get(product.id) ?? null} />
               </div>
             ))}
           </div>

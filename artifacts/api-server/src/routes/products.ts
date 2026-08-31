@@ -11,6 +11,7 @@ import {
   parseOrderProductItems,
   patchOrderItemsWithProductCost,
 } from "../lib/order-item-cost";
+import { loadCatalogSoldQty } from "../lib/product-sold-qty-load";
 
 const router: IRouter = Router();
 
@@ -259,7 +260,7 @@ function normalizeBackupProduct(raw: unknown, index: number): ProductBackupEntry
   };
 }
 
-function mapProduct(p: typeof productsTable.$inferSelect, includeCostPrice = false) {
+function mapProduct(p: typeof productsTable.$inferSelect, includeCostPrice = false, soldQty?: number) {
   const { price, promoPrice } = resolvePrice(p);
   const bulkDiscountTiers = parseBulkDiscountTiers(p.bulkDiscountTiers);
   const variantGroups = parseVariantGroups(p.variantGroups);
@@ -282,6 +283,7 @@ function mapProduct(p: typeof productsTable.$inferSelect, includeCostPrice = fal
     isLaunch:    p.isLaunch,
     sortOrder:   p.sortOrder,
     createdAt:   p.createdAt.toISOString(),
+    ...(soldQty !== undefined ? { soldQty } : {}),
   };
   if (includeCostPrice) {
     return { ...product, costPrice: Number(p.costPrice ?? 0) };
@@ -338,7 +340,14 @@ router.get("/products", async (req, res) => {
       return a.createdAt.getTime() - b.createdAt.getTime();
     });
 
-    const products   = rows.map((row) => mapProduct(row));
+    let soldByProduct = new Map<string, number>();
+    try {
+      soldByProduct = await loadCatalogSoldQty(tenantId, rows);
+    } catch (err) {
+      console.warn("[API] GET /api/products - soldQty falhou:", err);
+    }
+
+    const products = rows.map((row) => mapProduct(row, false, soldByProduct.get(row.id) || 0));
     const categories = [...new Set(products.map((p) => p.category))];
     const brands     = [...new Set(products.map((p) => p.brand).filter((b): b is string => Boolean(b)))];
     

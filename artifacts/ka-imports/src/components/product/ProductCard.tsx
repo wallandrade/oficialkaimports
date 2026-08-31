@@ -9,6 +9,7 @@ interface ProductCardProps {
   product: Product;
   sellerSlug?: string;
   priority?: boolean;
+  topSellerRank?: 1 | 2 | 3 | null;
 }
 
 type BulkDiscountTier = {
@@ -56,7 +57,7 @@ function hasVariantGroups(product: Product): boolean {
   });
 }
 
-export function ProductCard({ product, sellerSlug, priority = false }: ProductCardProps) {
+export function ProductCard({ product, sellerSlug, priority = false, topSellerRank = null }: ProductCardProps) {
   const hasPromo = product.promoPrice != null && product.promoPrice < product.price;
   const isSoldOut = isProductUnavailable(product);
   const isLaunch = (product as Product & { isLaunch?: boolean }).isLaunch === true;
@@ -95,11 +96,18 @@ export function ProductCard({ product, sellerSlug, priority = false }: ProductCa
           fetchPriority={priority ? "high" : "auto"}
           className="ka-product-card-image w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
         />
-        {hasPromo && (
-          <div className="ka-product-card-badge ka-product-card-badge-promo absolute top-3 left-3 bg-destructive text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg">
-            OFERTA
-          </div>
-        )}
+        <div className="absolute top-3 left-3 flex flex-col gap-1 items-start z-10">
+          {hasPromo ? (
+            <div className="ka-product-card-badge ka-product-card-badge-promo bg-destructive text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg">
+              OFERTA
+            </div>
+          ) : null}
+          {topSellerRank ? (
+            <div className="ka-product-card-badge ka-product-card-badge-top bg-amber-500 text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg">
+              TOP {topSellerRank}
+            </div>
+          ) : null}
+        </div>
         {isSoldOut ? (
           <div className="ka-product-card-badge ka-product-card-badge-status absolute top-3 right-3 bg-red-600 text-white text-xs font-bold px-2 py-1 rounded-full shadow-lg">
             ESGOTADO

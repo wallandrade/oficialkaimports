@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-30 | Anti-padrão: ordenar catálogo pelo período do dashboard ou flag TOP no cadastro | `soldQty` de pedidos paid/completed + TOP na categoria | `isLaunch` e OFERTA iguais |
 | 2026-08-30 | Anti-padrão: restore de backup com `mode: replace` / DELETE do catálogo | Sempre merge; client antigo é ignorado | Export parcial `?ids=` inalterado |
 | 2026-08-30 | Anti-padrão: mandar `cost` R$ 5 da cotação no create quando o valor da etiqueta é outro | `cost` = qty × unit_cost do setting | Cotação inalterada |
 | 2026-08-30 | Anti-padrão: mandar N linhas / qty / preço reais do pedido no create EnvioEcom | 1 linha com settings globais da loja | Cotação e pedido KA inalterados |
@@ -157,6 +158,7 @@ Código > memória > suposições.
 - Recolocar Pedidos/Rastreios/Extrato na frente de Estoque/Produtos no menu admin; ordem: Pedidos, Estoque, Produtos, Rastreios, Configuração, Fretes, Extrato, Depósitos, Vendedores, Comissão, Clientes, Clientes recorrentes (o resto depois).
 - Backup de produtos só no catálogo inteiro quando o admin marcou alguns; usar `GET /admin/products/backup?ids=` e **Restaurar backup** (sempre merge) no parcial.
 - Restaurar backup de produtos com `mode: "replace"` / `deleteMissing` ou botão **Substituir por backup**; o POST só mescla e nunca dá `DELETE` no catálogo.
+- Ordenar o catálogo público pelo recorte de data do dashboard admin, ou criar flag TOP no cadastro; usar `soldQty` de pedidos `paid`/`completed` (sem filho `REENVIO DO PEDIDO`) e selo TOP 1–3 por categoria.
 - Editar pedido sem persistir telefone, e-mail e CPF (`clientPhone` / `clientEmail` / `clientDocument`); não são só o card.
 - Enviar CPF placeholder `000.000.000-00` no create EnvioEcom, ou devolver 400 da EnvioEcom sem logar `message`/`details` e sem juntar `details` no toast.
 - Usar `<datalist>` nativo na busca de produto do estoque (não mostra foto); usar combobox com `products[].image` igual ao saldo.
