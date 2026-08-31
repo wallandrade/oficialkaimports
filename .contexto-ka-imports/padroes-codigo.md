@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-30 | Anti-padrão: restore de backup com `mode: replace` / DELETE do catálogo | Sempre merge; client antigo é ignorado | Export parcial `?ids=` inalterado |
 | 2026-08-30 | Anti-padrão: mandar `cost` R$ 5 da cotação no create quando o valor da etiqueta é outro | `cost` = qty × unit_cost do setting | Cotação inalterada |
 | 2026-08-30 | Anti-padrão: mandar N linhas / qty / preço reais do pedido no create EnvioEcom | 1 linha com settings globais da loja | Cotação e pedido KA inalterados |
 | 2026-08-30 | Ordem das abas do admin: Pedidos, Estoque, Produtos, Rastreios, Configuração, Fretes, Extrato, Depósitos, Vendedores, Comissão, Clientes, Clientes recorrentes | Menu operacional na frente | Permissões e abas extras (Links, KYC, etc.) iguais |
@@ -154,7 +155,8 @@ Código > memória > suposições.
 - Esconder “Editar Pedido” da filial com `isPrimary`; pedidos já são isolados por tenant — usar `hasGlobalAccess` (primary e admin de filial).
 - Esconder a aba Rifas da filial com `isPrimary`; API já isola por tenant — usar `canManageRafflesTab` (como Produtos).
 - Recolocar Pedidos/Rastreios/Extrato na frente de Estoque/Produtos no menu admin; ordem: Pedidos, Estoque, Produtos, Rastreios, Configuração, Fretes, Extrato, Depósitos, Vendedores, Comissão, Clientes, Clientes recorrentes (o resto depois).
-- Backup de produtos só no catálogo inteiro quando o admin marcou alguns; usar `GET /admin/products/backup?ids=` e **Restaurar** (mesclar) no parcial.
+- Backup de produtos só no catálogo inteiro quando o admin marcou alguns; usar `GET /admin/products/backup?ids=` e **Restaurar backup** (sempre merge) no parcial.
+- Restaurar backup de produtos com `mode: "replace"` / `deleteMissing` ou botão **Substituir por backup**; o POST só mescla e nunca dá `DELETE` no catálogo.
 - Editar pedido sem persistir telefone, e-mail e CPF (`clientPhone` / `clientEmail` / `clientDocument`); não são só o card.
 - Enviar CPF placeholder `000.000.000-00` no create EnvioEcom, ou devolver 400 da EnvioEcom sem logar `message`/`details` e sem juntar `details` no toast.
 - Usar `<datalist>` nativo na busca de produto do estoque (não mostra foto); usar combobox com `products[].image` igual ao saldo.

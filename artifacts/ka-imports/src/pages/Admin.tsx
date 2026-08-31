@@ -17698,7 +17698,6 @@ function ProductsPanel({
   const [productBackupExporting, setProductBackupExporting] = useState(false);
   const [productBackupImporting, setProductBackupImporting] = useState(false);
   const [selectedProductBackupIds, setSelectedProductBackupIds] = useState<string[]>([]);
-  const [pendingRestoreMode, setPendingRestoreMode] = useState<"merge" | "replace">("merge");
   const [costHistoryProductId, setCostHistoryProductId] = useState<string | null>(null);
   const [costHistoryProductName, setCostHistoryProductName] = useState("");
   const [costHistory, setCostHistory] = useState<Array<{ id: number; costPrice: number; changedAt: string }>>([]);
@@ -17827,13 +17826,9 @@ function ProductsPanel({
     }
   };
 
-  const openRestorePicker = (mode: "merge" | "replace") => {
-    if (mode === "replace") {
-      const confirmed = window.confirm("Isso vai substituir todo o catálogo atual pelo conteúdo do backup. Se o arquivo for parcial, os outros produtos serão apagados. Deseja continuar?");
-      if (!confirmed) return;
-    }
-
-    setPendingRestoreMode(mode);
+  const openRestorePicker = () => {
+    const confirmed = window.confirm("Isso cria ou atualiza os produtos do arquivo. Nada que já existe no catálogo será apagado. Continuar?");
+    if (!confirmed) return;
     backupFileRef.current?.click();
   };
 
@@ -17844,29 +17839,31 @@ function ProductsPanel({
     setProductBackupImporting(true);
     try {
       const raw = await file.text();
-      const backup = JSON.parse(raw) as { partial?: boolean; products?: unknown[] };
-      if (pendingRestoreMode === "replace" && (backup.partial || (Array.isArray(backup.products) && backup.products.length < products.length))) {
-        const confirmed = window.confirm("Este arquivo parece um backup parcial. Substituir apaga os outros produtos do catálogo. Continuar?");
-        if (!confirmed) return;
+      const backup = JSON.parse(raw) as { products?: unknown[] };
+      if (!Array.isArray(backup.products)) {
+        toast.error("Arquivo de backup inválido.");
+        return;
       }
       const res = await fetch(`${BASE}/api/admin/products/restore`, {
         method: "POST",
         headers: authHeaders(),
-        body: JSON.stringify({ mode: pendingRestoreMode, backup }),
+        body: JSON.stringify({ backup }),
       });
-      const data = await res.json().catch(() => ({} as { message?: string; imported?: number; mode?: string }));
+      const data = await res.json().catch(() => ({} as {
+        message?: string;
+        created?: number;
+        updated?: number;
+        deleted?: number;
+      }));
       if (!res.ok) {
         toast.error(data.message || "Erro ao restaurar backup dos produtos.");
         return;
       }
 
       await Promise.all([onRefreshProducts(), loadSavedBrands()]);
-      const importedCount = Number(data.imported || 0);
-      toast.success(
-        pendingRestoreMode === "replace"
-          ? `Backup restaurado com substituição total. ${importedCount} produto(s) carregado(s).`
-          : `Backup restaurado. ${importedCount} produto(s) atualizado(s)/adicionado(s).`,
-      );
+      const created = Number(data.created || 0);
+      const updated = Number(data.updated || 0);
+      toast.success(`Backup restaurado. ${created} criado(s), ${updated} atualizado(s). Nada foi apagado.`);
     } catch {
       toast.error("Arquivo de backup inválido.");
     } finally {
@@ -18213,13 +18210,15 @@ function ProductsPanel({
             {productBackupExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
             Backup selecionados ({selectedProductBackupIds.length})
           </Button>
-          <Button variant="outline" onClick={() => openRestorePicker("merge")} disabled={productBackupExporting || productBackupImporting} className="gap-2">
-            {productBackupImporting && pendingRestoreMode === "merge" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+          <Button
+            variant="outline"
+            onClick={() => openRestorePicker()}
+            disabled={productBackupExporting || productBackupImporting}
+            className="gap-2"
+            title="Nunca apaga o catálogo atual. Só cria ou atualiza pelo JSON."
+          >
+            {productBackupImporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
             Restaurar backup
-          </Button>
-          <Button variant="outline" onClick={() => openRestorePicker("replace")} disabled={productBackupExporting || productBackupImporting} className="gap-2 border-red-200 text-red-700 hover:bg-red-50">
-            {productBackupImporting && pendingRestoreMode === "replace" ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-            Substituir por backup
           </Button>
           <Button variant="outline" onClick={copyAllProductCosts} className="gap-2">
             <Copy className="w-4 h-4" />Copiar custo

@@ -446,12 +446,15 @@ router.post("/admin/products/restore", requireAdminAuth, async (req, res) => {
     }
     const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
     const tenantBrandsKey = getAdminSavedBrandsKey(tenantId);
-    const { mode, backup } = req.body as {
+    const { mode, deleteMissing, backup } = req.body as {
       mode?: "merge" | "replace";
+      deleteMissing?: boolean;
       backup?: unknown;
     };
 
-    const normalizedMode = mode === "replace" ? "replace" : "merge";
+    if (mode === "replace" || deleteMissing === true) {
+      console.warn("[products/restore] ignorei replace/deleteMissing; restore é só merge", { tenantId, mode, deleteMissing });
+    }
     if (!backup || typeof backup !== "object") {
       res.status(400).json({ error: "INVALID_INPUT", message: "Arquivo de backup inválido." });
       return;
@@ -468,12 +471,10 @@ router.post("/admin/products/restore", requireAdminAuth, async (req, res) => {
     const hasSavedBrands = Object.prototype.hasOwnProperty.call(payload, "savedBrands");
     const savedBrands = hasSavedBrands ? parseSavedBrands(payload.savedBrands) : [];
     let remappedIds = 0;
+    let created = 0;
+    let updated = 0;
 
     await db.transaction(async (tx) => {
-      if (normalizedMode === "replace") {
-        await tx.delete(productsTable).where(buildProductTenantWhere(tenantId));
-      }
-
       for (const product of products) {
         const insertPayload: typeof productsTable.$inferInsert = {
           id: product.id,
@@ -530,6 +531,7 @@ router.post("/admin/products/restore", requireAdminAuth, async (req, res) => {
               updatedAt: new Date(product.updatedAt),
             })
             .where(and(eq(productsTable.id, product.id), buildProductTenantWhere(tenantId)));
+          updated += 1;
           continue;
         }
 
@@ -551,6 +553,7 @@ router.post("/admin/products/restore", requireAdminAuth, async (req, res) => {
         }
 
         await tx.insert(productsTable).values({ ...insertPayload, id: targetId });
+        created += 1;
       }
 
       if (hasSavedBrands) {
@@ -576,8 +579,12 @@ router.post("/admin/products/restore", requireAdminAuth, async (req, res) => {
 
     res.json({
       ok: true,
-      mode: normalizedMode,
+      mode: "merge",
       imported: products.length,
+      created,
+      updated,
+      deleted: 0,
+      deleteMissing: false,
       remappedIds,
       savedBrands: savedBrands.length,
     });
