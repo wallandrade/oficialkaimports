@@ -793,32 +793,6 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
     }
 
     let persisted = await persistShipmentForAccount(workingOrder, {
-    let created: Awaited<ReturnType<typeof scoped.client.create>> | undefined;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      try {
-        created = await scoped.client.create({
-          defer_payment: false,
-          shipments: [{ orderId: externalOrderNumber, ...shipmentFields }],
-        });
-        break;
-      } catch (err) {
-        if (err instanceof EnvioEcomApiError && isDuplicateOrderIdError(err) && attempt < 2) {
-          externalOrderNumber = buildNextExternalOrderNumber({
-            ...order,
-            envioecomShipmentId: null,
-            envioecomExternalOrderNumber: null,
-            envioecomStatusHistory: [{ at: new Date().toISOString(), status: "retry" }],
-          });
-          continue;
-        }
-        throw err;
-      }
-    }
-    if (!created) {
-      throw new EnvioEcomApiError("CREATE_FAILED", "Não foi possível criar o envio na EnvioEcom.", 502);
-    }
-
-    let persisted = await persistShipmentForAccount(order, {
       ...parseCreatedShipment(created),
       deliveryMode: shippingCompany,
       externalOrderNumber,
