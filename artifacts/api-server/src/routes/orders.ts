@@ -32,6 +32,7 @@ import { allocateOrderLogistics, completeOrderLogistics, releaseOrderLogistics }
 import { clearOrderManualPriority } from "../lib/order-priority";
 import { isMotoboyShippingType } from "../lib/motoboy-shipping-type";
 import { cartProductIdsFromItems, isCartEligibleForMotoboy } from "../lib/motoboy-eligible-products";
+import { computeShippingInsuranceAmount } from "../lib/shipping-insurance";
 
 const router: IRouter = Router();
 
@@ -1123,7 +1124,7 @@ router.post("/orders", async (req, res) => {
 
     const {
       client, address, products, shippingType, includeInsurance,
-      shippingCost, insuranceAmount,
+      shippingCost,
       paymentMethod, cardInstallments, sellerCode,
     } = req.body;
 
@@ -1300,8 +1301,7 @@ router.post("/orders", async (req, res) => {
       shippingBaseCost,
       freeShippingMinSubtotal,
     });
-    const computedInsuranceAmount = Math.max(0, Number(insuranceAmount) || 0);
-    const computedBaseTotal = computedSubtotal + computedShippingCost + computedInsuranceAmount;
+    const couponOrderValue = computedSubtotal + computedShippingCost;
 
     let normalizedCouponCode: string | null = null;
     let computedDiscountAmount = 0;
@@ -1315,7 +1315,7 @@ router.post("/orders", async (req, res) => {
         res.status(400).json({ error: "INVALID_COUPON", message: "Cupom não encontrado." });
         return;
       }
-      const evaluation = evaluateCouponForProducts(coupon, orderProducts, computedBaseTotal);
+      const evaluation = evaluateCouponForProducts(coupon, orderProducts, couponOrderValue);
       if (!evaluation.valid) {
         res.status(400).json({
           error: evaluation.error || "INVALID_COUPON",
@@ -1327,6 +1327,12 @@ router.post("/orders", async (req, res) => {
       computedDiscountAmount = evaluation.discountAmount;
     }
 
+    const computedInsuranceAmount = computeShippingInsuranceAmount(
+      Boolean(includeInsurance),
+      computedSubtotal,
+      computedDiscountAmount,
+    );
+    const computedBaseTotal = computedSubtotal + computedShippingCost + computedInsuranceAmount;
     const computedTotal = Math.max(0, computedBaseTotal - computedDiscountAmount);
     if (!computedTotal || computedTotal <= 0) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Valor inválido. Deve ser maior que zero." });
@@ -2113,7 +2119,11 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
     const computedDiscountAmount = discountAmount !== undefined
       ? Math.max(0, Number(discountAmount) || 0)
       : Math.max(0, Number(current[0].discountAmount) || 0);
-    const computedInsuranceAmount = current[0].includeInsurance ? Math.max(0, computedSubtotal) * 0.1 : 0;
+    const computedInsuranceAmount = computeShippingInsuranceAmount(
+      Boolean(current[0].includeInsurance),
+      computedSubtotal,
+      computedDiscountAmount,
+    );
     const total = Math.max(0, computedSubtotal + computedShippingCost + computedInsuranceAmount - computedDiscountAmount);
 
     let newStatus: string;

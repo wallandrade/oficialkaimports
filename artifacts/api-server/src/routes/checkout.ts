@@ -23,6 +23,7 @@ import { allocateOrderLogistics } from "../lib/order-logistics";
 import { MotoboyScheduleError, type MotoboyScheduleInput, reserveMotoboySchedule } from "../lib/motoboy-delivery-schedule";
 import { isMotoboyShippingType } from "../lib/motoboy-shipping-type";
 import { cartProductIdsFromItems, isCartEligibleForMotoboy } from "../lib/motoboy-eligible-products";
+import { computeShippingInsuranceAmount } from "../lib/shipping-insurance";
 
 const router: IRouter = Router();
 
@@ -253,7 +254,7 @@ router.post("/checkout/pix", async (req, res) => {
 
     const {
       client, address, products, shippingType, includeInsurance,
-      shippingCost, insuranceAmount,
+      shippingCost,
       sellerCode, couponCode,
       useAffiliateCredit,
       motoboySchedule,
@@ -412,8 +413,7 @@ router.post("/checkout/pix", async (req, res) => {
       shippingBaseCost,
       freeShippingMinSubtotal,
     });
-    const computedInsuranceAmount = Math.max(0, Number(insuranceAmount) || 0);
-    const computedBaseTotal = computedSubtotal + computedShippingCost + computedInsuranceAmount;
+    const couponOrderValue = computedSubtotal + computedShippingCost;
 
     let normalizedCouponCode: string | null = null;
     let computedDiscountAmount = 0;
@@ -425,7 +425,7 @@ router.post("/checkout/pix", async (req, res) => {
         res.status(400).json({ error: "INVALID_COUPON", message: "Cupom não encontrado." });
         return;
       }
-      const evaluation = evaluateCouponForProducts(coupon, orderProducts, computedBaseTotal);
+      const evaluation = evaluateCouponForProducts(coupon, orderProducts, couponOrderValue);
       if (!evaluation.valid) {
         res.status(400).json({
           error: evaluation.error || "INVALID_COUPON",
@@ -438,7 +438,7 @@ router.post("/checkout/pix", async (req, res) => {
 
       console.warn(`[CHECKOUT/PIX:${requestId}] Coupon applied`, {
         code: cleanCouponCode,
-        orderValue: computedBaseTotal,
+        orderValue: couponOrderValue,
         eligibleSubtotal: evaluation.eligibleSubtotal,
         discountAmount: evaluation.discountAmount,
         productsCount: orderProducts.length,
@@ -447,6 +447,12 @@ router.post("/checkout/pix", async (req, res) => {
       });
     }
 
+    const computedInsuranceAmount = computeShippingInsuranceAmount(
+      Boolean(includeInsurance),
+      computedSubtotal,
+      computedDiscountAmount,
+    );
+    const computedBaseTotal = computedSubtotal + computedShippingCost + computedInsuranceAmount;
     const amount = Math.max(0, computedBaseTotal - computedDiscountAmount);
     if (!amount || amount <= 0) {
       console.warn(`[CHECKOUT/PIX:${requestId}] Validation failed — invalid computed amount: ${amount}`);

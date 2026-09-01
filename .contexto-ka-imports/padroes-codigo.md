@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-31 | Anti-padrão: 10% do seguro sobre o subtotal ignorando o cupom | Base = subtotal − desconto; API recalcula | Alíquota 10% e pedidos antigos iguais |
 | 2026-08-31 | Anti-padrão: tratar só “Etiqueta emitida” como pronta e ignorar “Etiqueta gerada” da API | `LABEL_READY_MARKERS` nos dois lados | `enviado` e Etiqueta EE inalterados |
 | 2026-08-30 | Anti-padrão: ordenar catálogo pelo período do dashboard ou flag TOP no cadastro | `soldQty` de pedidos paid/completed + TOP na categoria | `isLaunch` e OFERTA iguais |
 | 2026-08-30 | Anti-padrão: restore de backup com `mode: replace` / DELETE do catálogo | Sempre merge; client antigo é ignorado | Export parcial `?ids=` inalterado |
@@ -183,6 +184,7 @@ Código > memória > suposições.
 - Abrir comprovante PDF no admin com `<iframe src="data:application/pdf...">` sem `frame-src blob:` no CSP; converter data URL para blob.
 - Mostrar status técnico EnvioEcom (“Pronto para envio”, “Etiqueta emitida”) na Minha conta; traduzir só na UI do cliente (`isPackingBeforePostStatus` / `toCustomerFriendlyShippingLabel`). Admin e banco ficam iguais.
 - Tratar só **Etiqueta emitida** (status interno do PDF) como pronta e ignorar **Etiqueta gerada** que a EnvioEcom devolve no create/sync/webhook — o card fica Pendente mesmo com rastreio. `hasEnvioEcomLabelReady` / `LABEL_READY_MARKERS` nos dois lados.
+- Calcular o seguro de envio (+10%) sobre o subtotal **sem** cupom, ou gravar o `insuranceAmount` enviado pelo cliente. Base = `max(0, subtotal − desconto)`; `computeShippingInsuranceAmount` no checkout e na edição.
 - Fazer `.reverse()` cego no `status_history` da EnvioEcom na Minha conta (a API já vem newest-first); ordenar por `at` desc.
 
 ## Idioma

@@ -667,6 +667,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { AnimatePresence, motion } from "framer-motion";
 import { formatCurrency, formatDateOnlyBR } from "@/lib/utils";
+import { computeShippingInsuranceAmount } from "@/lib/shipping-insurance";
 import { downloadFilialPurchasePdf, openFilialPurchasePdfInBrowser } from "@/lib/generateFilialPurchasePdf";
 import { generateChargePdf, generateOrderPdf } from "@/lib/generateOrderPdf";
 import { AdminLayout } from "@/components/layout/AdminLayout";
@@ -5922,8 +5923,8 @@ export default function Admin() {
 
       const subtotal = editItems.reduce((s, p) => s + p.price * p.quantity, 0);
       const shippingCost = editOrderModal.shippingCost;
-      const insuranceAmount = editOrderModal.includeInsurance ? Math.max(0, subtotal) * 0.1 : 0;
       const discountAmount = editDiscount || 0;
+      const insuranceAmount = computeShippingInsuranceAmount(editOrderModal.includeInsurance, subtotal, discountAmount);
       const total = Math.max(0, subtotal + shippingCost + insuranceAmount - discountAmount);
       const nextOrderSnapshot = {
         ...editOrderModal,
@@ -11543,7 +11544,7 @@ export default function Admin() {
                   {/* Totals preview */}
                   {!editAsReshipment && editItems.length > 0 && (() => {
                     const subtotal = editItems.reduce((s, p) => s + p.price * p.quantity, 0);
-                    const insuranceAmount = editOrderModal.includeInsurance ? Math.max(0, subtotal) * 0.1 : 0;
+                    const insuranceAmount = computeShippingInsuranceAmount(editOrderModal.includeInsurance, subtotal, editDiscount || 0);
                     const total = Math.max(0, subtotal + editOrderModal.shippingCost + insuranceAmount - (editDiscount || 0));
                     const hasPaidAmount = (editOrderModal.paidAmount ?? 0) > 0;
                     const refValue = hasPaidAmount ? (editOrderModal.paidAmount ?? 0) : editOrderModal.total;

@@ -19,6 +19,7 @@ import { getStoredReferralCode } from "@/lib/affiliate";
 import { getCheckoutSecurityHeaders } from "@/lib/checkout-security";
 import { getCustomerAuthHeaders, getCustomerToken } from "@/lib/customer-auth";
 import { formatCurrency, getActiveWhatsApp } from "@/lib/utils";
+import { computeShippingInsuranceAmount } from "@/lib/shipping-insurance";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const LANDER_GOLD_MIN_QTY = 5;
@@ -833,15 +834,14 @@ export default function Checkout() {
   const missingForFreeShipping = isFreeShippingEligible || activeFreeShippingMin == null
     ? 0
     : Math.max(0, activeFreeShippingMin - subtotal);
-  const baseTotal = subtotal + shippingCost + (includeInsurance ? subtotal * 0.1 : 0);
   const discountAmount = appliedCoupon
     ? appliedCoupon.discountType === "percent"
       ? eligibleProductSubtotal * (appliedCoupon.discountValue / 100)
       : Math.min(appliedCoupon.discountValue, eligibleProductSubtotal)
     : 0;
-  const insuranceBase = Math.max(0, subtotal);
-  const insuranceAmount = includeInsurance ? insuranceBase * 0.1 : 0;
+  const insuranceAmount = computeShippingInsuranceAmount(includeInsurance, subtotal, discountAmount);
   const total = Math.max(0, subtotal + shippingCost + insuranceAmount - discountAmount);
+  const baseTotal = subtotal + shippingCost + insuranceAmount;
   const affiliateCreditToApply = useAffiliateCredit ? Math.min(affiliateCreditAvailable, total) : 0;
   const payableTotal = Math.max(0, total - affiliateCreditToApply);
 
@@ -852,8 +852,7 @@ export default function Checkout() {
       ? eligibleProductSubtotalCard * (appliedCoupon.discountValue / 100)
       : Math.min(appliedCoupon.discountValue, eligibleProductSubtotalCard)
     : 0;
-  const cardInsuranceBase = Math.max(0, cardSubtotal);
-  const cardInsuranceAmount = includeInsurance ? cardInsuranceBase * 0.1 : 0;
+  const cardInsuranceAmount = computeShippingInsuranceAmount(includeInsurance, cardSubtotal, cardDiscountAmount);
   const cardBaseTotal = cardSubtotal + shippingCost + cardInsuranceAmount;
   const cardNetTotal = Math.max(0, cardBaseTotal - cardDiscountAmount);
 
@@ -900,7 +899,7 @@ export default function Checkout() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           code: couponInput.trim(),
-          orderValue: baseTotal,
+          orderValue: subtotal + shippingCost,
           products: couponProductsPayload.map((p) => ({ id: p.id, quantity: p.quantity, price: p.price })),
         }),
       });
