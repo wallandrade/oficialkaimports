@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-08-31 | Anti-padrão: esperar Cancelado na EE, reusar o mesmo orderId/8880, ou casar webhook por prefixo `{n}-` / UUID | Detach na hora + `buildNextExternalOrderNumber` + match exato | `enviado`/estoque iguais |
 | 2026-08-31 | Anti-padrão: 10% do seguro sobre o subtotal ignorando o cupom | Base = subtotal − desconto; API recalcula | Alíquota 10% e pedidos antigos iguais |
 | 2026-08-31 | Anti-padrão: tratar só “Etiqueta emitida” como pronta e ignorar “Etiqueta gerada” da API | `LABEL_READY_MARKERS` nos dois lados | `enviado` e Etiqueta EE inalterados |
 | 2026-08-30 | Anti-padrão: ordenar catálogo pelo período do dashboard ou flag TOP no cadastro | `soldQty` de pedidos paid/completed + TOP na categoria | `isLaunch` e OFERTA iguais |
@@ -147,7 +148,10 @@ Código > memória > suposições.
 - Setar `orders.enviado` na etiqueta EnvioEcom sem passar por `ensureOrderMarkedEnviado` (estoque/logística).
 - Marcar `enviado` ao gerar etiqueta / DC-e / “Pronto para envio”; isso só na coleta/postagem da API.
 - Restaurar vaga `allocated` no reconcile só porque `enviado` é false quando a etiqueta EnvioEcom já existe.
-- Tratar PDF da etiqueta EnvioEcom como “Pronto para envio” se o status for **Cancelado**.
+- Tratar PDF da etiqueta EnvioEcom como “Pronto para envio” se o status for **Cancelado** ou **Aguardando cancelamento**.
+- Esperar a EnvioEcom ir para **Cancelado** antes de cotar de novo, ou deixar `shipment_id`/8880/`orderId` no pedido enquanto está em Aguardando cancelamento (`DUPLICATE_ORDER`). Cancelar EE desvincula na hora; create usa orderId novo se já houve histórico.
+- Casar webhook EnvioEcom por prefixo `{n}-` do orderId, por `orderNumber` ou por UUID do pedido; só barcode/`external_order_number`/`shipment_id` **exatos** do envio atual. Pedido solto não reatacha o 8880 velho.
+- Clicar **Etiqueta EE** para gerar PDF de envio cancelado/aguardando cancelamento; o botão só imprime o salvo do envio atual — senão cotar/criar outro.
 - Colocar o UUID do pedido (`orders.id`) na mensagem WhatsApp do checkout ou no card da Minha conta; usar `orderNumber`.
 - Prefixar a cópia Motoboy com `#KA-` ou incluir agendamento/telefone; usar `#161` e o layout Yury.
 - Copiar lote Motoboy/48h da filial sem o nome da loja; usar `site_name` no título (loja 1 fica sem sufixo).

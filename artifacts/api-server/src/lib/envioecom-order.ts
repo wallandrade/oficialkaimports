@@ -1,9 +1,11 @@
 import { db, ordersTable } from "@workspace/db";
 import { desc, eq, or } from "drizzle-orm";
 import { DEFAULT_TENANT_ID } from "./tenant-context";
+import { shipmentEventMatchesOrder } from "./envioecom-order-ref";
 import {
   extractStatusHistoryFromShipment,
   hasEnvioEcomLabelReady,
+  isEnvioEcomCancelledStatus,
   isLabelBlockedStatus,
   isProvisionalBarcode,
   isUsableLabelBarcode,
@@ -98,8 +100,11 @@ function chooseBarcode(current: string | null | undefined, incoming: string | nu
 
 export async function persistEnvioEcomShipment(order: typeof ordersTable.$inferSelect, patch: EnvioEcomShipmentPatch): Promise<typeof ordersTable.$inferSelect> {
   const now = new Date();
-  const barcode = chooseBarcode(order.envioecomBarcode || order.trackingCode, patch.barcode);
   const status = pickString(patch.status) || order.envioecomStatus;
+  if (isEnvioEcomCancelledStatus(status)) {
+    return detachEnvioEcomShipment(order, status);
+  }
+  const barcode = chooseBarcode(order.envioecomBarcode || order.trackingCode, patch.barcode);
   const history = mergeEnvioEcomHistory(
     order.envioecomStatusHistory,
     patch.history,
@@ -173,6 +178,69 @@ export async function persistEnvioEcomShipment(order: typeof ordersTable.$inferS
   return refreshed[0] || order;
 }
 
+export {
+  buildExternalOrderNumber,
+  buildNextExternalOrderNumber,
+  isDuplicateOrderIdError,
+  shipmentEventMatchesOrder,
+} from "./envioecom-order-ref";
+
+export async function detachEnvioEcomShipment(
+  order: typeof ordersTable.$inferSelect,
+  status?: string | null,
+): Promise<typeof ordersTable.$inferSelect> {
+  const now = new Date();
+  const requested = pickString(status) || pickString(order.envioecomStatus);
+  const nextStatus = isEnvioEcomCancelledStatus(requested) ? requested! : "Aguardando cancelamento";
+  const barcode = pickString(order.envioecomBarcode) || pickString(order.trackingCode);
+  const history = mergeEnvioEcomHistory(
+    order.envioecomStatusHistory,
+    null,
+    {
+      at: now.toISOString(),
+      status: nextStatus,
+      description: [
+        order.envioecomShipmentId ? `shipment_id:${order.envioecomShipmentId}` : "",
+        order.envioecomExternalOrderNumber ? `orderId:${order.envioecomExternalOrderNumber}` : "",
+        "Envio desvinculado para permitir etiqueta nova",
+      ].filter(Boolean).join(" "),
+      barcode,
+    },
+  );
+
+  const eeBarcode = pickString(order.envioecomBarcode);
+  const tracking = pickString(order.trackingCode);
+  const eeLabel = pickString(order.envioecomLabelUrl);
+  const trackingLabel = pickString(order.trackingLabelUrl);
+
+  await db.update(ordersTable).set({
+    envioecomShipmentId: null,
+    envioecomBarcode: null,
+    envioecomTrackingKey: null,
+    envioecomExternalOrderNumber: null,
+    envioecomLabelUrl: null,
+    envioecomDeliveryMode: null,
+    envioecomFreightCost: null,
+    trackingCode: !tracking || tracking === eeBarcode ? null : order.trackingCode,
+    trackingLabelUrl: !trackingLabel || trackingLabel === eeLabel ? null : order.trackingLabelUrl,
+    envioecomStatus: nextStatus,
+    envioecomStatusUpdatedAt: now,
+    envioecomStatusHistory: history,
+    updatedAt: now,
+  }).where(eq(ordersTable.id, order.id));
+
+  if (!order.enviado) {
+    try {
+      await allocateOrderLogistics(order.id, true);
+    } catch (logisticsErr) {
+      console.warn("[EnvioEcom] Falha ao devolver pedido à fila após desvincular:", logisticsErr);
+    }
+  }
+
+  const refreshed = await db.select().from(ordersTable).where(eq(ordersTable.id, order.id)).limit(1);
+  return refreshed[0] || order;
+}
+
 export async function findOrderForEnvioEcomWebhook(input: {
   barcode?: string | null;
   externalOrderNumber?: string | null;
@@ -189,29 +257,16 @@ export async function findOrderForEnvioEcomWebhook(input: {
       .where(or(eq(ordersTable.envioecomBarcode, barcode), eq(ordersTable.trackingCode, barcode)))
       .orderBy(desc(ordersTable.updatedAt))
       .limit(1);
-    if (byBarcode[0]) return byBarcode[0];
+    if (byBarcode[0] && shipmentEventMatchesOrder(byBarcode[0], input)) return byBarcode[0];
   }
 
   if (external) {
     const byExternal = await db
       .select()
       .from(ordersTable)
-      .where(or(
-        eq(ordersTable.envioecomExternalOrderNumber, external),
-        eq(ordersTable.id, external),
-      ))
+      .where(eq(ordersTable.envioecomExternalOrderNumber, external))
       .limit(1);
-    if (byExternal[0]) return byExternal[0];
-
-    const orderNumberMatch = external.match(/^(\d+)-/);
-    if (orderNumberMatch) {
-      const byNumber = await db
-        .select()
-        .from(ordersTable)
-        .where(eq(ordersTable.orderNumber, Number(orderNumberMatch[1])))
-        .limit(1);
-      if (byNumber[0]) return byNumber[0];
-    }
+    if (byExternal[0] && shipmentEventMatchesOrder(byExternal[0], input)) return byExternal[0];
   }
 
   if (Number.isFinite(shipmentId) && shipmentId > 0) {
@@ -220,15 +275,10 @@ export async function findOrderForEnvioEcomWebhook(input: {
       .from(ordersTable)
       .where(eq(ordersTable.envioecomShipmentId, shipmentId))
       .limit(1);
-    if (byId[0]) return byId[0];
+    if (byId[0] && shipmentEventMatchesOrder(byId[0], input)) return byId[0];
   }
 
   return null;
-}
-
-export function buildExternalOrderNumber(order: { orderNumber?: number | null; id: string }): string {
-  const prefix = order.orderNumber != null ? String(order.orderNumber) : "pedido";
-  return `${prefix}-${String(order.id).slice(0, 8)}`;
 }
 
 export function digitsOnly(value: unknown): string {

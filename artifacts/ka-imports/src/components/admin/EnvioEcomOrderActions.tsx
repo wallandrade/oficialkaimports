@@ -65,6 +65,15 @@ function isMotoboyOrPickup(shippingType?: string) {
   return normalized.includes("motoboy") || normalized.includes("retirada") || normalized.includes("pickup");
 }
 
+function isLabelBlockedStatus(status?: string | null) {
+  const normalized = String(status || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  return normalized.includes("cancelad") || normalized.includes("cancelamento") || normalized.includes("aguardando pagamento");
+}
+
 function isProvisionalBarcode(value?: string | null) {
   return /^EC\d+/i.test(String(value || "").trim());
 }
@@ -170,6 +179,7 @@ export function EnvioEcomOrderActions({
   if (isMotoboyOrPickup(order.shippingType)) return null;
 
   const barcode = order.envioecomBarcode || order.trackingCode || "";
+  const labelBlocked = isLabelBlockedStatus(order.envioecomStatus);
   const needsBind = isProvisionalBarcode(barcode) && !order.envioecomShipmentId;
   const labelUrl = order.envioecomLabelUrl || order.trackingLabelUrl || "";
   const orderDisplayId = Number.isFinite(Number(order.orderNumber)) && Number(order.orderNumber) > 0
@@ -366,6 +376,11 @@ export function EnvioEcomOrderActions({
   }
 
   async function generateLabel(opts?: { skipBind?: boolean }) {
+    if (isLabelBlockedStatus(order.envioecomStatus)) {
+      toast.message("Este envio está cancelado ou aguardando cancelamento. Cote e crie um envio novo.");
+      void startQuote();
+      return;
+    }
     if (needsBind && !opts?.skipBind) {
       openEnvioEcomLinkModal(true);
       return;
@@ -431,7 +446,9 @@ export function EnvioEcomOrderActions({
       if (!res.ok) throw new Error(await readError(res));
       const data = await res.json() as { order?: EnvioEcomOrderFields; message?: string; autoCancelled?: boolean };
       await patchFromResponse(data);
-      toast.success(data.autoCancelled ? "Envio cancelado e saldo estornado." : (data.message || "Solicitação de cancelamento aberta."));
+      toast.success(data.autoCancelled
+        ? "Envio cancelado e saldo estornado. Pedido liberado para cotar de novo."
+        : (data.message || "Cancelamento pedido. Pedido liberado para cotar de novo."));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Falha ao cancelar.");
     } finally {
@@ -455,7 +472,7 @@ export function EnvioEcomOrderActions({
         {busy === "bind" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />}
         Vincular EE
       </Button>
-      {(order.envioecomShipmentId || barcode) && (
+      {(order.envioecomShipmentId || barcode) && !labelBlocked && (
         <Button size="sm" variant="outline" className="gap-1.5 text-emerald-800 border-emerald-200 hover:bg-emerald-50" disabled={!!busy} onClick={() => void generateLabel()}>
           {busy === "label" || busy === "bind" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
           Etiqueta EE
@@ -473,13 +490,13 @@ export function EnvioEcomOrderActions({
           Cancelar EE
         </Button>
       )}
-      {labelUrl && (
+      {labelUrl && !labelBlocked && (
         <Button size="sm" variant="outline" className="gap-1.5" onClick={() => window.open(labelUrl, "_blank", "noopener,noreferrer")}>
           <ExternalLink className="w-3.5 h-3.5" /> Ver PDF
         </Button>
       )}
       {order.envioecomStatus && (
-        <p className={`basis-full text-xs ${String(order.envioecomStatus).toLowerCase().includes("cancel") ? "text-rose-700" : "text-emerald-800"}`}>
+        <p className={`basis-full text-xs ${labelBlocked ? "text-rose-700" : "text-emerald-800"}`}>
           EnvioEcom: {order.envioecomStatus}
           {prettyAccountName(order) ? ` · ${prettyAccountName(order)}` : ""}
           {order.envioecomDeliveryMode ? ` · ${order.envioecomDeliveryMode}` : ""}
@@ -676,7 +693,7 @@ export function hasEnvioEcomLabelReady(order: EnvioEcomOrderFields): boolean {
     .replace(/[\u0300-\u036f]/g, "")
     .trim()
     .toLowerCase();
-  if (normalized.includes("cancelad") || normalized.includes("aguardando pagamento")) return false;
+  if (normalized.includes("cancelad") || normalized.includes("cancelamento") || normalized.includes("aguardando pagamento")) return false;
   if (String(order.envioecomLabelUrl || "").trim()) return true;
   if (!normalized) return false;
   return [
@@ -700,8 +717,12 @@ export function preserveEnvioEcomLabelFields<T extends {
   envioecomLabelUrl?: string | null;
   trackingLabelUrl?: string | null;
   envioecomStatus?: string | null;
+  envioecomShipmentId?: number | null;
+  envioecomBarcode?: string | null;
 }>(incoming: T, previous?: T | null): T {
   if (!previous) return incoming;
+  const incomingUnbound = !incoming.envioecomShipmentId && !String(incoming.envioecomBarcode || "").trim();
+  if (incomingUnbound) return incoming;
   const nextLabel = String(incoming.envioecomLabelUrl || "").trim();
   const prevLabel = String(previous.envioecomLabelUrl || "").trim();
   const nextTracking = String(incoming.trackingLabelUrl || "").trim();
@@ -712,7 +733,9 @@ export function preserveEnvioEcomLabelFields<T extends {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
-  const incomingBlocked = incomingNormalized.includes("cancelad") || incomingNormalized.includes("aguardando pagamento");
+  const incomingBlocked = incomingNormalized.includes("cancelad")
+    || incomingNormalized.includes("cancelamento")
+    || incomingNormalized.includes("aguardando pagamento");
   const keepPreviousStatus = !incomingBlocked
     && !hasEnvioEcomLabelReady({ envioecomStatus: incomingStatus, envioecomLabelUrl: nextLabel })
     && hasEnvioEcomLabelReady({ envioecomStatus: previousStatus, envioecomLabelUrl: prevLabel });

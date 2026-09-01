@@ -8,6 +8,8 @@ import {
   classifyEnvioEcomTrackingGroup,
   extractStatusHistoryFromShipment,
   hasEnvioEcomLabelReady,
+  isEnvioEcomCancelledStatus,
+  isLabelBlockedStatus,
   isOpenEnvioEcomTrackingStatus,
   isProvisionalBarcode,
   mergeEnvioEcomHistory,
@@ -139,7 +141,15 @@ test("etiqueta pronta libera fila mesmo sem status de transito", () => {
     envioecomLabelUrl: "https://cdn.example/label.pdf",
     envioecomStatus: "Cancelado",
   }), false);
+  assert.equal(hasEnvioEcomLabelReady({
+    envioecomLabelUrl: "https://cdn.example/label.pdf",
+    envioecomStatus: "Aguardando cancelamento",
+  }), false);
   assert.equal(hasEnvioEcomLabelReady({ envioecomStatus: "Cancelado" }), false);
+  assert.equal(isLabelBlockedStatus("Aguardando cancelamento"), true);
+  assert.equal(isLabelBlockedStatus("Etiqueta gerada"), false);
+  assert.equal(isEnvioEcomCancelledStatus("Aguardando cancelamento"), true);
+  assert.equal(isEnvioEcomCancelledStatus("Etiqueta gerada"), false);
 });
 
 test("historico e idempotente no mesmo status+barcode", () => {
@@ -155,6 +165,7 @@ test("board classifica status em grupos de rastreio", () => {
   assert.equal(classifyEnvioEcomTrackingGroup("Etiqueta gerada"), "awaiting");
   assert.equal(classifyEnvioEcomTrackingGroup("Pronto para envio"), "awaiting");
   assert.equal(classifyEnvioEcomTrackingGroup("Cancelado"), "cancelled");
+  assert.equal(classifyEnvioEcomTrackingGroup("Aguardando cancelamento"), "cancelled");
   assert.equal(isOpenEnvioEcomTrackingStatus("Postado"), true);
   assert.equal(isOpenEnvioEcomTrackingStatus("Entregue"), false);
 });

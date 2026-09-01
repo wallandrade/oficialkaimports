@@ -48,7 +48,7 @@ const COLLECTED_MARKERS = [
 function statusMatches(status: unknown, markers: string[]): boolean {
   const normalized = normalizeStatus(status);
   if (!normalized) return false;
-  if (normalized.includes("cancelad") || normalized.includes("aguardando pagamento")) return false;
+  if (isEnvioEcomCancelledStatus(normalized) || normalized.includes("aguardando pagamento")) return false;
   return markers.some((marker) => normalized.includes(marker));
 }
 
@@ -56,9 +56,14 @@ export function shouldMarkEnviadoFromStatus(status: unknown): boolean {
   return statusMatches(status, COLLECTED_MARKERS);
 }
 
+export function isEnvioEcomCancelledStatus(status: unknown): boolean {
+  const normalized = normalizeStatus(status);
+  return normalized.includes("cancelad") || normalized.includes("cancelamento");
+}
+
 export function isLabelBlockedStatus(status: unknown): boolean {
   const normalized = normalizeStatus(status);
-  return normalized.includes("cancelad") || normalized.includes("aguardando pagamento");
+  return isEnvioEcomCancelledStatus(normalized) || normalized.includes("aguardando pagamento");
 }
 
 export function resolveStatusAfterLabelGenerated(current: unknown): string {
@@ -82,7 +87,7 @@ export function hasEnvioEcomLabelReady(input: {
 export function shouldMarkCompletedFromStatus(status: unknown): boolean {
   const normalized = normalizeStatus(status);
   if (!normalized) return false;
-  if (normalized.includes("cancelad") || normalized.includes("devolucao") || normalized.includes("devolvido")) return false;
+  if (isEnvioEcomCancelledStatus(normalized) || normalized.includes("devolucao") || normalized.includes("devolvido")) return false;
   return normalized.includes("entregue");
 }
 
@@ -91,7 +96,7 @@ export type EnvioEcomTrackingGroup = "delivered" | "in_transit" | "awaiting" | "
 export function classifyEnvioEcomTrackingGroup(status: unknown): EnvioEcomTrackingGroup {
   const normalized = normalizeStatus(status);
   if (!normalized) return "other";
-  if (normalized.includes("cancelad")) return "cancelled";
+  if (isEnvioEcomCancelledStatus(status)) return "cancelled";
   if (normalized.includes("entregue")) return "delivered";
   if (["coletado", "em transito", "postado", "saiu para entrega"].some((marker) => normalized.includes(marker))) {
     return "in_transit";

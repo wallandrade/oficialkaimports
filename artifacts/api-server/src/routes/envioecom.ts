@@ -39,9 +39,11 @@ import {
 } from "../lib/envioecom-package";
 import { isLabelBlockedStatus, isProvisionalBarcode, isUsableLabelBarcode, classifyEnvioEcomTrackingGroup, isOpenEnvioEcomTrackingStatus, resolveStatusAfterLabelGenerated, trackingEventsNewestFirst, trackingHistoryMissingLocation } from "../lib/envioecom-status";
 import {
-  buildExternalOrderNumber,
+  buildNextExternalOrderNumber,
+  detachEnvioEcomShipment,
   digitsOnly,
   findOrderForEnvioEcomWebhook,
+  isDuplicateOrderIdError,
   parseCreatedShipment,
   parseShipmentDetails,
   persistEnvioEcomShipment,
@@ -49,6 +51,7 @@ import {
   describeEnvioEcomRecipientIssues,
   sanitizeDocument,
   sanitizeUf,
+  shipmentEventMatchesOrder,
 } from "../lib/envioecom-order";
 
 const router: IRouter = Router();
@@ -290,9 +293,13 @@ function firstShipmentFromList(payload: unknown): unknown | null {
     : root;
   const candidates = [root.data, root.shipments, root.results, root.items, nested.shipments, nested.results, nested.items, nested.data];
   for (const candidate of candidates) {
-    if (Array.isArray(candidate) && candidate[0]) return candidate[0];
+    if (!Array.isArray(candidate)) continue;
+    const active = candidate.find((row) => !isLabelBlockedStatus(parseShipmentDetails(row).status));
+    if (active) return active;
   }
-  if (root.id || root.shipment_id || nested.id || nested.shipment_id) return payload;
+  if (root.id || root.shipment_id || nested.id || nested.shipment_id) {
+    return isLabelBlockedStatus(parseShipmentDetails(payload).status) ? null : payload;
+  }
   return null;
 }
 
@@ -725,18 +732,18 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       res.status(400).json({ error: "INVALID_RECIPIENT", message: recipientIssue });
       return;
     }
-    const packed = buildConsolidatedQuotePackage({ products: order.products, defaults: config.defaults });
+    let workingOrder = order;
+    if (isLabelBlockedStatus(order.envioecomStatus)) {
+      workingOrder = await detachEnvioEcomShipment(order, order.envioecomStatus);
+    }
+    const packed = buildConsolidatedQuotePackage({ products: workingOrder.products, defaults: config.defaults });
     const labelItem = buildGenericShipmentItem({
       name: config.shipmentItemName,
       quantity: config.shipmentItemQuantity,
       unitCost: config.shipmentItemUnitCost,
       fallbackUnitCost: packed.declaredValue,
     });
-    const externalOrderNumber = order.envioecomExternalOrderNumber || buildExternalOrderNumber(order);
-    const created = await scoped.client.create({
-      defer_payment: false,
-      shipments: [{
-        orderId: externalOrderNumber,
+    const shipmentFields = {
         shipping_company: shippingCompany,
         cep_origem: originCep,
         cep_destino: destination,
@@ -758,8 +765,58 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
         localidade: String(order.addressCity || "").trim() || "Cidade",
         uf: sanitizeUf(order.addressState),
         items: labelItem.items,
-      }],
-    });
+    };
+    let externalOrderNumber = buildNextExternalOrderNumber(workingOrder);
+    let created: Awaited<ReturnType<typeof scoped.client.create>> | undefined;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        created = await scoped.client.create({
+          defer_payment: false,
+          shipments: [{ orderId: externalOrderNumber, ...shipmentFields }],
+        });
+        break;
+      } catch (err) {
+        if (err instanceof EnvioEcomApiError && isDuplicateOrderIdError(err) && attempt < 2) {
+          externalOrderNumber = buildNextExternalOrderNumber({
+            ...workingOrder,
+            envioecomShipmentId: null,
+            envioecomExternalOrderNumber: null,
+            envioecomStatusHistory: [{ at: new Date().toISOString(), status: "retry" }],
+          });
+          continue;
+        }
+        throw err;
+      }
+    }
+    if (!created) {
+      throw new EnvioEcomApiError("CREATE_FAILED", "Não foi possível criar o envio na EnvioEcom.", 502);
+    }
+
+    let persisted = await persistShipmentForAccount(workingOrder, {
+    let created: Awaited<ReturnType<typeof scoped.client.create>> | undefined;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        created = await scoped.client.create({
+          defer_payment: false,
+          shipments: [{ orderId: externalOrderNumber, ...shipmentFields }],
+        });
+        break;
+      } catch (err) {
+        if (err instanceof EnvioEcomApiError && isDuplicateOrderIdError(err) && attempt < 2) {
+          externalOrderNumber = buildNextExternalOrderNumber({
+            ...order,
+            envioecomShipmentId: null,
+            envioecomExternalOrderNumber: null,
+            envioecomStatusHistory: [{ at: new Date().toISOString(), status: "retry" }],
+          });
+          continue;
+        }
+        throw err;
+      }
+    }
+    if (!created) {
+      throw new EnvioEcomApiError("CREATE_FAILED", "Não foi possível criar o envio na EnvioEcom.", 502);
+    }
 
     let persisted = await persistShipmentForAccount(order, {
       ...parseCreatedShipment(created),
@@ -827,6 +884,13 @@ router.post("/admin/envioecom/orders/:id/labels", requireAdminAuth, async (req, 
       res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
       return;
     }
+    if (isLabelBlockedStatus(order.envioecomStatus)) {
+      res.status(400).json({
+        error: "LABEL_BLOCKED",
+        message: `Não é possível gerar etiqueta com status "${order.envioecomStatus}". Cote e crie um envio novo.`,
+      });
+      return;
+    }
     const requestedId = Number((req.body as { shipmentId?: number; accountId?: string })?.shipmentId);
     const shipmentId = Number.isFinite(requestedId) && requestedId > 0 ? requestedId : order.envioecomShipmentId;
     if (!shipmentId) {
@@ -838,13 +902,6 @@ router.post("/admin/envioecom/orders/:id/labels", requireAdminAuth, async (req, 
         });
         return;
       }
-    }
-    if (isLabelBlockedStatus(order.envioecomStatus)) {
-      res.status(400).json({
-        error: "LABEL_BLOCKED",
-        message: `Não é possível gerar etiqueta com status "${order.envioecomStatus}".`,
-      });
-      return;
     }
     if (!isR2Configured()) {
       res.status(503).json({
@@ -956,30 +1013,47 @@ router.post("/admin/envioecom/orders/:id/cancel", requireAdminAuth, async (req, 
       return;
     }
     const identifier = String(order.envioecomShipmentId || order.envioecomBarcode || order.trackingCode || "").trim();
-    if (!identifier) {
+    const hasBinding = Boolean(
+      identifier
+      || order.envioecomExternalOrderNumber
+      || order.envioecomLabelUrl
+      || order.envioecomStatus,
+    );
+    if (!hasBinding) {
       res.status(400).json({ error: "NO_SHIPMENT", message: "Este pedido ainda não tem envio EnvioEcom." });
       return;
     }
     const reason = String((req.body as { reason?: string; accountId?: string })?.reason || "").trim();
     const preferred = String((req.body as { accountId?: string })?.accountId || order.envioecomAccountId || "").trim() || undefined;
-    const found = await withEnvioEcomAccountFallback(
-      admin.tenantId,
-      preferred,
-      res,
-      async (client) => client.cancel(identifier, reason || undefined),
-      (cancelled) => !!cancelled,
-    );
-    if (!found) return;
-    const persisted = await persistShipmentForAccount(order, {
-      status: String(found.result.status || "Cancelado"),
-      description: String(found.result.message || ""),
-    }, found.account);
+    let cancelResult: { status?: unknown; message?: unknown; auto_cancelled?: unknown } = {};
+    let cancelAccountName: string | null = null;
+    let cancelAccountId: string | null = null;
+    if (identifier) {
+      try {
+        const found = await withEnvioEcomAccountFallback(
+          admin.tenantId,
+          preferred,
+          res,
+          async (client) => client.cancel(identifier, reason || undefined),
+          () => true,
+        );
+        if (!found) return;
+        cancelResult = found.result as { status?: unknown; message?: unknown; auto_cancelled?: unknown };
+        cancelAccountName = found.account.name;
+        cancelAccountId = found.account.accountId;
+      } catch (err) {
+        console.warn("[EnvioEcom] Cancel na API falhou; pedido será desvinculado mesmo assim:", err);
+      }
+    }
+    const cancelStatus = String(cancelResult.status || "").trim() || null;
+    const persisted = await detachEnvioEcomShipment(order, cancelStatus);
     res.json({
       ok: true,
-      autoCancelled: !!found.result.auto_cancelled,
-      message: found.result.message,
-      order: mapEnvioEcomOrder(persisted, { accountName: found.account.name }),
-      accountId: found.account.accountId,
+      detached: true,
+      autoCancelled: !!cancelResult.auto_cancelled,
+      message: String(cancelResult.message || "Cancelamento pedido na EnvioEcom. Pedido liberado para cotar de novo."),
+      order: mapEnvioEcomOrder(persisted, { accountName: cancelAccountName }),
+      accountId: cancelAccountId,
     });
   } catch (err) {
     sendEnvioEcomError(res, err);
@@ -1206,7 +1280,11 @@ export async function applyEnvioEcomWebhook(body: Record<string, unknown>): Prom
     externalOrderNumber,
     shipmentId: Number.isFinite(shipmentId) && shipmentId > 0 ? shipmentId : null,
   });
-  if (!order) return { matched: false };
+  if (!order || !shipmentEventMatchesOrder(order, {
+    barcode,
+    shipmentId: Number.isFinite(shipmentId) && shipmentId > 0 ? shipmentId : null,
+    externalOrderNumber,
+  })) return { matched: false };
 
   await persistEnvioEcomShipment(order, {
     shipmentId: Number.isFinite(shipmentId) && shipmentId > 0 ? shipmentId : null,
