@@ -1,6 +1,6 @@
 import { enqueueFilialOrderPurchaseRequest } from "../lib/filial-purchase-queue";
 import { Router, type IRouter, type Request, type Response } from "express";
-import { db, pool, ordersTable, customChargesTable, sellersTable, productsTable, siteSettingsTable, tenantSettingsTable, reshipmentsTable, couponsTable, inventoryBalancesTable, motoboyDeliveryReservationsTable, orderLogisticsAllocationsTable } from "@workspace/db";
+import { db, pool, ordersTable, customChargesTable, sellersTable, productsTable, siteSettingsTable, tenantSettingsTable, reshipmentsTable, couponsTable, motoboyDeliveryReservationsTable, orderLogisticsAllocationsTable } from "@workspace/db";
 import { desc, and, gte, lte, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { getAdminScope, requireAdminAuth, verifyCurrentAdminPassword } from "./admin-auth";
@@ -28,9 +28,10 @@ import { parseFreeShippingMinSubtotalSetting, pickFreeShippingMinSubtotal, resol
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 import { reserveNextOrderNumber } from "../lib/order-number";
 import { MotoboyScheduleError, reserveMotoboySchedule } from "../lib/motoboy-delivery-schedule";
-import { allocateOrderLogistics, completeOrderLogistics, releaseOrderLogistics } from "../lib/order-logistics";
-import { clearOrderManualPriority } from "../lib/order-priority";
+import { allocateOrderLogistics, releaseOrderLogistics } from "../lib/order-logistics";
 import { isMotoboyShippingType } from "../lib/motoboy-shipping-type";
+import { ensureOrderMarkedEnviado, OrderEnviadoError } from "../lib/order-enviado";
+import { resolveYuryInventoryExitPool } from "../lib/yury-inventory";
 import { cartProductIdsFromItems, isCartEligibleForMotoboy } from "../lib/motoboy-eligible-products";
 import { computeShippingInsuranceAmount } from "../lib/shipping-insurance";
 
@@ -926,18 +927,6 @@ function buildOrderTenantWhere(tenantId: string) {
   }
 
   return eq(ordersTable.tenantId, tenantId);
-}
-
-function buildInventoryBalanceTenantWhere(tenantId: string) {
-  if (tenantId === DEFAULT_TENANT_ID) {
-    return or(
-      eq(inventoryBalancesTable.tenantId, tenantId),
-      isNull(inventoryBalancesTable.tenantId),
-      eq(inventoryBalancesTable.tenantId, ""),
-    );
-  }
-
-  return eq(inventoryBalancesTable.tenantId, tenantId);
 }
 
 function buildAdminOrderWhere(orderId: string, scope: { hasGlobalAccess: boolean; sellerCode: string | null; tenantId: string }) {
@@ -2722,6 +2711,9 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
         products: ordersTable.products,
         clientName: ordersTable.clientName,
         enviado: ordersTable.enviado,
+        shippingType: ordersTable.shippingType,
+        motoboyDeliveryDate: ordersTable.motoboyDeliveryDate,
+        motoboyDeliveryTime: ordersTable.motoboyDeliveryTime,
       })
       .from(ordersTable)
       .where(buildAdminOrderWhere(id, adminScope))
@@ -2733,6 +2725,7 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
     }
 
     const wasEnviado = !!order.enviado;
+    const yuryPool = resolveYuryInventoryExitPool(order);
     console.info("[ORDER_ENVIADO] Toggle requested", {
       orderId: id,
       tenantId: adminScope.tenantId,
@@ -2758,6 +2751,40 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
       });
     }
 
+    if (enviado) {
+      try {
+        await ensureOrderMarkedEnviado(id, adminScope.tenantId);
+      } catch (err) {
+        if (err instanceof OrderEnviadoError) {
+          const status =
+            err.code === "NOT_FOUND" ? 404
+            : err.code === "YURY_EXIT_UNAVAILABLE" || err.code === "YURY_EXIT_FAILED" ? 502
+            : err.code === "YURY_SYNC_DISABLED" || err.code === "YURY_TOKEN_INVALID" ? 503
+            : 400;
+          res.status(status).json({ error: err.code, message: err.message });
+          return;
+        }
+        throw err;
+      }
+
+      const persisted = await db
+        .select({ enviado: ordersTable.enviado })
+        .from(ordersTable)
+        .where(buildAdminOrderWhere(id, adminScope))
+        .limit(1);
+      const persistedEnviado = !!persisted[0]?.enviado;
+      console.info("[ORDER_ENVIADO] Toggle persisted", {
+        orderId: id,
+        tenantId: adminScope.tenantId,
+        previousEnviado: wasEnviado,
+        requestedEnviado: enviado,
+        persistedEnviado,
+        yuryPool,
+      });
+      res.json({ ok: true, id, enviado: true });
+      return;
+    }
+
     const shouldSkipReturnToStock = !enviado && wasEnviado
       ? await db
           .select({ id: reshipmentsTable.id })
@@ -2770,7 +2797,7 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
           .then((rows) => !!rows[0])
       : false;
 
-    if (enviado !== wasEnviado) {
+    if (enviado !== wasEnviado && !yuryPool) {
       const orderItems = parseOrderItemsForInventory(order.products);
       if (orderItems.length > 0) {
         const missingIds = orderItems.filter((item) => !item.productId);
@@ -2798,48 +2825,15 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
           return;
         }
 
-        const productIds = resolvedItems.map((item) => item.productId!).filter(Boolean);
-        const balanceRows = productIds.length > 0
-          ? await db
-              .select({ productId: inventoryBalancesTable.productId, quantity: inventoryBalancesTable.quantity })
-              .from(inventoryBalancesTable)
-              .where(and(
-                buildInventoryBalanceTenantWhere(adminScope.tenantId),
-                inArray(inventoryBalancesTable.productId, productIds),
-              ))
-          : [];
-
-        const stockByProduct = new Map<string, number>();
-        for (const row of balanceRows as Array<{ productId: string; quantity: number }>) {
-          stockByProduct.set(String(row.productId), Number(row.quantity) || 0);
-        }
-
-        if (enviado) {
-          const insufficient = resolvedItems.filter((item) => (stockByProduct.get(item.productId!) || 0) < item.quantity);
-          if (insufficient.length > 0) {
-            const details = insufficient
-              .map((item) => `${item.productName} (precisa ${item.quantity}, disponível ${stockByProduct.get(item.productId!) || 0})`)
-              .join("; ");
-            res.status(400).json({
-              error: "INSUFFICIENT_STOCK",
-              message: `Estoque insuficiente para envio: ${details}.`,
-            });
-            return;
-          }
-        }
-
         for (const item of resolvedItems) {
           if (shouldSkipReturnToStock && !enviado) {
             continue;
           }
-          const qty = enviado ? -item.quantity : item.quantity;
           await registerInventoryEntry({
             tenantId: adminScope.tenantId,
             productId: item.productId!,
-            quantity: qty,
-            reason: enviado
-              ? `Saída por envio do pedido ${id}`
-              : `Estorno de saída do pedido ${id}`,
+            quantity: item.quantity,
+            reason: `Estorno de saída do pedido ${id}`,
             referenceId: id,
             clientName: order.clientName || null,
           });
@@ -2851,17 +2845,7 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
       .set({ enviado, updatedAt: new Date() })
       .where(buildAdminOrderWhere(id, adminScope));
 
-    if (enviado) {
-      await clearOrderManualPriority(id);
-    }
-
-    if (enviado && !wasEnviado) {
-      await db.delete(motoboyDeliveryReservationsTable).where(and(
-        eq(motoboyDeliveryReservationsTable.orderId, id),
-        eq(motoboyDeliveryReservationsTable.tenantId, adminScope.tenantId),
-      ));
-      await completeOrderLogistics(id, adminScope.tenantId);
-    } else if (!enviado && wasEnviado) {
+    if (!enviado && wasEnviado) {
       await allocateOrderLogistics(id);
     }
 

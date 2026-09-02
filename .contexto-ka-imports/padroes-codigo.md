@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-08-31  
+> **Última atualização:** 2026-09-01  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-01 | Anti-padrão: mandar `orders.id`/`orderNumber` em `orderId` da Yury; decrementar `yury_inventory_balances` no POST; debitar Fóz junto com Motoboy/Minas | Exit só `pool`+`items[]`+`referenceId`; espelho via webhook/snapshot | Snapshot e `/api/admin/inventory` deles continuam proibidos |
 | 2026-08-31 | Anti-padrão: esperar Cancelado na EE, reusar o mesmo orderId/8880, ou casar webhook por prefixo `{n}-` / UUID | Detach na hora + `buildNextExternalOrderNumber` + match exato | `enviado`/estoque iguais |
 | 2026-08-31 | Anti-padrão: 10% do seguro sobre o subtotal ignorando o cupom | Base = subtotal − desconto; API recalcula | Alíquota 10% e pedidos antigos iguais |
 | 2026-08-31 | Anti-padrão: tratar só “Etiqueta emitida” como pronta e ignorar “Etiqueta gerada” da API | `LABEL_READY_MARKERS` nos dois lados | `enviado` e Etiqueta EE inalterados |
@@ -134,7 +135,7 @@ Código > memória > suposições.
 - Zerar frete Motoboy com `checkout_free_shipping_min_subtotal` (usar `checkout_free_shipping_min_motoboy`).
 - Inferir duração do slot Motoboy pelo preço (usar `interval_hours`).
 - Cadastrar bairro/faixa Motoboy neste repo como fonte da verdade quando `YURY_MOTOBOY_SYNC_TOKEN` está setado (espelho Yury; CRUD local 409).
-- Somar Motoboy + Minas, gravar esses saldos em `inventory_balances`, aplicar `quantityDelta` do webhook Yury, ou puxar estoque deles em `/api/admin/inventory/...` (usar snapshot + tabela `yury_inventory_balances`).
+- Somar Motoboy + Minas, gravar esses saldos em `inventory_balances`, aplicar `quantityDelta` do webhook Yury, puxar estoque deles em `/api/admin/inventory/...`, ou mandar o uuid/`orderNumber` do KA no campo `orderId` da Yury (usar `POST /api/integrations/inventory/exit` com `referenceId` = `orders.id`; `orderId` só se for pedido da Yury). Não decrementar `yury_inventory_balances` no POST — webhook `balances` ou snapshot. Não debitar Fóz no `enviado` Motoboy/Minas.
 - Exigir cidade da faixa CEP igual à ViaCEP para mostrar Motoboy (CEP na faixa já libera; cidade só desempata).
 - Gerar etiqueta EnvioEcom com barcode provisório `EC…` (usar `shipping_id` / `ids`).
 - Cachear token EnvioEcom só por `tenantId` com N contas (login A vira B). Chave = `tenantId:accountId`.

@@ -589,6 +589,17 @@ function isMotoboyShippingOrder(order: any): boolean {
   return shipping.includes("motoboy") || Boolean(order?.motoboyDeliveryDate && order?.motoboyDeliveryTime);
 }
 
+function isYuryInventoryShippingOrder(order: any): boolean {
+  const shipping = String(order?.shippingType || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  if (shipping.includes("motoboy") || shipping.includes("minas")) return true;
+  if (shipping.includes("retirada") || shipping.includes("pickup")) return false;
+  return Boolean(order?.motoboyDeliveryDate && order?.motoboyDeliveryTime);
+}
+
 function motoboyOrderBlock(order: any): string {
   const products = getOrderProducts(order?.products);
   const paid = order?.status === "paid" || order?.status === "completed";
@@ -13147,7 +13158,7 @@ function InventoryPanel({
           <div>
             <p className="text-sm font-semibold">Estoque {yuryPoolLabel}</p>
             <p className="text-xs text-muted-foreground">
-              Espelho só leitura da Yury. Sem entrada, saída ou baixa de pedido KA neste pool.
+              Espelho da Yury. Sem entrada/saída manual neste pool — a baixa do pedido Motoboy/Minas vai na API Yury ao marcar enviado.
             </p>
             <p className="text-xs text-muted-foreground mt-1">
               {yuryConfigured
@@ -13730,6 +13741,10 @@ function OrdersPanel({
     const order = ordersLookup.find(o => o.id === orderId);
     if (!order) {
       return { hasStock: false, message: "Pedido não encontrado", missingItems: [] };
+    }
+
+    if (isYuryInventoryShippingOrder(order)) {
+      return { hasStock: true, message: "", missingItems: [] };
     }
 
     // If currently marked as enviado and trying to unmark (revert to pendente), skip stock check

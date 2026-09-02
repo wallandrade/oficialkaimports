@@ -1,12 +1,13 @@
 # Regras de negócio — KA Imports
 
-> **Última atualização:** 2026-08-31  
+> **Última atualização:** 2026-09-01  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-01 | `enviado` Motoboy/Minas baixa na Yury (`inventory/exit`); Fóz não entra nesse POST | Sem estoque Yury → não marca enviado; retry por `referenceId`+pool | 48h/EnvioEcom/Fóz na baixa local |
 | 2026-08-31 | Cancelar EnvioEcom desvincula na hora (apaga shipment_id/barcode/PDF/orderId) mesmo em **Aguardando cancelamento**; create usa orderId novo se já houve histórico | Pedido pode cotar/criar de novo sem esperar Cancelado; webhook do envio velho não reatacha | `enviado`/estoque inalterados; Motoboy/PIX iguais |
 | 2026-08-31 | Seguro de envio (+10%) usa o valor **após o cupom**, não o subtotal cheio | Checkout PIX/cartão/WhatsApp e edição de pedido recalculam | Alíquota 10%; pedidos já gravados inalterados |
 | 2026-08-31 | Status EnvioEcom **Etiqueta gerada** conta como etiqueta pronta | Card vira Pronto para envio e sai da fila 48h sem clicar Etiqueta EE | `enviado` continua só na coleta; “Envio criado” ainda é pendente |
@@ -147,7 +148,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 ## Estoque / reenvios / logística
 
 - Saldos e movimentos (`inventory_*`); entradas admin em `reshipments.ts`. Busca de produto na entrada, reenvio manual e “produto voltando” mostra a foto do catálogo (mesmo thumbnail do saldo). No **Saldo atual por produto**, clicar na miniatura abre a foto em zoom (Esc ou clique fora fecha). A lista mostra saldo **positivo primeiro**, depois 0, e dentro de cada grupo ordena por nome.
-- Espelho Yury Motoboy/Minas (`yury_inventory_balances`): só leitura; na aba Estoque há **Estoque Fóz Guaçu**, **Estoque Motoboy** e **Estoque Minas**. Motoboy/Minas não têm entrada/saída/reenvio. Lista mostra a foto do catálogo (mesmo thumbnail do saldo da loja) casando `productId` ou o nome. `productId` da Yury; quantity 0 permanece; produto só num pool zera o outro; sumir dos dois arrays zera os dois. Webhook grava `balances`, não o delta. Não soma os pools e não baixa pedido KA aí.
+- Espelho Yury Motoboy/Minas (`yury_inventory_balances`): aba Estoque tem **Estoque Fóz Guaçu**, **Estoque Motoboy** e **Estoque Minas**. Motoboy/Minas sem entrada/saída/reenvio manual. Lista mostra a foto do catálogo casando `productId` ou o nome. `productId` da Yury; quantity 0 permanece; produto só num pool zera o outro; sumir dos dois arrays zera os dois. Webhook grava `balances`, não o delta. Não soma os pools. Ao marcar `enviado` em pedido Motoboy (ou Minas no `shippingType`), o KA chama o exit da Yury (`items[]` + `referenceId` = id do pedido KA) e **não** debita `inventory_balances`. Sem saldo na Yury, o pedido não vira enviado. 48h / EnvioEcom / Fóz / retirada continuam na baixa local. Desfazer enviado Motoboy/Minas **não** estorna Fóz (não há entrada nessa rota Yury).
 - Reenvios manuais/automáticos, retornos, alocações de logística, reservas motoboy (CEP/bairros). Status: aguardando estoque, pronto para envio, enviado, resolvido sem entrada, **cancelado**. No card do pedido ativo há **Cancelar Reenvio** (confirmação); some da fila “para enviar” e não dá baixa de estoque. “Cancelar Reenvio Enviado” continua só desfazendo o enviado. Pedido/`enviado` do envio original não mudam. Pedido filho de suporte (`REENVIO DO PEDIDO` na observação) nasce com **preço de venda e custo** nos itens e `subtotal`/`total` da venda (frete/seguro 0). Status `awaiting_payment` e `paidAmount` 0 — o admin aplica o desconto em **Editar pedido** (Cupom / Desconto) para o cliente pagar o custo. Comissão nova só se houver acréscimo de qtd (`sellerCommissionRateSnapshot` > 0); reposição fica snapshot `0` (selo Sem nova comissão). A cópia completa usa os preços dos itens se o total gravado for 0 (pedidos antigos) e imprime a linha de Desconto. Resumo financeiro ainda ignora custo de filho antigo com total 0.
 - Fila 48/72/96h só conta alocações `allocated`. Pedido com PDF EnvioEcom ou status de etiqueta/trânsito não volta para `allocated` no reconcile só porque `enviado` ainda é false. Exceção: status EnvioEcom **Cancelado** / **Aguardando cancelamento** (e ainda não `enviado`) devolve à fila após o detach.
 

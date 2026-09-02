@@ -5,6 +5,8 @@ import { registerInventoryEntry } from "./reshipments";
 import { completeOrderLogistics } from "./order-logistics";
 import { broadcastNotification } from "../routes/notifications";
 import { clearOrderManualPriority } from "./order-priority";
+import { resolveYuryInventoryExitPool } from "./yury-inventory";
+import { debitYuryInventoryForKaOrder, YuryInventoryExitError } from "./yury-inventory-exit";
 
 function buildOrderTenantWhere(tenantId: string) {
   if (tenantId === DEFAULT_TENANT_ID) {
@@ -78,6 +80,9 @@ export async function ensureOrderMarkedEnviado(orderId: string, tenantId: string
       products: ordersTable.products,
       clientName: ordersTable.clientName,
       enviado: ordersTable.enviado,
+      shippingType: ordersTable.shippingType,
+      motoboyDeliveryDate: ordersTable.motoboyDeliveryDate,
+      motoboyDeliveryTime: ordersTable.motoboyDeliveryTime,
     })
     .from(ordersTable)
     .where(and(eq(ordersTable.id, orderId), buildOrderTenantWhere(tenantId)))
@@ -91,7 +96,23 @@ export async function ensureOrderMarkedEnviado(orderId: string, tenantId: string
   }
 
   const orderItems = parseOrderItemsForInventory(order.products);
-  if (orderItems.length > 0) {
+  const yuryPool = resolveYuryInventoryExitPool(order);
+  if (yuryPool) {
+    if (orderItems.length > 0) {
+      try {
+        await debitYuryInventoryForKaOrder({
+          referenceId: order.id,
+          pool: yuryPool,
+          items: orderItems,
+        });
+      } catch (error) {
+        if (error instanceof YuryInventoryExitError) {
+          throw new OrderEnviadoError(error.code, error.message);
+        }
+        throw error;
+      }
+    }
+  } else if (orderItems.length > 0) {
     const missingIds = orderItems.filter((item) => !item.productId);
     let resolvedItems = orderItems;
     if (missingIds.length > 0) {

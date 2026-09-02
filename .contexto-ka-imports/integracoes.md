@@ -1,12 +1,13 @@
 # Integrações externas — KA Imports
 
-> **Última atualização:** 2026-08-31  
+> **Última atualização:** 2026-09-01  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-01 | Baixa Motoboy/Minas via `POST /api/integrations/inventory/exit` no `enviado` | Pedido Motoboy/Minas não debita Fóz; `referenceId` = `orders.id` | Snapshot, webhook, cobertura e Fóz/48h/EE iguais |
 | 2026-08-31 | Cancel EE desvincula o pedido na hora; create gera orderId novo; webhook só casa IDs exatos do envio atual | Sem `DUPLICATE_ORDER` no reenvio; 8880 antigo não reatacha | Token, contas e `enviado`/estoque iguais |
 | 2026-08-31 | `hasEnvioEcomLabelReady` aceita status **Etiqueta gerada** (API EnvioEcom) | Create/sync/webhook promovem o card sem PDF no R2 | `enviado` só na coleta; Etiqueta EE/PDF inalterados |
 | 2026-08-30 | Create EnvioEcom: `cost` da DACE = valor global da etiqueta, não o R$ 5 da cotação | Etiqueta nova mostra 89,90 etc. | Cotação continua R$ 5; envios já criados |
@@ -100,13 +101,15 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 
 ## Estoque Motoboy / Minas (Yury → KA)
 
-- Espelho **só leitura**. Fonte: Yury (`GET /api/integrations/inventory/snapshot`). KA **não escreve** na Yury e **não** usa `/api/admin/inventory/...` deles.
-- Token: `YURY_INVENTORY_SYNC_TOKEN` se existir; senão o mesmo `YURY_MOTOBOY_SYNC_TOKEN` da cobertura. Headers `Authorization: Bearer` + `X-Api-Key`.
-- Persistência: tabela `yury_inventory_balances` (`product_id` da Yury, `qty_motoboy`, `qty_minas`). **Não** mistura com `inventory_balances` (estoque da loja). Não soma os dois pools. Não dá baixa de pedido KA nesses saldos.
-- Snapshot: linha com `quantity: 0` permanece. Produto só em `motoboy[]` → Minas = 0 (Motoboy do array). Zerar os dois só se o `productId` sumir dos dois arrays.
-- Job: boot (~20s) + a cada 3 min. Admin Estoque puxa ao abrir e no botão Sincronizar Yury (`POST /api/admin/yury-inventory/sync`). Lista: `GET /api/admin/yury-inventory`.
-- Webhook: `POST /api/webhooks/yury/inventory` (+ `/webhooks/yury/inventory`). Body cru + HMAC igual à cobertura (`YURY_MOTOBOY_WEBHOOK_SECRET`, `X-Yury-Signature: sha256=<hex>`, timestamp ≤ 5 min). Idempotência em `yury_webhook_events_processed`. Evento `inventory.changed`: **não** aplica `quantityDelta`; grava `data.balances.motoboy` e `data.balances.minas`.
+- Espelho em `yury_inventory_balances` (`product_id` da Yury, `qty_motoboy`, `qty_minas`). **Não** mistura com `inventory_balances` (Fóz Guaçu). Não soma os dois pools.
+- Leitura: `GET /api/integrations/inventory/snapshot`. Token: `YURY_INVENTORY_SYNC_TOKEN` se existir; senão o mesmo `YURY_MOTOBOY_SYNC_TOKEN`. Headers `Authorization: Bearer` + `X-Api-Key`.
+- Baixa (novo): `POST /api/integrations/inventory/exit` no `ensureOrderMarkedEnviado` / PATCH `enviado=true` quando o pedido é Motoboy ou Minas. Body: `pool` (`motoboy`|`minas`) + `items[]` (`productId` do snapshot, `quantity`) + `referenceId` = `orders.id`. **Não** manda `orderId` (isso é pedido da Yury). 201 = primeira baixa; 200 + `alreadyDebited` = retry do mesmo `referenceId`+`pool` (sucesso). Idempotência é por pool. 400 `INSUFFICIENT_STOCK` não marca `enviado`. 404 = rota ainda não no ar na Yury.
+- Depois da baixa **não** decrementa o espelho à mão. Webhook `inventory.changed` grava `balances.motoboy`/`minas` absolutos (um evento por produto; `quantityDelta` só informativo). Sem webhook, o job/snapshot de 3 min atualiza.
+- Snapshot: linha com `quantity: 0` permanece. Produto só em `motoboy[]` → Minas = 0. Zerar os dois só se o `productId` sumir dos dois arrays.
+- Job: boot (~20s) + a cada 3 min. Admin Estoque puxa ao abrir e no botão Sincronizar Yury (`POST /api/admin/yury-inventory/sync`). Lista: `GET /api/admin/yury-inventory`. Sem formulário de entrada/saída nesses pools.
+- Webhook: `POST /api/webhooks/yury/inventory` (+ `/webhooks/yury/inventory`). Body cru + HMAC igual à cobertura. Evento `inventory.changed`: **não** aplica `quantityDelta`.
 - Erros do GET remoto: 401 token · 503 sync desligado · 500 retry no próximo ciclo.
+- **Não** usa `/api/admin/inventory/...` da Yury. 48h / EnvioEcom / Fóz continuam na baixa local.
 
 ## Geo / IP
 

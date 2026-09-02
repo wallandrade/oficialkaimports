@@ -3,9 +3,13 @@ import test from "node:test";
 
 import {
   applyYuryInventoryWebhookBalances,
+  buildYuryInventoryExitBody,
+  interpretYuryInventoryExitResponse,
+  mapKaItemsToYuryExitItems,
   mergeYuryInventorySnapshot,
   parseYuryInventoryChangedEvent,
   parseYuryInventorySnapshot,
+  resolveYuryInventoryExitPool,
 } from "./yury-inventory";
 import { getYuryInventorySyncToken } from "./motoboy-yury-config";
 
@@ -98,4 +102,74 @@ test("token de inventario usa INVENTORY se existir, senao o da cobertura Motoboy
     if (prevMotoboy == null) delete process.env.YURY_MOTOBOY_SYNC_TOKEN;
     else process.env.YURY_MOTOBOY_SYNC_TOKEN = prevMotoboy;
   }
+});
+
+test("pool de baixa: motoboy/minas pelo shippingType; retirada não vai para Yury", () => {
+  assert.equal(resolveYuryInventoryExitPool({ shippingType: "Motoboy SP" }), "motoboy");
+  assert.equal(resolveYuryInventoryExitPool({ shippingType: "Minas" }), "minas");
+  assert.equal(resolveYuryInventoryExitPool({ shippingType: "Frete Normal" }), null);
+  assert.equal(resolveYuryInventoryExitPool({
+    shippingType: "Retirada",
+    motoboyDeliveryDate: "2026-09-02",
+    motoboyDeliveryTime: "14:00",
+  }), null);
+  assert.equal(resolveYuryInventoryExitPool({
+    shippingType: "",
+    motoboyDeliveryDate: "2026-09-02",
+    motoboyDeliveryTime: "14:00",
+  }), "motoboy");
+});
+
+test("body de exit usa items[] + referenceId e nunca manda orderId", () => {
+  const body = buildYuryInventoryExitBody({
+    pool: "motoboy",
+    items: [{ productId: "abc", quantity: 2 }],
+    referenceId: "ka-uuid-1",
+    reason: "baixa pelo KA",
+  });
+  assert.deepEqual(body, {
+    pool: "motoboy",
+    items: [{ productId: "abc", quantity: 2 }],
+    referenceId: "ka-uuid-1",
+    reason: "baixa pelo KA",
+  });
+  assert.equal("orderId" in body, false);
+});
+
+test("mapeia productId Yury por id igual ou nome; agrupa quantidade", () => {
+  const mapped = mapKaItemsToYuryExitItems(
+    [
+      { productId: "abc", productName: "Produto X", quantity: 1 },
+      { productId: null, productName: "Produto X", quantity: 2 },
+      { productId: "local-id", productName: "Só Minas", quantity: 1 },
+    ],
+    [
+      { productId: "abc", productName: "Produto X" },
+      { productId: "xyz", productName: "Só Minas" },
+    ],
+  );
+  assert.equal(mapped.ok, true);
+  if (!mapped.ok) return;
+  assert.deepEqual(mapped.items, [
+    { productId: "abc", quantity: 3 },
+    { productId: "xyz", quantity: 1 },
+  ]);
+  const missing = mapKaItemsToYuryExitItems(
+    [{ productId: "nope", productName: "Desconhecido", quantity: 1 }],
+    [{ productId: "abc", productName: "Produto X" }],
+  );
+  assert.equal(missing.ok, false);
+});
+
+test("HTTP exit: 201 nova baixa, 200 retry por pool, 400 sem saldo, 404 rota fora do ar", () => {
+  assert.deepEqual(interpretYuryInventoryExitResponse(201, {}), { ok: true, alreadyDebited: false });
+  assert.deepEqual(interpretYuryInventoryExitResponse(200, { alreadyDebited: true }), { ok: true, alreadyDebited: true });
+  const insufficient = interpretYuryInventoryExitResponse(400, { error: "INSUFFICIENT_STOCK", message: "sem saldo" });
+  assert.equal(insufficient.ok, false);
+  if (insufficient.ok) return;
+  assert.equal(insufficient.code, "INSUFFICIENT_STOCK");
+  const missingRoute = interpretYuryInventoryExitResponse(404, null);
+  assert.equal(missingRoute.ok, false);
+  if (missingRoute.ok) return;
+  assert.equal(missingRoute.code, "YURY_EXIT_UNAVAILABLE");
 });

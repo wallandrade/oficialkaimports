@@ -154,3 +154,155 @@ export function parseYuryInventoryChangedEvent(raw: unknown): YuryInventoryChang
     },
   };
 }
+
+export type YuryInventoryPool = "motoboy" | "minas";
+
+export type YuryInventoryExitItem = {
+  productId: string;
+  quantity: number;
+};
+
+export type YuryInventoryExitBody = {
+  pool: YuryInventoryPool;
+  items: YuryInventoryExitItem[];
+  referenceId: string;
+  reason?: string;
+};
+
+export type YuryInventoryExitInterpretation =
+  | { ok: true; alreadyDebited: boolean }
+  | { ok: false; code: string; message: string };
+
+function normalizeShippingText(value: unknown): string {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+export function normalizeYuryProductName(value: unknown): string {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function resolveYuryInventoryExitPool(order: {
+  shippingType?: unknown;
+  motoboyDeliveryDate?: unknown;
+  motoboyDeliveryTime?: unknown;
+}): YuryInventoryPool | null {
+  const shipping = normalizeShippingText(order.shippingType);
+  if (shipping.includes("motoboy")) return "motoboy";
+  if (shipping.includes("minas")) return "minas";
+  if (shipping.includes("retirada") || shipping.includes("pickup")) return null;
+  if (String(order.motoboyDeliveryDate || "").trim() && String(order.motoboyDeliveryTime || "").trim()) {
+    return "motoboy";
+  }
+  return null;
+}
+
+export function mapKaItemsToYuryExitItems(
+  items: Array<{ productId: string | null; productName: string; quantity: number }>,
+  yuryRows: Array<{ productId: string; productName: string }>,
+): { ok: true; items: YuryInventoryExitItem[] } | { ok: false; missing: string[] } {
+  const byId = new Map(yuryRows.map((row) => [row.productId, row]));
+  const byName = new Map<string, { productId: string; productName: string }>();
+  for (const row of yuryRows) {
+    const name = normalizeYuryProductName(row.productName);
+    if (name && !byName.has(name)) byName.set(name, row);
+  }
+
+  const missing: string[] = [];
+  const grouped = new Map<string, number>();
+
+  for (const item of items) {
+    const quantity = Math.trunc(Number(item.quantity) || 0);
+    if (quantity <= 0) continue;
+    const byItemId = item.productId ? byId.get(item.productId) : undefined;
+    const byItemName = byName.get(normalizeYuryProductName(item.productName));
+    const matched = byItemId || byItemName;
+    if (!matched) {
+      missing.push(item.productName);
+      continue;
+    }
+    grouped.set(matched.productId, (grouped.get(matched.productId) || 0) + quantity);
+  }
+
+  if (missing.length > 0) {
+    return { ok: false, missing };
+  }
+
+  const mapped = [...grouped.entries()]
+    .map(([productId, quantity]) => ({ productId, quantity }))
+    .filter((item) => item.quantity > 0);
+
+  return { ok: true, items: mapped };
+}
+
+export function buildYuryInventoryExitBody(input: {
+  pool: YuryInventoryPool;
+  items: YuryInventoryExitItem[];
+  referenceId: string;
+  reason?: string;
+}): YuryInventoryExitBody {
+  const body: YuryInventoryExitBody = {
+    pool: input.pool,
+    items: input.items.map((item) => ({
+      productId: item.productId,
+      quantity: Math.trunc(item.quantity),
+    })),
+    referenceId: String(input.referenceId || "").trim(),
+  };
+  const reason = String(input.reason || "").trim();
+  if (reason) body.reason = reason;
+  return body;
+}
+
+export function interpretYuryInventoryExitResponse(
+  status: number,
+  raw: unknown,
+): YuryInventoryExitInterpretation {
+  const record = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  const remoteCode = asString(record.error || record.code);
+  const remoteMessage = asString(record.message);
+
+  if (status === 201) {
+    return { ok: true, alreadyDebited: false };
+  }
+  if (status === 200) {
+    return { ok: true, alreadyDebited: record.alreadyDebited !== false };
+  }
+  if (status >= 200 && status < 300) {
+    return { ok: true, alreadyDebited: Boolean(record.alreadyDebited) };
+  }
+
+  if (status === 400 && (remoteCode === "INSUFFICIENT_STOCK" || /insufficient/i.test(remoteMessage))) {
+    return {
+      ok: false,
+      code: "INSUFFICIENT_STOCK",
+      message: remoteMessage || "Estoque insuficiente na Yury para este envio.",
+    };
+  }
+  if (status === 401) {
+    return { ok: false, code: "YURY_TOKEN_INVALID", message: remoteMessage || "Token de sync Yury inválido." };
+  }
+  if (status === 404) {
+    return {
+      ok: false,
+      code: "YURY_EXIT_UNAVAILABLE",
+      message: remoteMessage || "Baixa de estoque Yury indisponível (rota ainda não no ar).",
+    };
+  }
+  if (status === 503) {
+    return { ok: false, code: "YURY_SYNC_DISABLED", message: remoteMessage || "Sync de estoque desligado na Yury." };
+  }
+  return {
+    ok: false,
+    code: remoteCode || "YURY_EXIT_FAILED",
+    message: remoteMessage || `Yury inventory exit HTTP ${status}`,
+  };
+}
