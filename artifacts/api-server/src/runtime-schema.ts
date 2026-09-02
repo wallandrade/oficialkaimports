@@ -309,6 +309,8 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
     { name: "bank_deposit_payer_name", sql: "ALTER TABLE orders ADD COLUMN bank_deposit_payer_name VARCHAR(255) NULL" },
     { name: "bank_deposit_posted_at", sql: "ALTER TABLE orders ADD COLUMN bank_deposit_posted_at VARCHAR(10) NULL" },
     { name: "bank_deposit_matched_at", sql: "ALTER TABLE orders ADD COLUMN bank_deposit_matched_at TIMESTAMP NULL" },
+    { name: "inventory_exit_pool", sql: "ALTER TABLE orders ADD COLUMN inventory_exit_pool VARCHAR(16) NULL" },
+    { name: "inventory_exited_pools", sql: "ALTER TABLE orders ADD COLUMN inventory_exited_pools VARCHAR(64) NULL" },
   ];
 
   for (const definition of definitions) {

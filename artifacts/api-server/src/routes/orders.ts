@@ -30,8 +30,13 @@ import { reserveNextOrderNumber } from "../lib/order-number";
 import { MotoboyScheduleError, reserveMotoboySchedule } from "../lib/motoboy-delivery-schedule";
 import { allocateOrderLogistics, releaseOrderLogistics } from "../lib/order-logistics";
 import { isMotoboyShippingType } from "../lib/motoboy-shipping-type";
-import { ensureOrderMarkedEnviado, OrderEnviadoError } from "../lib/order-enviado";
-import { resolveYuryInventoryExitPool } from "../lib/yury-inventory";
+import { ensureOrderMarkedEnviado, OrderEnviadoError, debitOrderInventoryPool } from "../lib/order-enviado";
+import {
+  parseKaInventoryExitPool,
+  parseKaInventoryExitedPools,
+  resolveYuryInventoryExitPool,
+  serializeKaInventoryExitedPools,
+} from "../lib/yury-inventory";
 import { cartProductIdsFromItems, isCartEligibleForMotoboy } from "../lib/motoboy-eligible-products";
 import { computeShippingInsuranceAmount } from "../lib/shipping-insurance";
 
@@ -2526,6 +2531,8 @@ function mapOrder(o: typeof ordersTable.$inferSelect, options?: { light?: boolea
     isPrioridade:           !!(o as any).isPrioridade,
     isProcurandoProduto:    !!(o as any).isProcurandoProduto,
     enviado:                !!o.enviado,
+    inventoryExitPool:      parseKaInventoryExitPool((o as { inventoryExitPool?: unknown }).inventoryExitPool),
+    inventoryExitedPools:   parseKaInventoryExitedPools((o as { inventoryExitedPools?: unknown }).inventoryExitedPools),
     trackingCode:           o.trackingCode ?? null,
     trackingLabelUrl:       light ? slimExternalUrl(o.trackingLabelUrl) : (o.trackingLabelUrl ?? null),
     trackingLabelText:      light ? null : (o.trackingLabelText ?? null),
@@ -2690,6 +2697,101 @@ router.patch("/admin/orders/:id/procurando-produto", requireAdminAuth, async (re
   }
 });
 
+function statusForOrderEnviadoError(code: string): number {
+  if (code === "NOT_FOUND") return 404;
+  if (code === "YURY_EXIT_UNAVAILABLE" || code === "YURY_EXIT_FAILED") return 502;
+  if (code === "YURY_SYNC_DISABLED" || code === "YURY_TOKEN_INVALID") return 503;
+  return 400;
+}
+
+// ---------------------------------------------------------------------------
+// PATCH /api/admin/orders/:id/inventory-exit-pool  (protected)
+// ---------------------------------------------------------------------------
+router.patch("/admin/orders/:id/inventory-exit-pool", requireAdminAuth, async (req, res) => {
+  try {
+    const adminScope = ensureSellerScopeOnOrderQuery(req, res);
+    if (!adminScope) return;
+
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
+    const pool = parseKaInventoryExitPool((req.body as { pool?: unknown })?.pool);
+    if (!pool) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "pool deve ser loja, motoboy ou minas." });
+      return;
+    }
+
+    const existing = await db
+      .select({ id: ordersTable.id })
+      .from(ordersTable)
+      .where(buildAdminOrderWhere(id, adminScope))
+      .limit(1);
+    if (!existing[0]) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
+
+    await db.update(ordersTable)
+      .set({ inventoryExitPool: pool, updatedAt: new Date() })
+      .where(buildAdminOrderWhere(id, adminScope));
+
+    const updated = await db.select().from(ordersTable).where(buildAdminOrderWhere(id, adminScope)).limit(1);
+    res.json({ ok: true, id, pool, order: updated[0] ? mapOrder(updated[0]) : null });
+  } catch (err) {
+    console.error("Update order inventory exit pool error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao salvar o estoque da baixa." });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/admin/orders/:id/inventory-exit  (protected)
+// ---------------------------------------------------------------------------
+router.post("/admin/orders/:id/inventory-exit", requireAdminAuth, async (req, res) => {
+  try {
+    const adminScope = ensureSellerScopeOnOrderQuery(req, res);
+    if (!adminScope) return;
+
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
+    const pool = parseKaInventoryExitPool((req.body as { pool?: unknown })?.pool);
+    if (!pool) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "pool deve ser loja, motoboy ou minas." });
+      return;
+    }
+
+    const existing = await db
+      .select({ id: ordersTable.id })
+      .from(ordersTable)
+      .where(buildAdminOrderWhere(id, adminScope))
+      .limit(1);
+    if (!existing[0]) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
+
+    const result = await debitOrderInventoryPool({
+      orderId: id,
+      tenantId: adminScope.tenantId,
+      pool,
+    });
+    const updated = await db.select().from(ordersTable).where(buildAdminOrderWhere(id, adminScope)).limit(1);
+    res.status(result.alreadyDebited ? 200 : 201).json({
+      ok: true,
+      id,
+      alreadyDebited: result.alreadyDebited,
+      pool: result.pool,
+      inventoryExitedPools: result.exitedPools,
+      order: updated[0] ? mapOrder(updated[0]) : null,
+    });
+  } catch (err) {
+    if (err instanceof OrderEnviadoError) {
+      res.status(statusForOrderEnviadoError(err.code)).json({ error: err.code, message: err.message });
+      return;
+    }
+    console.error("Order inventory exit error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao dar baixa no estoque." });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // PATCH /api/admin/orders/:id/enviado  (protected)
 // ---------------------------------------------------------------------------
@@ -2714,6 +2816,8 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
         shippingType: ordersTable.shippingType,
         motoboyDeliveryDate: ordersTable.motoboyDeliveryDate,
         motoboyDeliveryTime: ordersTable.motoboyDeliveryTime,
+        inventoryExitPool: ordersTable.inventoryExitPool,
+        inventoryExitedPools: ordersTable.inventoryExitedPools,
       })
       .from(ordersTable)
       .where(buildAdminOrderWhere(id, adminScope))
@@ -2726,6 +2830,9 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
 
     const wasEnviado = !!order.enviado;
     const yuryPool = resolveYuryInventoryExitPool(order);
+    const exitedPools = parseKaInventoryExitedPools(order.inventoryExitedPools);
+    const shouldEstornoFoz = exitedPools.includes("loja")
+      || (exitedPools.length === 0 && !yuryPool);
     console.info("[ORDER_ENVIADO] Toggle requested", {
       orderId: id,
       tenantId: adminScope.tenantId,
@@ -2756,11 +2863,7 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
         await ensureOrderMarkedEnviado(id, adminScope.tenantId);
       } catch (err) {
         if (err instanceof OrderEnviadoError) {
-          const status =
-            err.code === "NOT_FOUND" ? 404
-            : err.code === "YURY_EXIT_UNAVAILABLE" || err.code === "YURY_EXIT_FAILED" ? 502
-            : err.code === "YURY_SYNC_DISABLED" || err.code === "YURY_TOKEN_INVALID" ? 503
-            : 400;
+          const status = statusForOrderEnviadoError(err.code);
           res.status(status).json({ error: err.code, message: err.message });
           return;
         }
@@ -2797,7 +2900,7 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
           .then((rows) => !!rows[0])
       : false;
 
-    if (enviado !== wasEnviado && !yuryPool) {
+    if (enviado !== wasEnviado && shouldEstornoFoz) {
       const orderItems = parseOrderItemsForInventory(order.products);
       if (orderItems.length > 0) {
         const missingIds = orderItems.filter((item) => !item.productId);
@@ -2842,7 +2945,13 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
     }
 
     await db.update(ordersTable)
-      .set({ enviado, updatedAt: new Date() })
+      .set({
+        enviado,
+        ...(shouldEstornoFoz && !shouldSkipReturnToStock
+          ? { inventoryExitedPools: serializeKaInventoryExitedPools(exitedPools.filter((pool) => pool !== "loja")) }
+          : {}),
+        updatedAt: new Date(),
+      })
       .where(buildAdminOrderWhere(id, adminScope));
 
     if (!enviado && wasEnviado) {

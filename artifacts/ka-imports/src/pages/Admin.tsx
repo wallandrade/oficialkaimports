@@ -600,6 +600,55 @@ function isYuryInventoryShippingOrder(order: any): boolean {
   return Boolean(order?.motoboyDeliveryDate && order?.motoboyDeliveryTime);
 }
 
+type KaExitPool = "loja" | "motoboy" | "minas";
+
+function parseKaExitPool(value: unknown): KaExitPool | null {
+  const normalized = String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, " ");
+  if (normalized === "loja" || normalized.includes("foz")) return "loja";
+  if (normalized === "motoboy") return "motoboy";
+  if (normalized === "minas") return "minas";
+  return null;
+}
+
+function defaultKaExitPool(order: any): KaExitPool {
+  const saved = parseKaExitPool(order?.inventoryExitPool);
+  if (saved) return saved;
+  const shipping = String(order?.shippingType || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  if (shipping.includes("motoboy")) return "motoboy";
+  if (shipping.includes("minas")) return "minas";
+  if (shipping.includes("retirada") || shipping.includes("pickup")) return "loja";
+  if (order?.motoboyDeliveryDate && order?.motoboyDeliveryTime) return "motoboy";
+  return "loja";
+}
+
+function kaExitPoolLabel(pool: KaExitPool): string {
+  if (pool === "motoboy") return "Motoboy";
+  if (pool === "minas") return "Minas";
+  return "Foz Guaçu";
+}
+
+function parseKaExitedPools(value: unknown): KaExitPool[] {
+  const raw = Array.isArray(value) ? value : String(value || "").split(",");
+  const seen = new Set<KaExitPool>();
+  const pools: KaExitPool[] = [];
+  for (const item of raw) {
+    const parsed = parseKaExitPool(item);
+    if (!parsed || seen.has(parsed)) continue;
+    seen.add(parsed);
+    pools.push(parsed);
+  }
+  return pools;
+}
+
 function motoboyOrderBlock(order: any): string {
   const products = getOrderProducts(order?.products);
   const paid = order?.status === "paid" || order?.status === "completed";
@@ -13407,6 +13456,36 @@ function OrdersPanel({
   }, [ordersLookup, enviadoLockUntil]);
 
   useEffect(() => {
+    setExitPoolByOrder((prev) => {
+      const next = { ...prev };
+      for (const order of ordersLookup) {
+        const saved = parseKaExitPool((order as { inventoryExitPool?: unknown }).inventoryExitPool);
+        if (saved) next[order.id] = saved;
+        else if (!next[order.id]) next[order.id] = defaultKaExitPool(order);
+      }
+      return next;
+    });
+  }, [ordersLookup]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`${BASE}/api/admin/yury-inventory`, { headers: authHeaders() });
+        if (!res.ok) return;
+        const data = await res.json() as { balances?: YuryInventoryBalanceRecord[] };
+        if (cancelled) return;
+        setYuryBalances(Array.isArray(data.balances) ? data.balances : []);
+      } catch {
+        if (!cancelled) setYuryBalances([]);
+      } finally {
+        if (!cancelled) setYuryInventoryReady(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
     const map: Record<string, boolean> = {};
     for (const order of ordersLookup) {
       map[order.id] = !!(order as any).isPrioridade;
@@ -13692,6 +13771,10 @@ function OrdersPanel({
   };
 
   const [enviando, setEnviando] = useState<Record<string, boolean>>({});
+  const [exitingStock, setExitingStock] = useState<Record<string, boolean>>({});
+  const [exitPoolByOrder, setExitPoolByOrder] = useState<Record<string, KaExitPool>>({});
+  const [yuryBalances, setYuryBalances] = useState<YuryInventoryBalanceRecord[]>([]);
+  const [yuryInventoryReady, setYuryInventoryReady] = useState(false);
   const [adminPasswordModalOpen, setAdminPasswordModalOpen] = useState(false);
   const [adminPasswordModalTitle, setAdminPasswordModalTitle] = useState("Confirmar ação sensível");
   const [adminPasswordModalDescription, setAdminPasswordModalDescription] = useState("");
@@ -13736,16 +13819,18 @@ function OrdersPanel({
       setAdminPasswordSubmitting(false);
     }
   };
-  const verifyOrderStock = (orderId: string, balancesSnapshot: InventoryBalanceRecord[] = inventoryBalances): { hasStock: boolean; message: string; missingItems: string[] } => {
+  const verifyOrderStock = (
+    orderId: string,
+    pool: KaExitPool = "loja",
+    balancesSnapshot: InventoryBalanceRecord[] = inventoryBalances,
+  ): { hasStock: boolean; message: string; missingItems: string[] } => {
     // Only check stock when marking as enviado (novoValor = true)
     const order = ordersLookup.find(o => o.id === orderId);
     if (!order) {
       return { hasStock: false, message: "Pedido não encontrado", missingItems: [] };
     }
 
-    if (isYuryInventoryShippingOrder(order)) {
-      return { hasStock: true, message: "", missingItems: [] };
-    }
+    const poolLabel = kaExitPoolLabel(pool);
 
     // If currently marked as enviado and trying to unmark (revert to pendente), skip stock check
     if (enviados[orderId]) {
@@ -13753,7 +13838,11 @@ function OrdersPanel({
     }
 
     // Avoid false negatives while inventory snapshot is still loading.
-    if (balancesSnapshot.length === 0) {
+    if (pool === "loja") {
+      if (balancesSnapshot.length === 0) {
+        return { hasStock: true, message: "", missingItems: [] };
+      }
+    } else if (!yuryInventoryReady) {
       return { hasStock: true, message: "", missingItems: [] };
     }
 
@@ -13792,20 +13881,35 @@ function OrdersPanel({
 
     // Build stock maps from inventory balances
     const stockById = new Map<string, number>();
-    for (const row of balancesSnapshot) {
-      const key = String(row.productId || "").trim();
-      if (!key) continue;
-      const quantity = Number(row.quantity || 0);
-      const current = stockById.get(key);
-      stockById.set(key, typeof current === "number" ? current + quantity : quantity);
-    }
     const stockByName = new Map<string, number>();
-    for (const row of balancesSnapshot) {
-      const normalized = normalizeStockName(String(row.productName || ""));
-      if (!normalized) continue;
-      const quantity = Number(row.quantity || 0);
-      const current = stockByName.get(normalized);
-      stockByName.set(normalized, typeof current === "number" ? current + quantity : quantity);
+    if (pool === "loja") {
+      for (const row of balancesSnapshot) {
+        const key = String(row.productId || "").trim();
+        if (!key) continue;
+        const quantity = Number(row.quantity || 0);
+        const current = stockById.get(key);
+        stockById.set(key, typeof current === "number" ? current + quantity : quantity);
+      }
+      for (const row of balancesSnapshot) {
+        const normalized = normalizeStockName(String(row.productName || ""));
+        if (!normalized) continue;
+        const quantity = Number(row.quantity || 0);
+        const current = stockByName.get(normalized);
+        stockByName.set(normalized, typeof current === "number" ? current + quantity : quantity);
+      }
+    } else {
+      for (const row of yuryBalances) {
+        const key = String(row.productId || "").trim();
+        const quantity = pool === "minas" ? Number(row.qtyMinas) || 0 : Number(row.qtyMotoboy) || 0;
+        if (key) {
+          const current = stockById.get(key);
+          stockById.set(key, typeof current === "number" ? current + quantity : quantity);
+        }
+        const normalized = normalizeStockName(String(row.productName || ""));
+        if (!normalized) continue;
+        const current = stockByName.get(normalized);
+        stockByName.set(normalized, typeof current === "number" ? current + quantity : quantity);
+      }
     }
 
     // Group order items by product identity, preventing duplicate-line mismatch.
@@ -13865,12 +13969,66 @@ function OrdersPanel({
     if (missingItems.length > 0) {
       return {
         hasStock: false,
-        message: `Faltando estoque dos produtos do cliente:\n${missingItems.join("\n")}`,
+        message: `Faltando estoque ${poolLabel} dos produtos do cliente:\n${missingItems.join("\n")}`,
         missingItems,
       };
     }
 
     return { hasStock: true, message: "", missingItems: [] };
+  };
+
+  const selectOrderExitPool = async (order: AdminOrder, pool: KaExitPool) => {
+    setExitPoolByOrder((prev) => ({ ...prev, [order.id]: pool }));
+    try {
+      const res = await fetch(`${BASE}/api/admin/orders/${order.id}/inventory-exit-pool`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({ pool }),
+      });
+      const data = await res.json().catch(() => ({})) as { message?: string; order?: AdminOrder };
+      if (!res.ok) {
+        toast.error(data?.message || "Erro ao escolher o estoque da baixa.");
+        return;
+      }
+      if (data.order) onSetOrderPatched(data.order);
+    } catch {
+      toast.error("Erro ao escolher o estoque da baixa.");
+    }
+  };
+
+  const debitOrderStockNow = async (order: AdminOrder, pool: KaExitPool) => {
+    const stockCheck = verifyOrderStock(order.id, pool);
+    if (!stockCheck.hasStock) {
+      toast.error(stockCheck.message);
+      return;
+    }
+    setExitingStock((prev) => ({ ...prev, [order.id]: true }));
+    try {
+      const res = await fetch(`${BASE}/api/admin/orders/${order.id}/inventory-exit`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ pool }),
+      });
+      const data = await res.json().catch(() => ({})) as {
+        message?: string;
+        alreadyDebited?: boolean;
+        order?: AdminOrder;
+      };
+      if (!res.ok) {
+        toast.error(data?.message || "Erro ao dar baixa no estoque.");
+        return;
+      }
+      if (data.order) onSetOrderPatched(data.order);
+      toast.success(
+        data.alreadyDebited
+          ? `Este pedido já tinha baixa em ${kaExitPoolLabel(pool)}.`
+          : `Baixa feita em ${kaExitPoolLabel(pool)}.`,
+      );
+    } catch {
+      toast.error("Erro ao dar baixa no estoque.");
+    } finally {
+      setExitingStock((prev) => ({ ...prev, [order.id]: false }));
+    }
   };
 
   const executeToggleEnviado = async (orderId: string, adminPassword?: string) => {
@@ -13882,8 +14040,9 @@ function OrdersPanel({
 
     // Verify stock before marking as enviado
     if (novoValor) {
-      // Only check stock when marking as enviado (not when unmarking)
-      const stockCheck = verifyOrderStock(orderId, trackingInventoryBalances ?? inventoryBalances);
+      const order = ordersLookup.find((item) => item.id === orderId);
+      const pool = (order ? exitPoolByOrder[orderId] : undefined) || (order ? defaultKaExitPool(order) : "loja");
+      const stockCheck = verifyOrderStock(orderId, pool, trackingInventoryBalances ?? inventoryBalances);
       if (!stockCheck.hasStock) {
         toast.error(stockCheck.message);
         return;
@@ -14391,7 +14550,7 @@ function OrdersPanel({
 
     const targetOrderId = trackingSelectedOrderId || trackingReview.order.id;
     const targetOrder = ordersLookup.find((o) => o.id === targetOrderId) || trackingReview.order;
-    const stockCheck = verifyOrderStock(targetOrderId);
+    const stockCheck = verifyOrderStock(targetOrderId, defaultKaExitPool(targetOrder));
     if (!stockCheck.hasStock) {
       toast.error(stockCheck.message);
       return;
@@ -14468,10 +14627,10 @@ function OrdersPanel({
   const trackingInventoryReady = modalInventoryBalances.length > 0;
   const globalInventorySnapshotReady = inventoryBalances.length > 0;
   const trackingReviewStock = trackingReview
-    ? (trackingInventoryReady ? verifyOrderStock(trackingReview.order.id, modalInventoryBalances) : { hasStock: true, message: "", missingItems: [] as string[] })
+    ? (trackingInventoryReady ? verifyOrderStock(trackingReview.order.id, defaultKaExitPool(trackingReview.order), modalInventoryBalances) : { hasStock: true, message: "", missingItems: [] as string[] })
     : { hasStock: true, message: "", missingItems: [] as string[] };
   const trackingTargetStock = trackingTargetOrderId
-    ? verifyOrderStock(trackingTargetOrderId, modalInventoryBalances)
+    ? verifyOrderStock(trackingTargetOrderId, defaultKaExitPool(trackingTargetOrder || trackingReview?.order), modalInventoryBalances)
     : { hasStock: true, message: "", missingItems: [] as string[] };
 
   if (orders.length === 0) return (
@@ -14526,9 +14685,12 @@ function OrdersPanel({
           const isCard     = order.paymentMethod === "card_simulation";
           const isExpanded = expandedOrder === order.id;
           const eeLabelReady = hasEnvioEcomLabelReady(order as any);
-          const orderStockCheck = enviados[order.id] || !globalInventorySnapshotReady
+          const selectedExitPool = exitPoolByOrder[order.id] || defaultKaExitPool(order);
+          const exitedPools = parseKaExitedPools((order as { inventoryExitedPools?: unknown }).inventoryExitedPools);
+          const poolSnapshotReady = selectedExitPool === "loja" ? globalInventorySnapshotReady : yuryInventoryReady;
+          const orderStockCheck = enviados[order.id] || !poolSnapshotReady
             ? { hasStock: true, message: "", missingItems: [] as string[] }
-            : verifyOrderStock(order.id);
+            : verifyOrderStock(order.id, selectedExitPool);
           const orderProducts = getOrderProducts(order.products);
           const grossAmount = Number(order.cardTotalActual ?? order.total) || 0;
           const orderProductsCost = orderProducts.reduce((sum, item) => {
@@ -14642,18 +14804,22 @@ function OrdersPanel({
                         )}
                         {!enviados[order.id] && (
                           <span
-                            title={!globalInventorySnapshotReady
+                            title={!poolSnapshotReady
                               ? "Carregando saldo de estoque"
                               : orderStockCheck.hasStock
-                                ? "Estoque suficiente para envio"
+                                ? `Estoque ${kaExitPoolLabel(selectedExitPool)} suficiente para envio`
                                 : orderStockCheck.missingItems.join("\n")}
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${!globalInventorySnapshotReady
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${!poolSnapshotReady
                               ? "bg-slate-100 text-slate-700 border-slate-200"
                               : orderStockCheck.hasStock
                               ? "bg-green-100 text-green-800 border-green-200"
                               : "bg-red-100 text-red-800 border-red-200"}`}
                           >
-                            {!globalInventorySnapshotReady ? "Estoque carregando" : (orderStockCheck.hasStock ? "Estoque OK" : "Faltando estoque")}
+                            {!poolSnapshotReady
+                              ? "Estoque carregando"
+                              : (orderStockCheck.hasStock
+                                ? `Estoque ${kaExitPoolLabel(selectedExitPool)} OK`
+                                : `Faltando estoque ${kaExitPoolLabel(selectedExitPool)}`)}
                           </span>
                         )}
                         {isReshipment && (
@@ -15007,6 +15173,38 @@ function OrdersPanel({
                       ? "Marcar como Pendente"
                       : "Marcar como Enviado"}
                 </Button>
+                <div className="w-full flex flex-wrap items-center gap-1.5 pt-1">
+                  <span className="text-xs font-semibold text-muted-foreground mr-1">Baixa estoque:</span>
+                  {([
+                    { id: "loja" as const, label: "Foz Guaçu" },
+                    { id: "motoboy" as const, label: "Motoboy" },
+                    { id: "minas" as const, label: "Minas" },
+                  ]).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => { void selectOrderExitPool(order, item.id); }}
+                      className={`h-8 px-3 rounded-full text-xs font-semibold border transition-colors ${
+                        selectedExitPool === item.id
+                          ? "bg-foreground text-background border-foreground"
+                          : "bg-white text-foreground border-border hover:bg-muted"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                  <Button
+                    size="sm"
+                    className="h-8 gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white border-none"
+                    disabled={!!exitingStock[order.id] || exitedPools.includes(selectedExitPool)}
+                    onClick={() => { void debitOrderStockNow(order, selectedExitPool); }}
+                  >
+                    {exitingStock[order.id]
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : null}
+                    {exitedPools.includes(selectedExitPool) ? "Já baixado" : "Dar baixa agora"}
+                  </Button>
+                </div>
                 <Button size="sm" className="gap-2 bg-green-600 hover:bg-green-700 text-white border-none"
                   onClick={() => openWhatsApp(order)}>
                   <MessageCircle className="w-4 h-4" />WhatsApp

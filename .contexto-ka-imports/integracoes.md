@@ -7,7 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
-| 2026-09-01 | Baixa Motoboy/Minas via `POST /api/integrations/inventory/exit` no `enviado` | Pedido Motoboy/Minas não debita Fóz; `referenceId` = `orders.id` | Snapshot, webhook, cobertura e Fóz/48h/EE iguais |
+| 2026-09-01 | `POST /admin/orders/:id/inventory-exit` + seletor de pool no card | Baixa Fóz local ou Motoboy/Minas na Yury à escolha | Token, snapshot, `referenceId` sem `orderId` |
 | 2026-08-31 | Cancel EE desvincula o pedido na hora; create gera orderId novo; webhook só casa IDs exatos do envio atual | Sem `DUPLICATE_ORDER` no reenvio; 8880 antigo não reatacha | Token, contas e `enviado`/estoque iguais |
 | 2026-08-31 | `hasEnvioEcomLabelReady` aceita status **Etiqueta gerada** (API EnvioEcom) | Create/sync/webhook promovem o card sem PDF no R2 | `enviado` só na coleta; Etiqueta EE/PDF inalterados |
 | 2026-08-30 | Create EnvioEcom: `cost` da DACE = valor global da etiqueta, não o R$ 5 da cotação | Etiqueta nova mostra 89,90 etc. | Cotação continua R$ 5; envios já criados |
@@ -103,8 +103,8 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 
 - Espelho em `yury_inventory_balances` (`product_id` da Yury, `qty_motoboy`, `qty_minas`). **Não** mistura com `inventory_balances` (Fóz Guaçu). Não soma os dois pools.
 - Leitura: `GET /api/integrations/inventory/snapshot`. Token: `YURY_INVENTORY_SYNC_TOKEN` se existir; senão o mesmo `YURY_MOTOBOY_SYNC_TOKEN`. Headers `Authorization: Bearer` + `X-Api-Key`.
-- Baixa (novo): `POST /api/integrations/inventory/exit` no `ensureOrderMarkedEnviado` / PATCH `enviado=true` quando o pedido é Motoboy ou Minas. Body: `pool` (`motoboy`|`minas`) + `items[]` (`productId` do snapshot, `quantity`) + `referenceId` = `orders.id`. **Não** manda `orderId` (isso é pedido da Yury). 201 = primeira baixa; 200 + `alreadyDebited` = retry do mesmo `referenceId`+`pool` (sucesso). Idempotência é por pool. 400 `INSUFFICIENT_STOCK` não marca `enviado`. 404 = rota ainda não no ar na Yury.
-- Depois da baixa **não** decrementa o espelho à mão. Webhook `inventory.changed` grava `balances.motoboy`/`minas` absolutos (um evento por produto; `quantityDelta` só informativo). Sem webhook, o job/snapshot de 3 min atualiza.
+- Baixa (pedido): `POST /api/admin/orders/:id/inventory-exit` com `pool` `loja`|`motoboy`|`minas`. Preferência: `PATCH .../inventory-exit-pool`. `enviado` usa o pool salvo (ou o do frete). Fóz = `inventory_balances`. Motoboy/Minas = `POST /api/integrations/inventory/exit` (`items[]` + `referenceId` = `orders.id`, **sem** `orderId`). 201 / 200 `alreadyDebited` por pool. 400 `INSUFFICIENT_STOCK` não marca `enviado`. 404 = rota Yury ainda não no ar.
+- Colunas `orders.inventory_exit_pool` e `inventory_exited_pools`. Depois da baixa Yury **não** decrementa o espelho à mão. Webhook `inventory.changed` grava `balances.motoboy`/`minas` absolutos (um evento por produto; `quantityDelta` só informativo). Sem webhook, o job/snapshot de 3 min atualiza.
 - Snapshot: linha com `quantity: 0` permanece. Produto só em `motoboy[]` → Minas = 0. Zerar os dois só se o `productId` sumir dos dois arrays.
 - Job: boot (~20s) + a cada 3 min. Admin Estoque puxa ao abrir e no botão Sincronizar Yury (`POST /api/admin/yury-inventory/sync`). Lista: `GET /api/admin/yury-inventory`. Sem formulário de entrada/saída nesses pools.
 - Webhook: `POST /api/webhooks/yury/inventory` (+ `/webhooks/yury/inventory`). Body cru + HMAC igual à cobertura. Evento `inventory.changed`: **não** aplica `quantityDelta`.

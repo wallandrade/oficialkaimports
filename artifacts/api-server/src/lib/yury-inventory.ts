@@ -156,6 +156,7 @@ export function parseYuryInventoryChangedEvent(raw: unknown): YuryInventoryChang
 }
 
 export type YuryInventoryPool = "motoboy" | "minas";
+export type KaInventoryExitPool = "loja" | YuryInventoryPool;
 
 export type YuryInventoryExitItem = {
   productId: string;
@@ -203,6 +204,49 @@ export function resolveYuryInventoryExitPool(order: {
     return "motoboy";
   }
   return null;
+}
+
+export function parseKaInventoryExitPool(value: unknown): KaInventoryExitPool | null {
+  const normalized = normalizeShippingText(value).replace(/_/g, " ");
+  if (normalized === "loja" || normalized === "foz" || normalized.includes("foz")) return "loja";
+  if (normalized === "motoboy") return "motoboy";
+  if (normalized === "minas") return "minas";
+  return null;
+}
+
+export function defaultKaInventoryExitPool(order: {
+  shippingType?: unknown;
+  motoboyDeliveryDate?: unknown;
+  motoboyDeliveryTime?: unknown;
+  inventoryExitPool?: unknown;
+}): KaInventoryExitPool {
+  return parseKaInventoryExitPool(order.inventoryExitPool) || resolveYuryInventoryExitPool(order) || "loja";
+}
+
+export function parseKaInventoryExitedPools(value: unknown): KaInventoryExitPool[] {
+  const raw = Array.isArray(value)
+    ? value
+    : String(value || "").split(",");
+  const seen = new Set<KaInventoryExitPool>();
+  const pools: KaInventoryExitPool[] = [];
+  for (const item of raw) {
+    const parsed = parseKaInventoryExitPool(item);
+    if (!parsed || seen.has(parsed)) continue;
+    seen.add(parsed);
+    pools.push(parsed);
+  }
+  return pools;
+}
+
+export function serializeKaInventoryExitedPools(pools: KaInventoryExitPool[]): string {
+  return parseKaInventoryExitedPools(pools).join(",");
+}
+
+export function addKaInventoryExitedPool(
+  current: unknown,
+  pool: KaInventoryExitPool,
+): KaInventoryExitPool[] {
+  return parseKaInventoryExitedPools([...parseKaInventoryExitedPools(current), pool]);
 }
 
 export function mapKaItemsToYuryExitItems(

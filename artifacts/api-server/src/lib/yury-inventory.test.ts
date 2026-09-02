@@ -3,10 +3,14 @@ import test from "node:test";
 
 import {
   applyYuryInventoryWebhookBalances,
+  addKaInventoryExitedPool,
   buildYuryInventoryExitBody,
+  defaultKaInventoryExitPool,
   interpretYuryInventoryExitResponse,
   mapKaItemsToYuryExitItems,
   mergeYuryInventorySnapshot,
+  parseKaInventoryExitPool,
+  parseKaInventoryExitedPools,
   parseYuryInventoryChangedEvent,
   parseYuryInventorySnapshot,
   resolveYuryInventoryExitPool,
@@ -118,6 +122,16 @@ test("pool de baixa: motoboy/minas pelo shippingType; retirada não vai para Yur
     motoboyDeliveryDate: "2026-09-02",
     motoboyDeliveryTime: "14:00",
   }), "motoboy");
+});
+
+test("pool KA no card: salva loja/motoboy/minas e default segue o frete", () => {
+  assert.equal(parseKaInventoryExitPool("Foz Guaçu"), "loja");
+  assert.equal(parseKaInventoryExitPool("motoboy"), "motoboy");
+  assert.equal(defaultKaInventoryExitPool({ shippingType: "Frete 48h" }), "loja");
+  assert.equal(defaultKaInventoryExitPool({ shippingType: "Motoboy" }), "motoboy");
+  assert.equal(defaultKaInventoryExitPool({ shippingType: "48h", inventoryExitPool: "minas" }), "minas");
+  assert.deepEqual(addKaInventoryExitedPool("loja", "motoboy"), ["loja", "motoboy"]);
+  assert.deepEqual(parseKaInventoryExitedPools("loja,motoboy,loja"), ["loja", "motoboy"]);
 });
 
 test("body de exit usa items[] + referenceId e nunca manda orderId", () => {

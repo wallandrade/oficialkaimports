@@ -135,7 +135,7 @@ Código > memória > suposições.
 - Zerar frete Motoboy com `checkout_free_shipping_min_subtotal` (usar `checkout_free_shipping_min_motoboy`).
 - Inferir duração do slot Motoboy pelo preço (usar `interval_hours`).
 - Cadastrar bairro/faixa Motoboy neste repo como fonte da verdade quando `YURY_MOTOBOY_SYNC_TOKEN` está setado (espelho Yury; CRUD local 409).
-- Somar Motoboy + Minas, gravar esses saldos em `inventory_balances`, aplicar `quantityDelta` do webhook Yury, puxar estoque deles em `/api/admin/inventory/...`, ou mandar o uuid/`orderNumber` do KA no campo `orderId` da Yury (usar `POST /api/integrations/inventory/exit` com `referenceId` = `orders.id`; `orderId` só se for pedido da Yury). Não decrementar `yury_inventory_balances` no POST — webhook `balances` ou snapshot. Não debitar Fóz no `enviado` Motoboy/Minas.
+- Somar Motoboy + Minas, gravar esses saldos em `inventory_balances`, aplicar `quantityDelta` do webhook Yury, puxar estoque deles em `/api/admin/inventory/...`, ou mandar o uuid/`orderNumber` do KA no campo `orderId` da Yury (usar `POST /api/integrations/inventory/exit` com `referenceId` = `orders.id`; `orderId` só se for pedido da Yury). Não decrementar `yury_inventory_balances` no POST — webhook `balances` ou snapshot. Não debitar Fóz quando o pool do pedido é Motoboy/Minas.
 - Exigir cidade da faixa CEP igual à ViaCEP para mostrar Motoboy (CEP na faixa já libera; cidade só desempata).
 - Gerar etiqueta EnvioEcom com barcode provisório `EC…` (usar `shipping_id` / `ids`).
 - Cachear token EnvioEcom só por `tenantId` com N contas (login A vira B). Chave = `tenantId:accountId`.

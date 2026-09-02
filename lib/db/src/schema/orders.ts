@@ -58,6 +58,8 @@ export const ordersTable = mysqlTable("orders", {
   pixCode: mediumtext("pix_code"),
   pixBase64: mediumtext("pix_base64"),
   enviado: boolean("enviado").notNull().default(false),
+  inventoryExitPool: varchar("inventory_exit_pool", { length: 16 }),
+  inventoryExitedPools: varchar("inventory_exited_pools", { length: 64 }),
   isProcurandoProduto: boolean("is_procurando_produto").notNull().default(false),
   trackingCode: varchar("tracking_code", { length: 255 }),
   trackingLabelUrl: mediumtext("tracking_label_url"),
