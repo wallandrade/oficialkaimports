@@ -19,7 +19,14 @@ import { getStoredReferralCode } from "@/lib/affiliate";
 import { getCheckoutSecurityHeaders } from "@/lib/checkout-security";
 import { getCustomerAuthHeaders, getCustomerToken } from "@/lib/customer-auth";
 import { formatCurrency, getActiveWhatsApp } from "@/lib/utils";
-import { computeShippingInsuranceAmount } from "@/lib/shipping-insurance";
+import {
+  insuranceLinesFromProducts,
+  parseInsuranceSettingsFromMap,
+  resolveCheckoutInsurance,
+  type CheckoutInsuranceSettings,
+  type InsurancePlan,
+} from "@/lib/checkout-insurance";
+import { CheckoutInsuranceOffer } from "@/components/checkout/CheckoutInsuranceOffer";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const LANDER_GOLD_MIN_QTY = 5;
@@ -202,7 +209,7 @@ export default function Checkout() {
   const [motoboyAvailableSlots, setMotoboyAvailableSlots] = useState<string[]>([]);
   const [motoboyDurationHours, setMotoboyDurationHours] = useState(1);
   const [motoboySlotsLoading, setMotoboySlotsLoading] = useState(false);
-  const [includeInsurance, setIncludeInsurance] = useState(false);
+  const [insurancePlan, setInsurancePlan] = useState<InsurancePlan>("none");
   const [showCardModal, setShowCardModal] = useState(false);
   const [whatsappModalData, setWhatsappModalData] = useState<{ url: string; displayNumber: string } | null>(null);
   const [isOpeningWhatsApp, setIsOpeningWhatsApp] = useState(false);
@@ -226,6 +233,9 @@ export default function Checkout() {
   const [affiliateCreditAvailable, setAffiliateCreditAvailable] = useState(0);
   const [affiliateCreditLoading, setAffiliateCreditLoading] = useState(false);
   const [useAffiliateCredit, setUseAffiliateCredit] = useState(false);
+  const [storeCreditAvailable, setStoreCreditAvailable] = useState(0);
+  const [useStoreCredit, setUseStoreCredit] = useState(false);
+  const [insuranceSettings, setInsuranceSettings] = useState<CheckoutInsuranceSettings>(() => parseInsuranceSettingsFromMap({}));
   const [paymentMethods, setPaymentMethods] = useState({ pix: true, card: true, whatsapp: false });
   const [checkoutMode, setCheckoutMode] = useState<"standard" | "fast">("standard");
   const [checkoutModeLoaded, setCheckoutModeLoaded] = useState(false);
@@ -528,6 +538,7 @@ export default function Checkout() {
           setFreeShippingMinSubtotal(parseCurrency(data["checkout_free_shipping_min_subtotal"]));
           setFreeShippingMinMotoboy(parseCurrency(data["checkout_free_shipping_min_motoboy"]));
           setMotoboyEligibleProductIds(parseMotoboyEligibleProductIds(data["motoboy_eligible_product_ids"]));
+          setInsuranceSettings(parseInsuranceSettingsFromMap(data));
         }
       } catch {
         // Keep defaults enabled on network errors.
@@ -839,11 +850,28 @@ export default function Checkout() {
       ? eligibleProductSubtotal * (appliedCoupon.discountValue / 100)
       : Math.min(appliedCoupon.discountValue, eligibleProductSubtotal)
     : 0;
-  const insuranceAmount = computeShippingInsuranceAmount(includeInsurance, subtotal, discountAmount);
-  const total = Math.max(0, subtotal + shippingCost + insuranceAmount - discountAmount);
+  const insuranceLines = insuranceLinesFromProducts(items.map((item) => ({
+    id: (item as { bumpProductId?: string }).bumpProductId ?? item.id,
+    quantity: item.quantity,
+    price: item.price,
+  })));
+  const insuranceSnapshot = resolveCheckoutInsurance({
+    includeInsurance: insurancePlan !== "none",
+    insurancePlan,
+    subtotal,
+    shippingCost,
+    discountAmount,
+    lines: insuranceLines,
+    settings: insuranceSettings,
+  });
+  const insuranceAmount = insuranceSnapshot.insuranceAmount;
+  const includeInsurance = insuranceSnapshot.includeInsurance;
+  const total = insuranceSnapshot.total;
   const baseTotal = subtotal + shippingCost + insuranceAmount;
-  const affiliateCreditToApply = useAffiliateCredit ? Math.min(affiliateCreditAvailable, total) : 0;
-  const payableTotal = Math.max(0, total - affiliateCreditToApply);
+  const storeCreditToApply = useStoreCredit ? Math.min(storeCreditAvailable, total) : 0;
+  const afterStoreCredit = Math.max(0, total - storeCreditToApply);
+  const affiliateCreditToApply = useAffiliateCredit ? Math.min(affiliateCreditAvailable, afterStoreCredit) : 0;
+  const payableTotal = Math.max(0, afterStoreCredit - affiliateCreditToApply);
 
   // Card payment uses regular (non-promo) prices
   const cardSubtotal = getCardSubtotal();
@@ -852,7 +880,20 @@ export default function Checkout() {
       ? eligibleProductSubtotalCard * (appliedCoupon.discountValue / 100)
       : Math.min(appliedCoupon.discountValue, eligibleProductSubtotalCard)
     : 0;
-  const cardInsuranceAmount = computeShippingInsuranceAmount(includeInsurance, cardSubtotal, cardDiscountAmount);
+  const cardInsuranceSnapshot = resolveCheckoutInsurance({
+    includeInsurance,
+    insurancePlan,
+    subtotal: cardSubtotal,
+    shippingCost,
+    discountAmount: cardDiscountAmount,
+    lines: insuranceLinesFromProducts(items.map((item) => ({
+      id: (item as { bumpProductId?: string }).bumpProductId ?? item.id,
+      quantity: item.quantity,
+      price: (item as { regularPrice?: number }).regularPrice ?? item.price,
+    }))),
+    settings: insuranceSettings,
+  });
+  const cardInsuranceAmount = cardInsuranceSnapshot.insuranceAmount;
   const cardBaseTotal = cardSubtotal + shippingCost + cardInsuranceAmount;
   const cardNetTotal = Math.max(0, cardBaseTotal - cardDiscountAmount);
 
@@ -861,6 +902,8 @@ export default function Checkout() {
     if (!token) {
       setAffiliateCreditAvailable(0);
       setUseAffiliateCredit(false);
+      setStoreCreditAvailable(0);
+      setUseStoreCredit(false);
       return;
     }
 
@@ -883,6 +926,22 @@ export default function Checkout() {
       })
       .finally(() => {
         if (active) setAffiliateCreditLoading(false);
+      });
+
+    fetch(`${BASE}/api/me/wallet`, {
+      headers: getCustomerAuthHeaders(),
+    })
+      .then(async (res) => {
+        if (!res.ok) return null;
+        return (await res.json()) as { availableCredit?: number };
+      })
+      .then((data) => {
+        if (!active) return;
+        const available = Number(data?.availableCredit || 0);
+        setStoreCreditAvailable(Number.isFinite(available) ? available : 0);
+      })
+      .catch(() => {
+        if (active) setStoreCreditAvailable(0);
       });
 
     return () => {
@@ -1286,7 +1345,9 @@ export default function Checkout() {
           address: addressPayload,
           products: productsPayload,
           shippingType:    selectedShipping?.name ?? "Frete",
-          includeInsurance,
+          includeInsurance: insuranceSnapshot.includeInsurance,
+          insurancePlan: insuranceSnapshot.plan === "none" ? undefined : insuranceSnapshot.plan,
+          useStoreCredit,
           subtotal,
           shippingCost,
           insuranceAmount,
@@ -1363,7 +1424,9 @@ export default function Checkout() {
             motoboyDeliveryDate: isMotoboySelected ? motoboyDeliveryDate : undefined,
             motoboyDeliveryTime: isMotoboySelected ? motoboyDeliveryTime : undefined,
             shippingCost,
-            includeInsurance,
+            includeInsurance: insuranceSnapshot.includeInsurance,
+          insurancePlan: insuranceSnapshot.plan === "none" ? undefined : insuranceSnapshot.plan,
+          useStoreCredit,
             insuranceAmount,
             subtotal,
             discountAmount:  discountAmount > 0 ? discountAmount : 0,
@@ -1397,7 +1460,9 @@ export default function Checkout() {
           products:     productsPayload,
           amount:       Number(result.remainingToPay ?? payableTotal),
           shippingType: selectedShipping?.name ?? "Frete",
-          includeInsurance,
+          includeInsurance: insuranceSnapshot.includeInsurance,
+          insurancePlan: insuranceSnapshot.plan === "none" ? undefined : insuranceSnapshot.plan,
+          useStoreCredit,
           orderId,
         })
       );
@@ -1428,7 +1493,9 @@ export default function Checkout() {
           motoboyDeliveryDate: isMotoboySelected ? motoboyDeliveryDate : undefined,
           motoboyDeliveryTime: isMotoboySelected ? motoboyDeliveryTime : undefined,
           shippingCost,
-          includeInsurance,
+          includeInsurance: insuranceSnapshot.includeInsurance,
+          insurancePlan: insuranceSnapshot.plan === "none" ? undefined : insuranceSnapshot.plan,
+          useStoreCredit,
           insuranceAmount,
           subtotal,
           discountAmount:  discountAmount > 0 ? discountAmount : 0,
@@ -1529,7 +1596,9 @@ export default function Checkout() {
         },
         products: productsPayload,
         shippingType: selectedShipping?.name ?? "Frete",
-        includeInsurance,
+        includeInsurance: insuranceSnapshot.includeInsurance,
+        insurancePlan: insuranceSnapshot.plan === "none" ? undefined : insuranceSnapshot.plan,
+        useStoreCredit,
         subtotal,
         shippingCost,
         insuranceAmount,
@@ -1676,7 +1745,9 @@ export default function Checkout() {
         },
         products: cardProductsPayload,
         shippingType: selectedShipping?.name ?? "Frete",
-        includeInsurance,
+        includeInsurance: insuranceSnapshot.includeInsurance,
+        insurancePlan: insuranceSnapshot.plan === "none" ? undefined : insuranceSnapshot.plan,
+        useStoreCredit,
         subtotal: cardSubtotal,
         shippingCost,
         insuranceAmount: cardInsuranceAmount,
@@ -2359,32 +2430,39 @@ export default function Checkout() {
               </div>
 
               {/* Insurance */}
-              <div className="pt-4 border-t border-border">
-                <label className="flex items-start gap-4 cursor-pointer group">
-                  <div className="relative flex items-center justify-center mt-1 shrink-0">
-                    <div
-                      onClick={() => setIncludeInsurance((v) => !v)}
-                      className={`w-6 h-6 rounded-md border-2 transition-colors flex items-center justify-center cursor-pointer ${includeInsurance ? "border-primary bg-primary" : "border-muted-foreground"}`}
-                    >
-                      {includeInsurance && <ShieldCheck className="w-4 h-4 text-white" />}
-                    </div>
-                  </div>
-                  <div>
-                    <p className="font-bold text-foreground group-hover:text-primary transition-colors">
-                      Adicionar Seguro de Envio (+10%)
-                    </p>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Seguro de envio que garante cobertura em caso de extravio, dano ou problemas na entrega.
-                    </p>
-                    <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                      <p className="text-xs text-amber-800 flex items-start gap-1.5">
-                        <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                        Pedidos sem seguro são de responsabilidade do comprador. Não nos responsabilizamos por problemas no transporte.
-                      </p>
-                    </div>
-                  </div>
-                </label>
-              </div>
+              <CheckoutInsuranceOffer
+                enabled={insuranceSettings.enabled}
+                settings={insuranceSettings}
+                selectedPlan={insuranceSnapshot.plan}
+                onSelect={setInsurancePlan}
+                isLoggedIn={!!getCustomerToken()}
+                fullOffer={insuranceSettings.enabled && insuranceSettings.fullEnabled ? {
+                  plan: "full",
+                  amount: resolveCheckoutInsurance({
+                    includeInsurance: true,
+                    insurancePlan: "full",
+                    subtotal,
+                    shippingCost: 0,
+                    lines: insuranceLines,
+                    settings: { ...insuranceSettings, reducedEnabled: false, fullEnabled: true, enabled: true },
+                  }).insuranceAmount,
+                  label: insuranceSettings.fullLabel,
+                  description: insuranceSettings.fullDescription,
+                } : null}
+                reducedOffer={insuranceSettings.enabled && insuranceSettings.reducedEnabled ? {
+                  plan: "reduced",
+                  amount: resolveCheckoutInsurance({
+                    includeInsurance: true,
+                    insurancePlan: "reduced",
+                    subtotal,
+                    shippingCost: 0,
+                    lines: insuranceLines,
+                    settings: { ...insuranceSettings, fullEnabled: false, reducedEnabled: true, enabled: true },
+                  }).insuranceAmount,
+                  label: insuranceSettings.reducedLabel,
+                  description: insuranceSettings.reducedDescription,
+                } : null}
+              />
             </div>
           </div>
 
@@ -2563,8 +2641,14 @@ export default function Checkout() {
                 )}
                 {includeInsurance && (
                   <div className="flex justify-between text-primary font-medium">
-                    <span>Seguro de Envio (+10%)</span>
+                    <span>Seguro de Envio</span>
                     <span>{formatCurrency(insuranceAmount)}</span>
+                  </div>
+                )}
+                {useStoreCredit && storeCreditToApply > 0 && (
+                  <div className="flex justify-between text-blue-700 font-medium">
+                    <span>Saldo da carteira</span>
+                    <span>− {formatCurrency(storeCreditToApply)}</span>
                   </div>
                 )}
                 {appliedCoupon && (
@@ -2634,6 +2718,28 @@ export default function Checkout() {
                   </div>
                 )}
               </div>
+              )}
+
+              {getCustomerToken() && storeCreditAvailable > 0 && (
+                <div className="mb-4 pb-4 border-b border-border">
+                  <label className="flex items-center justify-between gap-3 cursor-pointer">
+                    <span className="text-sm font-medium text-foreground">Usar saldo da carteira</span>
+                    <input
+                      type="checkbox"
+                      checked={useStoreCredit}
+                      onChange={(e) => setUseStoreCredit(e.target.checked)}
+                      className="w-4 h-4"
+                    />
+                  </label>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Saldo de seguro: {formatCurrency(storeCreditAvailable)}
+                  </p>
+                  {useStoreCredit && storeCreditToApply > 0 && (
+                    <p className="text-xs text-blue-700 mt-1">
+                      Será abatido {formatCurrency(storeCreditToApply)} neste pedido.
+                    </p>
+                  )}
+                </div>
               )}
 
               {getCustomerToken() && (

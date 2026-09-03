@@ -23,7 +23,13 @@ import { allocateOrderLogistics } from "../lib/order-logistics";
 import { MotoboyScheduleError, type MotoboyScheduleInput, reserveMotoboySchedule } from "../lib/motoboy-delivery-schedule";
 import { isMotoboyShippingType } from "../lib/motoboy-shipping-type";
 import { cartProductIdsFromItems, isCartEligibleForMotoboy } from "../lib/motoboy-eligible-products";
-import { computeShippingInsuranceAmount } from "../lib/shipping-insurance";
+import {
+  insuranceLinesFromProducts,
+  insuranceSnapshotColumns,
+  loadCheckoutInsuranceSettings,
+  resolveCheckoutInsurance,
+} from "../lib/checkout-insurance";
+import { applyStoreCreditToOrder } from "../lib/customer-wallet";
 
 const router: IRouter = Router();
 
@@ -254,9 +260,11 @@ router.post("/checkout/pix", async (req, res) => {
 
     const {
       client, address, products, shippingType, includeInsurance,
+      insurancePlan,
       shippingCost,
       sellerCode, couponCode,
       useAffiliateCredit,
+      useStoreCredit,
       motoboySchedule,
     } = req.body as {
       client: { name: string; email: string; phone: string; document: string };
@@ -267,11 +275,13 @@ router.post("/checkout/pix", async (req, res) => {
       products?: CheckoutProductInput[];
       shippingType?: string;
       includeInsurance?: boolean;
+      insurancePlan?: string;
       shippingCost?: number;
       insuranceAmount?: number;
       sellerCode?: string;
       couponCode?: string;
       useAffiliateCredit?: boolean;
+      useStoreCredit?: boolean;
       motoboySchedule?: MotoboyScheduleInput;
     };
 
@@ -447,13 +457,18 @@ router.post("/checkout/pix", async (req, res) => {
       });
     }
 
-    const computedInsuranceAmount = computeShippingInsuranceAmount(
-      Boolean(includeInsurance),
-      computedSubtotal,
-      computedDiscountAmount,
-    );
-    const computedBaseTotal = computedSubtotal + computedShippingCost + computedInsuranceAmount;
-    const amount = Math.max(0, computedBaseTotal - computedDiscountAmount);
+    const insuranceSettings = await loadCheckoutInsuranceSettings((key) => getSettingValue(key, tenantId));
+    const insurance = resolveCheckoutInsurance({
+      includeInsurance,
+      insurancePlan,
+      subtotal: computedSubtotal,
+      shippingCost: computedShippingCost,
+      discountAmount: computedDiscountAmount,
+      lines: insuranceLinesFromProducts(orderProducts),
+      settings: insuranceSettings,
+    });
+    const computedInsuranceAmount = insurance.insuranceAmount;
+    const amount = insurance.total;
     if (!amount || amount <= 0) {
       console.warn(`[CHECKOUT/PIX:${requestId}] Validation failed — invalid computed amount: ${amount}`);
       res.status(400).json({ error: "INVALID_INPUT", message: "Valor inválido. Deve ser maior que zero." });
@@ -492,10 +507,9 @@ router.post("/checkout/pix", async (req, res) => {
         motoboyDeliveryDate: reservedMotoboySchedule?.date || null,
         motoboyDeliveryTime: reservedMotoboySchedule?.time || null,
         motoboyDeliveryDurationHours: reservedMotoboySchedule?.durationHours || null,
-        includeInsurance:    Boolean(includeInsurance),
+        ...insuranceSnapshotColumns(insurance),
         subtotal:            String(computedSubtotal),
         shippingCost:        String(computedShippingCost),
-        insuranceAmount:     String(computedInsuranceAmount),
         total:               String(amount),
         status:              "pending",
         paymentMethod:       "pix",
@@ -506,16 +520,40 @@ router.post("/checkout/pix", async (req, res) => {
       });
     });
 
-    let affiliateCreditUsed = 0;
-    if (useAffiliateCredit === true && customerSession?.userId) {
-      affiliateCreditUsed = await applyAffiliateCreditToOrder({
+    let storeCreditUsed = 0;
+    if (useStoreCredit === true && customerSession?.userId) {
+      storeCreditUsed = await applyStoreCreditToOrder({
+        tenantId,
         userId: customerSession.userId,
         orderId,
         requestedAmount: amount,
       });
+      if (storeCreditUsed > 0) {
+        const payableAfterStore = Math.max(0, amount - storeCreditUsed);
+        await db
+          .update(ordersTable)
+          .set({
+            total: String(payableAfterStore),
+            storeCreditUsed: String(storeCreditUsed),
+            paymentMethod: payableAfterStore <= 0 ? "store_credit" : "pix",
+            status: payableAfterStore <= 0 ? "paid" : "pending",
+            updatedAt: new Date(),
+          })
+          .where(and(eq(ordersTable.id, orderId), eq(ordersTable.tenantId, tenantId)));
+      }
+    }
+
+    let affiliateCreditUsed = 0;
+    const remainingAfterStore = Math.max(0, amount - storeCreditUsed);
+    if (useAffiliateCredit === true && customerSession?.userId && remainingAfterStore > 0) {
+      affiliateCreditUsed = await applyAffiliateCreditToOrder({
+        userId: customerSession.userId,
+        orderId,
+        requestedAmount: remainingAfterStore,
+      });
 
       if (affiliateCreditUsed > 0) {
-        const payableAmount = Math.max(0, amount - affiliateCreditUsed);
+        const payableAmount = Math.max(0, remainingAfterStore - affiliateCreditUsed);
         await db
           .update(ordersTable)
           .set({
@@ -575,7 +613,7 @@ router.post("/checkout/pix", async (req, res) => {
       try { await incrementCouponUse(normalizedCouponCode, tenantId); } catch { /* non-fatal */ }
     }
 
-    const payableAmount = Math.max(0, amount - affiliateCreditUsed);
+    const payableAmount = Math.max(0, amount - storeCreditUsed - affiliateCreditUsed);
     if (payableAmount <= 0) {
       await ensureOrderCommission(orderId);
       await allocateOrderLogistics(orderId);
@@ -584,7 +622,8 @@ router.post("/checkout/pix", async (req, res) => {
       void sendOutboundWebhook("order_paid", {
         id: orderId,
         status: "paid",
-        coveredByAffiliateCredit: true,
+        coveredByAffiliateCredit: affiliateCreditUsed > 0,
+        coveredByStoreCredit: storeCreditUsed > 0,
       }, { tenantId });
       res.json({
         orderId,
@@ -592,8 +631,10 @@ router.post("/checkout/pix", async (req, res) => {
         guestAccessToken,
         isGuestOrder: !customerSession,
         status: "paid",
-        coveredByAffiliateCredit: true,
+        coveredByAffiliateCredit: affiliateCreditUsed > 0,
+        coveredByStoreCredit: storeCreditUsed > 0,
         affiliateCreditUsed,
+        storeCreditUsed,
         remainingToPay: 0,
       });
       return;
@@ -625,7 +666,8 @@ router.post("/checkout/pix", async (req, res) => {
         metadata: {
           orderId,
           shippingType:     shippingType || "normal",
-          includeInsurance: String(includeInsurance ?? false),
+          includeInsurance: String(insurance.includeInsurance),
+          insurancePlan: insurance.plan,
         },
         callbackUrl,
       });
@@ -669,6 +711,7 @@ router.post("/checkout/pix", async (req, res) => {
       transactionId: gatewayData.transactionId,
       status:        gatewayData.status,
       affiliateCreditUsed,
+      storeCreditUsed,
       remainingToPay: payableAmount,
       pixCode:       gatewayData.pix?.code   || "",
       pixBase64:     gatewayData.pix?.base64 || "",

@@ -38,7 +38,13 @@ import {
   serializeKaInventoryExitedPools,
 } from "../lib/yury-inventory";
 import { cartProductIdsFromItems, isCartEligibleForMotoboy } from "../lib/motoboy-eligible-products";
-import { computeShippingInsuranceAmount } from "../lib/shipping-insurance";
+import {
+  insuranceLinesFromProducts,
+  insuranceSnapshotColumns,
+  loadCheckoutInsuranceSettings,
+  resolveCheckoutInsurance,
+} from "../lib/checkout-insurance";
+import { applyStoreCreditToOrder } from "../lib/customer-wallet";
 
 const router: IRouter = Router();
 
@@ -1118,8 +1124,10 @@ router.post("/orders", async (req, res) => {
 
     const {
       client, address, products, shippingType, includeInsurance,
+      insurancePlan,
       shippingCost,
       paymentMethod, cardInstallments, sellerCode,
+      useStoreCredit,
     } = req.body;
 
     const normalizedAffiliateCode = normalizeAffiliateCode(req.body?.affiliateCode);
@@ -1321,13 +1329,18 @@ router.post("/orders", async (req, res) => {
       computedDiscountAmount = evaluation.discountAmount;
     }
 
-    const computedInsuranceAmount = computeShippingInsuranceAmount(
-      Boolean(includeInsurance),
-      computedSubtotal,
-      computedDiscountAmount,
-    );
-    const computedBaseTotal = computedSubtotal + computedShippingCost + computedInsuranceAmount;
-    const computedTotal = Math.max(0, computedBaseTotal - computedDiscountAmount);
+    const insuranceSettings = await loadCheckoutInsuranceSettings((key) => getSettingValue(key, tenantId));
+    const insurance = resolveCheckoutInsurance({
+      includeInsurance,
+      insurancePlan,
+      subtotal: computedSubtotal,
+      shippingCost: computedShippingCost,
+      discountAmount: computedDiscountAmount,
+      lines: insuranceLinesFromProducts(orderProducts),
+      settings: insuranceSettings,
+    });
+    const computedInsuranceAmount = insurance.insuranceAmount;
+    const computedTotal = insurance.total;
     if (!computedTotal || computedTotal <= 0) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Valor inválido. Deve ser maior que zero." });
       return;
@@ -1365,10 +1378,9 @@ router.post("/orders", async (req, res) => {
         motoboyDeliveryDate: motoboySchedule?.date || null,
         motoboyDeliveryTime: motoboySchedule?.time || null,
         motoboyDeliveryDurationHours: motoboySchedule?.durationHours || null,
-        includeInsurance:  Boolean(includeInsurance),
+        ...insuranceSnapshotColumns(insurance),
         subtotal:          String(computedSubtotal),
         shippingCost:      String(computedShippingCost),
-        insuranceAmount:   String(computedInsuranceAmount),
         total:             String(computedTotal),
         status:            method === "card_simulation" ? "awaiting_payment" : "pending",
         paymentMethod:     method,
@@ -1379,6 +1391,26 @@ router.post("/orders", async (req, res) => {
         discountAmount:    computedDiscountAmount > 0 ? String(computedDiscountAmount) : null,
       });
     });
+
+    let storeCreditUsed = 0;
+    if (useStoreCredit === true && customerSession?.userId) {
+      storeCreditUsed = await applyStoreCreditToOrder({
+        tenantId,
+        userId: customerSession.userId,
+        orderId: id,
+        requestedAmount: computedTotal,
+      });
+      if (storeCreditUsed > 0) {
+        const payableAfterStore = Math.max(0, computedTotal - storeCreditUsed);
+        await db.update(ordersTable).set({
+          total: String(payableAfterStore),
+          storeCreditUsed: String(storeCreditUsed),
+          paymentMethod: payableAfterStore <= 0 ? "store_credit" : method,
+          status: payableAfterStore <= 0 ? "paid" : (method === "card_simulation" ? "awaiting_payment" : "pending"),
+          updatedAt: new Date(),
+        }).where(eq(ordersTable.id, id));
+      }
+    }
 
     // Geo lookup — fire and forget, não bloqueia a resposta
     lookupIpGeo(purchaseIp).then((geo) => {
@@ -1423,11 +1455,15 @@ router.post("/orders", async (req, res) => {
       id,
       orderNumber: assignedOrderNumber,
       client, address: address || null, products: orderProducts, shippingType,
-      includeInsurance: Boolean(includeInsurance),
+      includeInsurance: insurance.includeInsurance,
+      insurancePlan: insurance.plan === "none" ? null : insurance.plan,
       subtotal: computedSubtotal,
       shippingCost: computedShippingCost,
       insuranceAmount: computedInsuranceAmount,
-      total: computedTotal,
+      insuranceKeepAmount: insurance.keepAmount,
+      insuranceCashbackAmount: insurance.cashbackAmount,
+      storeCreditUsed: storeCreditUsed > 0 ? storeCreditUsed : null,
+      total: Math.max(0, computedTotal - storeCreditUsed),
       status:        method === "card_simulation" ? "awaiting_payment" : "pending",
       paymentMethod: method,
       sellerCode:    sellerCode || null,
@@ -2113,12 +2149,19 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
     const computedDiscountAmount = discountAmount !== undefined
       ? Math.max(0, Number(discountAmount) || 0)
       : Math.max(0, Number(current[0].discountAmount) || 0);
-    const computedInsuranceAmount = computeShippingInsuranceAmount(
-      Boolean(current[0].includeInsurance),
-      computedSubtotal,
-      computedDiscountAmount,
-    );
-    const total = Math.max(0, computedSubtotal + computedShippingCost + computedInsuranceAmount - computedDiscountAmount);
+    const insuranceSettings = await loadCheckoutInsuranceSettings((key) => getSettingValue(key, adminScope.tenantId));
+    const insurance = resolveCheckoutInsurance({
+      includeInsurance: current[0].includeInsurance,
+      insurancePlan: current[0].insurancePlan,
+      subtotal: computedSubtotal,
+      shippingCost: computedShippingCost,
+      discountAmount: computedDiscountAmount,
+      lines: insuranceLinesFromProducts(resolvedProducts),
+      settings: insuranceSettings,
+      honorToggles: false,
+    });
+    const computedInsuranceAmount = insurance.insuranceAmount;
+    const total = insurance.total;
 
     let newStatus: string;
     if (paidAmount !== null) {
@@ -2150,6 +2193,10 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
       products: resolvedProducts,
       subtotal: String(computedSubtotal),
       insuranceAmount: String(computedInsuranceAmount),
+      insuranceKeepAmount: String(insurance.keepAmount),
+      insuranceCashbackAmount: String(insurance.cashbackAmount),
+      includeInsurance: insurance.includeInsurance,
+      insurancePlan: insurance.plan === "none" ? null : insurance.plan,
       discountAmount: String(computedDiscountAmount),
       total: String(total),
       status: newStatus,
@@ -2500,6 +2547,14 @@ function mapOrder(o: typeof ordersTable.$inferSelect, options?: { light?: boolea
     motoboyDeliveryTime: o.motoboyDeliveryTime,
     motoboyDeliveryDurationHours: o.motoboyDeliveryDurationHours,
     includeInsurance:    o.includeInsurance,
+    insurancePlan:       (o as { insurancePlan?: string | null }).insurancePlan ?? null,
+    insuranceKeepAmount: (o as { insuranceKeepAmount?: unknown }).insuranceKeepAmount != null ? Number((o as { insuranceKeepAmount?: unknown }).insuranceKeepAmount) : 0,
+    insuranceCashbackAmount: (o as { insuranceCashbackAmount?: unknown }).insuranceCashbackAmount != null ? Number((o as { insuranceCashbackAmount?: unknown }).insuranceCashbackAmount) : 0,
+    insuranceClaimStatus: (o as { insuranceClaimStatus?: string | null }).insuranceClaimStatus || "none",
+    insuranceReshipCount: Number((o as { insuranceReshipCount?: unknown }).insuranceReshipCount || 0),
+    insuranceCashbackGranted: Boolean((o as { insuranceCashbackGranted?: unknown }).insuranceCashbackGranted),
+    parentOrderId:       (o as { parentOrderId?: string | null }).parentOrderId ?? null,
+    storeCreditUsed:     (o as { storeCreditUsed?: unknown }).storeCreditUsed != null ? Number((o as { storeCreditUsed?: unknown }).storeCreditUsed) : null,
     subtotal:            Number(o.subtotal),
     shippingCost:        Number(o.shippingCost),
     insuranceAmount:     Number(o.insuranceAmount),

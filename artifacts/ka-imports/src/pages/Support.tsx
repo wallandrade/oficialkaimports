@@ -20,6 +20,11 @@ type SupportOrder = {
   status: string;
   createdAt: string;
   products: SupportOrderItem[];
+  isReshipChild?: boolean;
+  includeInsurance?: boolean;
+  insurancePlan?: string | null;
+  insuranceClaimStatus?: string;
+  insuranceReshipCount?: number;
 };
 
 type AddressChangePayload = {
@@ -63,6 +68,8 @@ export default function Support() {
   const [selectedOrderId, setSelectedOrderId] = useState<string>("");
   const [trackingCode, setTrackingCode] = useState("");
   const [description, setDescription] = useState("");
+  const [problemType, setProblemType] = useState<"missing_items" | "extravio" | "apreensao">("missing_items");
+  const [insuranceChoice, setInsuranceChoice] = useState<"choose_reship" | "choose_refund">("choose_reship");
   const [imageData, setImageData] = useState<string | null>(null);
   const [wantsAddressChange, setWantsAddressChange] = useState(false);
   const [newAddress, setNewAddress] = useState<AddressChangePayload>({
@@ -236,6 +243,8 @@ export default function Support() {
           orderId: selectedOrderId,
           trackingCode: trackingCode.trim(),
           description: description.trim(),
+          problemType,
+          insuranceChoice: problemType === "missing_items" ? undefined : insuranceChoice,
           imageData,
           addressChange,
         }),
@@ -358,7 +367,41 @@ export default function Support() {
 
                 {selectedOrder && (
                   <div className="rounded-2xl border border-slate-200 p-4 sm:p-5 space-y-3">
-                    <p className="text-sm font-semibold text-slate-800">3. Descreva o problema</p>
+                    <p className="text-sm font-semibold text-slate-800">3. Tipo do problema</p>
+                    <div className="space-y-2">
+                      {([
+                        { id: "missing_items", label: "Veio faltando item" },
+                        { id: "extravio", label: "Sumiu / roubaram (extravio)" },
+                        { id: "apreensao", label: "Receita / quebrado" },
+                      ] as const).map((option) => (
+                        <label key={option.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                          <input
+                            type="radio"
+                            name="problemType"
+                            checked={problemType === option.id}
+                            onChange={() => setProblemType(option.id)}
+                          />
+                          {option.label}
+                        </label>
+                      ))}
+                    </div>
+                    {problemType !== "missing_items" && (selectedOrder.insurancePlan === "full" || (selectedOrder.includeInsurance && !selectedOrder.insurancePlan)) && (
+                      <div className="rounded-xl border border-slate-200 p-3 space-y-2">
+                        <p className="text-xs font-semibold text-slate-700">Se o seguro cobrir, o que você prefere?</p>
+                        <label className="flex items-center gap-2 text-sm cursor-pointer">
+                          <input type="radio" checked={insuranceChoice === "choose_reship"} onChange={() => setInsuranceChoice("choose_reship")} />
+                          1 reenvio (loja paga o frete)
+                        </label>
+                        <label className="flex items-center gap-2 text-sm cursor-pointer">
+                          <input type="radio" checked={insuranceChoice === "choose_refund"} onChange={() => setInsuranceChoice("choose_refund")} />
+                          Estorno do subtotal na carteira (seguro não volta)
+                        </label>
+                      </div>
+                    )}
+                    {problemType === "extravio" && selectedOrder.insurancePlan === "reduced" && (
+                      <p className="text-xs text-slate-600">Plano reduzido: só 1 reenvio. Não devolve o produto.</p>
+                    )}
+                    <p className="text-sm font-semibold text-slate-800">4. Descreva o problema</p>
                     <textarea
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
@@ -366,7 +409,7 @@ export default function Support() {
                       rows={5}
                       className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-amber-500"
                     />
-                    <p className="text-sm font-semibold text-slate-800 mt-4">4. Numero de rastreio</p>
+                    <p className="text-sm font-semibold text-slate-800 mt-4">5. Numero de rastreio</p>
                     <input
                       value={trackingCode}
                       onChange={(e) => setTrackingCode(e.target.value)}

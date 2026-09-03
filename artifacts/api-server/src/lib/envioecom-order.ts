@@ -16,6 +16,7 @@ import {
 } from "./envioecom-status";
 import { allocateOrderLogistics, completeOrderLogistics } from "./order-logistics";
 import { ensureOrderMarkedEnviado } from "./order-enviado";
+import { grantInsuranceCashbackIfEligible } from "./customer-wallet";
 
 export type EnvioEcomShipmentPatch = {
   shipmentId?: number | null;
@@ -146,6 +147,16 @@ export async function persistEnvioEcomShipment(order: typeof ordersTable.$inferS
   const shouldComplete = shouldMarkCompletedFromStatus(status);
   if (shouldComplete && order.status !== "cancelled" && order.status !== "completed") {
     await db.update(ordersTable).set({ status: "completed", updatedAt: now }).where(eq(ordersTable.id, order.id));
+  }
+  if (shouldComplete) {
+    try {
+      await grantInsuranceCashbackIfEligible({
+        ...order,
+        status: shouldComplete ? "completed" : order.status,
+      });
+    } catch (cashbackErr) {
+      console.warn("[EnvioEcom] Falha ao creditar cashback do seguro:", cashbackErr);
+    }
   }
 
   const tenantId = order.tenantId || DEFAULT_TENANT_ID;

@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-09-01  
+> **Última atualização:** 2026-09-02  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-02 | Anti-padrão: 10% pós-cupom, gravar `insuranceAmount` do front, dois planos juntos, ou creditar carteira no “marcar enviado” | `resolveCheckoutInsurance`; carteira ≠ afiliado; cashback só entregue EE | `shipping-insurance.ts` legado não volta no create |
 | 2026-09-01 | Anti-padrão: mandar `orders.id`/`orderNumber` em `orderId` da Yury; decrementar `yury_inventory_balances` no POST; debitar Fóz junto com Motoboy/Minas | Exit só `pool`+`items[]`+`referenceId`; espelho via webhook/snapshot | Snapshot e `/api/admin/inventory` deles continuam proibidos |
 | 2026-08-31 | Anti-padrão: esperar Cancelado na EE, reusar o mesmo orderId/8880, ou casar webhook por prefixo `{n}-` / UUID | Detach na hora + `buildNextExternalOrderNumber` + match exato | `enviado`/estoque iguais |
 | 2026-08-31 | Anti-padrão: 10% do seguro sobre o subtotal ignorando o cupom | Base = subtotal − desconto; API recalcula | Alíquota 10% e pedidos antigos iguais |
@@ -189,7 +190,8 @@ Código > memória > suposições.
 - Abrir comprovante PDF no admin com `<iframe src="data:application/pdf...">` sem `frame-src blob:` no CSP; converter data URL para blob.
 - Mostrar status técnico EnvioEcom (“Pronto para envio”, “Etiqueta emitida”) na Minha conta; traduzir só na UI do cliente (`isPackingBeforePostStatus` / `toCustomerFriendlyShippingLabel`). Admin e banco ficam iguais.
 - Tratar só **Etiqueta emitida** (status interno do PDF) como pronta e ignorar **Etiqueta gerada** que a EnvioEcom devolve no create/sync/webhook — o card fica Pendente mesmo com rastreio. `hasEnvioEcomLabelReady` / `LABEL_READY_MARKERS` nos dois lados.
-- Calcular o seguro de envio (+10%) sobre o subtotal **sem** cupom, ou gravar o `insuranceAmount` enviado pelo cliente. Base = `max(0, subtotal − desconto)`; `computeShippingInsuranceAmount` no checkout e na edição.
+- Calcular o seguro sobre `subtotal − cupom`, usar `computeShippingInsuranceAmount` no create, gravar o `insuranceAmount` do front, ou deixar `full` e `reduced` ao mesmo tempo. Base = subtotal dos produtos **sem** frete/cupom; `resolveCheckoutInsurance` no create e na edição. Plano desligado no Admin + create com esse plano = `none` (não troca de plano). `shipping-insurance.ts` é legado — não reativar no create.
+- Misturar carteira da loja (`customer_wallet_ledger`) com crédito de afiliado. Cashback só no status EnvioEcom **entregue**; “Marcar enviado” / Motoboy não creditam.
 - Fazer `.reverse()` cego no `status_history` da EnvioEcom na Minha conta (a API já vem newest-first); ordenar por `at` desc.
 
 ## Idioma

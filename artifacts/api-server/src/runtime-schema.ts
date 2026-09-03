@@ -311,6 +311,14 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
     { name: "bank_deposit_matched_at", sql: "ALTER TABLE orders ADD COLUMN bank_deposit_matched_at TIMESTAMP NULL" },
     { name: "inventory_exit_pool", sql: "ALTER TABLE orders ADD COLUMN inventory_exit_pool VARCHAR(16) NULL" },
     { name: "inventory_exited_pools", sql: "ALTER TABLE orders ADD COLUMN inventory_exited_pools VARCHAR(64) NULL" },
+    { name: "insurance_plan", sql: "ALTER TABLE orders ADD COLUMN insurance_plan VARCHAR(16) NULL" },
+    { name: "insurance_keep_amount", sql: "ALTER TABLE orders ADD COLUMN insurance_keep_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00" },
+    { name: "insurance_cashback_amount", sql: "ALTER TABLE orders ADD COLUMN insurance_cashback_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00" },
+    { name: "insurance_claim_status", sql: "ALTER TABLE orders ADD COLUMN insurance_claim_status VARCHAR(32) NOT NULL DEFAULT 'none'" },
+    { name: "insurance_reship_count", sql: "ALTER TABLE orders ADD COLUMN insurance_reship_count INT NOT NULL DEFAULT 0" },
+    { name: "insurance_cashback_granted", sql: "ALTER TABLE orders ADD COLUMN insurance_cashback_granted TINYINT(1) NOT NULL DEFAULT 0" },
+    { name: "parent_order_id", sql: "ALTER TABLE orders ADD COLUMN parent_order_id VARCHAR(255) NULL" },
+    { name: "store_credit_used", sql: "ALTER TABLE orders ADD COLUMN store_credit_used DECIMAL(10,2) NULL" },
   ];
 
   for (const definition of definitions) {
@@ -711,6 +719,8 @@ async function ensureSupportTicketsTable(databaseName: string): Promise<void> {
     { name: "resolved_at", sql: "ALTER TABLE support_tickets ADD COLUMN resolved_at TIMESTAMP NULL" },
     { name: "resolution_reason", sql: "ALTER TABLE support_tickets ADD COLUMN resolution_reason VARCHAR(64) NULL" },
     { name: "address_change_json", sql: "ALTER TABLE support_tickets ADD COLUMN address_change_json MEDIUMTEXT NULL" },
+    { name: "problem_type", sql: "ALTER TABLE support_tickets ADD COLUMN problem_type VARCHAR(32) NULL" },
+    { name: "insurance_choice", sql: "ALTER TABLE support_tickets ADD COLUMN insurance_choice VARCHAR(32) NULL" },
   ];
 
   for (const definition of definitions) {
@@ -1422,6 +1432,25 @@ async function ensureYuryWebhookEventsProcessedTable(databaseName: string): Prom
   `);
 }
 
+async function ensureCustomerWalletLedgerTable(databaseName: string): Promise<void> {
+  if (await tableExists("customer_wallet_ledger", databaseName)) return;
+
+  await pool.query(`
+    CREATE TABLE customer_wallet_ledger (
+      id VARCHAR(255) NOT NULL PRIMARY KEY,
+      tenant_id VARCHAR(255) NULL,
+      user_id VARCHAR(255) NOT NULL,
+      order_id VARCHAR(255) NULL,
+      type VARCHAR(64) NOT NULL,
+      amount DECIMAL(10,2) NOT NULL,
+      note TEXT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY customer_wallet_ledger_user_idx (tenant_id, user_id),
+      KEY customer_wallet_ledger_order_idx (order_id)
+    )
+  `);
+}
+
 async function ensureYuryInventoryBalancesTable(databaseName: string): Promise<void> {
   if (await tableExists("yury_inventory_balances", databaseName)) return;
 
@@ -1474,6 +1503,7 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureOrderLogisticsAllocationsTable(databaseName);
     await ensureYuryWebhookEventsProcessedTable(databaseName);
     await ensureYuryInventoryBalancesTable(databaseName);
+    await ensureCustomerWalletLedgerTable(databaseName);
     await seedDefaultTenantAndBackfill(databaseName);
     if (isYuryMotoboySyncConfigured()) {
       console.log("[RuntimeSchema] Skipping Motoboy seed; Yury coverage sync is configured.");

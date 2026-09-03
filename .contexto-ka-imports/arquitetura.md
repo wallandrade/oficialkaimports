@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-09-01  
+> **Última atualização:** 2026-09-02  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-02 | Colunas de seguro no pedido + `customer_wallet_ledger` + `support_tickets.problem_type`/`insurance_choice` | Snapshot no create; carteira; sinistro no pai | Stack FE/API; crédito de afiliado inalterado |
 | 2026-09-01 | `inventory_exit_pool` / `inventory_exited_pools` + POST baixa no pedido | Seletor Fóz/Motoboy/Minas no card | Espelho e job 3 min iguais |
 | 2026-08-30 | Tabela `yury_inventory_balances` + job 3 min + webhook `/api/webhooks/yury/inventory` | Espelho Motoboy/Minas da Yury | `inventory_balances` e cobertura Motoboy inalterados |
 | 2026-08-29 | `orders.envioecom_account_id` + catálogo de contas EnvioEcom em `tenant_settings` | Roteamento de credencial; ALTER runtime | Stack FE/API e demais colunas EE iguais |
@@ -56,12 +57,12 @@ Monorepo **pnpm workspaces** + TypeScript.
 ### Tabelas principais (não exaustivo)
 
 - `tenants`, `admin_users`, `admin_user_tenants`, `admin_sessions`
-- `orders` (incl. `envioecom_*`, `enviado`, `inventory_exit_pool`, `inventory_exited_pools`, `is_prioridade`, `is_procurando_produto`, `tracking_*`, `bank_deposit_*`), `order_bank_deposits` (vários PIX OFX por pedido), `custom_charges`, `products`, `coupons`, `sellers`
-- `customer_users`, `affiliates` (+ referrals/commissions/credit uses)
+- `orders` (incl. `envioecom_*`, `enviado`, `inventory_exit_pool`, `inventory_exited_pools`, `is_prioridade`, `is_procurando_produto`, `tracking_*`, `bank_deposit_*`, `insurance_plan`, `insurance_keep_amount`, `insurance_cashback_amount`, `insurance_claim_status`, `insurance_reship_count`, `insurance_cashback_granted`, `parent_order_id`, `store_credit_used`), `order_bank_deposits` (vários PIX OFX por pedido), `custom_charges`, `products`, `coupons`, `sellers`
+- `customer_users`, `customer_wallet_ledger` (carteira da loja; não é afiliado), `affiliates` (+ referrals/commissions/credit uses)
 - `kyc_documents`, `site_settings` / `tenant_settings`
 - `shipping_options`, `motoboy_*` (incl. `yury_id` na cobertura), `yury_webhook_events_processed`, `order_logistics_allocations`
 - `inventory_balances` / `inventory_movements`, `yury_inventory_balances` (espelho Motoboy/Minas da Yury), `reshipments`, `manual_*`
-- `raffles*`, `order_bumps`, `support_tickets`, `filial_purchase_*`
+- `raffles*`, `order_bumps`, `support_tickets` (`problem_type`, `insurance_choice`), `filial_purchase_*`
 - `marketing_expenses`, `seller_commission_payments`, `social_proof_*`, `product_cost_history`
 
 ## API
@@ -76,13 +77,14 @@ Monorepo **pnpm workspaces** + TypeScript.
 - APPCNPay: `gateway.ts` + `lib/pix-gateway-credentials.ts`. Par por tenant (`gateway_appcnpay_public_key` / `_secret_key`); fallback env. Webhook PIX resolve tenant pelo `transactionId`.
 - Extrato OFX: `artifacts/api-server/src/routes/bank-statement.ts` (`analyze`/`apply`/`clear`/`bank-deposits`) + `order_bank_deposits`. Painéis FE: `AdminBankStatementPanel.tsx` (sessão) e `AdminBankDepositsPanel.tsx` (histórico + Desfazer por FITID).
 - Lista admin: `GET /admin/orders` em modo leve (sem `data:`/OCR); `GET /admin/orders/:id` devolve mídia completa.
+- Seguro: `lib/checkout-insurance.ts` + `insurance-claims-policy.ts` + `customer-wallet.ts`; rotas `routes/wallet.ts` (`/api/me/wallet`, `/api/admin/wallet/*`); ALTERs em `runtime-schema.ts`. Settings `checkout_insurance_*` em `PUBLIC_KEYS`.
 - OpenAPI cobre só um subconjunto (health/products/pix/orders…); **muitas rotas existem só no Express** — não assumir que Orval cobre tudo.
 
 ## Frontend
 
 - Rotas: `artifacts/ka-imports/src/App.tsx` (wouter).
 - Carrinho: Zustand persist `src/store/use-cart.ts`.
-- Admin monolítico: `src/pages/Admin.tsx` (arquivo grande — leitura seletiva). `fetchOrders` usa AbortController + seq e não apaga `envioecomLabelUrl` se o GET vier vazio. Busca de pedidos: input com debounce 300ms. Troca de data da lista não chama `fetchStatsData`.
+- Admin monolítico: `src/pages/Admin.tsx` (arquivo grande — leitura seletiva). `fetchOrders` usa AbortController + seq e não apaga `envioecomLabelUrl` se o GET vier vazio. Busca de pedidos: input com debounce 300ms. Troca de data da lista não chama `fetchStatsData`. Aba **Seguro**: `AdminInsurancePanel.tsx` (primary-only). Checkout: `CheckoutInsuranceOffer.tsx` (2 cards, clique de novo = none).
 - Proxy/API: requests sob `/api` (Vercel rewrite → Railway).
 - SW: `public/sw.js` — **somente notificações admin**, não PWA offline/sync.
 

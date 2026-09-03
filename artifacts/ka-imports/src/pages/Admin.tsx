@@ -727,7 +727,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { AnimatePresence, motion } from "framer-motion";
 import { formatCurrency, formatDateOnlyBR } from "@/lib/utils";
-import { computeShippingInsuranceAmount } from "@/lib/shipping-insurance";
+import { parseInsuranceSettingsFromMap, resolveCheckoutInsurance } from "@/lib/checkout-insurance";
+import { AdminInsurancePanel } from "@/components/admin/AdminInsurancePanel";
 import { downloadFilialPurchasePdf, openFilialPurchasePdfInBrowser } from "@/lib/generateFilialPurchasePdf";
 import { generateChargePdf, generateOrderPdf } from "@/lib/generateOrderPdf";
 import { AdminLayout } from "@/components/layout/AdminLayout";
@@ -1199,7 +1200,7 @@ function OrderBumpsPanel({ bumps, products, form, setForm, creating, toggling, d
   );
 }
 
-type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "checkout" | "socialProof" | "raffles" | "lojas" | "supplierPurchases" | "envioecom" | "extrato" | "depositos";
+type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "checkout" | "seguro" | "socialProof" | "raffles" | "lojas" | "supplierPurchases" | "envioecom" | "extrato" | "depositos";
 type LojasSubTab = "criar" | "pedidos" | "cadastradas";
 type FilialScopeSubTab = "pedidos" | "produtos" | "estoque";
 
@@ -1208,6 +1209,7 @@ const PRIMARY_ONLY_TABS = new Set<TabType>([
   "coupons",
   "orderBumps",
   "checkout",
+  "seguro",
   "socialProof",
   "lojas",
 ]);
@@ -1280,6 +1282,8 @@ interface SupportTicketRecord {
   clientDocument: string;
   clientName: string;
   trackingCode?: string | null;
+  problemType?: string | null;
+  insuranceChoice?: string | null;
   description: string;
   imageUrl: string | null;
   addressChange?: {
@@ -5118,7 +5122,7 @@ export default function Admin() {
     else if (tab === "coupons")    { fetchCoupons(); fetchProducts(); }
     else if (tab === "products")   fetchProducts();
     else if (tab === "configuracoes") { fetchSettings(); fetchClientErrors(); fetchBrevoStatus(); }
-    else if (tab === "checkout") { fetchSettings(); }
+    else if (tab === "checkout" || tab === "seguro") { fetchSettings(); fetchProducts(); }
     else if (tab === "sellers")    { fetchSellers(); fetchSellerData(); }
     else if (tab === "fretes")     { fetchShippingOptions(); fetchMotoboyNeighborhoods(); fetchMotoboyCepRanges(); fetchProducts(); fetchSettings(); fetchYuryCoverageStatus(); }
     else if (tab === "orderBumps") { fetchProducts(); fetchOrderBumpsData(); }
@@ -5984,8 +5988,18 @@ export default function Admin() {
       const subtotal = editItems.reduce((s, p) => s + p.price * p.quantity, 0);
       const shippingCost = editOrderModal.shippingCost;
       const discountAmount = editDiscount || 0;
-      const insuranceAmount = computeShippingInsuranceAmount(editOrderModal.includeInsurance, subtotal, discountAmount);
-      const total = Math.max(0, subtotal + shippingCost + insuranceAmount - discountAmount);
+      const insurance = resolveCheckoutInsurance({
+        includeInsurance: editOrderModal.includeInsurance,
+        insurancePlan: (editOrderModal as { insurancePlan?: string | null }).insurancePlan,
+        subtotal,
+        shippingCost,
+        discountAmount,
+        lines: editItems.map((p) => ({ productId: p.id, lineTotal: p.price * p.quantity })),
+        settings: parseInsuranceSettingsFromMap(settings),
+        honorToggles: false,
+      });
+      const insuranceAmount = insurance.insuranceAmount;
+      const total = insurance.total;
       const nextOrderSnapshot = {
         ...editOrderModal,
         clientName: normalizedClientName,
@@ -7179,6 +7193,7 @@ export default function Admin() {
             ] : []),
             ...(isPrimary ? [
               { key: "checkout", label: "Checkout", icon: "Zap" },
+              { key: "seguro", label: "Seguro", icon: "ShieldCheck" },
               { key: "coupons", label: "Cupons", icon: "Ticket", count: coupons.length },
               { key: "orderBumps", label: "Order Bumps", icon: "Zap", count: orderBumps.length },
               { key: "users", label: "Usuários", icon: "User" },
@@ -7608,6 +7623,27 @@ export default function Admin() {
                 toast.error("Erro ao autorizar reenvio.");
               }
             }}
+            onInsuranceRefund={async (id) => {
+              try {
+                const res = await fetch(`${BASE}/api/admin/support-tickets/${id}/insurance-refund`, {
+                  method: "POST",
+                  headers: authHeaders(),
+                });
+                const data = await res.json() as { message?: string; credited?: number };
+                if (!res.ok) {
+                  toast.error(data?.message || "Erro ao estornar o subtotal.");
+                  return;
+                }
+                setSupportTickets((prev) => prev.map((t) => (
+                  t.id === id
+                    ? { ...t, status: "resolved", resolutionReason: "insurance_refund_product", resolvedAt: new Date().toISOString() }
+                    : t
+                )));
+                toast.success(data.credited ? "Subtotal creditado na carteira. Seguro não volta." : "Estorno marcado. Sem conta, o saldo não cai.");
+              } catch {
+                toast.error("Erro ao estornar o subtotal.");
+              }
+            }}
           />
         ) : tab === "inventory" ? (
           <InventoryPanel
@@ -7719,6 +7755,14 @@ export default function Admin() {
                 toast.error("Erro ao processar item de retorno manual.");
               }
             }}
+          />
+        ) : tab === "seguro" && isPrimary ? (
+          <AdminInsurancePanel
+            settings={settings}
+            loading={settingsLoading}
+            products={(products as Array<{ id?: string; name?: string }>).map((p) => ({ id: String(p.id || ""), name: String(p.name || "") })).filter((p) => p.id)}
+            onSave={saveSetting}
+            authHeaders={authHeaders}
           />
         ) : tab === "checkout" && isPrimary ? (
           <div className="space-y-5">
@@ -11604,8 +11648,18 @@ export default function Admin() {
                   {/* Totals preview */}
                   {!editAsReshipment && editItems.length > 0 && (() => {
                     const subtotal = editItems.reduce((s, p) => s + p.price * p.quantity, 0);
-                    const insuranceAmount = computeShippingInsuranceAmount(editOrderModal.includeInsurance, subtotal, editDiscount || 0);
-                    const total = Math.max(0, subtotal + editOrderModal.shippingCost + insuranceAmount - (editDiscount || 0));
+                    const insurance = resolveCheckoutInsurance({
+                      includeInsurance: editOrderModal.includeInsurance,
+                      insurancePlan: (editOrderModal as { insurancePlan?: string | null }).insurancePlan,
+                      subtotal,
+                      shippingCost: editOrderModal.shippingCost,
+                      discountAmount: editDiscount || 0,
+                      lines: editItems.map((p) => ({ productId: p.id, lineTotal: p.price * p.quantity })),
+                      settings: parseInsuranceSettingsFromMap(settings),
+                      honorToggles: false,
+                    });
+                    const insuranceAmount = insurance.insuranceAmount;
+                    const total = insurance.total;
                     const hasPaidAmount = (editOrderModal.paidAmount ?? 0) > 0;
                     const refValue = hasPaidAmount ? (editOrderModal.paidAmount ?? 0) : editOrderModal.total;
                     const diff = total - refValue;
@@ -11995,6 +12049,7 @@ function SupportTicketsPanel({
   onSetStatus,
   onDelete,
   onReenviar,
+  onInsuranceRefund,
 }: {
   tickets: SupportTicketRecord[];
   productsCatalog: Array<{ id: string; name: string }>;
@@ -12003,6 +12058,7 @@ function SupportTicketsPanel({
   onSetStatus: (id: string, status: "open" | "resolved") => void;
   onDelete: (id: string) => void;
   onReenviar: (id: string, products?: Array<{ id: string; name: string; quantity: number }>) => Promise<void>;
+  onInsuranceRefund: (id: string) => Promise<void>;
 }) {
   const [reenviarModalTicket, setReenviarModalTicket] = useState<SupportTicketRecord | null>(null);
   const [reenviarItems, setReenviarItems] = useState<Array<{ id: string; name: string; quantity: number }>>([]);
@@ -12114,6 +12170,12 @@ function SupportTicketsPanel({
                   </div>
                   <p className="mt-2 text-sm font-semibold">{ticket.clientName}</p>
                   <p className="text-xs text-muted-foreground">CPF: {ticket.clientDocument} | Pedido: {ticket.orderId}</p>
+                  {ticket.problemType && (
+                    <p className="text-xs text-muted-foreground">
+                      Tipo: {ticket.problemType === "extravio" ? "Extravio/roubo" : ticket.problemType === "apreensao" ? "Receita/quebrado" : "Veio faltando"}
+                      {ticket.insuranceChoice === "choose_refund" ? " · Estorno" : ticket.insuranceChoice === "choose_reship" ? " · Reenvio" : ""}
+                    </p>
+                  )}
                   {ticket.orderTotal != null && (
                     <p className="text-xs text-muted-foreground">Valor pedido: {formatCurrency(ticket.orderTotal)}</p>
                   )}
@@ -12125,6 +12187,11 @@ function SupportTicketsPanel({
                       <Button size="sm" variant="outline" className="border-red-200 text-red-700 hover:bg-red-50" onClick={() => openReenviarModal(ticket)}>
                         Reenviar
                       </Button>
+                      {(ticket.problemType === "extravio" || ticket.problemType === "apreensao") && (
+                        <Button size="sm" variant="outline" onClick={() => void onInsuranceRefund(ticket.id)}>
+                          Estornar subtotal
+                        </Button>
+                      )}
                       <Button size="sm" variant="outline" className="border-red-200 text-red-700 hover:bg-red-50" onClick={() => onDelete(ticket.id)}>
                         Excluir
                       </Button>

@@ -7,6 +7,15 @@ import { broadcastNotification } from "./notifications";
 import { createOrRefreshReshipment } from "../lib/reshipments";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 import { reserveNextOrderNumber } from "../lib/order-number";
+import {
+  evaluateOpenInsuranceClaim,
+  evaluateResolveInsuranceClaim,
+  orderInsurancePlan,
+  parseInsuranceClaimChoice,
+  parseInsuranceClaimStatus,
+  parseInsuranceProblem,
+} from "../lib/insurance-claims-policy";
+import { creditProductRefund } from "../lib/customer-wallet";
 
 const router: IRouter = Router();
 
@@ -249,6 +258,11 @@ router.post("/support/orders-by-cpf", async (req, res) => {
         status: ordersTable.status,
         createdAt: ordersTable.createdAt,
         products: ordersTable.products,
+        includeInsurance: ordersTable.includeInsurance,
+        insurancePlan: ordersTable.insurancePlan,
+        insuranceClaimStatus: ordersTable.insuranceClaimStatus,
+        insuranceReshipCount: ordersTable.insuranceReshipCount,
+        parentOrderId: ordersTable.parentOrderId,
       })
       .from(ordersTable)
       .where(
@@ -267,6 +281,11 @@ router.post("/support/orders-by-cpf", async (req, res) => {
       total: Number(row.total),
       status: row.status,
       createdAt: row.createdAt?.toISOString() ?? new Date().toISOString(),
+      isReshipChild: Boolean(row.parentOrderId),
+      includeInsurance: Boolean(row.includeInsurance),
+      insurancePlan: row.insurancePlan || null,
+      insuranceClaimStatus: row.insuranceClaimStatus || "none",
+      insuranceReshipCount: Number(row.insuranceReshipCount || 0),
       products: getOrderProducts(row.products).map((p) => ({
         name: String(p?.name ?? "Produto"),
         quantity: Number(p?.quantity) || 0,
@@ -321,13 +340,11 @@ router.post("/support/tickets", async (req, res) => {
       return;
     }
 
+    const problemType = parseInsuranceProblem(req.body?.problemType) || "missing_items";
+    const insuranceChoice = parseInsuranceClaimChoice(req.body?.insuranceChoice);
+
     const orderRows = await db
-      .select({
-        id: ordersTable.id,
-        clientName: ordersTable.clientName,
-        total: ordersTable.total,
-        createdAt: ordersTable.createdAt,
-      })
+      .select()
       .from(ordersTable)
       .where(
         and(
@@ -344,17 +361,47 @@ router.post("/support/tickets", async (req, res) => {
       return;
     }
 
+    const claimOrder = order.parentOrderId
+      ? (await db.select().from(ordersTable).where(and(buildOrdersTenantWhere(tenantId), eq(ordersTable.id, order.parentOrderId))).limit(1))[0] || order
+      : order;
+    const isChildOrder = Boolean(claimOrder.parentOrderId);
+    const plan = orderInsurancePlan(claimOrder);
+    const claimStatus = parseInsuranceClaimStatus(claimOrder.insuranceClaimStatus);
+    const reshipCount = Number(claimOrder.insuranceReshipCount || 0);
+
+    if (problemType !== "missing_items") {
+      if (plan === "reduced" && insuranceChoice === "choose_refund") {
+        res.status(400).json({ error: "REDUCED_NO_REFUND", message: "Plano reduzido não devolve o produto. Só 1 reenvio." });
+        return;
+      }
+      const opened = evaluateOpenInsuranceClaim({
+        plan,
+        problem: problemType,
+        claimStatus,
+        reshipCount,
+        isChildOrder,
+      });
+      if (opened.ok && opened.nextStatus === "first_lost" && claimStatus === "none") {
+        await db.update(ordersTable).set({
+          insuranceClaimStatus: "first_lost",
+          updatedAt: new Date(),
+        }).where(eq(ordersTable.id, claimOrder.id));
+      }
+    }
+
     const id = crypto.randomBytes(8).toString("hex");
     await db.insert(supportTicketsTable).values({
       id,
       tenantId,
-      orderId: order.id,
+      orderId: claimOrder.id,
       clientDocument: cpf,
       clientName: order.clientName,
       trackingCode,
       description,
       imageUrl: imageData,
       addressChangeJson: addressChange ? JSON.stringify(addressChange) : null,
+      problemType,
+      insuranceChoice: insuranceChoice,
       status: "open",
       resolutionReason: null,
       orderTotal: String(order.total),
@@ -431,6 +478,8 @@ router.get("/admin/support-tickets", requireAdminAuth, async (req, res) => {
           trackingCode: row.trackingCode,
           description: row.description,
           imageUrl: row.imageUrl,
+          problemType: row.problemType || null,
+          insuranceChoice: row.insuranceChoice || null,
           addressChange,
           status: row.status,
           resolutionReason: row.resolutionReason,
@@ -481,6 +530,8 @@ router.get("/admin/support-tickets", requireAdminAuth, async (req, res) => {
         trackingCode: row.trackingCode,
         description: row.description,
         imageUrl: row.imageUrl,
+        problemType: row.problemType || null,
+        insuranceChoice: row.insuranceChoice || null,
         addressChange,
         status: row.status,
         resolutionReason: row.resolutionReason,
@@ -545,6 +596,27 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
     if (!order) {
       res.status(404).json({ error: "NOT_FOUND", message: "Pedido do chamado nao encontrado." });
       return;
+    }
+
+    const problemType = parseInsuranceProblem(ticket.problemType);
+    if (problemType === "extravio" || problemType === "apreensao") {
+      const choice = parseInsuranceClaimChoice(req.body?.insuranceChoice) || parseInsuranceClaimChoice(ticket.insuranceChoice) || "choose_reship";
+      const resolved = evaluateResolveInsuranceClaim({
+        plan: orderInsurancePlan(order),
+        problem: problemType,
+        choice,
+        claimStatus: parseInsuranceClaimStatus(order.insuranceClaimStatus),
+        reshipCount: Number(order.insuranceReshipCount || 0),
+        isChildOrder: Boolean(order.parentOrderId),
+      });
+      if (!resolved.ok) {
+        res.status(400).json({ error: resolved.error, message: resolved.message });
+        return;
+      }
+      if (resolved.action === "refund") {
+        res.status(400).json({ error: "USE_REFUND_ENDPOINT", message: "Use o estorno do seguro para devolver o subtotal." });
+        return;
+      }
     }
 
     const originalProducts = parseAdminOrderProducts(order.products);
@@ -656,7 +728,14 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
         addressState: (parsedAddress && canApplyAddress) ? parsedAddress.state : order.addressState,
         products: selectedProducts,
         shippingType: "Reenvio",
+        parentOrderId: order.id,
         includeInsurance: false,
+        insurancePlan: null,
+        insuranceKeepAmount: "0.00",
+        insuranceCashbackAmount: "0.00",
+        insuranceClaimStatus: "none",
+        insuranceReshipCount: 0,
+        insuranceCashbackGranted: false,
         subtotal: saleSubtotalStr,
         shippingCost: "0.00",
         insuranceAmount: "0.00",
@@ -691,6 +770,15 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
         // Some environments may not have is_prioridade yet; reenvio order still gets created.
       }
     });
+
+    const reshipProblem = parseInsuranceProblem(ticket.problemType);
+    if (reshipProblem === "extravio" || reshipProblem === "apreensao") {
+      await db.update(ordersTable).set({
+        insuranceClaimStatus: "reship_sent",
+        insuranceReshipCount: Number(order.insuranceReshipCount || 0) + 1,
+        updatedAt: new Date(),
+      }).where(eq(ordersTable.id, order.id));
+    }
 
     const reshipment = await createOrRefreshReshipment({
       tenantId: scope.tenantId,
@@ -735,6 +823,96 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
     const message = err instanceof Error ? err.message : "Erro ao criar reenvio.";
     console.error("Support reenviar error:", err);
     res.status(400).json({ error: "INTERNAL_ERROR", message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/admin/support-tickets/:id/insurance-refund
+// ---------------------------------------------------------------------------
+router.post("/admin/support-tickets/:id/insurance-refund", requireAdminAuth, async (req, res) => {
+  try {
+    const scope = getSupportAdminScope(req, res);
+    if (!scope) return;
+
+    const id = String(req.params.id ?? "").trim();
+    if (!id) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Chamado invalido." });
+      return;
+    }
+
+    const ticketRows = await db
+      .select()
+      .from(supportTicketsTable)
+      .where(and(buildSupportTicketsTenantWhere(scope.tenantId), eq(supportTicketsTable.id, id)))
+      .limit(1);
+    const ticket = ticketRows[0];
+    if (!ticket) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Chamado nao encontrado." });
+      return;
+    }
+    if (!(await ticketBelongsToScope(ticket.orderId, scope))) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Chamado nao encontrado." });
+      return;
+    }
+
+    const problemType = parseInsuranceProblem(ticket.problemType);
+    if (problemType !== "extravio" && problemType !== "apreensao") {
+      res.status(400).json({ error: "NOT_INSURANCE", message: "Este chamado não é de seguro." });
+      return;
+    }
+
+    const orderRows = await db
+      .select()
+      .from(ordersTable)
+      .where(and(buildOrdersTenantWhere(scope.tenantId), eq(ordersTable.id, ticket.orderId)))
+      .limit(1);
+    const order = orderRows[0];
+    if (!order) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido do chamado nao encontrado." });
+      return;
+    }
+
+    const resolved = evaluateResolveInsuranceClaim({
+      plan: orderInsurancePlan(order),
+      problem: problemType,
+      choice: "choose_refund",
+      claimStatus: parseInsuranceClaimStatus(order.insuranceClaimStatus),
+      reshipCount: Number(order.insuranceReshipCount || 0),
+      isChildOrder: Boolean(order.parentOrderId),
+    });
+    if (!resolved.ok) {
+      res.status(400).json({ error: resolved.error, message: resolved.message });
+      return;
+    }
+
+    const credited = await creditProductRefund({
+      tenantId: scope.tenantId,
+      userId: order.userId,
+      orderId: order.id,
+      subtotal: Number(order.subtotal || 0),
+    });
+
+    await db.update(ordersTable).set({
+      insuranceClaimStatus: "refund_product",
+      updatedAt: new Date(),
+    }).where(eq(ordersTable.id, order.id));
+
+    await db.update(supportTicketsTable).set({
+      status: "resolved",
+      resolutionReason: "insurance_refund_product",
+      resolvedAt: new Date(),
+      updatedAt: new Date(),
+    }).where(eq(supportTicketsTable.id, id));
+
+    res.json({
+      ok: true,
+      credited,
+      creditedToWallet: credited > 0,
+      subtotal: Number(order.subtotal || 0),
+    });
+  } catch (err) {
+    console.error("Insurance refund error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao estornar o subtotal." });
   }
 });
 
