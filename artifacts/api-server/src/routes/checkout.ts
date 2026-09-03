@@ -188,13 +188,18 @@ async function getActivePixGateway(tenantId: string): Promise<"appcnpay" | "dent
   return normalizePixGatewayProvider(value ?? null);
 }
 
-async function getFreeShippingMinSubtotal(tenantId: string, shippingType?: unknown): Promise<number | null> {
+async function getFreeShippingMinSubtotal(
+  tenantId: string,
+  shippingType?: unknown,
+  neighborhoodId?: unknown,
+): Promise<number | null> {
   const [standardRaw, motoboyRaw] = await Promise.all([
     getSettingValue("checkout_free_shipping_min_subtotal", tenantId),
     getSettingValue("checkout_free_shipping_min_motoboy", tenantId),
   ]);
   return pickFreeShippingMinSubtotal({
     shippingType,
+    neighborhoodId,
     standardMin: parseFreeShippingMinSubtotalSetting(standardRaw ?? ""),
     motoboyMin: parseFreeShippingMinSubtotalSetting(motoboyRaw ?? ""),
   });
@@ -417,7 +422,11 @@ router.post("/checkout/pix", async (req, res) => {
 
     const computedSubtotal = orderProducts.reduce((acc, p) => acc + (Number(p.quantity) || 0) * (Number(p.price) || 0), 0);
     const shippingBaseCost = Math.max(0, Number(shippingCost) || 0);
-    const freeShippingMinSubtotal = await getFreeShippingMinSubtotal(tenantId, shippingType);
+    const freeShippingMinSubtotal = await getFreeShippingMinSubtotal(
+      tenantId,
+      shippingType,
+      motoboySchedule?.neighborhoodId,
+    );
     const computedShippingCost = resolveShippingCostWithFreeThreshold({
       subtotal: computedSubtotal,
       shippingBaseCost,

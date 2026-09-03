@@ -60,4 +60,10 @@ test("pick usa limiar motoboy so quando o frete e motoboy", () => {
     standardMin: 2500,
     motoboyMin: null,
   }), null);
+  assert.equal(pickFreeShippingMinSubtotal({
+    shippingType: "Motoboy",
+    neighborhoodId: "dist",
+    standardMin: 2500,
+    motoboyMin: 400,
+  }), null);
 });

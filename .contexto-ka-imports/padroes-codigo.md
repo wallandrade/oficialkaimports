@@ -7,7 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
-| 2026-09-03 | Anti-padrão: lookup Motoboy bairro→faixa no FE; geocode no browser; misturar centro R$ 50 com até 10 km; faixa CEP após consult >200 km | `GET /motoboy-coverage/lookup`; km XOR bairro; id slot `dist` | Frete padrão e sync Yury de cobertura |
+| 2026-09-03 | Anti-padrão: “Gratis” no Motoboy km porque o Padrão bateu o limiar | Preço por opção; `dist` sem threshold | Bairro Motoboy ainda tem limiar próprio |
 | 2026-09-02 | Anti-padrão: Radix `Switch` na aba Seguro (React 19 #185, loop de ref) | Toggle nativo no painel | Toggles Lucide do resto do admin iguais |
 | 2026-09-02 | Anti-padrão: 10% pós-cupom, gravar `insuranceAmount` do front, dois planos juntos, ou creditar carteira no “marcar enviado” | `resolveCheckoutInsurance`; carteira ≠ afiliado; cashback só entregue EE | `shipping-insurance.ts` legado não volta no create |
 | 2026-09-01 | Anti-padrão: mandar `orders.id`/`orderNumber` em `orderId` da Yury; decrementar `yury_inventory_balances` no POST; debitar Fóz junto com Motoboy/Minas | Exit só `pool`+`items[]`+`referenceId`; espelho via webhook/snapshot | Snapshot e `/api/admin/inventory` deles continuam proibidos |
@@ -135,7 +135,8 @@ Código > memória > suposições.
 - Confundir seller ↔ afiliado, pedido ↔ custom charge, tenant ↔ cliente.
 - Inventar NF-e/fiscal sem evidência no código.
 - Chamar EnvioEcom do browser / expor `X-Partner-Token` no FE.
-- Zerar frete Motoboy com `checkout_free_shipping_min_subtotal` (usar `checkout_free_shipping_min_motoboy`).
+- Zerar frete Motoboy de bairro/faixa com `checkout_free_shipping_min_subtotal` (usar `checkout_free_shipping_min_motoboy`).
+- Zerar Motoboy por km (`dist`) com qualquer limiar de frete grátis, ou pintar o card Motoboy de “Gratis” só porque o Padrão desbloqueou.
 - Inferir duração do slot Motoboy pelo preço (usar `interval_hours`).
 - Cadastrar bairro/faixa Motoboy neste repo como fonte da verdade quando `YURY_MOTOBOY_SYNC_TOKEN` está setado (espelho Yury; CRUD local 409).
 - Somar Motoboy + Minas, gravar esses saldos em `inventory_balances`, aplicar `quantityDelta` do webhook Yury, puxar estoque deles em `/api/admin/inventory/...`, ou mandar o uuid/`orderNumber` do KA no campo `orderId` da Yury (usar `POST /api/integrations/inventory/exit` com `referenceId` = `orders.id`; `orderId` só se for pedido da Yury). Não decrementar `yury_inventory_balances` no POST — webhook `balances` ou snapshot. Não debitar Fóz quando o pool do pedido é Motoboy/Minas.

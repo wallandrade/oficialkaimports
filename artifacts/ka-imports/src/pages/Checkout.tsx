@@ -48,6 +48,24 @@ interface ShippingOption {
   motoboyAreaType?: "neighborhood" | "cepRange";
 }
 
+function isMotoboyDistanceOption(opt: { id?: string; motoboyAreaId?: string } | null | undefined): boolean {
+  const id = String(opt?.id ?? "").trim();
+  const areaId = String(opt?.motoboyAreaId ?? "").trim();
+  return id === "motoboy_dist" || id.startsWith("motoboy_dist") || areaId === "dist" || areaId.startsWith("dist_");
+}
+
+function optionShowsAsFree(
+  opt: ShippingOption,
+  subtotal: number,
+  freeShippingMinSubtotal: number | null,
+  freeShippingMinMotoboy: number | null,
+): boolean {
+  if (Number(opt.price) <= 0) return true;
+  if (isMotoboyDistanceOption(opt)) return false;
+  const threshold = opt.id.startsWith("motoboy_") ? freeShippingMinMotoboy : freeShippingMinSubtotal;
+  return threshold != null && subtotal >= threshold;
+}
+
 function genId() {
   return Math.random().toString(36).slice(2, 12);
 }
@@ -833,7 +851,12 @@ export default function Checkout() {
     return false;
   }, [isMotoboySelected, motoboyDeliveryDate, motoboyDeliveryTime]);
   const shippingBaseCost = selectedShipping ? Number(selectedShipping.price) : 0;
-  const activeFreeShippingMin = isMotoboySelected ? freeShippingMinMotoboy : freeShippingMinSubtotal;
+  const isDistanceMotoboy = isMotoboyDistanceOption(selectedShipping);
+  const activeFreeShippingMin = isDistanceMotoboy
+    ? null
+    : isMotoboySelected
+      ? freeShippingMinMotoboy
+      : freeShippingMinSubtotal;
   const isFreeByMinimumSubtotal = activeFreeShippingMin != null && subtotal >= activeFreeShippingMin;
   const isSelectedShippingFree = selectedShipping != null && shippingBaseCost <= 0;
   const isFreeShippingEligible = isFreeByMinimumSubtotal || isSelectedShippingFree;
@@ -2320,9 +2343,11 @@ export default function Checkout() {
                             <p className="text-sm text-muted-foreground mt-1">{opt.description}</p>
                           )}
                           <p className="font-semibold text-primary mt-2">
-                            {isFreeByMinimumSubtotal || Number(opt.price) <= 0
-                              ? "Gratis"
-                              : formatCurrency(Number(opt.price))}
+                            {isMotoboyDistanceOption(opt)
+                              ? formatCurrency(Number(opt.price))
+                              : optionShowsAsFree(opt, subtotal, freeShippingMinSubtotal, freeShippingMinMotoboy)
+                                ? "Gratis"
+                                : formatCurrency(Number(opt.price))}
                           </p>
                         </div>
                       </div>
@@ -2391,14 +2416,14 @@ export default function Checkout() {
                     )}
                   </div>
                 )}
-                {activeFreeShippingMin != null && (
+                {!isMotoboySelected && activeFreeShippingMin != null && (
                   <div className={`mt-3 rounded-xl border px-3 py-3 ${isFreeShippingEligible ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
                     <div className="flex items-center gap-1.5 mb-2">
                       <Truck className={`w-3.5 h-3.5 shrink-0 ${isFreeShippingEligible ? "text-emerald-700" : "text-amber-700"}`} />
                       <p className={`text-xs font-semibold ${isFreeShippingEligible ? "text-emerald-800" : "text-amber-800"}`}>
                         {isFreeShippingEligible
-                          ? "Frete grátis desbloqueado!"
-                          : `Faltam ${formatCurrency(missingForFreeShipping)} para frete grátis`}
+                          ? "Frete Padrão grátis desbloqueado"
+                          : `Faltam ${formatCurrency(missingForFreeShipping)} para frete Padrão grátis`}
                       </p>
                     </div>
                     <div className="w-full h-2 rounded-full bg-black/10 overflow-hidden">
@@ -2577,14 +2602,14 @@ export default function Checkout() {
                 </div>
               )}
 
-              {activeFreeShippingMin != null && (
+              {!isMotoboySelected && activeFreeShippingMin != null && (
                 <div className={`mb-4 rounded-xl border px-3 py-3 ${isFreeShippingEligible ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
                   <div className="flex items-center gap-1.5 mb-2">
                     <Truck className={`w-3.5 h-3.5 shrink-0 ${isFreeShippingEligible ? "text-emerald-700" : "text-amber-700"}`} />
                     <p className={`text-xs font-semibold ${isFreeShippingEligible ? "text-emerald-800" : "text-amber-800"}`}>
                       {isFreeShippingEligible
-                        ? "Frete grátis desbloqueado!"
-                        : `Faltam ${formatCurrency(missingForFreeShipping)} para frete grátis`}
+                        ? "Frete Padrão grátis desbloqueado"
+                        : `Faltam ${formatCurrency(missingForFreeShipping)} para frete Padrão grátis`}
                     </p>
                   </div>
                   <div className="w-full h-2 rounded-full bg-black/10 overflow-hidden">
@@ -2595,7 +2620,7 @@ export default function Checkout() {
                   </div>
                   {!isFreeShippingEligible && (
                     <p className="text-[11px] text-amber-700 mt-1.5">
-                      Pedidos a partir de {formatCurrency(activeFreeShippingMin)} têm frete grátis automático.
+                      Pedidos a partir de {formatCurrency(activeFreeShippingMin)} têm frete Padrão grátis. Motoboy por km cobra a faixa.
                     </p>
                   )}
                 </div>

@@ -8,9 +8,12 @@ export function parseFreeShippingMinSubtotalSetting(raw: unknown): number | null
 
 export function pickFreeShippingMinSubtotal(input: {
   shippingType?: unknown;
+  neighborhoodId?: unknown;
   standardMin: number | null;
   motoboyMin: number | null;
 }): number | null {
+  const neighborhoodId = String(input.neighborhoodId ?? "").trim();
+  if (neighborhoodId === "dist" || neighborhoodId.startsWith("dist_")) return null;
   return isMotoboyShippingType(input.shippingType) ? input.motoboyMin : input.standardMin;
 }
 
