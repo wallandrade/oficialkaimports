@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { clearCustomerToken, fetchCustomerProfile, getCustomerAuthHeaders } from "@/lib/customer-auth";
 import { formatCurrency, formatDateBR, getActiveWhatsApp } from "@/lib/utils";
 import { ShippingStatusTimeline } from "@/components/ShippingStatusTimeline";
-import { Copy, DollarSign, Gift, Loader2, LogOut, Package, Save, Ticket, Users, CheckCircle2, Clock, AlertCircle, MessageCircle, Truck, X } from "lucide-react";
+import { Copy, DollarSign, Gift, Loader2, LogOut, Package, Save, Ticket, Users, CheckCircle2, Clock, AlertCircle, MessageCircle, Truck, Wallet, X } from "lucide-react";
 import { toast } from "sonner";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -42,7 +42,31 @@ type CustomerOrder = {
   envioecomStatusHistory?: TrackingEvent[];
 };
 
-type AccountSection = "orders" | "affiliate" | "raffle";
+type AccountSection = "orders" | "affiliate" | "raffle" | "wallet";
+
+type WalletEntry = {
+  id: string;
+  orderId: string | null;
+  type: string;
+  amount: number;
+  note: string | null;
+  createdAt: string;
+};
+
+function walletTypeLabel(type: string): string {
+  switch (type) {
+    case "insurance_cashback":
+      return "Cashback do seguro";
+    case "product_refund":
+      return "Estorno do produto";
+    case "store_credit_use":
+      return "Usado no pedido";
+    case "admin_adjust":
+      return "Ajuste da loja";
+    default:
+      return type;
+  }
+}
 
 type AffiliateDashboardResponse = {
   summary: {
@@ -232,6 +256,8 @@ export default function CustomerOrders() {
   const [activeSection, setActiveSection] = useState<AccountSection>("orders");
   const [affiliateLoading, setAffiliateLoading] = useState(true);
   const [affiliateData, setAffiliateData] = useState<AffiliateDashboardResponse | null>(null);
+  const [walletAvailable, setWalletAvailable] = useState(0);
+  const [walletEntries, setWalletEntries] = useState<WalletEntry[]>([]);
   const [pixelIdInput, setPixelIdInput] = useState("");
   const [isSavingPixel, setIsSavingPixel] = useState(false);
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
@@ -258,16 +284,19 @@ export default function CustomerOrders() {
       }
 
       try {
-        const [ordersRes, affiliateRes] = await Promise.all([
+        const [ordersRes, affiliateRes, walletRes] = await Promise.all([
           fetch(`${BASE}/api/me/orders`, {
             headers: getCustomerAuthHeaders(),
           }),
           fetch(`${BASE}/api/me/affiliate/dashboard`, {
             headers: getCustomerAuthHeaders(),
           }),
+          fetch(`${BASE}/api/me/wallet`, {
+            headers: getCustomerAuthHeaders(),
+          }),
         ]);
 
-        if (ordersRes.status === 401 || affiliateRes.status === 401) {
+        if (ordersRes.status === 401 || affiliateRes.status === 401 || walletRes.status === 401) {
           clearCustomerToken();
           if (active) setLocation("/login");
           return;
@@ -280,6 +309,10 @@ export default function CustomerOrders() {
         const ordersData = (await ordersRes.json()) as { orders?: CustomerOrder[] };
         const affiliatePayload = affiliateRes.ok
           ? ((await affiliateRes.json()) as AffiliateDashboardResponse)
+          : null;
+
+        const walletPayload = walletRes.ok
+          ? ((await walletRes.json()) as { availableCredit?: number; entries?: WalletEntry[] })
           : null;
 
         const normalizedAffiliatePayload = affiliatePayload
@@ -299,6 +332,8 @@ export default function CustomerOrders() {
 
         setProfileName(profile.name);
         setOrders(ordersData.orders || []);
+        setWalletAvailable(Number(walletPayload?.availableCredit || 0));
+        setWalletEntries(Array.isArray(walletPayload?.entries) ? walletPayload.entries : []);
         setAffiliateData(normalizedAffiliatePayload);
         setPixelIdInput(normalizedAffiliatePayload?.affiliate?.facebookPixelId || "");
       } catch {
@@ -527,6 +562,14 @@ export default function CustomerOrders() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => setActiveSection("wallet")}
+                  className={`flex items-center gap-2 min-w-fit lg:min-w-0 px-3 py-2 rounded-xl text-sm font-medium transition-colors ${activeSection === "wallet" ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-muted"}`}
+                >
+                  <Wallet className="w-4 h-4" />
+                  Saldo do seguro
+                </button>
+                <button
+                  type="button"
                   onClick={() => setActiveSection("affiliate")}
                   className={`flex items-center gap-2 min-w-fit lg:min-w-0 px-3 py-2 rounded-xl text-sm font-medium transition-colors ${activeSection === "affiliate" ? "bg-primary text-primary-foreground" : "text-foreground hover:bg-muted"}`}
                 >
@@ -550,8 +593,8 @@ export default function CustomerOrders() {
                   <h2 className="font-semibold text-foreground mb-4">Seus pedidos</h2>
                   
                   {/* Summary Cards */}
-                  {!loading && orders.length > 0 && (
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+                  {!loading && (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
                       <div className="rounded-xl border border-border p-3 bg-slate-50/60">
                         <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Total de pedidos</p>
                         <p className="text-2xl font-bold text-foreground mt-1">{orders.length}</p>
@@ -574,6 +617,15 @@ export default function CustomerOrders() {
                           {orders.filter((o) => o.status === "pending" || o.status === "awaiting_payment").length}
                         </p>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveSection("wallet")}
+                        className="rounded-xl border border-emerald-200 p-3 bg-emerald-50/70 text-left hover:border-emerald-300 transition-colors"
+                      >
+                        <p className="text-xs text-emerald-800 uppercase tracking-wide font-medium">Saldo do seguro</p>
+                        <p className="text-2xl font-bold text-emerald-700 mt-1">{formatCurrency(walletAvailable)}</p>
+                        <p className="text-[11px] text-emerald-800/80 mt-1">Usar no próximo pedido</p>
+                      </button>
                     </div>
                   )}
                   {loading ? (
@@ -808,6 +860,44 @@ export default function CustomerOrders() {
                     </div>
                   )}
                 </>
+              )}
+
+              {activeSection === "wallet" && (
+                <div>
+                  <h2 className="font-semibold text-foreground mb-4">Saldo do seguro</h2>
+                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5 mb-4">
+                    <p className="text-xs uppercase tracking-wide text-emerald-800 font-medium">Disponível para a próxima compra</p>
+                    <p className="text-3xl font-bold text-emerald-800 mt-1">{formatCurrency(walletAvailable)}</p>
+                    <p className="text-sm text-emerald-900/80 mt-2">
+                      Entra o cashback do seguro completo na entrega. No checkout, com a conta logada, dá para abater o pedido.
+                    </p>
+                    <Link href="/checkout" className="inline-block mt-3 text-sm font-semibold text-primary hover:underline">
+                      Ir para o checkout
+                    </Link>
+                  </div>
+                  {walletEntries.length === 0 ? (
+                    <div className="py-10 text-center border border-dashed border-border rounded-2xl">
+                      <Wallet className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+                      <p className="font-semibold text-foreground">Nenhum movimento ainda</p>
+                      <p className="text-sm text-muted-foreground mt-1">Quando o pedido com seguro completo for entregue, o saldo aparece aqui.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {walletEntries.map((entry) => (
+                        <div key={entry.id} className="flex items-start justify-between gap-3 rounded-xl border border-border bg-white p-4">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-foreground">{walletTypeLabel(entry.type)}</p>
+                            {entry.note && <p className="text-xs text-muted-foreground mt-0.5">{entry.note}</p>}
+                            <p className="text-xs text-muted-foreground mt-1">{formatDateBR(entry.createdAt)}</p>
+                          </div>
+                          <p className={`text-sm font-bold shrink-0 ${entry.amount >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
+                            {entry.amount >= 0 ? "+" : ""}{formatCurrency(entry.amount)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
 
               {activeSection === "affiliate" && (

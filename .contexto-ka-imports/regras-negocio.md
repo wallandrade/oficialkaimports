@@ -1,13 +1,13 @@
 # Regras de negócio — KA Imports
 
-> **Última atualização:** 2026-09-02  
+> **Última atualização:** 2026-09-03  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
-| 2026-09-02 | Checkout 100%: boxes Chegou certo / Não chegou com valores do pedido | Só UI do card selecionado | Preço, snapshot e API iguais |
+| 2026-09-03 | Minha conta mostra saldo do seguro (card + aba Carteira) | Cliente vê cashback/estorno/uso; checkout continua abatendo | API `/api/me/wallet` igual |
 | 2026-09-02 | Aba Seguro no admin da filial (`isPrimary \|\| tenant ≠ loja1`) | Filial configura o próprio %/textos/produtos | Checkout/Cupons continuam primary; seller-scoped da loja 1 sem a aba |
 | 2026-09-02 | Cards do seguro no checkout: reduzido em cima, completo embaixo | Prévia do Admin usa os mesmos cards | Planos e preço iguais |
 | 2026-09-02 | Seguro em 3 estados (`none`/`reduced`/`full`); base = subtotal **sem** frete/cupom; carteira própria; sinistro extravio/apreensão | Checkout, create PIX/cartão/WhatsApp, aba Admin Seguro, chamados e entrega EnvioEcom | Afiliado; Motoboy “marcar enviado” não credita; carrinho misto 20%/54% ainda sem testes dedicados |
@@ -171,7 +171,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 
 ## Cliente final
 
-- Carteira do cliente: `GET /api/me/wallet` (Bearer). Admin: `GET /api/admin/wallet/:userId`; ajuste `POST /api/admin/wallet/adjust` só `hasGlobalAccess`.
+- Carteira do cliente: `GET /api/me/wallet` (Bearer). Na Minha conta (`/minha-conta/pedidos`) o card **Saldo do seguro** e o menu **Saldo do seguro** listam disponível + movimentos. Checkout logado abate com `useStoreCredit`. Admin: `GET /api/admin/wallet/:userId`; ajuste `POST /api/admin/wallet/adjust` só `hasGlobalAccess`.
 - Chamados (`POST /api/support/tickets`): `problemType` `missing_items` | `extravio` | `apreensao` + `insuranceChoice` `choose_reship` | `choose_refund` no full. Admin: reenviar (filho) e `POST .../insurance-refund` (subtotal na carteira).
 - Conta: `/login`, `/minha-conta/pedidos` (customer auth Bearer in-memory no processo do server). O card de Meus pedidos mostra `orderNumber` (#1831), não o UUID; fallback no `id` só se não houver número. WhatsApp de suporte do card usa o mesmo número. APIs de tracking/detalhe continuam com `id`.
 - Rastreio EnvioEcom na Minha conta: a **Situação** traduz o `envioecomStatus` só na tela (`toCustomerFriendlyShippingLabel`): Pronto para envio / etiqueta / processando / DC-e / envio criado / aguardando postagem → “Estamos embalando seu pedido” + hint “Em breve ele será despachado…”. Aguardando pagamento → “Preparando envio”; saiu para entrega/em rota → “Saiu para entrega”; entregue → “Entregue”. O bloco **Rastreio** usa a mesma timeline em linha do painel admin (`ShippingStatusTimeline`: bolinha, check em Entregue/DC-e, relógio). Eventos do `status_history` ficam com o texto técnico (`location` e descrição), **mais recente no topo**. `POST /api/me/orders/tracking-sync` ao abrir a lista e a cada ~2 min nos abertos; botão Atualizar rastreio chama `GET /api/me/orders/:id/tracking`. Admin e colunas `envioecom_*` continuam com o status técnico.
