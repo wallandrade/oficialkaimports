@@ -3,7 +3,6 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import { formatCurrency } from "@/lib/utils";
 import {
   parseInsuranceSettingsFromMap,
@@ -18,6 +17,32 @@ type ProductOption = { id: string; name: string };
 function settingOn(value: string | undefined, fallback = true) {
   if (value == null || value === "") return fallback;
   return !["0", "false", "off", "no", "disabled"].includes(String(value).trim().toLowerCase());
+}
+
+function NativeSwitch({
+  checked,
+  onCheckedChange,
+}: {
+  checked: boolean;
+  onCheckedChange: (next: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onCheckedChange(!checked)}
+      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors ${
+        checked ? "bg-primary" : "bg-input"
+      }`}
+    >
+      <span
+        className={`pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg transition-transform ${
+          checked ? "translate-x-4" : "translate-x-0"
+        }`}
+      />
+    </button>
+  );
 }
 
 export function AdminInsurancePanel({
@@ -168,7 +193,7 @@ export function AdminInsurancePanel({
             <h2 className="text-xl font-bold">Seguro de envio</h2>
             <p className="text-sm text-muted-foreground mt-1">O que o cliente vê no checkout tem que ser o que o pedido grava.</p>
           </div>
-          <Switch checked={enabled} onCheckedChange={setEnabled} />
+          <NativeSwitch checked={enabled} onCheckedChange={setEnabled} />
         </div>
         <div className={`rounded-lg px-3 py-2 text-sm ${enabled ? "bg-emerald-50 text-emerald-800" : "bg-muted text-muted-foreground"}`}>
           {statusText}
@@ -178,7 +203,7 @@ export function AdminInsurancePanel({
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold">Seguro reduzido (só extravio/roubo)</p>
-              <Switch checked={reducedEnabled} onCheckedChange={setReducedEnabled} />
+              <NativeSwitch checked={reducedEnabled} onCheckedChange={setReducedEnabled} />
             </div>
             <Input value={reducedLabel} onChange={(e) => setReducedLabel(e.target.value)} placeholder="Título" />
             <textarea
@@ -190,7 +215,7 @@ export function AdminInsurancePanel({
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold">Seguro completo</p>
-              <Switch checked={fullEnabled} onCheckedChange={setFullEnabled} />
+              <NativeSwitch checked={fullEnabled} onCheckedChange={setFullEnabled} />
             </div>
             <Input value={fullLabel} onChange={(e) => setFullLabel(e.target.value)} placeholder="Título" />
             <textarea

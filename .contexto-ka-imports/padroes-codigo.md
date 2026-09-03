@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-02 | Anti-padrão: Radix `Switch` na aba Seguro (React 19 #185, loop de ref) | Toggle nativo no painel | Toggles Lucide do resto do admin iguais |
 | 2026-09-02 | Anti-padrão: 10% pós-cupom, gravar `insuranceAmount` do front, dois planos juntos, ou creditar carteira no “marcar enviado” | `resolveCheckoutInsurance`; carteira ≠ afiliado; cashback só entregue EE | `shipping-insurance.ts` legado não volta no create |
 | 2026-09-01 | Anti-padrão: mandar `orders.id`/`orderNumber` em `orderId` da Yury; decrementar `yury_inventory_balances` no POST; debitar Fóz junto com Motoboy/Minas | Exit só `pool`+`items[]`+`referenceId`; espelho via webhook/snapshot | Snapshot e `/api/admin/inventory` deles continuam proibidos |
 | 2026-08-31 | Anti-padrão: esperar Cancelado na EE, reusar o mesmo orderId/8880, ou casar webhook por prefixo `{n}-` / UUID | Detach na hora + `buildNextExternalOrderNumber` + match exato | `enviado`/estoque iguais |
@@ -177,7 +178,7 @@ Código > memória > suposições.
 - Forçar o match automático quando o nome no extrato é de outra pessoa; usar **Buscar no extrato** e Vincular ao nº (`clear` se já houver vínculo). Valor diferente no vínculo manual exige motivo (`amountMismatchNote`); não recusar só com toast. Lote / `confirmed_100` continuam valor igual.
 - Recusar Vincular no Extrato só porque o valor do PIX ≠ total do pedido, sem pedir observação. Apply `ok` aceita `amountMismatchNote` (≥3, máx 500) e anexa em `orders.observation`; `confirmed_100` recusa valor diferente. Motivo só se a **soma** dos PIX do pedido ainda ≠ total.
 - Substituir o depósito anterior ao vincular um 2º PIX no mesmo pedido. Vários FITIDs em `order_bank_deposits`; `orders.bank_deposit_amount` é a soma. FITID continua único no banco.
-- Usar Radix `Dialog` no Extrato/admin com React 19: gera `Minified React error #185` (loop de ref). Modal de motivo usa overlay `fixed` como EnvioEcom.
+- Usar Radix `Dialog`/`Switch` no Extrato/admin com React 19: gera `Minified React error #185` (loop de ref no `composeRefs`). Modal de motivo usa overlay `fixed` como EnvioEcom. Aba Seguro usa toggle nativo (`role="switch"`), não `@/components/ui/switch`.
 - Tratar score 100% só como “nome igual”; se o CPF/CNPJ do pedido (`11`/`14` dígitos) aparecer no NAME/MEMO do crédito, o score é 1.0.
 - Abrir pedido do Extrato/Depósitos só com `setSearch(id)` enquanto o filtro de data é “hoje”; a API não traz pedido antigo. Usar `goToOrder` (intervalo da data do pedido → hoje, ou 365 dias).
 - Desfazer depósito alterando `status`/`paid` ou apagando o pedido; `POST .../clear` remove linhas em `order_bank_deposits` (um `fitid` ou todos) e ressincroniza `bank_deposit_*`.
