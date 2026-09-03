@@ -728,7 +728,9 @@ import { Button } from "@/components/ui/button";
 import { AnimatePresence, motion } from "framer-motion";
 import { formatCurrency, formatDateOnlyBR } from "@/lib/utils";
 import { parseInsuranceSettingsFromMap, resolveCheckoutInsurance } from "@/lib/checkout-insurance";
+import { parseMotoboyDistanceEnabled } from "@/lib/motoboy-distance-config";
 import { AdminInsurancePanel } from "@/components/admin/AdminInsurancePanel";
+import { MotoboyDistanceCard } from "@/components/admin/MotoboyDistanceCard";
 import { downloadFilialPurchasePdf, openFilialPurchasePdfInBrowser } from "@/lib/generateFilialPurchasePdf";
 import { generateChargePdf, generateOrderPdf } from "@/lib/generateOrderPdf";
 import { AdminLayout } from "@/components/layout/AdminLayout";
@@ -20694,6 +20696,7 @@ function FretePanel({
       setEligibleDraft([]);
     }
   }, [settings]);
+  const kmModeEnabled = parseMotoboyDistanceEnabled(settings["motoboy_distance_enabled"]);
   const formatCepRangeValue = (value: number) => String(value).padStart(8, "0").replace(/^(\d{5})(\d{3})$/, "$1-$2");
 
   const startEdit = (o: ShippingOption) => {
@@ -20812,6 +20815,12 @@ function FretePanel({
           Salvar produtos Motoboy
         </Button>
       </div>
+
+      <MotoboyDistanceCard
+        settings={settings}
+        loading={settingsLoading}
+        onSave={onSaveSetting}
+      />
 
       {/* Add new frete */}
       <div className="bg-white rounded-2xl shadow-sm border border-border p-6">
@@ -20968,17 +20977,23 @@ function FretePanel({
         </ul>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-border p-6">
+      <div className={`bg-white rounded-2xl shadow-sm border border-border p-6 ${kmModeEnabled ? "opacity-60" : ""}`}>
         <h3 className="font-semibold text-base flex items-center gap-2">
           <Bike className="w-4 h-4 text-primary" />
           Entrega por Motoboy — Bairros Atendidos
         </h3>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {yuryCoverageConfigured
-            ? "Lista espelhada da Yury. Checkout usa estes bairros."
-            : "Cadastre o nome exatamente como a ViaCEP retorna para liberar esta opção no checkout."}
-        </p>
-        {!yuryCoverageConfigured && (
+        {kmModeEnabled ? (
+          <p className="mt-1 text-xs text-amber-800 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+            Motoboy por km está ligado: estes bairros <strong>não entram no checkout</strong>. Desligue o km acima para voltar a cobrar por bairro.
+          </p>
+        ) : (
+          <p className="mt-1 text-xs text-muted-foreground">
+            {yuryCoverageConfigured
+              ? "Lista espelhada da Yury. Checkout usa estes bairros só com km desligado."
+              : "Cadastre o nome exatamente como a ViaCEP retorna para liberar esta opção no checkout."}
+          </p>
+        )}
+        {!yuryCoverageConfigured && !kmModeEnabled && (
         <>
         <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
@@ -21048,7 +21063,7 @@ function FretePanel({
         )}
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-border overflow-hidden">
+      <div className={`bg-white rounded-2xl shadow-sm border border-border overflow-hidden ${kmModeEnabled ? "opacity-60" : ""}`}>
         <div className="px-6 py-4 border-b">
           <h3 className="font-semibold text-base flex items-center gap-2">
             <MapPin className="w-4 h-4 text-primary" />
@@ -21104,7 +21119,7 @@ function FretePanel({
                       {neighborhood.notes ? <p className="text-xs text-muted-foreground mt-1">{neighborhood.notes}</p> : null}
                       <p className="text-lg font-bold text-primary mt-1">{formatCurrency(Number(neighborhood.price))} · {neighborhood.intervalHours || 1}h</p>
                     </div>
-                    {!yuryCoverageConfigured && (
+                    {!yuryCoverageConfigured && !kmModeEnabled && (
                     <div className="flex items-center gap-1 shrink-0">
                       <button onClick={() => onUpdateMotoboy(neighborhood.id, { isActive: !neighborhood.isActive })} disabled={motoboyUpdating === neighborhood.id} className="text-muted-foreground hover:text-primary transition-colors p-1.5" title={neighborhood.isActive ? "Desativar" : "Ativar"}>
                         {neighborhood.isActive ? <IconLucide name="ToggleRight" className="w-5 h-5 text-green-600" /> : <ToggleLeft className="w-5 h-5" />}
@@ -21129,7 +21144,9 @@ function FretePanel({
           Faixas de CEP (Fallback)
         </h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          Usadas quando o sub-bairro retornado pela ViaCEP não corresponde a um bairro cadastrado.
+          {kmModeEnabled
+            ? "Com km ligado, a faixa só entra se o CEP não tiver coordenadas. Acima de 200 km o Motoboy some e não cai nesta faixa."
+            : "Usadas quando o sub-bairro retornado pela ViaCEP não corresponde a um bairro cadastrado."}
         </p>
         {!yuryCoverageConfigured && (
         <>

@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-09-02  
+> **Última atualização:** 2026-09-03  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-03 | `GET /api/motoboy-coverage/lookup` + libs `motoboy-distance` / `motoboy-geocode` | Cotação km no api-server; settings `motoboy_distance_*` | Stack FE/API/DB; reservas e espelho Yury iguais |
 | 2026-09-02 | Colunas de seguro no pedido + `customer_wallet_ledger` + `support_tickets.problem_type`/`insurance_choice` | Snapshot no create; carteira; sinistro no pai | Stack FE/API; crédito de afiliado inalterado |
 | 2026-09-01 | `inventory_exit_pool` / `inventory_exited_pools` + POST baixa no pedido | Seletor Fóz/Motoboy/Minas no card | Espelho e job 3 min iguais |
 | 2026-08-30 | Tabela `yury_inventory_balances` + job 3 min + webhook `/api/webhooks/yury/inventory` | Espelho Motoboy/Minas da Yury | `inventory_balances` e cobertura Motoboy inalterados |
@@ -70,6 +71,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 - Entry: `artifacts/api-server/src/index.ts` → `app.ts` → `routes/index.ts`.
 - Health: `GET /healthz`.
 - Jobs no boot: reconciliação (expiração 24h), raffle expiry, reconcile logistics, pull de cobertura Motoboy Yury (15 min, se token), pull de estoque Motoboy/Minas Yury (3 min, se token).
+- Checkout Motoboy: `GET /api/motoboy-coverage/lookup` (público, por tenant). Geocode BrasilAPI só no servidor (`motoboy-geocode.ts`). Settings de km em `ALLOWED_KEYS`, fora de `PUBLIC_KEYS`.
 - Webhook cobertura Motoboy: `POST /api/webhooks/yury/motoboy-coverage` (body cru + HMAC) **antes** de `express.json()`.
 - Webhook estoque Yury: `POST /api/webhooks/yury/inventory` (mesmo HMAC; grava `balances`, não o delta).
 - Baixa no pedido: `POST /api/admin/orders/:id/inventory-exit` (Fóz local ou Yury Motoboy/Minas) a partir do card; `ensureOrderMarkedEnviado` usa o pool salvo.

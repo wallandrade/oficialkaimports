@@ -1,12 +1,13 @@
 # Integrações externas — KA Imports
 
-> **Última atualização:** 2026-09-01  
+> **Última atualização:** 2026-09-03  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-03 | Cotação Motoboy por km via BrasilAPI (`cep/v2`) no servidor | Lookup único; ViaCEP no FE só endereço | Webhook/pull de bairro/faixa e estoque Yury iguais |
 | 2026-09-01 | `POST /admin/orders/:id/inventory-exit` + seletor de pool no card | Baixa Fóz local ou Motoboy/Minas na Yury à escolha | Token, snapshot, `referenceId` sem `orderId` |
 | 2026-08-31 | Cancel EE desvincula o pedido na hora; create gera orderId novo; webhook só casa IDs exatos do envio atual | Sem `DUPLICATE_ORDER` no reenvio; 8880 antigo não reatacha | Token, contas e `enviado`/estoque iguais |
 | 2026-08-31 | `hasEnvioEcomLabelReady` aceita status **Etiqueta gerada** (API EnvioEcom) | Create/sync/webhook promovem o card sem PDF no R2 | `enviado` só na coleta; Etiqueta EE/PDF inalterados |
@@ -97,6 +98,7 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 - Webhook: `POST /api/webhooks/yury/motoboy-coverage` e `POST /webhooks/yury/motoboy-coverage`. Body **cru** + `X-Yury-Signature: sha256=<hmac>` + timestamp ≤ 5 min (`YURY_MOTOBOY_WEBHOOK_SECRET`). Idempotência em `yury_webhook_events_processed`.
 - Eventos: `motoboy.neighborhood|cep_range.upserted|deactivated|deleted` e `motoboy.coverage.full_sync_requested`.
 - Com token configurado, CRUD local de bairro/faixa retorna 409 `YURY_COVERAGE_LOCKED`. Seed Motoboy é pulado no boot.
+- Preço por km **não** vem da Yury: settings locais `motoboy_distance_enabled` / `_origin_cep` / `_distance_config`. Com km ligado o checkout ignora o preço dos bairros espelhados.
 - **Não inclui:** propostas de bairro (fase 2), portal de preço, agenda, last-mile.
 
 ## Estoque Motoboy / Minas (Yury → KA)
@@ -114,6 +116,7 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 ## Geo / IP
 
 - Lookup IP no checkout/pedidos (`lib/ip-geo.ts`) — campos `purchaseIp`, `ipCity`, etc. no pedido.
+- Motoboy km: `GET https://brasilapi.com.br/api/cep/v2/{cep8}` no servidor (`motoboy-geocode.ts`); cache acerto 24h / erro 1h; timeout 5s. ViaCEP no checkout não geocoda.
 
 ## Notificações realtime
 

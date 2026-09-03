@@ -27,6 +27,7 @@ import {
   type InsurancePlan,
 } from "@/lib/checkout-insurance";
 import { CheckoutInsuranceOffer } from "@/components/checkout/CheckoutInsuranceOffer";
+import { coverageToShippingOption, fetchMotoboyCoverage } from "@/lib/motoboy-coverage";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const LANDER_GOLD_MIN_QTY = 5;
@@ -239,7 +240,8 @@ export default function Checkout() {
   const [paymentMethods, setPaymentMethods] = useState({ pix: true, card: true, whatsapp: false });
   const [checkoutMode, setCheckoutMode] = useState<"standard" | "fast">("standard");
   const [checkoutModeLoaded, setCheckoutModeLoaded] = useState(false);
-  const [fastLookupStatus, setFastLookupStatus] = useState<"idle" | "checking" | "motoboy" | "unsupported">("idle");
+  const [fastLookupStatus, setFastLookupStatus] = useState<"idle" | "checking" | "motoboy" | "unsupported" | "consult">("idle");
+  const [motoboyConsultHint, setMotoboyConsultHint] = useState(false);
   const [fastWhatsappOpening, setFastWhatsappOpening] = useState(false);
   const [freeShippingMinSubtotal, setFreeShippingMinSubtotal] = useState<number | null>(null);
   const [freeShippingMinMotoboy, setFreeShippingMinMotoboy] = useState<number | null>(null);
@@ -1030,12 +1032,14 @@ export default function Checkout() {
     if (rawCep.length < 8) {
       setCepCity("");
       setFastLookupStatus("idle");
+      setMotoboyConsultHint(false);
       setMotoboyShippingOption(null);
       setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
     }
     if (rawCep.length === 8) {
       setCepCity("");
       setFastLookupStatus("checking");
+      setMotoboyConsultHint(false);
       setCepLoading(true);
       try {
         const res = await fetch(`https://viacep.com.br/ws/${rawCep}/json/`);
@@ -1058,65 +1062,21 @@ export default function Checkout() {
             toast.info("CEP encontrado, mas sem rua cadastrada. Preencha o endereço manualmente.");
           }
           try {
-            let option: ShippingOption | null = null;
-            if (data.bairro) {
-              const lookupParams = new URLSearchParams({ bairro: data.bairro });
-              if (data.localidade) lookupParams.set("cidade", data.localidade);
-              const lookupRes = await fetch(`${BASE}/api/motoboy-neighborhoods/lookup?${lookupParams}`);
-              const lookupData = await lookupRes.json() as {
-                neighborhood?: {
-                  id: string;
-                  neighborhoodName: string;
-                  price: string | number;
-                  sortOrder: number;
-                  notes?: string | null;
-                } | null;
-              };
-              const neighborhood = lookupRes.ok ? lookupData.neighborhood : null;
-              if (neighborhood) {
-                option = {
-                  id: `motoboy_${neighborhood.id}`,
-                  name: "Motoboy",
-                  description: neighborhood.notes || `Entrega em ${neighborhood.neighborhoodName}`,
-                  price: Number(neighborhood.price),
-                  sortOrder: neighborhood.sortOrder,
-                  isActive: true,
-                  motoboyAreaId: neighborhood.id,
-                  motoboyAreaType: "neighborhood",
-                };
-              }
-            }
+            const coverage = await fetchMotoboyCoverage(BASE, {
+              cep: rawCep,
+              bairro: data.bairro ?? "",
+              cidade: data.localidade ?? "",
+            });
 
-            if (!option) {
-              const rangeParams = new URLSearchParams({ cep: rawCep, cidade: data.localidade || "" });
-              const rangeRes = await fetch(`${BASE}/api/motoboy-cep-ranges/lookup?${rangeParams}`);
-              const rangeData = await rangeRes.json() as {
-                cepRange?: {
-                  id: string;
-                  label: string;
-                  price: string | number;
-                  intervalHours: number;
-                  sortOrder: number;
-                  notes?: string | null;
-                } | null;
-              };
-              const cepRange = rangeRes.ok ? rangeData.cepRange : null;
-              if (cepRange) {
-                option = {
-                  id: `motoboy_range_${cepRange.id}`,
-                  name: "Motoboy",
-                  description: cepRange.notes || `Entrega em ${cepRange.label}`,
-                  price: Number(cepRange.price),
-                  sortOrder: cepRange.sortOrder,
-                  isActive: true,
-                  motoboyAreaId: cepRange.id,
-                  motoboyAreaType: "cepRange",
-                };
-              }
-            }
-
-            if (option) {
+            if (coverage.consult) {
+              setMotoboyShippingOption(null);
+              setMotoboyConsultHint(true);
+              setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
+              setFastLookupStatus("consult");
+            } else if (coverage.match) {
+              const option = coverageToShippingOption(coverage.match);
               setMotoboyShippingOption(option);
+              setMotoboyConsultHint(false);
               if (checkoutMode === "fast" && isCartMotoboyEligible) setSelectedShippingId(option.id);
               if (checkoutMode === "fast" && !isCartMotoboyEligible) {
                 setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
@@ -1124,23 +1084,27 @@ export default function Checkout() {
               setFastLookupStatus("motoboy");
             } else {
               setMotoboyShippingOption(null);
+              setMotoboyConsultHint(false);
               setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
               setFastLookupStatus("unsupported");
             }
           } catch {
             setMotoboyShippingOption(null);
+            setMotoboyConsultHint(false);
             setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
             setFastLookupStatus("idle");
             toast.error("Erro ao consultar a disponibilidade do motoboy. Tente novamente.");
           }
         } else {
           setFastLookupStatus("idle");
+          setMotoboyConsultHint(false);
           setMotoboyShippingOption(null);
           setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
           toast.error("CEP não encontrado. Preencha o endereço manualmente.");
         }
       } catch {
         setFastLookupStatus("idle");
+        setMotoboyConsultHint(false);
         setMotoboyShippingOption(null);
         setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
         toast.error("Erro ao consultar CEP. Preencha o endereço manualmente.");
@@ -1842,7 +1806,7 @@ export default function Checkout() {
         </button>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12">
-          {checkoutMode === "fast" && fastLookupStatus !== "motoboy" ? (
+          {checkoutMode === "fast" && fastLookupStatus !== "motoboy" && fastLookupStatus !== "consult" ? (
             <div className="lg:col-span-12 mx-auto w-full max-w-3xl">
               <div className="border border-border bg-card p-6 shadow-sm sm:p-8">
                 <div className="mb-6 flex items-center gap-3">
@@ -2346,6 +2310,11 @@ export default function Checkout() {
                           <p className="font-bold text-foreground flex items-center gap-2">
                             {opt.id.startsWith("motoboy_") ? <Bike className="w-4 h-4" /> : <Truck className="w-4 h-4" />}
                             {opt.name}
+                            {opt.id.startsWith("motoboy_") && (
+                              <span className="text-xs font-normal px-1.5 py-0.5 bg-orange-100 text-orange-700 rounded-full">
+                                {opt.id === "motoboy_dist" ? "Por km" : "Seu bairro"}
+                              </span>
+                            )}
                           </p>
                           {opt.description && (
                             <p className="text-sm text-muted-foreground mt-1">{opt.description}</p>
@@ -2359,6 +2328,11 @@ export default function Checkout() {
                       </div>
                     ))}
                   </div>
+                )}
+                {motoboyConsultHint && (
+                  <p className="text-xs text-amber-800 mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                    Motoboy acima de 200 km neste CEP — consulte pessoalmente. O frete padrão da loja continua disponível.
+                  </p>
                 )}
                 {isMotoboySelected && (
                   <div className="mt-4 border border-emerald-200 bg-emerald-50/70 rounded-xl p-4 space-y-4">

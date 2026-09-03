@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-09-02  
+> **Última atualização:** 2026-09-03  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-03 | Anti-padrão: lookup Motoboy bairro→faixa no FE; geocode no browser; misturar centro R$ 50 com até 10 km; faixa CEP após consult >200 km | `GET /motoboy-coverage/lookup`; km XOR bairro; id slot `dist` | Frete padrão e sync Yury de cobertura |
 | 2026-09-02 | Anti-padrão: Radix `Switch` na aba Seguro (React 19 #185, loop de ref) | Toggle nativo no painel | Toggles Lucide do resto do admin iguais |
 | 2026-09-02 | Anti-padrão: 10% pós-cupom, gravar `insuranceAmount` do front, dois planos juntos, ou creditar carteira no “marcar enviado” | `resolveCheckoutInsurance`; carteira ≠ afiliado; cashback só entregue EE | `shipping-insurance.ts` legado não volta no create |
 | 2026-09-01 | Anti-padrão: mandar `orders.id`/`orderNumber` em `orderId` da Yury; decrementar `yury_inventory_balances` no POST; debitar Fóz junto com Motoboy/Minas | Exit só `pool`+`items[]`+`referenceId`; espelho via webhook/snapshot | Snapshot e `/api/admin/inventory` deles continuam proibidos |
@@ -139,6 +140,10 @@ Código > memória > suposições.
 - Cadastrar bairro/faixa Motoboy neste repo como fonte da verdade quando `YURY_MOTOBOY_SYNC_TOKEN` está setado (espelho Yury; CRUD local 409).
 - Somar Motoboy + Minas, gravar esses saldos em `inventory_balances`, aplicar `quantityDelta` do webhook Yury, puxar estoque deles em `/api/admin/inventory/...`, ou mandar o uuid/`orderNumber` do KA no campo `orderId` da Yury (usar `POST /api/integrations/inventory/exit` com `referenceId` = `orders.id`; `orderId` só se for pedido da Yury). Não decrementar `yury_inventory_balances` no POST — webhook `balances` ou snapshot. Não debitar Fóz quando o pool do pedido é Motoboy/Minas.
 - Exigir cidade da faixa CEP igual à ViaCEP para mostrar Motoboy (CEP na faixa já libera; cidade só desempata).
+- Lookup Motoboy em duas chamadas no frontend (bairro depois faixa). Usar `GET /api/motoboy-coverage/lookup`. Km e bairro são XOR (`shouldLookupNeighborhoods = !distanceEnabled`).
+- Geocodar CEP no browser ou usar Nominatim no fluxo Motoboy (BrasilAPI só no servidor). Settings `motoboy_distance_*` não entram em `PUBLIC_KEYS`.
+- Misturar centro R$ 50 com a faixa “até 10 km” (R$ 70), ou cair na faixa CEP depois de `consult` (>200 km).
+- Criar um `neighborhood_id` diferente por km; cotação por distância usa sempre `"dist"`.
 - Gerar etiqueta EnvioEcom com barcode provisório `EC…` (usar `shipping_id` / `ids`).
 - Cachear token EnvioEcom só por `tenantId` com N contas (login A vira B). Chave = `tenantId:accountId`.
 - Gravar extras EnvioEcom misturando a conta `env` no JSON; env = Railway, painel só cria extras. CEP origem é da conta, não um setting global de quote/create.

@@ -54,7 +54,11 @@ const ALLOWED_KEYS = [
   "outbound_webhook_event_new_order",
   "outbound_webhook_event_order_paid",
   // Admin helpers
-  "admin_saved_brands"
+  "admin_saved_brands",
+  // Motoboy por km (só API de lookup; não são públicas)
+  "motoboy_distance_enabled",
+  "motoboy_origin_cep",
+  "motoboy_distance_config",
 ];
 
 const IMAGE_SETTING_KEYS = new Set([
