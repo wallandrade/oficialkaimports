@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatCurrency } from "@/lib/utils";
+import { CheckoutInsuranceOffer } from "@/components/checkout/CheckoutInsuranceOffer";
 import {
   parseInsuranceSettingsFromMap,
   resolveCheckoutInsurance,
@@ -254,12 +255,28 @@ export function AdminInsurancePanel({
           <p className="text-xs text-muted-foreground mt-1">{specialIds.length} produto(s) com % especial. Os demais usam o % padrão.</p>
         </div>
 
-        <div className="rounded-xl border border-border p-3 text-sm space-y-2">
+        <div className="rounded-xl border border-border p-3 text-sm space-y-3">
           <p className="font-semibold">Prévia no checkout</p>
-          <p className="whitespace-pre-line">{fullLabel}</p>
-          <p className="text-muted-foreground whitespace-pre-line">{fullDescription}</p>
-          <p className="whitespace-pre-line">{reducedLabel}</p>
-          <p className="text-muted-foreground whitespace-pre-line">{reducedDescription}</p>
+          <CheckoutInsuranceOffer
+            enabled={enabled}
+            selectedPlan="none"
+            onSelect={() => undefined}
+            isLoggedIn
+            hideIntro
+            showNoneWarning={false}
+            reducedOffer={enabled && reducedEnabled ? {
+              plan: "reduced",
+              amount: previewReduced.insuranceAmount,
+              label: reducedLabel,
+              description: reducedDescription,
+            } : null}
+            fullOffer={enabled && fullEnabled ? {
+              plan: "full",
+              amount: preview.insuranceAmount,
+              label: fullLabel,
+              description: fullDescription,
+            } : null}
+          />
           <p className="text-xs text-muted-foreground">
             Completo cobra {previewSettings.fullPercent}%{specialIds.length ? ` / ${previewSettings.specialPercent || 0}%` : ""} · reduzido cobra {previewSettings.reducedPercent}%
           </p>

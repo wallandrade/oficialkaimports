@@ -16,6 +16,8 @@ export function CheckoutInsuranceOffer({
   fullOffer,
   reducedOffer,
   isLoggedIn,
+  hideIntro = false,
+  showNoneWarning = true,
 }: {
   enabled: boolean;
   settings?: CheckoutInsuranceSettings;
@@ -24,6 +26,8 @@ export function CheckoutInsuranceOffer({
   fullOffer: Offer | null;
   reducedOffer: Offer | null;
   isLoggedIn: boolean;
+  hideIntro?: boolean;
+  showNoneWarning?: boolean;
 }) {
   if (!enabled || (!fullOffer && !reducedOffer)) return null;
 
@@ -32,11 +36,13 @@ export function CheckoutInsuranceOffer({
   };
 
   return (
-    <div className="pt-4 border-t border-border space-y-3">
-      <div>
-        <p className="font-bold text-foreground">Garantia de envio</p>
-        <p className="text-sm text-muted-foreground mt-0.5">Opcional. Escolha uma ou deixe sem.</p>
-      </div>
+    <div className={hideIntro ? "space-y-3" : "pt-4 border-t border-border space-y-3"}>
+      {!hideIntro && (
+        <div>
+          <p className="font-bold text-foreground">Garantia de envio</p>
+          <p className="text-sm text-muted-foreground mt-0.5">Opcional. Escolha uma ou deixe sem.</p>
+        </div>
+      )}
 
       <div className="space-y-2">
         {reducedOffer && (
@@ -91,7 +97,7 @@ export function CheckoutInsuranceOffer({
         )}
       </div>
 
-      {selectedPlan === "none" && (
+      {showNoneWarning && selectedPlan === "none" && (
         <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
           <p className="text-xs text-amber-800 flex items-start gap-1.5">
             <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
