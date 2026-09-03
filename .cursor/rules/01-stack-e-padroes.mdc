@@ -1,0 +1,20 @@
+---
+description: Stack real do monorepo KA Imports e anti-padrões
+alwaysApply: true
+---
+
+# Stack e padrões
+
+- pnpm monorepo; pacotes `@workspace/*`
+- FE: React 19 + Vite + Wouter + Zustand + TanStack Query + Tailwind/Radix → `artifacts/ka-imports`
+- API: Express 5 → `artifacts/api-server`
+- DB: **MySQL** + Drizzle → `lib/db` (não Postgres/Prisma)
+- Codegen: OpenAPI parcial + Orval → `lib/api-spec` (não editar `generated/` à mão)
+- Deploy típico: Vercel (FE) + Railway (API)
+
+## Anti-padrões
+
+- Não assumir Next/Nest/Prisma/Postgres
+- Não tratar `mockup-sandbox` como produção
+- Não reativar polling APPCNPay; confirmação PIX via webhook
+- Detalhes: `.contexto-ka-imports/padroes-codigo.md` e `arquitetura.md`

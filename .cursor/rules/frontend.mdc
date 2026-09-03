@@ -1,0 +1,15 @@
+---
+description: Convenções do frontend ka-imports (React/Vite)
+alwaysApply: false
+globs: artifacts/ka-imports/**/*.{ts,tsx,css}
+---
+
+# Frontend
+
+- Rotas: Wouter em `src/App.tsx`
+- Carrinho: Zustand persist `src/store/use-cart.ts`
+- UI: `src/components/ui` (Radix/shadcn-like)
+- API: preferir `@workspace/api-client-react` se o endpoint existir no OpenAPI; senão fetch manual como o admin já faz
+- SW `public/sw.js`: só notificações — não inventar offline sync
+- `Admin.tsx` é enorme: edite só a seção necessária
+- Não misturar código com `artifacts/mockup-sandbox`

@@ -1,0 +1,15 @@
+---
+description: Convenções do api-server Express
+alwaysApply: false
+globs: artifacts/api-server/**/*.ts
+---
+
+# Backend
+
+- Registrar rotas novas em `src/routes/` e em `routes/index.ts`
+- Tenant: `resolvePublicTenantId` / `adminScope.tenantId` + `build*TenantWhere` (legado null = loja1)
+- Auth admin: `requireAdminAuth` / `requirePrimaryAdmin` de `admin-auth.ts`
+- PIX: `gateway.ts` + webhook; expiração 24h em `reconciliation.ts` (sem polling de status)
+- Jobs: só adicionar no boot (`index.ts`) se necessário e alinhado aos existentes
+- Testes: padrão `node --test` + tsx quando o módulo já testa assim
+- Detalhes de negócio: `.contexto-ka-imports/regras-negocio.md` e `integracoes.md`

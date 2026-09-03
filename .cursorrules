@@ -1,0 +1,40 @@
+# KA Imports — regras globais do agente
+
+Monorepo pnpm: FE `artifacts/ka-imports`, API `artifacts/api-server`, DB `lib/db` (MySQL + Drizzle).
+
+## Precedência
+
+1. Código-fonte atual
+2. Memória viva em `.contexto-ka-imports/`
+3. Suposições do agente
+
+Se memória ≠ código → seguir o código e **atualizar a memória** na mesma sessão (ou no fechamento da tarefa).
+
+## Memória viva (ler + manter)
+
+- Sempre considerar: `.contexto-ka-imports/regras-negocio.md`, `arquitetura.md`, `padroes-codigo.md`
+- Auth/RBAC: `auth-permissoes.md`
+- Providers: `integracoes.md`
+- Hardening/ops: `seguranca-performance.md`
+- **Após mudanças relevantes no código: incrementar a memória viva** (changelog + corpo). Objetivo: código e contexto alinhados, menos retrabalho e menos repetição de erros.
+- **Pode pular** só se a mudança não alterar comportamento/arquitetura/domínio/segurança/integrações/padrões (ex.: typo cosmético, formatação, rename local sem impacto). Nesse caso, diga explicitamente que a memória não precisou de update.
+
+## Idioma e commits
+
+- Responder em **pt-BR**
+- **Nunca** commit sem pedido explícito do humano
+
+## Leitura seletiva (não abrir em toda tarefa)
+
+- `Admin.tsx`, `orders.ts` / `checkout.ts` inteiros
+- `lib/api-*/src/generated/**`
+- `*_ANALYSIS.md`, `*_CATALOG_*.md`, `PERFORMANCE_*.md`, `replit.md` (pode estar desatualizado)
+- `ka-imports-frontend-backup.zip`, `attached_assets/`, `node_modules/`, `dist/`
+- `artifacts/mockup-sandbox/**` (só se a tarefa for sandbox)
+
+## Proibido inventar / reintroduzir
+
+- Next.js, Nest, Prisma, PostgreSQL como stack “oficial”
+- Polling de status no gateway PIX (webhook + BD)
+- Editar gerados Orval à mão
+- Misturar: tenant≠cliente, pedido≠cobrança custom, seller≠afiliado, primary≠seller-scoped

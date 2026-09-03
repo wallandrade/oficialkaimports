@@ -1,0 +1,13 @@
+---
+description: Schema Drizzle/MySQL e client DB
+alwaysApply: false
+globs: lib/db/**/*.ts
+---
+
+# Database
+
+- Dialect MySQL (`mysqlTable`, `mysql2` pool)
+- Novas tabelas em `src/schema/*.ts` + export em `schema/index.ts`
+- Respeitar `tenantId` e defaults existentes
+- Push via drizzle-kit nos scripts do pacote — não inventar migrations Prisma
+- Runtime alters extras podem existir em `artifacts/api-server/src/runtime-schema.ts` — verificar antes de duplicar

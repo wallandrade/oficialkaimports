@@ -1,0 +1,13 @@
+---
+description: OpenAPI/Orval — não editar gerados
+alwaysApply: false
+globs: lib/api-spec/**/*.{yaml,yml,ts},lib/api-client-react/**/*.{ts,tsx},lib/api-zod/**/*.ts
+---
+
+# Codegen
+
+- Fonte: `lib/api-spec/openapi.yaml`
+- Gerar: `pnpm -C lib/api-spec run codegen`
+- **Proibido** editar à mão `src/generated/**` em api-client-react / api-zod
+- OpenAPI é parcial: muitas rotas só existem no Express — não “apagar” fetch manual do admin só porque não está no spec
+- Mutator: `lib/api-client-react/src/custom-fetch.ts`

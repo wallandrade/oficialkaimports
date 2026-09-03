@@ -1,0 +1,32 @@
+---
+description: Memória viva KA Imports — ler, incrementar e precedência
+alwaysApply: true
+---
+
+# Memória viva
+
+Antes de implementar ou aconselhar arquitetura/domínio:
+
+1. Consulte `.contexto-ka-imports/` (código > memória > tipagens).
+2. Arquivos base: `regras-negocio.md`, `arquitetura.md`, `padroes-codigo.md`.
+3. Sob demanda: `auth-permissoes.md`, `integracoes.md`, `seguranca-performance.md`.
+
+## Manutenção obrigatória
+
+Ao concluir uma tarefa que **alterou** o código (feature, bugfix com regra nova, auth, integração, schema, deploy, padrão):
+
+1. Atualize o(s) `.md` certos em `.contexto-ka-imports/`
+2. Inclua entrada no **Changelog** (data, o quê, impacto, o que NÃO mudou)
+3. Atualize `> Última atualização:`
+4. Registre só o que **já existe no código** — sem especular
+5. Se for um anti-padrão/erro a não repetir, documente em `padroes-codigo.md` (anti-padrões) ou no arquivo de domínio adequado
+
+**Exceção (não atualizar):** mudanças sem impacto de contexto — typo UI, formatação, comentário trivial, ajuste local sem nova regra. Mencione na resposta final: “memória viva: sem update (sem impacto)”.
+
+Se memória ≠ código no meio do trabalho: corrija a memória para refletir o código.
+
+## Outras regras
+
+- Idioma: pt-BR
+- Não commit sem pedido explícito
+- Não ler dumps/gerados/Admin monolítico/docs longos a menos que a tarefa exija

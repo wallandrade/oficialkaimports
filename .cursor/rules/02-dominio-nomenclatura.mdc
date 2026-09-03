@@ -1,0 +1,19 @@
+---
+description: Nomenclatura e domínio KA Imports (não confundir entidades)
+alwaysApply: true
+---
+
+# Domínio — nomenclatura
+
+| Termo | Significado |
+|-------|-------------|
+| tenant | Loja/filial (`tenants`, default `tenant_loja1`) |
+| cliente | Comprador (`customer_users`) |
+| pedido | `orders` |
+| cobrança custom | `custom_charges` / payment link |
+| seller | Vendedor/slug de link + comissão |
+| afiliado | Programa indicação/crédito |
+| admin primary | Super-admin global |
+| admin seller-scoped | Limitado a um seller |
+
+Isolamento multi-tenant e primary-only: ver `.contexto-ka-imports/auth-permissoes.md` e `regras-negocio.md`.
