@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, filialPurchaseRequestsTable, marketingExpensesTable, ordersTable, productsTable, sellersTable, siteSettingsTable, tenantSettingsTable } from "@workspace/db";
-import { and, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 
 const router: IRouter = Router();
@@ -98,7 +98,27 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
     } else if (sellerCode) {
       conditions.push(eq(ordersTable.sellerCode, sellerCode));
     }
-    const orders = await db.select().from(ordersTable).where(and(...conditions));
+
+    const insuranceConditions = [
+      eq(ordersTable.tenantId, tenantId),
+      inArray(ordersTable.status, ["paid", "completed"]),
+      gt(ordersTable.insuranceAmount, "0"),
+    ];
+    if (!adminScope.hasGlobalAccess) {
+      insuranceConditions.push(eq(ordersTable.sellerCode, adminScope.sellerCode!));
+    } else if (sellerCode) {
+      insuranceConditions.push(eq(ordersTable.sellerCode, sellerCode));
+    }
+
+    const [orders, insuranceAggRows] = await Promise.all([
+      db.select().from(ordersTable).where(and(...conditions)),
+      db.select({
+        totalInsurancePaid: sql<string>`COALESCE(SUM(${ordersTable.insuranceAmount}), 0)`,
+        insuredOrdersCount: sql<number>`COUNT(*)`,
+      }).from(ordersTable).where(and(...insuranceConditions)),
+    ]);
+    const totalInsurancePaid = Number(Number(insuranceAggRows[0]?.totalInsurancePaid || 0).toFixed(2));
+    const insuredOrdersCount = Number(insuranceAggRows[0]?.insuredOrdersCount || 0);
 
     // Customer recurrence in selected period
     const periodCustomerKeys = new Set<string>();
@@ -357,6 +377,8 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
 
     res.json({
       totalPaid,
+      totalInsurancePaid,
+      insuredOrdersCount,
       totalGatewayFees,
       whatsappEconomy,
       totalWithdrawFees,

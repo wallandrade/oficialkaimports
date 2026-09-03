@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-03 | `GET /api/admin/financial-summary` passa a devolver `totalInsurancePaid` / `insuredOrdersCount` (SUM sem filtro de data) | Card Seguro pago no dashboard | Demais campos do summary e filtro De/Até iguais |
 | 2026-09-03 | `GET /api/motoboy-coverage/lookup` + libs `motoboy-distance` / `motoboy-geocode` | Cotação km no api-server; settings `motoboy_distance_*` | Stack FE/API/DB; reservas e espelho Yury iguais |
 | 2026-09-02 | Colunas de seguro no pedido + `customer_wallet_ledger` + `support_tickets.problem_type`/`insurance_choice` | Snapshot no create; carteira; sinistro no pai | Stack FE/API; crédito de afiliado inalterado |
 | 2026-09-01 | `inventory_exit_pool` / `inventory_exited_pools` + POST baixa no pedido | Seletor Fóz/Motoboy/Minas no card | Espelho e job 3 min iguais |
@@ -79,7 +80,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 - APPCNPay: `gateway.ts` + `lib/pix-gateway-credentials.ts`. Par por tenant (`gateway_appcnpay_public_key` / `_secret_key`); fallback env. Webhook PIX resolve tenant pelo `transactionId`.
 - Extrato OFX: `artifacts/api-server/src/routes/bank-statement.ts` (`analyze`/`apply`/`clear`/`bank-deposits`) + `order_bank_deposits`. Painéis FE: `AdminBankStatementPanel.tsx` (sessão) e `AdminBankDepositsPanel.tsx` (histórico + Desfazer por FITID).
 - Lista admin: `GET /admin/orders` em modo leve (sem `data:`/OCR); `GET /admin/orders/:id` devolve mídia completa.
-- Seguro: `lib/checkout-insurance.ts` + `insurance-claims-policy.ts` + `customer-wallet.ts`; rotas `routes/wallet.ts` (`/api/me/wallet`, `/api/admin/wallet/*`); ALTERs em `runtime-schema.ts`. Settings `checkout_insurance_*` em `PUBLIC_KEYS`.
+- Seguro: `lib/checkout-insurance.ts` + `insurance-claims-policy.ts` + `customer-wallet.ts`; rotas `routes/wallet.ts` (`/api/me/wallet`, `/api/admin/wallet/*`); ALTERs em `runtime-schema.ts`. Settings `checkout_insurance_*` em `PUBLIC_KEYS`. Dashboard: `totalInsurancePaid` / `insuredOrdersCount` em `financial-summary.ts` (SUM all-time, pedidos pagos).
 - OpenAPI cobre só um subconjunto (health/products/pix/orders…); **muitas rotas existem só no Express** — não assumir que Orval cobre tudo.
 
 ## Frontend
