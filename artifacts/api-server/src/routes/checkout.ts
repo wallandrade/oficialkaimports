@@ -30,6 +30,7 @@ import {
   resolveCheckoutInsurance,
 } from "../lib/checkout-insurance";
 import { applyStoreCreditToOrder } from "../lib/customer-wallet";
+import { addOrderEvent } from "../lib/order-events";
 
 const router: IRouter = Router();
 
@@ -617,6 +618,15 @@ router.post("/checkout/pix", async (req, res) => {
       createdAt: new Date().toISOString(),
     }, { tenantId });
 
+    await addOrderEvent({
+      orderId,
+      tenantId,
+      action: "created",
+      actorType: "customer",
+      actorUsername: client.name,
+      payload: { paymentMethod: "pix", total: amount, orderNumber: assignedOrderNumber },
+    });
+
     // Increment coupon usage if applicable
     if (normalizedCouponCode) {
       try { await incrementCouponUse(normalizedCouponCode, tenantId); } catch { /* non-fatal */ }
@@ -627,6 +637,18 @@ router.post("/checkout/pix", async (req, res) => {
       await ensureOrderCommission(orderId);
       await allocateOrderLogistics(orderId);
       await enqueueFilialOrderPurchaseRequest(orderId);
+      await addOrderEvent({
+        orderId,
+        tenantId,
+        action: "marked_paid",
+        actorType: "system",
+        actorUsername: storeCreditUsed > 0 ? "Carteira" : "Crédito afiliado",
+        payload: {
+          fromStatus: "pending",
+          toStatus: "paid",
+          source: storeCreditUsed > 0 ? "store_credit" : "affiliate_credit",
+        },
+      });
       broadcastNotification({ type: "order_paid", data: { id: orderId, status: "paid", tenantId } });
       void sendOutboundWebhook("order_paid", {
         id: orderId,

@@ -1149,6 +1149,25 @@ async function ensureFilialPurchaseTables(databaseName: string): Promise<void> {
   }
 }
 
+async function ensureOrderEventsTable(databaseName: string): Promise<void> {
+  if (await tableExists("order_events", databaseName)) return;
+  await pool.query(`
+    CREATE TABLE order_events (
+      id VARCHAR(255) NOT NULL PRIMARY KEY,
+      order_id VARCHAR(255) NOT NULL,
+      tenant_id VARCHAR(255) NULL,
+      action VARCHAR(64) NOT NULL,
+      actor_type VARCHAR(32) NOT NULL DEFAULT 'admin',
+      actor_username VARCHAR(255) NULL,
+      payload JSON NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY order_events_order_id_idx (order_id),
+      KEY order_events_order_created_idx (order_id, created_at),
+      KEY order_events_tenant_id_idx (tenant_id)
+    )
+  `);
+}
+
 async function ensureMotoboyNeighborhoodsTable(databaseName: string): Promise<void> {
   if (!(await tableExists("motoboy_neighborhoods", databaseName))) {
     await pool.query(`
@@ -1494,6 +1513,7 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureMarketingExpensesTable(databaseName);
     await ensureMarketingExpensesColumns(databaseName);
     await ensureFilialPurchaseTables(databaseName);
+    await ensureOrderEventsTable(databaseName);
     await ensureAdminSessionsTenantColumn(databaseName);
     await ensureTenantColumns(databaseName);
     await ensureTenantSettingsTable(databaseName);

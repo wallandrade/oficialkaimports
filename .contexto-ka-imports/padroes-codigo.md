@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-03 | Anti-padrão: misturar auditoria do admin com `envioecom_status_history` ou inferir “quem fez” de `updatedAt` | Tabela `order_events`; timeline de rastreio continua só da transportadora | Observações e PIX inalterados |
 | 2026-09-03 | Anti-padrão: “Gratis” no Motoboy km porque o Padrão bateu o limiar | Preço por opção; `dist` sem threshold | Bairro Motoboy ainda tem limiar próprio |
 | 2026-09-02 | Anti-padrão: Radix `Switch` na aba Seguro (React 19 #185, loop de ref) | Toggle nativo no painel | Toggles Lucide do resto do admin iguais |
 | 2026-09-02 | Anti-padrão: 10% pós-cupom, gravar `insuranceAmount` do front, dois planos juntos, ou creditar carteira no “marcar enviado” | `resolveCheckoutInsurance`; carteira ≠ afiliado; cashback só entregue EE | `shipping-insurance.ts` legado não volta no create |
@@ -166,6 +167,7 @@ Código > memória > suposições.
 - Copiar lote Motoboy/48h da filial sem o nome da loja; usar `site_name` no título (loja 1 fica sem sufixo).
 - Tratar status EnvioEcom como enum rígido (é texto livre).
 - Inventar histórico de rastreio EnvioEcom (ex. “Status atualizado ao consultar rastreio”); usar `status_history` da API, com `location` cidade/unidade, e não duplicar `description` igual ao status.
+- Usar a timeline de rastreio EnvioEcom ou `orders.updatedAt` como auditoria de quem editou o pedido; ações de gestão vão em `order_events` (quem/quando/`payload`). Pedidos antigos não têm backfill além do “Pedido criado” sintético.
 - No `fetchOrders` do admin, substituir a lista com um GET iniciado antes de gerar a etiqueta (apaga o PDF na tela). Abortar o request anterior e não limpar `envioecomLabelUrl` local.
 - Impersonar cliente sem `tenantId` na sessão (`/auth/me` 404 → tela de login) ou gravar o token só no `localStorage` da aba do admin.
 - Esconder “Editar Pedido” da filial com `isPrimary`; pedidos já são isolados por tenant — usar `hasGlobalAccess` (primary e admin de filial).

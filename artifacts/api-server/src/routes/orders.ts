@@ -45,6 +45,14 @@ import {
   resolveCheckoutInsurance,
 } from "../lib/checkout-insurance";
 import { applyStoreCreditToOrder } from "../lib/customer-wallet";
+import {
+  actionFromStatusChange,
+  actorFromAdminRequest,
+  addOrderEvent,
+  buildOrderEditPayload,
+  listOrderEvents,
+  listOrderEventsByOrderIds,
+} from "../lib/order-events";
 
 const router: IRouter = Router();
 
@@ -1460,6 +1468,33 @@ router.post("/orders", async (req, res) => {
       createdAt: new Date().toISOString(),
     }, { tenantId });
 
+    await addOrderEvent({
+      orderId: id,
+      tenantId,
+      action: "created",
+      actorType: "customer",
+      actorUsername: client.name,
+      payload: {
+        paymentMethod: method,
+        total: computedTotal,
+        orderNumber: assignedOrderNumber,
+      },
+    });
+    if (storeCreditUsed > 0 && storeCreditUsed >= computedTotal - 0.01) {
+      await addOrderEvent({
+        orderId: id,
+        tenantId,
+        action: "marked_paid",
+        actorType: "system",
+        actorUsername: "Carteira",
+        payload: {
+          fromStatus: method === "card_simulation" ? "awaiting_payment" : "pending",
+          toStatus: "paid",
+          source: "store_credit",
+        },
+      });
+    }
+
     res.status(201).json({
       id,
       orderNumber: assignedOrderNumber,
@@ -1666,6 +1701,7 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
     const priorityByOrder = await loadOrderPriorityMap(orders.map((o) => o.id));
     const searchingProductByOrder = await loadOrderSearchingProductMap(orders.map((o) => o.id));
     const orderIds = orders.map((order) => order.id);
+    const historyByOrder = await listOrderEventsByOrderIds(orderIds);
     const logisticsAllocations = orderIds.length > 0
       ? await db.select().from(orderLogisticsAllocationsTable).where(and(
           eq(orderLogisticsAllocationsTable.tenantId, adminScope.tenantId),
@@ -1716,6 +1752,7 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
 
       return {
         ...mapOrder(order, { light: true }),
+        history: historyByOrder.get(order.id) || [],
         logisticsAllocation: logisticsByOrder.get(order.id) || null,
         isPrioridade: !order.enviado && (manualPriority || automaticPriority),
         isProcurandoProduto: searchingProductByOrder.get(order.id) ?? false,
@@ -1751,6 +1788,35 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/admin/orders/:id/events  (protected)
+// ---------------------------------------------------------------------------
+router.get("/admin/orders/:id/events", requireAdminAuth, async (req, res) => {
+  try {
+    const adminScope = ensureSellerScopeOnOrderQuery(req, res);
+    if (!adminScope) return;
+
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
+
+    const rows = await db
+      .select({ id: ordersTable.id })
+      .from(ordersTable)
+      .where(buildAdminOrderWhere(id, adminScope))
+      .limit(1);
+
+    if (!rows[0]) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
+
+    res.json({ events: await listOrderEvents(id) });
+  } catch (err) {
+    console.error("Admin order events error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao buscar histórico do pedido." });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/admin/orders/:id  (protected) — mídia completa do card
 // ---------------------------------------------------------------------------
 router.get("/admin/orders/:id", requireAdminAuth, async (req, res) => {
@@ -1772,7 +1838,7 @@ router.get("/admin/orders/:id", requireAdminAuth, async (req, res) => {
       return;
     }
 
-    res.json({ order: mapOrder(rows[0]) });
+    res.json({ order: { ...mapOrder(rows[0]), history: await listOrderEvents(id) } });
   } catch (err) {
     console.error("Admin order detail error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao buscar pedido." });
@@ -1884,6 +1950,14 @@ router.patch("/admin/orders/:id/status", requireAdminAuth, async (req, res) => {
       }
     }
 
+    await addOrderEvent({
+      orderId: id,
+      tenantId: adminScope.tenantId,
+      action: actionFromStatusChange(currentStatus, nextStatus),
+      ...actorFromAdminRequest(req),
+      payload: { fromStatus: currentStatus, toStatus: nextStatus },
+    });
+
     broadcastNotification({ type: "order_status_updated", data: { id, status, tenantId: adminScope.tenantId } });
     res.json({ ok: true, id, status });
   } catch (err) {
@@ -1903,9 +1977,17 @@ router.patch("/admin/orders/:id/observation", requireAdminAuth, async (req, res)
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
     const { observation } = req.body as { observation?: string };
+    const nextObservation = observation?.trim() || null;
     await db.update(ordersTable)
-      .set({ observation: observation?.trim() || null, updatedAt: new Date() })
+      .set({ observation: nextObservation, updatedAt: new Date() })
       .where(buildAdminOrderWhere(id, adminScope));
+    await addOrderEvent({
+      orderId: id,
+      tenantId: adminScope.tenantId,
+      action: "observation",
+      ...actorFromAdminRequest(req),
+      payload: { hasObservation: Boolean(nextObservation) },
+    });
     res.json({ ok: true });
   } catch (err) {
     console.error("Update observation error:", err);
@@ -1953,6 +2035,14 @@ router.patch("/admin/orders/:id/whatsapp-group", requireAdminAuth, async (req, r
       res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
       return;
     }
+
+    await addOrderEvent({
+      orderId: id,
+      tenantId: adminScope.tenantId,
+      action: "whatsapp_group",
+      ...actorFromAdminRequest(req),
+      payload: { group: normalizedGroup || "sem grupo" },
+    });
 
     res.json({ ok: true, order: mapOrder(updated[0]) });
   } catch (err) {
@@ -2013,6 +2103,24 @@ router.patch("/admin/orders/:id/proof", requireAdminAuth, async (req, res) => {
       await enqueueFilialOrderPurchaseRequest(id);
     }
 
+    const actor = actorFromAdminRequest(req);
+    await addOrderEvent({
+      orderId: id,
+      tenantId: adminScope.tenantId,
+      action: "proof_uploaded",
+      ...actor,
+      payload: { proofCount: urls.length },
+    });
+    if (priorStatus !== "paid" && priorStatus !== "completed") {
+      await addOrderEvent({
+        orderId: id,
+        tenantId: adminScope.tenantId,
+        action: "marked_paid",
+        ...actor,
+        payload: { fromStatus: priorStatus || "pending", toStatus: "completed", source: "proof" },
+      });
+    }
+
     broadcastNotification({ type: "order_status_updated", data: { id, status: "completed", tenantId: adminScope.tenantId } });
     res.json({ ok: true, proofUrls: urls });
   } catch (err) {
@@ -2062,6 +2170,14 @@ router.delete("/admin/orders/:id/proof/:index", requireAdminAuth, async (req, re
       .update(ordersTable)
       .set({ proofUrl, proofUrls: JSON.stringify(urls), updatedAt: new Date() })
       .where(buildAdminOrderWhere(id, adminScope));
+
+    await addOrderEvent({
+      orderId: id,
+      tenantId: adminScope.tenantId,
+      action: "proof_removed",
+      ...actorFromAdminRequest(req),
+      payload: { proofCount: urls.length },
+    });
 
     res.json({ ok: true, proofUrl, proofUrls: urls });
   } catch (err) {
@@ -2228,6 +2344,30 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
       .set(updates)
       .where(buildAdminOrderWhere(id, adminScope));
 
+    await addOrderEvent({
+      orderId: id,
+      tenantId: adminScope.tenantId,
+      action: "edited",
+      ...actorFromAdminRequest(req),
+      payload: buildOrderEditPayload(current[0], {
+        clientName: nextClientName !== undefined ? nextClientName : current[0].clientName,
+        clientPhone: nextClientPhone !== undefined ? nextClientPhone : current[0].clientPhone,
+        clientEmail: nextClientEmail !== undefined ? nextClientEmail : current[0].clientEmail,
+        clientDocument: nextClientDocument !== undefined ? nextClientDocument : current[0].clientDocument,
+        addressCep: nextAddressCep !== undefined ? nextAddressCep : current[0].addressCep,
+        addressStreet: nextAddressStreet !== undefined ? nextAddressStreet : current[0].addressStreet,
+        addressNumber: nextAddressNumber !== undefined ? nextAddressNumber : current[0].addressNumber,
+        addressComplement: nextAddressComplement !== undefined ? nextAddressComplement : current[0].addressComplement,
+        addressNeighborhood: nextAddressNeighborhood !== undefined ? nextAddressNeighborhood : current[0].addressNeighborhood,
+        addressCity: nextAddressCity !== undefined ? nextAddressCity : current[0].addressCity,
+        addressState: nextAddressState !== undefined ? nextAddressState : current[0].addressState,
+        products: resolvedProducts,
+        discountAmount: computedDiscountAmount,
+        total,
+        status: newStatus,
+      }),
+    });
+
     if (newStatus === "paid" || newStatus === "completed") {
       await allocateOrderLogistics(id);
     } else if (isPaid) {
@@ -2300,6 +2440,14 @@ router.post("/admin/orders/:id/reshipment", requireAdminAuth, async (req, res) =
       supportTicketId,
       productsRaw: products,
       resolvedReason: "reenvio_admin_edicao",
+    });
+
+    await addOrderEvent({
+      orderId: id,
+      tenantId: adminScope.tenantId,
+      action: "reshipment",
+      ...actorFromAdminRequest(req),
+      payload: { reshipmentId: created.id, itemCount: products.length },
     });
 
     broadcastNotification({
@@ -2379,6 +2527,14 @@ router.post("/admin/orders/:id/difference-charge", requireAdminAuth, async (req,
       amount: String(amount),
       status: "awaiting_payment",
       transactionId: gatewayData.transactionId,
+    });
+
+    await addOrderEvent({
+      orderId: id,
+      tenantId: adminScope.tenantId,
+      action: "difference_charge",
+      ...actorFromAdminRequest(req),
+      payload: { amount, chargeId, description: desc },
     });
 
     const expiresAt = new Date(Date.now() + PIX_DURATION_MS).toISOString();
@@ -2678,6 +2834,13 @@ router.patch("/admin/orders/:id/prioridade", requireAdminAuth, async (req, res) 
       .limit(1);
 
     broadcastNotification({ type: "order_priority_updated", data: { id, isPrioridade, tenantId: adminScope.tenantId } });
+    await addOrderEvent({
+      orderId: id,
+      tenantId: adminScope.tenantId,
+      action: "priority",
+      ...actorFromAdminRequest(req),
+      payload: { on: isPrioridade },
+    });
     res.json({
       ok: true,
       id,
@@ -2748,6 +2911,13 @@ router.patch("/admin/orders/:id/procurando-produto", requireAdminAuth, async (re
     broadcastNotification({
       type: "order_searching_product_updated",
       data: { id, isProcurandoProduto, tenantId: adminScope.tenantId },
+    });
+    await addOrderEvent({
+      orderId: id,
+      tenantId: adminScope.tenantId,
+      action: "searching",
+      ...actorFromAdminRequest(req),
+      payload: { on: isProcurandoProduto },
     });
     res.json({
       ok: true,
@@ -2837,6 +3007,15 @@ router.post("/admin/orders/:id/inventory-exit", requireAdminAuth, async (req, re
       tenantId: adminScope.tenantId,
       pool,
     });
+    if (!result.alreadyDebited) {
+      await addOrderEvent({
+        orderId: id,
+        tenantId: adminScope.tenantId,
+        action: "inventory_exit",
+        ...actorFromAdminRequest(req),
+        payload: { pool },
+      });
+    }
     const updated = await db.select().from(ordersTable).where(buildAdminOrderWhere(id, adminScope)).limit(1);
     res.status(result.alreadyDebited ? 200 : 201).json({
       ok: true,
@@ -2948,6 +3127,15 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
         persistedEnviado,
         yuryPool,
       });
+      if (persistedEnviado !== wasEnviado) {
+        await addOrderEvent({
+          orderId: id,
+          tenantId: adminScope.tenantId,
+          action: persistedEnviado ? "enviado" : "pending_ship",
+          ...actorFromAdminRequest(req),
+          payload: { from: wasEnviado, to: persistedEnviado },
+        });
+      }
       res.json({ ok: true, id, enviado: true });
       return;
     }
@@ -3038,6 +3226,15 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
     });
 
     broadcastNotification({ type: "order_enviado_updated", data: { id, enviado, tenantId: adminScope.tenantId } });
+    if (enviado !== wasEnviado) {
+      await addOrderEvent({
+        orderId: id,
+        tenantId: adminScope.tenantId,
+        action: enviado ? "enviado" : "pending_ship",
+        ...actorFromAdminRequest(req),
+        payload: { from: wasEnviado, to: enviado },
+      });
+    }
     res.json({ ok: true, id, enviado });
   } catch (err) {
     console.error("Update order enviado error:", err);
@@ -3100,6 +3297,13 @@ router.patch("/admin/orders/:id/tracking-code", requireAdminAuth, async (req, re
       .limit(1);
 
     broadcastNotification({ type: "order_tracking_updated", data: { id, trackingCode: normalized, tenantId: adminScope.tenantId } });
+    await addOrderEvent({
+      orderId: id,
+      tenantId: adminScope.tenantId,
+      action: "tracking",
+      ...actorFromAdminRequest(req),
+      payload: { trackingCode: normalized },
+    });
     res.json({ ok: true, order: updated[0] ? mapOrder(updated[0]) : null });
   } catch (err) {
     console.error("Update order tracking code error:", err);
@@ -3330,6 +3534,14 @@ router.post("/admin/orders/tracking-label/parse", requireAdminAuth, async (req, 
         updatedAt: new Date(),
       })
       .where(buildAdminOrderWhere(normalizedOrderId, adminScope));
+
+    await addOrderEvent({
+      orderId: normalizedOrderId,
+      tenantId: adminScope.tenantId,
+      action: "tracking_label",
+      ...actorFromAdminRequest(req),
+      payload: { trackingCode: parsed.trackingCode || null },
+    });
 
     const updated = await db
       .select()

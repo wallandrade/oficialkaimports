@@ -735,6 +735,7 @@ import { downloadFilialPurchasePdf, openFilialPurchasePdfInBrowser } from "@/lib
 import { generateChargePdf, generateOrderPdf } from "@/lib/generateOrderPdf";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { EnvioEcomOrderActions, hasEnvioEcomLabelReady, preserveEnvioEcomLabelFields } from "@/components/admin/EnvioEcomOrderActions";
+import { OrderHistoryTimeline } from "@/components/admin/OrderHistoryTimeline";
 import { EnvioEcomTrackingBoard } from "@/components/admin/EnvioEcomTrackingBoard";
 import { EnvioEcomSettingsCard } from "@/components/admin/EnvioEcomSettingsCard";
 import AdminBankStatementPanel from "@/pages/AdminBankStatementPanel";
@@ -15469,6 +15470,13 @@ function OrdersPanel({
                 </motion.div>
               )}
             </AnimatePresence>
+            <OrderHistoryTimeline
+              orderId={order.id}
+              refreshKey={`${order.status}|${order.enviado}|${order.trackingCode || ""}|${(order as { envioecomBarcode?: string | null }).envioecomBarcode || ""}|${(order as { envioecomStatus?: string | null }).envioecomStatus || ""}|${order.observation || ""}|${order.total}|${order.clientName}`}
+              events={(order as { history?: Array<{ id?: string; action: string; actorType?: string | null; actorUsername?: string | null; payload?: Record<string, unknown> | null; createdAt: string }> }).history}
+              createdAt={order.createdAt}
+              clientName={order.clientName}
+            />
           </div>
         );
       })}

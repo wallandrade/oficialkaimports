@@ -16,6 +16,7 @@ import {
   parseInsuranceProblem,
 } from "../lib/insurance-claims-policy";
 import { creditProductRefund } from "../lib/customer-wallet";
+import { actorFromAdminRequest, addOrderEvent } from "../lib/order-events";
 
 const router: IRouter = Router();
 
@@ -779,6 +780,22 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
         updatedAt: new Date(),
       }).where(eq(ordersTable.id, order.id));
     }
+
+    const actor = actorFromAdminRequest(req);
+    await addOrderEvent({
+      orderId: childOrderId,
+      tenantId: scope.tenantId,
+      action: "created",
+      ...actor,
+      payload: { paymentMethod: "whatsapp_pix", parentOrderId: order.id, source: "support_reshipment" },
+    });
+    await addOrderEvent({
+      orderId: order.id,
+      tenantId: scope.tenantId,
+      action: "reshipment",
+      ...actor,
+      payload: { childOrderId, ticketId: id },
+    });
 
     const reshipment = await createOrRefreshReshipment({
       tenantId: scope.tenantId,

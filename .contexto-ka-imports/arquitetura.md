@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-03 | Tabela `order_events` + `GET /admin/orders/:id/events` + `history` na lista | Auditoria no card do pedido | Stack FE/API; rastreio EE inalterado |
 | 2026-09-03 | `totalInsurancePaid` / `insuredOrdersCount` passam a usar `dateFrom`/`dateTo` (`createdAt`) | Card Seguro pago acompanha o De/Até | Demais campos do summary e filtro de vendedor iguais |
 | 2026-09-03 | `GET /api/admin/financial-summary` passa a devolver `totalInsurancePaid` / `insuredOrdersCount` (SUM sem filtro de data) | Card Seguro pago no dashboard | Demais campos do summary e filtro De/Até iguais |
 | 2026-09-03 | `GET /api/motoboy-coverage/lookup` + libs `motoboy-distance` / `motoboy-geocode` | Cotação km no api-server; settings `motoboy_distance_*` | Stack FE/API/DB; reservas e espelho Yury iguais |
@@ -60,7 +61,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 ### Tabelas principais (não exaustivo)
 
 - `tenants`, `admin_users`, `admin_user_tenants`, `admin_sessions`
-- `orders` (incl. `envioecom_*`, `enviado`, `inventory_exit_pool`, `inventory_exited_pools`, `is_prioridade`, `is_procurando_produto`, `tracking_*`, `bank_deposit_*`, `insurance_plan`, `insurance_keep_amount`, `insurance_cashback_amount`, `insurance_claim_status`, `insurance_reship_count`, `insurance_cashback_granted`, `parent_order_id`, `store_credit_used`), `order_bank_deposits` (vários PIX OFX por pedido), `custom_charges`, `products`, `coupons`, `sellers`
+- `orders` (incl. `envioecom_*`, `enviado`, `inventory_exit_pool`, `inventory_exited_pools`, `is_prioridade`, `is_procurando_produto`, `tracking_*`, `bank_deposit_*`, `insurance_plan`, `insurance_keep_amount`, `insurance_cashback_amount`, `insurance_claim_status`, `insurance_reship_count`, `insurance_cashback_granted`, `parent_order_id`, `store_credit_used`), `order_events` (auditoria do pedido), `order_bank_deposits` (vários PIX OFX por pedido), `custom_charges`, `products`, `coupons`, `sellers`
 - `customer_users`, `customer_wallet_ledger` (carteira da loja; não é afiliado), `affiliates` (+ referrals/commissions/credit uses)
 - `kyc_documents`, `site_settings` / `tenant_settings`
 - `shipping_options`, `motoboy_*` (incl. `yury_id` na cobertura), `yury_webhook_events_processed`, `order_logistics_allocations`
@@ -80,7 +81,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 - EnvioEcom: `artifacts/api-server/src/routes/envioecom.ts` + webhook em `webhooks.ts`. Contas em `lib/envioecom-accounts.ts` (env + tenant + JSON `envioecom_accounts`). Client cacheia token por `tenantId:accountId`. Coluna `orders.envioecom_account_id`.
 - APPCNPay: `gateway.ts` + `lib/pix-gateway-credentials.ts`. Par por tenant (`gateway_appcnpay_public_key` / `_secret_key`); fallback env. Webhook PIX resolve tenant pelo `transactionId`.
 - Extrato OFX: `artifacts/api-server/src/routes/bank-statement.ts` (`analyze`/`apply`/`clear`/`bank-deposits`) + `order_bank_deposits`. Painéis FE: `AdminBankStatementPanel.tsx` (sessão) e `AdminBankDepositsPanel.tsx` (histórico + Desfazer por FITID).
-- Lista admin: `GET /admin/orders` em modo leve (sem `data:`/OCR); `GET /admin/orders/:id` devolve mídia completa.
+- Lista admin: `GET /admin/orders` em modo leve (sem `data:`/OCR); `GET /admin/orders/:id` devolve mídia completa. Histórico de gestão: `order_events` + `history` na lista/`GET :id` + `GET /admin/orders/:id/events`.
 - Seguro: `lib/checkout-insurance.ts` + `insurance-claims-policy.ts` + `customer-wallet.ts`; rotas `routes/wallet.ts` (`/api/me/wallet`, `/api/admin/wallet/*`); ALTERs em `runtime-schema.ts`. Settings `checkout_insurance_*` em `PUBLIC_KEYS`. Dashboard: `totalInsurancePaid` / `insuredOrdersCount` em `financial-summary.ts` (SUM no mesmo De/Até do faturamento, pedidos pagos).
 - OpenAPI cobre só um subconjunto (health/products/pix/orders…); **muitas rotas existem só no Express** — não assumir que Orval cobre tudo.
 

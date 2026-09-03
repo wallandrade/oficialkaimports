@@ -15,6 +15,7 @@ import { getAdminScope, requireAdminAuth, requirePrimaryAdmin } from "./admin-au
 import { DEFAULT_TENANT_ID } from "../lib/tenant-context";
 import { registerInventoryEntry } from "../lib/reshipments";
 import { enqueueFilialOrderPurchaseRequest } from "../lib/filial-purchase-queue";
+import { addOrderEvent } from "../lib/order-events";
 
 const router: IRouter = Router();
 
@@ -855,6 +856,15 @@ router.post("/admin/filial-purchases/my/mark-order-motoboy", requireAdminAuth, a
         tenantId,
         orderId,
       },
+    });
+
+    await addOrderEvent({
+      orderId,
+      tenantId,
+      action: "motoboy",
+      actorType: "admin",
+      actorUsername,
+      payload: { requestId: requestRow.id, source: "pedido_marcar_motoboy_direto" },
     });
 
     res.json({ ok: true, orderId, requestId: requestRow.id, status: "enviado_motoboy" });

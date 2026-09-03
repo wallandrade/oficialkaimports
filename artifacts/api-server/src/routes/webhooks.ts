@@ -25,6 +25,7 @@ import { requirePrimaryAdmin } from "./admin-auth";
 import { enqueueFilialOrderPurchaseRequest } from "../lib/filial-purchase-queue";
 import { allocateOrderLogistics, releaseOrderLogistics } from "../lib/order-logistics";
 import { applyEnvioEcomWebhook } from "./envioecom";
+import { actionFromStatusChange, addOrderEvent } from "../lib/order-events";
 
 const router: IRouter = Router();
 
@@ -113,6 +114,15 @@ async function handleCallback(body: GatewayCallback) {
             await ensureOrderCommission(row.id);
             await enqueueFilialOrderPurchaseRequest(row.id);
           }
+
+          await addOrderEvent({
+            orderId: row.id,
+            tenantId: row.tenantId,
+            action: actionFromStatusChange(row.status, newStatus),
+            actorType: "webhook",
+            actorUsername: "PIX",
+            payload: { fromStatus: row.status, toStatus: newStatus, source: "pix_webhook" },
+          });
 
           broadcastNotification({
             type: confirmed ? "order_paid" : "order_status_updated",
@@ -218,6 +228,20 @@ async function handleCallback(body: GatewayCallback) {
                 await ensureOrderCommission(row.orderId);
                 await enqueueFilialOrderPurchaseRequest(row.orderId);
               }
+
+              await addOrderEvent({
+                orderId: row.orderId,
+                tenantId: row.tenantId,
+                action: actionFromStatusChange(parentOrder[0].status, newOrderStatus),
+                actorType: "webhook",
+                actorUsername: "PIX",
+                payload: {
+                  fromStatus: parentOrder[0].status,
+                  toStatus: newOrderStatus,
+                  source: "difference_charge",
+                  paidAmount: totalPaid,
+                },
+              });
 
               console.log(`[WEBHOOK] Order ${row.orderId} auto-updated to ${newOrderStatus} after diff charge paid (paid=${totalPaid}, total=${orderTotal})`);
             }
@@ -424,6 +448,16 @@ router.post("/webhook", async (req, res) => {
         if (isConfirmed && rows[0]!.couponCode) await incrementCouponUse(rows[0]!.couponCode, rows[0]!.tenantId || "tenant_loja1");
         if (isConfirmed && newStatus === "paid") await ensureOrderCommission(rawOrderId);
         if (isConfirmed && newStatus === "paid") await enqueueFilialOrderPurchaseRequest(rawOrderId);
+        if (newStatus !== rows[0]!.status) {
+          await addOrderEvent({
+            orderId: rawOrderId,
+            tenantId: rows[0]!.tenantId,
+            action: actionFromStatusChange(rows[0]!.status, newStatus),
+            actorType: "webhook",
+            actorUsername: "PIX",
+            payload: { fromStatus: rows[0]!.status, toStatus: newStatus, source: "universal_webhook" },
+          });
+        }
         broadcastNotification({ type: isConfirmed ? "order_paid" : "order_status_updated", data: { id: rawOrderId, status: newStatus, tenantId: rows[0]!.tenantId || "tenant_loja1" } });
         if (isConfirmed && newStatus === "paid") {
           void sendOutboundWebhook("order_paid", {
@@ -481,6 +515,14 @@ router.post("/webhook/pix/order/:token/:orderId", async (req, res) => {
 
         await ensureOrderCommission(orderId);
         await enqueueFilialOrderPurchaseRequest(orderId);
+        await addOrderEvent({
+          orderId,
+          tenantId: rows[0]!.tenantId,
+          action: "marked_paid",
+          actorType: "webhook",
+          actorUsername: "PIX",
+          payload: { fromStatus: rows[0]!.status, toStatus: "paid", source: "direct_order_webhook" },
+        });
 
         broadcastNotification({ type: "order_paid", data: { id: orderId, status: "paid", tenantId: rows[0]!.tenantId || "tenant_loja1" } });
         void sendOutboundWebhook("order_paid", {
@@ -571,6 +613,19 @@ router.post("/webhook/pix/charge/:token/:chargeId", async (req, res) => {
               await ensureOrderCommission(rows[0]!.orderId);
               await enqueueFilialOrderPurchaseRequest(rows[0]!.orderId);
             }
+            await addOrderEvent({
+              orderId: rows[0]!.orderId,
+              tenantId: rows[0]!.tenantId,
+              action: actionFromStatusChange(parentOrder[0].status, newOrderStatus),
+              actorType: "webhook",
+              actorUsername: "PIX",
+              payload: {
+                fromStatus: parentOrder[0].status,
+                toStatus: newOrderStatus,
+                source: "direct_charge_webhook",
+                paidAmount: totalPaid,
+              },
+            });
           }
         }
       }

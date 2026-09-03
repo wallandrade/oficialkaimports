@@ -4,6 +4,7 @@ import { and, desc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { getCustomerSession, requireCustomerAuth } from "../middlewares/customer-auth";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
+import { actorFromAdminRequest, addOrderEvent } from "../lib/order-events";
 import { isStandardShipping } from "../lib/order-logistics-calendar";
 import { buildCallbackUrl } from "../gateway";
 import { getR2MissingConfig, isR2Configured, uploadShipmentLabelPdfToR2 } from "../lib/r2";
@@ -802,6 +803,17 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
     } catch (err) {
       console.warn("[EnvioEcom] Sync pós-create falhou:", err);
     }
+    await addOrderEvent({
+      orderId: order.id,
+      tenantId: admin.tenantId,
+      action: "ee_created",
+      ...actorFromAdminRequest(req),
+      payload: {
+        barcode: persisted.envioecomBarcode || persisted.trackingCode || null,
+        carrier: persisted.envioecomDeliveryMode || shippingCompany,
+        shipmentId: persisted.envioecomShipmentId ?? null,
+      },
+    });
     res.json({
       ok: true,
       order: mapEnvioEcomOrder(persisted, { accountName: scoped.account.name }),
@@ -843,6 +855,17 @@ router.post("/admin/envioecom/orders/:id/bind-id", requireAdminAuth, async (req,
       return;
     }
     const persisted = await persistShipmentForAccount(order, parseShipmentDetails(found.result), found.account);
+    await addOrderEvent({
+      orderId: order.id,
+      tenantId: admin.tenantId,
+      action: "ee_bound",
+      ...actorFromAdminRequest(req),
+      payload: {
+        barcode: persisted.envioecomBarcode || persisted.trackingCode || null,
+        carrier: persisted.envioecomDeliveryMode || null,
+        shipmentId: persisted.envioecomShipmentId ?? shipmentId,
+      },
+    });
     res.json({ ok: true, order: mapEnvioEcomOrder(persisted, { accountName: found.account.name }), accountId: found.account.accountId });
   } catch (err) {
     sendEnvioEcomError(res, err);
@@ -915,6 +938,17 @@ router.post("/admin/envioecom/orders/:id/labels", requireAdminAuth, async (req, 
       labelUrl,
       status: resolveStatusAfterLabelGenerated(order.envioecomStatus),
     }, found.account);
+    await addOrderEvent({
+      orderId: order.id,
+      tenantId: admin.tenantId,
+      action: "ee_label",
+      ...actorFromAdminRequest(req),
+      payload: {
+        barcode: persisted.envioecomBarcode || persisted.trackingCode || null,
+        carrier: persisted.envioecomDeliveryMode || null,
+        shipmentId: persisted.envioecomShipmentId ?? shipmentId ?? null,
+      },
+    });
     res.json({
       ok: true,
       labelUrl,
@@ -1021,6 +1055,17 @@ router.post("/admin/envioecom/orders/:id/cancel", requireAdminAuth, async (req, 
     }
     const cancelStatus = String(cancelResult.status || "").trim() || null;
     const persisted = await detachEnvioEcomShipment(order, cancelStatus);
+    await addOrderEvent({
+      orderId: order.id,
+      tenantId: admin.tenantId,
+      action: "ee_cancelled",
+      ...actorFromAdminRequest(req),
+      payload: {
+        barcode: order.envioecomBarcode || order.trackingCode || null,
+        shipmentId: order.envioecomShipmentId ?? null,
+        cancelStatus,
+      },
+    });
     res.json({
       ok: true,
       detached: true,
