@@ -864,6 +864,14 @@ export default function Checkout() {
     lines: insuranceLines,
     settings: insuranceSettings,
   });
+  const fullInsuranceQuote = resolveCheckoutInsurance({
+    includeInsurance: true,
+    insurancePlan: "full",
+    subtotal,
+    shippingCost: 0,
+    lines: insuranceLines,
+    settings: { ...insuranceSettings, reducedEnabled: false, fullEnabled: true, enabled: true },
+  });
   const insuranceAmount = insuranceSnapshot.insuranceAmount;
   const includeInsurance = insuranceSnapshot.includeInsurance;
   const total = insuranceSnapshot.total;
@@ -2438,14 +2446,9 @@ export default function Checkout() {
                 isLoggedIn={!!getCustomerToken()}
                 fullOffer={insuranceSettings.enabled && insuranceSettings.fullEnabled ? {
                   plan: "full",
-                  amount: resolveCheckoutInsurance({
-                    includeInsurance: true,
-                    insurancePlan: "full",
-                    subtotal,
-                    shippingCost: 0,
-                    lines: insuranceLines,
-                    settings: { ...insuranceSettings, reducedEnabled: false, fullEnabled: true, enabled: true },
-                  }).insuranceAmount,
+                  amount: fullInsuranceQuote.insuranceAmount,
+                  cashbackAmount: fullInsuranceQuote.cashbackAmount,
+                  productSubtotal: subtotal,
                   label: insuranceSettings.fullLabel,
                   description: insuranceSettings.fullDescription,
                 } : null}

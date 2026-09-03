@@ -299,6 +299,8 @@ export function AdminInsurancePanel({
             fullOffer={enabled && fullEnabled ? {
               plan: "full",
               amount: preview.insuranceAmount,
+              cashbackAmount: preview.cashbackAmount,
+              productSubtotal: 733,
               label: fullLabel,
               description: fullDescription,
             } : null}
