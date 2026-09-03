@@ -150,6 +150,13 @@ export function AdminInsurancePanel({
     setSpecialIds((prev) => (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]));
   };
 
+  const productIds = products.map((product) => product.id).filter(Boolean);
+  const allSelected = productIds.length > 0 && productIds.every((id) => specialIds.includes(id));
+
+  const toggleAllProducts = () => {
+    setSpecialIds(allSelected ? [] : productIds);
+  };
+
   const adjustWallet = async () => {
     const amount = Number(String(walletAmount).replace(",", "."));
     if (!walletUserId.trim() || !Number.isFinite(amount) || amount === 0 || !walletReason.trim()) {
@@ -243,8 +250,27 @@ export function AdminInsurancePanel({
         </div>
 
         <div>
-          <p className="text-sm font-semibold mb-2">Produtos com % especial (só completo)</p>
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <p className="text-sm font-semibold">Produtos com % especial (só completo)</p>
+            <button
+              type="button"
+              onClick={toggleAllProducts}
+              disabled={productIds.length === 0}
+              className="text-xs font-semibold text-primary hover:underline disabled:opacity-50 disabled:no-underline"
+            >
+              {allSelected ? "Limpar seleção" : "Selecionar todos"}
+            </button>
+          </div>
           <div className="max-h-40 overflow-y-auto rounded-md border border-border p-2 space-y-1">
+            <label className="sticky top-0 z-10 flex items-center gap-2 text-sm font-medium bg-white py-1 border-b border-border">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={toggleAllProducts}
+                disabled={productIds.length === 0}
+              />
+              <span>Selecionar todos ({productIds.length})</span>
+            </label>
             {products.map((product) => (
               <label key={product.id} className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={specialIds.includes(product.id)} onChange={() => toggleProduct(product.id)} />
