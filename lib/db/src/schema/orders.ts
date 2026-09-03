@@ -57,6 +57,7 @@ export const ordersTable = mysqlTable("orders", {
   discountAmount: decimal("discount_amount", { precision: 10, scale: 2 }),
   affiliateCreditUsed: decimal("affiliate_credit_used", { precision: 10, scale: 2 }),
   observation: text("observation"),
+  observationVisibleToCustomer: boolean("observation_visible_to_customer").notNull().default(false),
   cardInstallmentsActual: int("card_installments_actual"),
   cardInstallmentValue: decimal("card_installment_value", { precision: 10, scale: 2 }),
   cardTotalActual: decimal("card_total_actual", { precision: 10, scale: 2 }),

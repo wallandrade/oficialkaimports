@@ -40,6 +40,7 @@ type CustomerOrder = {
   envioecomDeliveryMode?: string | null;
   envioecomBarcode?: string | null;
   envioecomStatusHistory?: TrackingEvent[];
+  observation?: string | null;
 };
 
 type AccountSection = "orders" | "affiliate" | "raffle" | "wallet";
@@ -714,6 +715,13 @@ export default function CustomerOrders() {
                               {packingHint && (
                                 <p className="text-xs text-muted-foreground mt-1">{packingHint}</p>
                               )}
+                            </div>
+                          )}
+
+                          {order.observation && (
+                            <div className="mb-4 rounded-xl border border-sky-200 bg-sky-50 p-3">
+                              <p className="text-xs uppercase tracking-wide font-semibold text-sky-800">Recado da loja</p>
+                              <p className="text-sm text-sky-950 whitespace-pre-wrap mt-1">{order.observation}</p>
                             </div>
                           )}
 

@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-03 | Anti-padrão: devolver `orders.observation` em `/me` ou guest sem o flag `observation_visible_to_customer` | `mapOrder(..., { forCustomer: true })` omite nota interna | Admin e PDF/cópia iguais; OFX não liga o flag |
 | 2026-09-03 | Anti-padrão: misturar auditoria do admin com `envioecom_status_history` ou inferir “quem fez” de `updatedAt` | Tabela `order_events`; timeline de rastreio continua só da transportadora | Observações e PIX inalterados |
 | 2026-09-03 | Anti-padrão: “Gratis” no Motoboy km porque o Padrão bateu o limiar | Preço por opção; `dist` sem threshold | Bairro Motoboy ainda tem limiar próprio |
 | 2026-09-02 | Anti-padrão: Radix `Switch` na aba Seguro (React 19 #185, loop de ref) | Toggle nativo no painel | Toggles Lucide do resto do admin iguais |
@@ -184,7 +185,8 @@ Código > memória > suposições.
 - Debitar estoque no PATCH de reenvio fora de `reenvio_enviado`, ou não ter **Cancelar Reenvio** para quem não vai mais enviar (`reenvio_cancelado`). “Cancelar Reenvio Enviado” é só o undo do enviado.
 - Marcar pedido `paid` a partir do OFX, ou baixar PDF do Inter para `proofUrl`; conciliação só grava `bank_deposit_*`.
 - Forçar o match automático quando o nome no extrato é de outra pessoa; usar **Buscar no extrato** e Vincular ao nº (`clear` se já houver vínculo). Valor diferente no vínculo manual exige motivo (`amountMismatchNote`); não recusar só com toast. Lote / `confirmed_100` continuam valor igual.
-- Recusar Vincular no Extrato só porque o valor do PIX ≠ total do pedido, sem pedir observação. Apply `ok` aceita `amountMismatchNote` (≥3, máx 500) e anexa em `orders.observation`; `confirmed_100` recusa valor diferente. Motivo só se a **soma** dos PIX do pedido ainda ≠ total.
+- Recusar Vincular no Extrato só porque o valor do PIX ≠ total do pedido, sem pedir observação. Apply `ok` aceita `amountMismatchNote` (≥3, máx 500) e anexa em `orders.observation`; `confirmed_100` recusa valor diferente. Motivo só se a **soma** dos PIX do pedido ainda ≠ total. Esse append **não** liga `observation_visible_to_customer`.
+- Devolver `orders.observation` em `GET /me/orders`, `GET /me/orders/:id` ou guest sem filtrar pelo flag. Notas internas (reenvio, OFX, operação) vazam. Usar `mapOrder(..., { forCustomer: true })`. Não usar Radix `Switch` no interruptor do card (React 19 #185); toggle nativo `role="switch"`.
 - Substituir o depósito anterior ao vincular um 2º PIX no mesmo pedido. Vários FITIDs em `order_bank_deposits`; `orders.bank_deposit_amount` é a soma. FITID continua único no banco.
 - Usar Radix `Dialog`/`Switch` no Extrato/admin com React 19: gera `Minified React error #185` (loop de ref no `composeRefs`). Modal de motivo usa overlay `fixed` como EnvioEcom. Aba Seguro usa toggle nativo (`role="switch"`), não `@/components/ui/switch`.
 - Tratar score 100% só como “nome igual”; se o CPF/CNPJ do pedido (`11`/`14` dígitos) aparecer no NAME/MEMO do crédito, o score é 1.0.

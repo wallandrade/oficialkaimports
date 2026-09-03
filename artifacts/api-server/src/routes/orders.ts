@@ -53,6 +53,10 @@ import {
   listOrderEvents,
   listOrderEventsByOrderIds,
 } from "../lib/order-events";
+import {
+  isObservationVisibleToCustomer,
+  observationForCustomerApi,
+} from "../lib/order-observation-visibility";
 
 const router: IRouter = Router();
 
@@ -1546,7 +1550,7 @@ router.get("/me/orders", requireCustomerAuth, async (req, res) => {
       .where(and(buildOrderTenantWhere(tenantId), eq(ordersTable.userId, customerSession.userId)))
       .orderBy(desc(ordersTable.createdAt));
 
-    res.json({ orders: orders.map(mapOrder) });
+    res.json({ orders: orders.map((order) => mapOrder(order, { forCustomer: true })) });
   } catch (err) {
     console.error("Customer orders error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao buscar pedidos." });
@@ -1582,7 +1586,7 @@ router.get("/me/orders/:id", requireCustomerAuth, async (req, res) => {
       return;
     }
 
-    res.json({ order: mapOrder(rows[0]) });
+    res.json({ order: mapOrder(rows[0], { forCustomer: true }) });
   } catch (err) {
     console.error("Customer order detail error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao buscar pedido." });
@@ -1614,7 +1618,7 @@ router.get("/orders/guest/:id", async (req, res) => {
       return;
     }
 
-    res.json({ order: mapOrder(rows[0]) });
+    res.json({ order: mapOrder(rows[0], { forCustomer: true }) });
   } catch (err) {
     console.error("Guest order access error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao buscar pedido." });
@@ -1976,17 +1980,42 @@ router.patch("/admin/orders/:id/observation", requireAdminAuth, async (req, res)
 
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
-    const { observation } = req.body as { observation?: string };
+    const { observation, visibleToCustomer } = req.body as {
+      observation?: string;
+      visibleToCustomer?: boolean;
+    };
     const nextObservation = observation?.trim() || null;
+
+    const existing = await db
+      .select({
+        id: ordersTable.id,
+        observationVisibleToCustomer: ordersTable.observationVisibleToCustomer,
+      })
+      .from(ordersTable)
+      .where(buildAdminOrderWhere(id, adminScope))
+      .limit(1);
+    if (!existing[0]) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
+
+    const nextVisible = typeof visibleToCustomer === "boolean"
+      ? visibleToCustomer
+      : isObservationVisibleToCustomer(existing[0].observationVisibleToCustomer);
+
     await db.update(ordersTable)
-      .set({ observation: nextObservation, updatedAt: new Date() })
+      .set({
+        observation: nextObservation,
+        observationVisibleToCustomer: nextVisible,
+        updatedAt: new Date(),
+      })
       .where(buildAdminOrderWhere(id, adminScope));
     await addOrderEvent({
       orderId: id,
       tenantId: adminScope.tenantId,
       action: "observation",
       ...actorFromAdminRequest(req),
-      payload: { hasObservation: Boolean(nextObservation) },
+      payload: { hasObservation: Boolean(nextObservation), visibleToCustomer: nextVisible },
     });
     res.json({ ok: true });
   } catch (err) {
@@ -2664,8 +2693,12 @@ function slimExternalUrl(value: string | null | undefined): string | null {
   return trimmed;
 }
 
-function mapOrder(o: typeof ordersTable.$inferSelect, options?: { light?: boolean }) {
+function mapOrder(o: typeof ordersTable.$inferSelect, options?: { light?: boolean; forCustomer?: boolean }) {
   const light = Boolean(options?.light);
+  const forCustomer = Boolean(options?.forCustomer);
+  const observationVisible = isObservationVisibleToCustomer(
+    (o as { observationVisibleToCustomer?: unknown }).observationVisibleToCustomer,
+  );
   let proofUrls: string[] = [];
   if (o.proofUrls) {
     try { proofUrls = JSON.parse(o.proofUrls); } catch { proofUrls = []; }
@@ -2737,7 +2770,8 @@ function mapOrder(o: typeof ordersTable.$inferSelect, options?: { light?: boolea
     couponCode:             o.couponCode,
     discountAmount:         o.discountAmount ? Number(o.discountAmount) : null,
     affiliateCreditUsed:    o.affiliateCreditUsed ? Number(o.affiliateCreditUsed) : null,
-    observation:            o.observation,
+    observation:            forCustomer ? observationForCustomerApi(o.observation, observationVisible) : (o.observation ?? null),
+    ...(forCustomer ? {} : { observationVisibleToCustomer: observationVisible }),
     cardInstallmentsActual: o.cardInstallmentsActual,
     cardInstallmentValue:   o.cardInstallmentValue ? Number(o.cardInstallmentValue) : null,
     cardTotalActual:        o.cardTotalActual ? Number(o.cardTotalActual) : null,

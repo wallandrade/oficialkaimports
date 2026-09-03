@@ -5542,12 +5542,12 @@ export default function Admin() {
     } finally { setCardPaidSubmitting(false); }
   };
 
-  const updateOrderObservation = async (id: string, observation: string) => {
+  const updateOrderObservation = async (id: string, observation: string, visibleToCustomer = false) => {
     try {
       await fetch(`${BASE}/api/admin/orders/${id}/observation`, {
-        method: "PATCH", headers: authHeaders(), body: JSON.stringify({ observation }),
+        method: "PATCH", headers: authHeaders(), body: JSON.stringify({ observation, visibleToCustomer }),
       });
-      setOrders((prev) => prev.map((o) => o.id === id ? { ...o, observation } : o));
+      setOrders((prev) => prev.map((o) => o.id === id ? { ...o, observation, observationVisibleToCustomer: visibleToCustomer } : o));
     } catch { toast.error("Erro ao salvar observação."); }
   };
 
@@ -13423,7 +13423,7 @@ function OrdersPanel({
   onHydrateOrder: (id: string) => Promise<AdminOrder | null>;
   openWhatsApp: (order: AdminOrder) => void;
   onOpenCardPaidModal: (id: string) => void;
-  updateOrderObservation: (id: string, observation: string) => void;
+  updateOrderObservation: (id: string, observation: string, visibleToCustomer?: boolean) => void;
   isPrimary: boolean;
   canEditOrders: boolean;
   canMarkMotoboy: boolean;
@@ -15461,10 +15461,11 @@ function OrdersPanel({
                   )}
                   {/* Observation field */}
                   <div className="mt-4">
-                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block mb-1">Observações</label>
                     <ObservationField
                       value={order.observation ?? ""}
-                      onSave={(val) => updateOrderObservation(order.id, val)}
+                      visibleToCustomer={Boolean((order as { observationVisibleToCustomer?: boolean }).observationVisibleToCustomer)}
+                      showCustomerToggle
+                      onSave={(val, visibleToCustomer) => updateOrderObservation(order.id, val, visibleToCustomer)}
                     />
                   </div>
                 </motion.div>
@@ -15472,7 +15473,7 @@ function OrdersPanel({
             </AnimatePresence>
             <OrderHistoryTimeline
               orderId={order.id}
-              refreshKey={`${order.status}|${order.enviado}|${order.trackingCode || ""}|${(order as { envioecomBarcode?: string | null }).envioecomBarcode || ""}|${(order as { envioecomStatus?: string | null }).envioecomStatus || ""}|${order.observation || ""}|${order.total}|${order.clientName}`}
+              refreshKey={`${order.status}|${order.enviado}|${order.trackingCode || ""}|${(order as { envioecomBarcode?: string | null }).envioecomBarcode || ""}|${(order as { envioecomStatus?: string | null }).envioecomStatus || ""}|${order.observation || ""}|${Boolean((order as { observationVisibleToCustomer?: boolean }).observationVisibleToCustomer)}|${order.total}|${order.clientName}`}
               events={(order as { history?: Array<{ id?: string; action: string; actorType?: string | null; actorUsername?: string | null; payload?: Record<string, unknown> | null; createdAt: string }> }).history}
               createdAt={order.createdAt}
               clientName={order.clientName}
@@ -15793,24 +15794,68 @@ function formatAmountAdmin(raw: string) {
   return n.toFixed(2).replace(".", ",").replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 }
 
-function ObservationField({ value, onSave }: { value: string; onSave: (v: string) => void }) {
+function ObservationField({
+  value,
+  visibleToCustomer = false,
+  showCustomerToggle = false,
+  onSave,
+}: {
+  value: string;
+  visibleToCustomer?: boolean;
+  showCustomerToggle?: boolean;
+  onSave: (v: string, visibleToCustomer?: boolean) => void;
+}) {
   const [text, setText] = useState(value);
+  const [visible, setVisible] = useState(!!visibleToCustomer);
   const [saved, setSaved] = useState(false);
   useEffect(() => { setText(value); }, [value]);
-  const save = () => { onSave(text); setSaved(true); setTimeout(() => setSaved(false), 2000); };
+  useEffect(() => { setVisible(!!visibleToCustomer); }, [visibleToCustomer]);
+  const save = () => {
+    onSave(text, showCustomerToggle ? visible : undefined);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
   return (
-    <div className="flex gap-2 items-end">
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        rows={2}
-        placeholder="Nenhuma observação"
-        className="flex-1 px-3 py-2 text-sm rounded-lg border border-border bg-background resize-none outline-none focus:border-primary"
-      />
-      <Button size="sm" variant="outline" onClick={save} className="shrink-0 gap-1.5 text-xs">
-        {saved ? <CheckCircle className="w-3.5 h-3.5 text-green-600" /> : <Save className="w-3.5 h-3.5" />}
-        {saved ? "Salvo" : "Salvar"}
-      </Button>
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Observações</label>
+        {showCustomerToggle ? (
+          <div className="flex items-center gap-2">
+            <span className={`text-xs font-medium ${visible ? "text-emerald-700" : "text-muted-foreground"}`}>
+              {visible ? "Cliente vê na conta" : "Só interno"}
+            </span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={visible}
+              aria-label="Cliente vê na conta"
+              onClick={() => setVisible((prev) => !prev)}
+              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors ${
+                visible ? "bg-emerald-600" : "bg-slate-300"
+              }`}
+            >
+              <span
+                className={`pointer-events-none block h-4 w-4 rounded-full bg-white shadow-lg transition-transform ${
+                  visible ? "translate-x-4" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+        ) : null}
+      </div>
+      <div className="flex gap-2 items-end">
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={2}
+          placeholder="Nenhuma observação"
+          className="flex-1 px-3 py-2 text-sm rounded-lg border border-border bg-background resize-none outline-none focus:border-primary"
+        />
+        <Button size="sm" variant="outline" onClick={save} className="shrink-0 gap-1.5 text-xs">
+          {saved ? <CheckCircle className="w-3.5 h-3.5 text-green-600" /> : <Save className="w-3.5 h-3.5" />}
+          {saved ? "Salvo" : "Salvar"}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -16127,7 +16172,6 @@ function ChargesPanel({ charges, openWhatsApp, chargeStatusUpdating, onUpdateCha
 
           {/* Observation */}
           <div className="mt-4">
-            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block mb-1">Observações</label>
             <ObservationField
               value={charge.observation ?? ""}
               onSave={(val) => updateChargeObservation(charge.id, val)}

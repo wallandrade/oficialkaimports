@@ -80,6 +80,9 @@ function payloadText(event: OrderHistoryEvent): string {
   }
   if (event.action === "priority") parts.push(payload.on ? "Prioridade ligada" : "Prioridade desligada");
   if (event.action === "searching") parts.push(payload.on ? "Marcou procurando produto" : "Removeu procurando produto");
+  if (event.action === "observation") {
+    parts.push(payload.visibleToCustomer ? "Cliente vê na conta" : "Só interno");
+  }
   return parts.filter(Boolean).join(" · ");
 }
 
