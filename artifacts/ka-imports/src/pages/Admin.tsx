@@ -1209,7 +1209,6 @@ const PRIMARY_ONLY_TABS = new Set<TabType>([
   "coupons",
   "orderBumps",
   "checkout",
-  "seguro",
   "socialProof",
   "lojas",
 ]);
@@ -2269,6 +2268,7 @@ export default function Admin() {
   const canManageShippingTab = isPrimary || adminTenantId !== "tenant_loja1";
   const canManageSellerLinks = isPrimary || adminTenantId !== "tenant_loja1";
   const canManageRafflesTab = isPrimary || adminTenantId !== "tenant_loja1";
+  const canManageInsuranceTab = isPrimary || adminTenantId !== "tenant_loja1";
   const canEditOrders = isPrimary || adminTenantId !== "tenant_loja1";
   const canViewSupplierPurchasesTab = adminTenantId !== "tenant_loja1";
   const filialTenantOptions = tenants.filter((tenant) => tenant.id !== "tenant_loja1");
@@ -5422,10 +5422,10 @@ export default function Admin() {
   }, [tab, authChecked, fetchUsers, fetchCustomers, fetchRecurringCustomers]);
 
   useEffect(() => {
-    if ((tab === "products" && !canManageProductsTab) || (tab === "raffles" && !canManageRafflesTab) || (!isPrimary && PRIMARY_ONLY_TABS.has(tab)) || (tab === "lojas" && !canManageTenants) || (tab === "supplierPurchases" && !canViewSupplierPurchasesTab) || (tab === "envioecom" && !canManageShippingTab)) {
+    if ((tab === "products" && !canManageProductsTab) || (tab === "raffles" && !canManageRafflesTab) || (tab === "seguro" && !canManageInsuranceTab) || (!isPrimary && PRIMARY_ONLY_TABS.has(tab)) || (tab === "lojas" && !canManageTenants) || (tab === "supplierPurchases" && !canViewSupplierPurchasesTab) || (tab === "envioecom" && !canManageShippingTab)) {
       setTab("orders");
     }
-  }, [isPrimary, tab, canManageTenants, canManageProductsTab, canManageRafflesTab, canViewSupplierPurchasesTab, canManageShippingTab]);
+  }, [isPrimary, tab, canManageTenants, canManageProductsTab, canManageRafflesTab, canManageInsuranceTab, canViewSupplierPurchasesTab, canManageShippingTab]);
 
   useEffect(() => {
     if (!authChecked || tab !== "supplierPurchases") return;
@@ -7188,12 +7188,14 @@ export default function Admin() {
             ...(canManageRafflesTab ? [
               { key: "raffles" as TabType, label: "Rifas", icon: "Ticket", count: rafflesList.length || undefined },
             ] : []),
+            ...(canManageInsuranceTab ? [
+              { key: "seguro" as TabType, label: "Seguro", icon: "ShieldCheck" },
+            ] : []),
             ...(canViewSupplierPurchasesTab ? [
               { key: "supplierPurchases" as TabType, label: "Compra fornecedor", icon: "ShoppingBag", count: myFilialPurchaseRequests.length || undefined },
             ] : []),
             ...(isPrimary ? [
               { key: "checkout", label: "Checkout", icon: "Zap" },
-              { key: "seguro", label: "Seguro", icon: "ShieldCheck" },
               { key: "coupons", label: "Cupons", icon: "Ticket", count: coupons.length },
               { key: "orderBumps", label: "Order Bumps", icon: "Zap", count: orderBumps.length },
               { key: "users", label: "Usuários", icon: "User" },
@@ -7756,7 +7758,7 @@ export default function Admin() {
               }
             }}
           />
-        ) : tab === "seguro" && isPrimary ? (
+        ) : tab === "seguro" && canManageInsuranceTab ? (
           <AdminInsurancePanel
             settings={settings}
             loading={settingsLoading}
