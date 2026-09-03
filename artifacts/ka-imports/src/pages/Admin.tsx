@@ -6934,18 +6934,15 @@ export default function Admin() {
 
           {/* Cards Seguro + Repasse (lado a lado) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-            {/* Seguro cobrado — histórico completo, independente do filtro de data */}
+            {/* Seguro cobrado — mesmo De/Até do faturamento */}
             <div className="rounded-xl border bg-gradient-to-br from-sky-50 to-indigo-100/60 border-sky-200 p-5 flex flex-col gap-1">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-semibold text-sky-700 uppercase tracking-wide flex items-center gap-1.5">
-                  <ShieldCheck className="w-4 h-4" /> Seguro pago
-                </p>
-                <span className="text-[10px] bg-sky-100 text-sky-800 px-1.5 py-0.5 rounded-full font-semibold">TODOS OS PERÍODOS</span>
-              </div>
+              <p className="text-xs font-semibold text-sky-700 uppercase tracking-wide flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4" /> Seguro pago
+              </p>
               <p className="text-3xl font-bold text-sky-800">
                 {formatCurrency(Number(financialSummary?.totalInsurancePaid) || 0)}
               </p>
-              <p className="text-xs text-sky-700">Soma só do valor do seguro nas vendas pagas. Não inclui produtos nem frete.</p>
+              <p className="text-xs text-sky-700">Soma só do valor do seguro nas vendas pagas do período. Não inclui produtos nem frete.</p>
               <p className="text-xs text-muted-foreground mt-1">
                 {Number(financialSummary?.insuredOrdersCount) || 0} venda{(Number(financialSummary?.insuredOrdersCount) || 0) !== 1 ? "s" : ""} com seguro
                 {statsSeller !== "all" ? ` · vendedor ${statsSeller}` : ""}

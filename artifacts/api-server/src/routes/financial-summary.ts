@@ -104,6 +104,8 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
       inArray(ordersTable.status, ["paid", "completed"]),
       gt(ordersTable.insuranceAmount, "0"),
     ];
+    if (dateFrom) insuranceConditions.push(gte(ordersTable.createdAt, toUTC(dateFrom, "00", "00", "00")));
+    if (dateTo) insuranceConditions.push(lte(ordersTable.createdAt, toUTC(dateTo, "23", "59", "59")));
     if (!adminScope.hasGlobalAccess) {
       insuranceConditions.push(eq(ordersTable.sellerCode, adminScope.sellerCode!));
     } else if (sellerCode) {
