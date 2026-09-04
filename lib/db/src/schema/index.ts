@@ -1,5 +1,6 @@
 export * from "./orders";
 export * from "./order-events";
+export * from "./order-shipments";
 export * from "./order-bank-deposits";
 export * from "./tenants";
 export * from "./admin-user-tenants";

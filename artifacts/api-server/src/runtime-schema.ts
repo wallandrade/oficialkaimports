@@ -311,6 +311,7 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
     { name: "bank_deposit_matched_at", sql: "ALTER TABLE orders ADD COLUMN bank_deposit_matched_at TIMESTAMP NULL" },
     { name: "inventory_exit_pool", sql: "ALTER TABLE orders ADD COLUMN inventory_exit_pool VARCHAR(16) NULL" },
     { name: "inventory_exited_pools", sql: "ALTER TABLE orders ADD COLUMN inventory_exited_pools VARCHAR(64) NULL" },
+    { name: "inventory_reserved", sql: "ALTER TABLE orders ADD COLUMN inventory_reserved TINYINT(1) NOT NULL DEFAULT 0" },
     { name: "insurance_plan", sql: "ALTER TABLE orders ADD COLUMN insurance_plan VARCHAR(16) NULL" },
     { name: "insurance_keep_amount", sql: "ALTER TABLE orders ADD COLUMN insurance_keep_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00" },
     { name: "insurance_cashback_amount", sql: "ALTER TABLE orders ADD COLUMN insurance_cashback_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00" },
@@ -1150,6 +1151,39 @@ async function ensureFilialPurchaseTables(databaseName: string): Promise<void> {
   }
 }
 
+async function ensureOrderShipmentsTable(databaseName: string): Promise<void> {
+  if (await tableExists("order_shipments", databaseName)) return;
+  await pool.query(`
+    CREATE TABLE order_shipments (
+      id VARCHAR(255) NOT NULL PRIMARY KEY,
+      order_id VARCHAR(255) NOT NULL,
+      tenant_id VARCHAR(255) NULL,
+      inventory_pool VARCHAR(16) NOT NULL,
+      items JSON NOT NULL,
+      enviado TINYINT(1) NOT NULL DEFAULT 0,
+      inventory_reserved TINYINT(1) NOT NULL DEFAULT 0,
+      envioecom_shipment_id INT NULL,
+      envioecom_barcode VARCHAR(255) NULL,
+      envioecom_tracking_key VARCHAR(255) NULL,
+      envioecom_delivery_mode VARCHAR(255) NULL,
+      envioecom_status VARCHAR(255) NULL,
+      envioecom_status_updated_at TIMESTAMP NULL,
+      envioecom_status_history JSON NULL,
+      envioecom_label_url MEDIUMTEXT NULL,
+      envioecom_freight_cost DECIMAL(10,2) NULL,
+      envioecom_external_order_number VARCHAR(255) NULL,
+      envioecom_account_id VARCHAR(64) NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY order_shipments_order_pool_unique (order_id, inventory_pool),
+      KEY order_shipments_order_id_idx (order_id),
+      KEY order_shipments_barcode_idx (envioecom_barcode),
+      KEY order_shipments_shipment_id_idx (envioecom_shipment_id),
+      KEY order_shipments_external_idx (envioecom_external_order_number)
+    )
+  `);
+}
+
 async function ensureOrderEventsTable(databaseName: string): Promise<void> {
   if (await tableExists("order_events", databaseName)) return;
   await pool.query(`
@@ -1515,6 +1549,7 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureMarketingExpensesColumns(databaseName);
     await ensureFilialPurchaseTables(databaseName);
     await ensureOrderEventsTable(databaseName);
+    await ensureOrderShipmentsTable(databaseName);
     await ensureAdminSessionsTenantColumn(databaseName);
     await ensureTenantColumns(databaseName);
     await ensureTenantSettingsTable(databaseName);

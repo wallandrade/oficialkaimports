@@ -1,4 +1,4 @@
-import { db, inventoryBalancesTable, inventoryMovementsTable, motoboyDeliveryReservationsTable, ordersTable, productsTable } from "@workspace/db";
+import { db, inventoryBalancesTable, inventoryMovementsTable, motoboyDeliveryReservationsTable, orderShipmentsTable, ordersTable, productsTable } from "@workspace/db";
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { DEFAULT_TENANT_ID } from "./tenant-context";
 import { registerInventoryEntry } from "./reshipments";
@@ -8,11 +8,16 @@ import { clearOrderManualPriority } from "./order-priority";
 import {
   addKaInventoryExitedPool,
   defaultKaInventoryExitPool,
+  parseKaInventoryExitPool,
   parseKaInventoryExitedPools,
   serializeKaInventoryExitedPools,
   type KaInventoryExitPool,
 } from "./yury-inventory";
 import { debitYuryInventoryForKaOrder, YuryInventoryExitError } from "./yury-inventory-exit";
+import {
+  packageInventoryReferenceId,
+  parseOrderShipmentItems,
+} from "./order-shipments-logic";
 
 function buildOrderTenantWhere(tenantId: string) {
   if (tenantId === DEFAULT_TENANT_ID) {
@@ -103,7 +108,8 @@ async function hasLegacyFozExit(orderId: string): Promise<boolean> {
     })
     .from(inventoryMovementsTable)
     .where(eq(inventoryMovementsTable.referenceId, orderId));
-  return rows.some((row) => {
+  let net = 0;
+  for (const row of rows) {
     const type = String(row.type || "").trim().toLowerCase();
     const reason = String(row.reason || "")
       .normalize("NFD")
@@ -111,8 +117,22 @@ async function hasLegacyFozExit(orderId: string): Promise<boolean> {
       .trim()
       .toLowerCase();
     const qty = Number(row.quantity) || 0;
-    return type === "exit" && qty < 0 && reason.startsWith("saida por envio do pedido");
-  });
+    const isOrderExit = type === "exit" && qty < 0 && reason.startsWith("saida por envio do pedido");
+    const isOrderEstorno = type === "entry" && qty > 0 && (
+      reason.startsWith("estorno de saida do pedido")
+      || reason.startsWith("estorno de baixa do pedido")
+    );
+    if (isOrderExit || isOrderEstorno) net += qty;
+  }
+  return net < 0;
+}
+
+export async function countOrderShipments(orderId: string): Promise<number> {
+  const rows = await db
+    .select({ id: orderShipmentsTable.id })
+    .from(orderShipmentsTable)
+    .where(eq(orderShipmentsTable.orderId, orderId));
+  return rows.length;
 }
 
 async function debitFozForOrder(input: {
@@ -178,6 +198,12 @@ export async function debitOrderInventoryPool(input: {
   tenantId: string;
   pool: KaInventoryExitPool;
 }): Promise<{ alreadyDebited: boolean; pool: KaInventoryExitPool; exitedPools: KaInventoryExitPool[] }> {
+  if (await countOrderShipments(input.orderId) >= 2) {
+    throw new OrderEnviadoError(
+      "ORDER_SPLIT_USE_PACKAGE",
+      "Pedido dividido: baixe o estoque pelo pacote (pkg), não pelo pedido inteiro.",
+    );
+  }
   const rows = await db
     .select({
       id: ordersTable.id,
@@ -233,6 +259,123 @@ export async function debitOrderInventoryPool(input: {
   return { alreadyDebited: false, pool: input.pool, exitedPools };
 }
 
+export async function debitPackageInventory(input: {
+  orderId: string;
+  tenantId: string;
+  packageId: string;
+  pool: KaInventoryExitPool;
+  items: Array<{ productId: string | null; productName: string; quantity: number }>;
+  clientName?: string | null;
+}): Promise<{ alreadyDebited: boolean; pool: KaInventoryExitPool }> {
+  const packageId = String(input.packageId || "").trim();
+  if (!packageId) throw new OrderEnviadoError("NEED_PACKAGE_ID", "Informe o pacote para baixar o estoque.");
+  const referenceId = packageInventoryReferenceId(packageId);
+  const pkgItems = parseOrderShipmentItems(input.items);
+  if (pkgItems.length === 0) {
+    return { alreadyDebited: true, pool: input.pool };
+  }
+
+  const [pkg] = await db
+    .select({
+      id: orderShipmentsTable.id,
+      inventoryReserved: orderShipmentsTable.inventoryReserved,
+    })
+    .from(orderShipmentsTable)
+    .where(eq(orderShipmentsTable.id, packageId))
+    .limit(1);
+  if (!pkg) throw new OrderEnviadoError("NOT_FOUND", "Pacote não encontrado.");
+  if (pkg.inventoryReserved) {
+    return { alreadyDebited: true, pool: input.pool };
+  }
+
+  if (input.pool === "loja") {
+    await debitFozForOrder({
+      orderId: referenceId,
+      tenantId: input.tenantId,
+      clientName: input.clientName || null,
+      items: pkgItems,
+    });
+  } else {
+    try {
+      await debitYuryInventoryForKaOrder({
+        referenceId,
+        pool: input.pool,
+        items: pkgItems,
+      });
+    } catch (error) {
+      if (error instanceof YuryInventoryExitError) {
+        throw new OrderEnviadoError(error.code, error.message);
+      }
+      throw error;
+    }
+  }
+
+  await db.update(orderShipmentsTable)
+    .set({ inventoryReserved: true, updatedAt: new Date() })
+    .where(eq(orderShipmentsTable.id, packageId));
+  return { alreadyDebited: false, pool: input.pool };
+}
+
+export async function reverseOrderInventoryForSplit(input: {
+  orderId: string;
+  tenantId: string;
+  clientName?: string | null;
+  products: unknown;
+  inventoryExitedPools: unknown;
+}): Promise<void> {
+  const exitedPools = parseKaInventoryExitedPools(input.inventoryExitedPools);
+  const orderItems = parseOrderItemsForInventory(input.products);
+  if (exitedPools.length === 0 && !(await hasLegacyFozExit(input.orderId))) return;
+
+  const pools = exitedPools.length > 0
+    ? exitedPools
+    : (await hasLegacyFozExit(input.orderId) ? ["loja" as const] : []);
+
+  if (pools.includes("motoboy") || pools.includes("minas")) {
+    throw new OrderEnviadoError(
+      "INVENTORY_MUST_REVERSE",
+      "Este pedido já baixou estoque Motoboy/Minas. Estorne essa baixa antes de dividir o envio.",
+    );
+  }
+
+  if (pools.includes("loja") && orderItems.length > 0) {
+    const missingIds = orderItems.filter((item) => !item.productId);
+    let resolvedItems = orderItems;
+    if (missingIds.length > 0) {
+      const productRows = await db.select({ id: productsTable.id, name: productsTable.name }).from(productsTable);
+      const productIdByName = new Map(productRows.map((row) => [String(row.name || "").trim().toLowerCase(), row.id] as const));
+      resolvedItems = orderItems.map((item) => (
+        item.productId ? item : { ...item, productId: productIdByName.get(item.productName.trim().toLowerCase()) || null }
+      ));
+    }
+    const stillMissing = resolvedItems.filter((item) => !item.productId);
+    if (stillMissing.length > 0) {
+      throw new OrderEnviadoError(
+        "INVENTORY_PRODUCT_MAPPING_ERROR",
+        `Não foi possível mapear os produtos no estoque: ${stillMissing.map((item) => item.productName).join(", ")}.`,
+      );
+    }
+    for (const item of resolvedItems) {
+      await registerInventoryEntry({
+        tenantId: input.tenantId,
+        productId: item.productId!,
+        quantity: item.quantity,
+        reason: `Estorno de baixa do pedido ${input.orderId} para split`,
+        referenceId: input.orderId,
+        clientName: input.clientName || null,
+      });
+    }
+  }
+
+  await db.update(ordersTable)
+    .set({
+      inventoryExitedPools: null,
+      inventoryReserved: false,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(ordersTable.id, input.orderId), buildOrderTenantWhere(input.tenantId)));
+}
+
 export async function ensureOrderMarkedEnviado(orderId: string, tenantId: string): Promise<{ enviado: boolean; already: boolean }> {
   const rows = await db
     .select({
@@ -258,7 +401,26 @@ export async function ensureOrderMarkedEnviado(orderId: string, tenantId: string
   }
 
   const orderItems = parseOrderItemsForInventory(order.products);
-  if (orderItems.length > 0) {
+  const shipmentRows = await db
+    .select()
+    .from(orderShipmentsTable)
+    .where(eq(orderShipmentsTable.orderId, orderId));
+  if (shipmentRows.length >= 2) {
+    for (const pkg of shipmentRows) {
+      const pool = parseKaInventoryExitPool(pkg.inventoryPool) || "loja";
+      await debitPackageInventory({
+        orderId,
+        tenantId,
+        packageId: pkg.id,
+        pool,
+        items: parseOrderShipmentItems(pkg.items),
+        clientName: order.clientName || null,
+      });
+      await db.update(orderShipmentsTable)
+        .set({ enviado: true, inventoryReserved: true, updatedAt: new Date() })
+        .where(eq(orderShipmentsTable.id, pkg.id));
+    }
+  } else if (orderItems.length > 0) {
     await debitOrderInventoryPool({
       orderId,
       tenantId,

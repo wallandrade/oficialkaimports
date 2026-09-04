@@ -1,12 +1,14 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-09-03  
+> **Última atualização:** 2026-09-04  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-04 | Tabela `order_shipments` + `orders.inventory_reserved`; `GET/POST /admin/orders/:id/shipments`; `packageId` nas rotas EE | Split 1:N no runtime; rollup no pai; webhook tenta pacote primeiro | Colunas `envioecom_*` do pedido (fluxo 1:1 sem linhas); reenvio/`parent_order_id` |
+| 2026-09-04 | `motoboy-route.ts` + `resolveMotoboyDistanceKm` no lookup | Cotação km no api-server passa a ser rua, não Haversine | Endpoint `GET /api/motoboy-coverage/lookup` e settings iguais |
 | 2026-09-03 | Coluna `orders.observation_visible_to_customer` + `mapOrder(..., { forCustomer })` | `/me` e guest não vazam nota interna | Admin continua vendo `observation` sempre; ALTER runtime |
 | 2026-09-03 | Tabela `order_events` + `GET /admin/orders/:id/events` + `history` na lista | Auditoria no card do pedido | Stack FE/API; rastreio EE inalterado |
 | 2026-09-03 | `totalInsurancePaid` / `insuredOrdersCount` passam a usar `dateFrom`/`dateTo` (`createdAt`) | Card Seguro pago acompanha o De/Até | Demais campos do summary e filtro de vendedor iguais |
@@ -62,7 +64,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 ### Tabelas principais (não exaustivo)
 
 - `tenants`, `admin_users`, `admin_user_tenants`, `admin_sessions`
-- `orders` (incl. `envioecom_*`, `enviado`, `inventory_exit_pool`, `inventory_exited_pools`, `is_prioridade`, `is_procurando_produto`, `tracking_*`, `bank_deposit_*`, `insurance_plan`, `insurance_keep_amount`, `insurance_cashback_amount`, `insurance_claim_status`, `insurance_reship_count`, `insurance_cashback_granted`, `parent_order_id`, `store_credit_used`, `observation`, `observation_visible_to_customer`), `order_events` (auditoria do pedido), `order_bank_deposits` (vários PIX OFX por pedido), `custom_charges`, `products`, `coupons`, `sellers`
+- `orders` (incl. `envioecom_*`, `enviado`, `inventory_exit_pool`, `inventory_exited_pools`, `inventory_reserved`, `is_prioridade`, `is_procurando_produto`, `tracking_*`, `bank_deposit_*`, `insurance_plan`, `insurance_keep_amount`, `insurance_cashback_amount`, `insurance_claim_status`, `insurance_reship_count`, `insurance_cashback_granted`, `parent_order_id`, `store_credit_used`, `observation`, `observation_visible_to_customer`), `order_shipments` (N envios EE por pedido; unique `(order_id, inventory_pool)`), `order_events` (auditoria do pedido), `order_bank_deposits` (vários PIX OFX por pedido), `custom_charges`, `products`, `coupons`, `sellers`
 - `customer_users`, `customer_wallet_ledger` (carteira da loja; não é afiliado), `affiliates` (+ referrals/commissions/credit uses)
 - `kyc_documents`, `site_settings` / `tenant_settings`
 - `shipping_options`, `motoboy_*` (incl. `yury_id` na cobertura), `yury_webhook_events_processed`, `order_logistics_allocations`
@@ -75,14 +77,14 @@ Monorepo **pnpm workspaces** + TypeScript.
 - Entry: `artifacts/api-server/src/index.ts` → `app.ts` → `routes/index.ts`.
 - Health: `GET /healthz`.
 - Jobs no boot: reconciliação (expiração 24h), raffle expiry, reconcile logistics, pull de cobertura Motoboy Yury (15 min, se token), pull de estoque Motoboy/Minas Yury (3 min, se token).
-- Checkout Motoboy: `GET /api/motoboy-coverage/lookup` (público, por tenant). Geocode BrasilAPI só no servidor (`motoboy-geocode.ts`). Settings de km em `ALLOWED_KEYS`, fora de `PUBLIC_KEYS`.
+- Checkout Motoboy: `GET /api/motoboy-coverage/lookup` (público, por tenant). Geocode BrasilAPI só no servidor (`motoboy-geocode.ts`). Km de rua em `motoboy-route.ts` (`resolveMotoboyDistanceKm`). Settings de km em `ALLOWED_KEYS`, fora de `PUBLIC_KEYS`.
 - Webhook cobertura Motoboy: `POST /api/webhooks/yury/motoboy-coverage` (body cru + HMAC) **antes** de `express.json()`.
 - Webhook estoque Yury: `POST /api/webhooks/yury/inventory` (mesmo HMAC; grava `balances`, não o delta).
-- Baixa no pedido: `POST /api/admin/orders/:id/inventory-exit` (Fóz local ou Yury Motoboy/Minas) a partir do card; `ensureOrderMarkedEnviado` usa o pool salvo.
-- EnvioEcom: `artifacts/api-server/src/routes/envioecom.ts` + webhook em `webhooks.ts`. Contas em `lib/envioecom-accounts.ts` (env + tenant + JSON `envioecom_accounts`). Client cacheia token por `tenantId:accountId`. Coluna `orders.envioecom_account_id`.
+- Baixa no pedido: `POST /api/admin/orders/:id/inventory-exit` (Fóz local ou Yury Motoboy/Minas) a partir do card (1:1); após split a baixa é por pacote (`debitPackageInventory`, `referenceId = pkg:{id}`). `ensureOrderMarkedEnviado` no split debita cada pacote. `GET/POST /admin/orders/:id/shipments` aloca/lista `packages[]`.
+- EnvioEcom: `artifacts/api-server/src/routes/envioecom.ts` + webhook em `webhooks.ts`. Contas em `lib/envioecom-accounts.ts` (env + tenant + JSON `envioecom_accounts`). Client cacheia token por `tenantId:accountId`. Coluna `orders.envioecom_account_id`. Split: `packageId` em quote/create/labels/sync/cancel/bind; persistência em `order_shipments` + rollup no pai (`lib/order-shipments.ts`). Pedido sem linhas = colunas `envioecom_*` do pedido.
 - APPCNPay: `gateway.ts` + `lib/pix-gateway-credentials.ts`. Par por tenant (`gateway_appcnpay_public_key` / `_secret_key`); fallback env. Webhook PIX resolve tenant pelo `transactionId`.
 - Extrato OFX: `artifacts/api-server/src/routes/bank-statement.ts` (`analyze`/`apply`/`clear`/`bank-deposits`) + `order_bank_deposits`. Painéis FE: `AdminBankStatementPanel.tsx` (sessão) e `AdminBankDepositsPanel.tsx` (histórico + Desfazer por FITID).
-- Lista admin: `GET /admin/orders` em modo leve (sem `data:`/OCR); `GET /admin/orders/:id` devolve mídia completa. Histórico de gestão: `order_events` + `history` na lista/`GET :id` + `GET /admin/orders/:id/events`. `mapOrder` no admin inclui `observation` + `observationVisibleToCustomer`; rotas de cliente/guest passam `{ forCustomer: true }` (`order-observation-visibility.ts`). PATCH observação: `/admin/orders/:id/observation`.
+- Lista admin: `GET /admin/orders` em modo leve (sem `data:`/OCR); `GET /admin/orders/:id` devolve mídia completa. `mapOrder` inclui `packages[]` (vazio = 1:1). Histórico de gestão: `order_events` + `history` na lista/`GET :id` + `GET /admin/orders/:id/events`. `mapOrder` no admin inclui `observation` + `observationVisibleToCustomer`; rotas de cliente/guest passam `{ forCustomer: true }` (`order-observation-visibility.ts`). PATCH observação: `/admin/orders/:id/observation`.
 - Seguro: `lib/checkout-insurance.ts` + `insurance-claims-policy.ts` + `customer-wallet.ts`; rotas `routes/wallet.ts` (`/api/me/wallet`, `/api/admin/wallet/*`); ALTERs em `runtime-schema.ts`. Settings `checkout_insurance_*` em `PUBLIC_KEYS`. Dashboard: `totalInsurancePaid` / `insuredOrdersCount` em `financial-summary.ts` (SUM no mesmo De/Até do faturamento, pedidos pagos).
 - OpenAPI cobre só um subconjunto (health/products/pix/orders…); **muitas rotas existem só no Express** — não assumir que Orval cobre tudo.
 
@@ -90,7 +92,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 
 - Rotas: `artifacts/ka-imports/src/App.tsx` (wouter).
 - Carrinho: Zustand persist `src/store/use-cart.ts`.
-- Admin monolítico: `src/pages/Admin.tsx` (arquivo grande — leitura seletiva). `fetchOrders` usa AbortController + seq e não apaga `envioecomLabelUrl` se o GET vier vazio. Busca de pedidos: input com debounce 300ms. Troca de data da lista não chama `fetchStatsData`. Aba **Seguro**: `AdminInsurancePanel.tsx` (primary-only). Checkout: `CheckoutInsuranceOffer.tsx` (2 cards, clique de novo = none).
+- Admin monolítico: `src/pages/Admin.tsx` (arquivo grande — leitura seletiva). `fetchOrders` usa AbortController + seq e não apaga `envioecomLabelUrl` se o GET vier vazio. Busca de pedidos: input com debounce 300ms. Troca de data da lista não chama `fetchStatsData`. Aba **Seguro**: `AdminInsurancePanel.tsx` (primary-only). Checkout: `CheckoutInsuranceOffer.tsx` (2 cards, clique de novo = none). Split de envio: `SplitOrderShipments.tsx` + `packageId` em `EnvioEcomOrderActions.tsx`; cliente em `CustomerOrders.tsx` (`packages.length >= 2`).
 - Proxy/API: requests sob `/api` (Vercel rewrite → Railway).
 - SW: `public/sw.js` — **somente notificações admin**, não PWA offline/sync.
 

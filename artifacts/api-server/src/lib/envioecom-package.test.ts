@@ -135,7 +135,7 @@ test("etiqueta pronta libera fila mesmo sem status de transito", () => {
   }), true);
   assert.equal(hasEnvioEcomLabelReady({ envioecomStatus: "Etiqueta emitida" }), true);
   assert.equal(hasEnvioEcomLabelReady({ envioecomStatus: "Etiqueta gerada" }), true);
-  assert.equal(hasEnvioEcomLabelReady({ envioecomStatus: "Etiqueta gerada - Minas" }), true);
+  assert.equal(hasEnvioEcomLabelReady({ envioecomStatus: "Aguardando coleta" }), true);
   assert.equal(hasEnvioEcomLabelReady({ envioecomStatus: "DC-e emitida" }), true);
   assert.equal(hasEnvioEcomLabelReady({
     envioecomLabelUrl: "https://cdn.example/label.pdf",

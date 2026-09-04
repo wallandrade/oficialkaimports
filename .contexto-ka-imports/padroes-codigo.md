@@ -1,12 +1,14 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-09-03  
+> **Última atualização:** 2026-09-04  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-04 | Anti-padrão: 2º volume via reenvio/filho, `shipments:[a,b]` no mesmo create, copiar 1º PDF no pai, baixa `orders.id` após split, webhook só em `orders` | `order_shipments` + `packageId` + `pkg:{id}` + webhook do pacote primeiro | Reenvio de suporte/`parent_order_id` continua outro domínio |
+| 2026-09-04 | Anti-padrão: Haversine como km principal do Motoboy, fator 1,3 ou rota no browser | `resolveMotoboyDistanceKm` no servidor (Google→OSRM→Haversine) | Geocode BrasilAPI e faixas iguais |
 | 2026-09-03 | Anti-padrão: devolver `orders.observation` em `/me` ou guest sem o flag `observation_visible_to_customer` | `mapOrder(..., { forCustomer: true })` omite nota interna | Admin e PDF/cópia iguais; OFX não liga o flag |
 | 2026-09-03 | Anti-padrão: misturar auditoria do admin com `envioecom_status_history` ou inferir “quem fez” de `updatedAt` | Tabela `order_events`; timeline de rastreio continua só da transportadora | Observações e PIX inalterados |
 | 2026-09-03 | Anti-padrão: “Gratis” no Motoboy km porque o Padrão bateu o limiar | Preço por opção; `dist` sem threshold | Bairro Motoboy ainda tem limiar próprio |
@@ -87,7 +89,7 @@ Código > memória > suposições.
 - Tenant: sempre considerar `resolvePublicTenantId` / `adminScope.tenantId` e helpers `build*TenantWhere` (legado null = loja1).
 - Validação: Zod (`zod/v4` em vários schemas Drizzle; catalog também tem zod 3 — **seguir o padrão do arquivo tocado**).
 - Erros: JSON `{ error, message }` (e `details` fora de produção em alguns pontos).
-- Testes pontuais: `node --test` + tsx (ex.: `free-shipping.test.ts`, `order-logistics.test.ts`).
+- Testes pontuais: `node --test` + tsx (ex.: `free-shipping.test.ts`, `order-logistics.test.ts`, `order-shipments-logic.test.ts`).
 
 ## Database (Drizzle / MySQL)
 
@@ -145,6 +147,7 @@ Código > memória > suposições.
 - Exigir cidade da faixa CEP igual à ViaCEP para mostrar Motoboy (CEP na faixa já libera; cidade só desempata).
 - Lookup Motoboy em duas chamadas no frontend (bairro depois faixa). Usar `GET /api/motoboy-coverage/lookup`. Km e bairro são XOR (`shouldLookupNeighborhoods = !distanceEnabled`).
 - Geocodar CEP no browser ou usar Nominatim no fluxo Motoboy (BrasilAPI só no servidor). Settings `motoboy_distance_*` não entram em `PUBLIC_KEYS`.
+- Cobrar Motoboy com Haversine (linha reta) como km principal, multiplicar linha reta por 1,3, ou pedir rota no front (Google no browser). Usar `resolveMotoboyDistanceKm` no lookup; Haversine só se a API de rota falhar. CEP→CEP (centroide), não porta a porta.
 - Misturar centro R$ 50 com a faixa “até 10 km” (R$ 70), ou cair na faixa CEP depois de `consult` (>200 km).
 - Criar um `neighborhood_id` diferente por km; cotação por distância usa sempre `"dist"`.
 - Gerar etiqueta EnvioEcom com barcode provisório `EC…` (usar `shipping_id` / `ids`).
@@ -152,16 +155,19 @@ Código > memória > suposições.
 - Gravar extras EnvioEcom misturando a conta `env` no JSON; env = Railway, painel só cria extras. CEP origem é da conta, não um setting global de quote/create.
 - Cotar numa API EnvioEcom e criar a etiqueta em outra; o `accountId` do quote vai no create. 0 contas → Configurações; 1 → direto; 2+ → modal.
 - Pedir ID EnvioEcom com `window.prompt`; usar o modal **Vincular EE** (ID 4–10 dígitos ou rastreio) e `POST .../sync`.
-- Enviar um produto × N linhas na cotação EnvioEcom (empilha altura → `QUOTE_ERROR`); usar 1 pacote.
+- Enviar um produto × N linhas na cotação EnvioEcom (empilha altura → `QUOTE_ERROR`); usar 1 pacote **por create**. Split = N creates (um `packageId` cada), não `shipments: [a, b]` no mesmo POST.
 - Cotar EnvioEcom com caixa 10×15×20 e valor declarado = total do pedido; o simulador usa 2×12×17, 0,3 kg, R$ 5.
 - Enviar o nome, a quantidade ou o preço reais do pedido/catálogo em `items[]` no create EnvioEcom; usar 1 linha com `envioecom_shipment_item_name` / `_quantity` / `_unit_cost` (defaults Mercadoria, 1, R$ 5).
 - Mandar `cost` R$ 5 (valor da cotação) no create se o admin configurou outro valor na etiqueta; a DACE lê `cost`, então `cost` = qty × unit_cost.
 - Setar `orders.enviado` na etiqueta EnvioEcom sem passar por `ensureOrderMarkedEnviado` (estoque/logística).
-- Marcar `enviado` ao gerar etiqueta / DC-e / “Pronto para envio”; isso só na coleta/postagem da API.
-- Restaurar vaga `allocated` no reconcile só porque `enviado` é false quando a etiqueta EnvioEcom já existe.
+- Marcar `enviado` ao gerar etiqueta / DC-e / “Pronto para envio” / **Aguardando coleta**; isso só na coleta/postagem da API. No split o pai só marca quando todos os pacotes já teriam `enviado`.
+- Restaurar vaga `allocated` no reconcile só porque `enviado` é false quando a etiqueta EnvioEcom já existe. No split a fila 48h só some com AND de todos os pacotes.
 - Tratar PDF da etiqueta EnvioEcom como “Pronto para envio” se o status for **Cancelado** ou **Aguardando cancelamento**.
-- Esperar a EnvioEcom ir para **Cancelado** antes de cotar de novo, ou deixar `shipment_id`/8880/`orderId` no pedido enquanto está em Aguardando cancelamento (`DUPLICATE_ORDER`). Cancelar EE desvincula na hora; create usa orderId novo se já houve histórico.
-- Casar webhook EnvioEcom por prefixo `{n}-` do orderId, por `orderNumber` ou por UUID do pedido; só barcode/`external_order_number`/`shipment_id` **exatos** do envio atual. Pedido solto não reatacha o 8880 velho.
+- Copiar o PDF/status do 1º pacote para `orders.envioecom_label_url` quando ainda falta URL noutro pacote (some da lista 48h cedo demais). Rollup só promove PDF no pai se **todos** têm URL.
+- Fazer o 2º volume virando reenvio, pedido filho (`parent_order_id`) ou duplicando o pedido. Split é `order_shipments` no **mesmo** pedido; reenvio de suporte continua outro domínio.
+- Esperar a EnvioEcom ir para **Cancelado** antes de cotar de novo, ou deixar `shipment_id`/8880/`orderId` no pedido enquanto está em Aguardando cancelamento (`DUPLICATE_ORDER`). Cancelar EE desvincula na hora; create usa orderId novo se já houve histórico. No split o orderId inclui o pool (`{n}-{8chars}-{pool}`).
+- Casar webhook EnvioEcom por prefixo `{n}-` do orderId, por `orderNumber` ou por UUID do pedido; só barcode/`external_order_number`/`shipment_id` **exatos** do envio atual. No split: casar o **pacote** primeiro (`findPackageForEnvioEcomWebhook`); não gravar o 2º envio em `orders.envioecom_*` com `persistEnvioEcomShipment`. Pedido solto não reatacha o 8880 velho.
+- Baixar estoque do pedido inteiro (`orders.id` / `POST .../inventory-exit`) depois do split; usar `pkg:{id}` e os itens do JSON do pacote. 409 `ORDER_SPLIT_USE_PACKAGE`. Seletor único Loja/Motoboy/Minas some no card dividido.
 - Clicar **Etiqueta EE** para gerar PDF de envio cancelado/aguardando cancelamento; o botão só imprime o salvo do envio atual — senão cotar/criar outro.
 - Colocar o UUID do pedido (`orders.id`) na mensagem WhatsApp do checkout ou no card da Minha conta; usar `orderNumber`.
 - Prefixar a cópia Motoboy com `#KA-` ou incluir agendamento/telefone; usar `#161` e o layout Yury.

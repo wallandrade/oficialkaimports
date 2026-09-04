@@ -16,6 +16,16 @@ type TrackingEvent = {
   description?: string | null;
 };
 
+type CustomerPackage = {
+  id: string;
+  inventoryPool?: string;
+  enviado?: boolean;
+  envioecomStatus?: string | null;
+  envioecomBarcode?: string | null;
+  envioecomDeliveryMode?: string | null;
+  envioecomStatusHistory?: TrackingEvent[];
+};
+
 type CustomerOrder = {
   id: string;
   orderNumber?: number | null;
@@ -41,6 +51,7 @@ type CustomerOrder = {
   envioecomBarcode?: string | null;
   envioecomStatusHistory?: TrackingEvent[];
   observation?: string | null;
+  packages?: CustomerPackage[];
 };
 
 type AccountSection = "orders" | "affiliate" | "raffle" | "wallet";
@@ -236,7 +247,25 @@ function customerShippingHint(status?: string | null): string | null {
   return "Em breve ele será despachado. Aguarde a atualização do rastreio.";
 }
 
+function packagePoolLabel(pool?: string | null): string {
+  const normalized = String(pool || "").trim().toLowerCase();
+  if (normalized === "motoboy") return "Motoboy";
+  if (normalized === "minas") return "Minas";
+  return "Fóz Guaçu";
+}
+
+function isCustomerPackageDelivered(status?: string | null): boolean {
+  const normalized = normalizeTrackingText(status);
+  return normalized.includes("entregue") && !normalized.includes("cancelad");
+}
+
 function getCustomerSituation(order: CustomerOrder, displayStatus: string): string {
+  const packages = Array.isArray(order.packages) ? order.packages : [];
+  if (packages.length >= 2) {
+    if (packages.every((pkg) => isCustomerPackageDelivered(pkg.envioecomStatus))) return "Entregue";
+    const pending = packages.find((pkg) => !isCustomerPackageDelivered(pkg.envioecomStatus));
+    return toCustomerFriendlyShippingLabel(pending?.envioecomStatus || order.envioecomStatus);
+  }
   if (order.envioecomStatus) {
     return toCustomerFriendlyShippingLabel(order.envioecomStatus);
   }
@@ -246,6 +275,8 @@ function getCustomerSituation(order: CustomerOrder, displayStatus: string): stri
 }
 
 function hasEnvioEcomTracking(order: CustomerOrder): boolean {
+  const packages = Array.isArray(order.packages) ? order.packages : [];
+  if (packages.some((pkg) => pkg.envioecomShipmentId || pkg.envioecomBarcode || pkg.envioecomStatus)) return true;
   return !!(order.envioecomShipmentId || order.envioecomBarcode || order.envioecomStatus);
 }
 
@@ -518,6 +549,7 @@ export default function CustomerOrders() {
         deliveryMode?: string | null;
         barcode?: string | null;
         history?: TrackingEvent[];
+        packages?: CustomerPackage[];
       };
       setOrders((prev) => prev.map((item) => item.id === order.id ? {
         ...item,
@@ -526,6 +558,7 @@ export default function CustomerOrders() {
         envioecomBarcode: data.barcode || item.envioecomBarcode,
         trackingCode: data.barcode || item.trackingCode,
         envioecomStatusHistory: data.history || item.envioecomStatusHistory,
+        packages: data.packages || item.packages,
       } : item));
     } catch {
       toast.error("Não foi possível atualizar o rastreio agora.");
@@ -695,6 +728,36 @@ export default function CustomerOrders() {
 
                           {hasEnvioEcomTracking(order) && (
                             <div className="mb-4 pb-4 border-t border-border/50 pt-4">
+                              {(order.packages || []).length >= 2 ? (
+                                <div className="space-y-4">
+                                  {order.packages!.map((pkg) => (
+                                    <div key={pkg.id}>
+                                      <div className="flex items-center justify-between gap-2">
+                                        <p className="text-xs uppercase tracking-wide text-muted-foreground font-medium">
+                                          Rastreio · {packagePoolLabel(pkg.inventoryPool)}
+                                        </p>
+                                        {pkg.envioecomBarcode && (
+                                          <p className="text-xs font-mono text-muted-foreground">{pkg.envioecomBarcode}</p>
+                                        )}
+                                      </div>
+                                      {pkg.envioecomDeliveryMode && (
+                                        <p className="text-xs text-muted-foreground mt-1">{pkg.envioecomDeliveryMode}</p>
+                                      )}
+                                      {(pkg.envioecomStatusHistory || []).length > 0 ? (
+                                        <ShippingStatusTimeline
+                                          events={pkg.envioecomStatusHistory || []}
+                                          className="mt-3 max-h-72 overflow-y-auto"
+                                        />
+                                      ) : (
+                                        <p className="text-sm font-semibold text-foreground mt-2">
+                                          {toCustomerFriendlyShippingLabel(pkg.envioecomStatus)}
+                                        </p>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <>
                               <div className="flex items-center justify-between gap-2">
                                 <p className="text-xs uppercase tracking-wide text-muted-foreground font-medium">Rastreio</p>
                                 {(order.envioecomBarcode || order.trackingCode) && (
@@ -714,6 +777,8 @@ export default function CustomerOrders() {
                               )}
                               {packingHint && (
                                 <p className="text-xs text-muted-foreground mt-1">{packingHint}</p>
+                              )}
+                                </>
                               )}
                             </div>
                           )}

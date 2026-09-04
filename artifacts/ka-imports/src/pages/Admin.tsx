@@ -735,6 +735,7 @@ import { downloadFilialPurchasePdf, openFilialPurchasePdfInBrowser } from "@/lib
 import { generateChargePdf, generateOrderPdf } from "@/lib/generateOrderPdf";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { EnvioEcomOrderActions, hasEnvioEcomLabelReady, preserveEnvioEcomLabelFields } from "@/components/admin/EnvioEcomOrderActions";
+import { SplitOrderShipmentsButton, isSplitOrder } from "@/components/admin/SplitOrderShipments";
 import { OrderHistoryTimeline } from "@/components/admin/OrderHistoryTimeline";
 import { EnvioEcomTrackingBoard } from "@/components/admin/EnvioEcomTrackingBoard";
 import { EnvioEcomSettingsCard } from "@/components/admin/EnvioEcomSettingsCard";
@@ -15141,15 +15142,42 @@ function OrdersPanel({
                     {(order.proofUrls && order.proofUrls.length > 0) || order.proofUrl ? "Adicionar Comprovante" : "Upload Comprovante"}
                   </Button>
                   {canManageEnvioEcom ? (
-                    <EnvioEcomOrderActions
-                      order={order as any}
-                      onPatched={(patch) => {
-                        onSetOrderPatched({ ...order, ...patch } as AdminOrder);
-                        if (typeof patch.enviado === "boolean") {
-                          setEnviados((prev) => ({ ...prev, [order.id]: patch.enviado as boolean }));
-                        }
-                      }}
-                    />
+                    isSplitOrder(order as { packages?: unknown[] }) ? (
+                      <SplitOrderShipmentsButton
+                        order={order as any}
+                        onPatched={(patch) => {
+                          onSetOrderPatched({ ...order, ...patch } as AdminOrder);
+                          if (typeof patch.enviado === "boolean") {
+                            setEnviados((prev) => ({ ...prev, [order.id]: patch.enviado as boolean }));
+                          }
+                        }}
+                        inventoryByProduct={Object.fromEntries(inventoryBalances.map((row) => [row.productId, row.quantity]))}
+                        yuryByProduct={Object.fromEntries(yuryBalances.map((row) => [row.productId, { motoboy: row.qtyMotoboy, minas: row.qtyMinas }]))}
+                      />
+                    ) : (
+                      <>
+                        <EnvioEcomOrderActions
+                          order={order as any}
+                          onPatched={(patch) => {
+                            onSetOrderPatched({ ...order, ...patch } as AdminOrder);
+                            if (typeof patch.enviado === "boolean") {
+                              setEnviados((prev) => ({ ...prev, [order.id]: patch.enviado as boolean }));
+                            }
+                          }}
+                        />
+                        <SplitOrderShipmentsButton
+                          order={order as any}
+                          onPatched={(patch) => {
+                            onSetOrderPatched({ ...order, ...patch } as AdminOrder);
+                            if (typeof patch.enviado === "boolean") {
+                              setEnviados((prev) => ({ ...prev, [order.id]: patch.enviado as boolean }));
+                            }
+                          }}
+                          inventoryByProduct={Object.fromEntries(inventoryBalances.map((row) => [row.productId, row.quantity]))}
+                          yuryByProduct={Object.fromEntries(yuryBalances.map((row) => [row.productId, { motoboy: row.qtyMotoboy, minas: row.qtyMinas }]))}
+                        />
+                      </>
+                    )
                   ) : null}
                   <input
                     ref={(el) => { trackingInputRefs.current[order.id] = el; }}
@@ -15261,6 +15289,7 @@ function OrdersPanel({
                       ? "Marcar como Pendente"
                       : "Marcar como Enviado"}
                 </Button>
+                {!isSplitOrder(order as { packages?: unknown[] }) && (
                 <div className="w-full flex flex-wrap items-center gap-1.5 pt-1">
                   <span className="text-xs font-semibold text-muted-foreground mr-1">Baixa estoque:</span>
                   {([
@@ -15293,6 +15322,7 @@ function OrdersPanel({
                     {exitedPools.includes(selectedExitPool) ? "Já baixado" : "Dar baixa agora"}
                   </Button>
                 </div>
+                )}
                 <Button size="sm" className="gap-2 bg-green-600 hover:bg-green-700 text-white border-none"
                   onClick={() => openWhatsApp(order)}>
                   <MessageCircle className="w-4 h-4" />WhatsApp

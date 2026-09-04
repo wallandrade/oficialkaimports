@@ -30,7 +30,14 @@ import { reserveNextOrderNumber } from "../lib/order-number";
 import { MotoboyScheduleError, reserveMotoboySchedule } from "../lib/motoboy-delivery-schedule";
 import { allocateOrderLogistics, releaseOrderLogistics } from "../lib/order-logistics";
 import { isMotoboyShippingType } from "../lib/motoboy-shipping-type";
-import { ensureOrderMarkedEnviado, OrderEnviadoError, debitOrderInventoryPool } from "../lib/order-enviado";
+import { ensureOrderMarkedEnviado, OrderEnviadoError, debitOrderInventoryPool, countOrderShipments } from "../lib/order-enviado";
+import {
+  allocateOrderShipments,
+  listOrderShipments,
+  listOrderShipmentsByOrderIds,
+  mappedPackagesForOrder,
+  OrderShipmentError,
+} from "../lib/order-shipments";
 import {
   parseKaInventoryExitPool,
   parseKaInventoryExitedPools,
@@ -1550,7 +1557,7 @@ router.get("/me/orders", requireCustomerAuth, async (req, res) => {
       .where(and(buildOrderTenantWhere(tenantId), eq(ordersTable.userId, customerSession.userId)))
       .orderBy(desc(ordersTable.createdAt));
 
-    res.json({ orders: orders.map((order) => mapOrder(order, { forCustomer: true })) });
+    res.json({ orders: await mapOrdersWithPackages(orders, { forCustomer: true }) });
   } catch (err) {
     console.error("Customer orders error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao buscar pedidos." });
@@ -1586,7 +1593,7 @@ router.get("/me/orders/:id", requireCustomerAuth, async (req, res) => {
       return;
     }
 
-    res.json({ order: mapOrder(rows[0], { forCustomer: true }) });
+    res.json({ order: await mapOrderWithPackages(rows[0], { forCustomer: true }) });
   } catch (err) {
     console.error("Customer order detail error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao buscar pedido." });
@@ -1618,7 +1625,7 @@ router.get("/orders/guest/:id", async (req, res) => {
       return;
     }
 
-    res.json({ order: mapOrder(rows[0], { forCustomer: true }) });
+    res.json({ order: await mapOrderWithPackages(rows[0], { forCustomer: true }) });
   } catch (err) {
     console.error("Guest order access error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao buscar pedido." });
@@ -1706,6 +1713,7 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
     const searchingProductByOrder = await loadOrderSearchingProductMap(orders.map((o) => o.id));
     const orderIds = orders.map((order) => order.id);
     const historyByOrder = await listOrderEventsByOrderIds(orderIds);
+    const packagesByOrder = await listOrderShipmentsByOrderIds(orderIds);
     const logisticsAllocations = orderIds.length > 0
       ? await db.select().from(orderLogisticsAllocationsTable).where(and(
           eq(orderLogisticsAllocationsTable.tenantId, adminScope.tenantId),
@@ -1755,7 +1763,7 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
       }
 
       return {
-        ...mapOrder(order, { light: true }),
+        ...mapOrder(order, { light: true, packages: packagesByOrder.get(order.id) || [] }),
         history: historyByOrder.get(order.id) || [],
         logisticsAllocation: logisticsByOrder.get(order.id) || null,
         isPrioridade: !order.enviado && (manualPriority || automaticPriority),
@@ -1842,7 +1850,7 @@ router.get("/admin/orders/:id", requireAdminAuth, async (req, res) => {
       return;
     }
 
-    res.json({ order: { ...mapOrder(rows[0]), history: await listOrderEvents(id) } });
+    res.json({ order: { ...await mapOrderWithPackages(rows[0]), history: await listOrderEvents(id) } });
   } catch (err) {
     console.error("Admin order detail error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao buscar pedido." });
@@ -2693,7 +2701,7 @@ function slimExternalUrl(value: string | null | undefined): string | null {
   return trimmed;
 }
 
-function mapOrder(o: typeof ordersTable.$inferSelect, options?: { light?: boolean; forCustomer?: boolean }) {
+function mapOrder(o: typeof ordersTable.$inferSelect, options?: { light?: boolean; forCustomer?: boolean; packages?: unknown[] }) {
   const light = Boolean(options?.light);
   const forCustomer = Boolean(options?.forCustomer);
   const observationVisible = isObservationVisibleToCustomer(
@@ -2785,6 +2793,7 @@ function mapOrder(o: typeof ordersTable.$inferSelect, options?: { light?: boolea
     isPrioridade:           !!(o as any).isPrioridade,
     isProcurandoProduto:    !!(o as any).isProcurandoProduto,
     enviado:                !!o.enviado,
+    inventoryReserved:      Boolean((o as { inventoryReserved?: unknown }).inventoryReserved),
     inventoryExitPool:      parseKaInventoryExitPool((o as { inventoryExitPool?: unknown }).inventoryExitPool),
     inventoryExitedPools:   parseKaInventoryExitedPools((o as { inventoryExitedPools?: unknown }).inventoryExitedPools),
     trackingCode:           o.trackingCode ?? null,
@@ -2803,6 +2812,7 @@ function mapOrder(o: typeof ordersTable.$inferSelect, options?: { light?: boolea
     envioecomFreightCost:   o.envioecomFreightCost != null ? Number(o.envioecomFreightCost) : null,
     envioecomExternalOrderNumber: o.envioecomExternalOrderNumber ?? null,
     envioecomAccountId:          o.envioecomAccountId ?? null,
+    packages:               Array.isArray(options?.packages) ? options!.packages : [],
     bankDepositMatchStatus: (o as any).bankDepositMatchStatus ?? null,
     bankDepositFitid:       (o as any).bankDepositFitid ?? null,
     bankDepositAmount:      (o as any).bankDepositAmount != null ? Number((o as any).bankDepositAmount) : null,
@@ -2810,6 +2820,25 @@ function mapOrder(o: typeof ordersTable.$inferSelect, options?: { light?: boolea
     bankDepositPostedAt:    (o as any).bankDepositPostedAt ?? null,
     bankDepositMatchedAt:   (o as any).bankDepositMatchedAt?.toISOString?.() ?? (o as any).bankDepositMatchedAt ?? null,
   };
+}
+
+async function mapOrdersWithPackages(
+  orders: Array<typeof ordersTable.$inferSelect>,
+  options?: { light?: boolean; forCustomer?: boolean },
+) {
+  const packagesByOrder = await listOrderShipmentsByOrderIds(orders.map((order) => order.id));
+  return orders.map((order) => mapOrder(order, {
+    ...options,
+    packages: packagesByOrder.get(order.id) || [],
+  }));
+}
+
+async function mapOrderWithPackages(
+  order: typeof ordersTable.$inferSelect,
+  options?: { light?: boolean; forCustomer?: boolean },
+) {
+  const packages = mappedPackagesForOrder(await listOrderShipments(order.id), { light: options?.light });
+  return mapOrder(order, { ...options, packages });
 }
 
 // ---------------------------------------------------------------------------
@@ -2967,10 +2996,83 @@ router.patch("/admin/orders/:id/procurando-produto", requireAdminAuth, async (re
 
 function statusForOrderEnviadoError(code: string): number {
   if (code === "NOT_FOUND") return 404;
+  if (code === "ORDER_SPLIT_USE_PACKAGE" || code === "INVENTORY_MUST_REVERSE") return 409;
   if (code === "YURY_EXIT_UNAVAILABLE" || code === "YURY_EXIT_FAILED") return 502;
   if (code === "YURY_SYNC_DISABLED" || code === "YURY_TOKEN_INVALID") return 503;
   return 400;
 }
+
+// ---------------------------------------------------------------------------
+// GET /api/admin/orders/:id/shipments  (protected)
+// ---------------------------------------------------------------------------
+router.get("/admin/orders/:id/shipments", requireAdminAuth, async (req, res) => {
+  try {
+    const adminScope = ensureSellerScopeOnOrderQuery(req, res);
+    if (!adminScope) return;
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
+    const existing = await db.select().from(ordersTable).where(buildAdminOrderWhere(id, adminScope)).limit(1);
+    if (!existing[0]) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
+    const packages = mappedPackagesForOrder(await listOrderShipments(id));
+    res.json({ ok: true, packages, order: mapOrder(existing[0], { packages }) });
+  } catch (err) {
+    console.error("List order shipments error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao listar pacotes do pedido." });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/admin/orders/:id/shipments  (protected) — Dividir envio
+// ---------------------------------------------------------------------------
+router.post("/admin/orders/:id/shipments", requireAdminAuth, async (req, res) => {
+  try {
+    const adminScope = ensureSellerScopeOnOrderQuery(req, res);
+    if (!adminScope) return;
+    if (!adminScope.hasGlobalAccess) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para dividir envio." });
+      return;
+    }
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
+    const existing = await db.select().from(ordersTable).where(buildAdminOrderWhere(id, adminScope)).limit(1);
+    if (!existing[0]) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
+    const packagesInput = (req.body as { packages?: unknown })?.packages;
+    if (!Array.isArray(packagesInput)) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Informe packages[] com origem e itens." });
+      return;
+    }
+    const result = await allocateOrderShipments({ order: existing[0], packages: packagesInput });
+    const packages = mappedPackagesForOrder(result.packages);
+    await addOrderEvent({
+      orderId: id,
+      tenantId: adminScope.tenantId,
+      action: "split_shipment",
+      ...actorFromAdminRequest(req),
+      payload: { pools: packages.map((pkg) => pkg.inventoryPool) },
+    });
+    res.json({
+      ok: true,
+      packages,
+      order: mapOrder(result.order, { packages }),
+    });
+  } catch (err) {
+    if (err instanceof OrderShipmentError || err instanceof OrderEnviadoError) {
+      const status = err.code === "ALREADY_SHIPPED" || err.code === "SPLIT_LOCKED" || err.code === "INVENTORY_MUST_REVERSE"
+        ? 409
+        : 400;
+      res.status(status).json({ error: err.code, message: err.message });
+      return;
+    }
+    console.error("Allocate order shipments error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao dividir o envio." });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // PATCH /api/admin/orders/:id/inventory-exit-pool  (protected)
@@ -2995,6 +3097,13 @@ router.patch("/admin/orders/:id/inventory-exit-pool", requireAdminAuth, async (r
       .limit(1);
     if (!existing[0]) {
       res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
+    if (await countOrderShipments(id) >= 2) {
+      res.status(409).json({
+        error: "ORDER_SPLIT_USE_PACKAGE",
+        message: "Pedido dividido: a origem fica em cada pacote. O seletor único Loja/Motoboy/Minas não se aplica.",
+      });
       return;
     }
 

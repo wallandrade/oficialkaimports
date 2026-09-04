@@ -32,6 +32,7 @@ const LABEL_READY_MARKERS = [
   "pronto para envio",
   "processando envio",
   "aguardando expedicao",
+  "aguardando coleta",
   "dc-e emitida",
   "dce emitida",
 ];

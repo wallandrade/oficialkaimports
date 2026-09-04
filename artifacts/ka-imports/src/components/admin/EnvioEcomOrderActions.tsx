@@ -13,6 +13,22 @@ function adminHeaders() {
     : { "Content-Type": "application/json" };
 }
 
+export type EnvioEcomPackageFields = {
+  id: string;
+  inventoryPool?: string;
+  items?: Array<{ productId?: string | null; productName?: string; quantity?: number }>;
+  enviado?: boolean;
+  inventoryReserved?: boolean;
+  envioecomShipmentId?: number | null;
+  envioecomBarcode?: string | null;
+  envioecomDeliveryMode?: string | null;
+  envioecomStatus?: string | null;
+  envioecomLabelUrl?: string | null;
+  envioecomFreightCost?: number | null;
+  envioecomAccountId?: string | null;
+  envioecomAccountName?: string | null;
+};
+
 export type EnvioEcomOrderFields = {
   id: string;
   orderNumber?: number | null;
@@ -29,6 +45,7 @@ export type EnvioEcomOrderFields = {
   envioecomFreightCost?: number | null;
   envioecomAccountId?: string | null;
   envioecomAccountName?: string | null;
+  packages?: EnvioEcomPackageFields[];
 };
 
 type EnvioEcomAccountOption = {
@@ -148,9 +165,13 @@ async function readError(res: Response) {
 export function EnvioEcomOrderActions({
   order,
   onPatched,
+  packageId,
+  poolLabel,
 }: {
   order: EnvioEcomOrderFields;
   onPatched: (patch: Partial<EnvioEcomOrderFields> & { id: string }) => void;
+  packageId?: string;
+  poolLabel?: string;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [quoteOpen, setQuoteOpen] = useState(false);
@@ -167,6 +188,11 @@ export function EnvioEcomOrderActions({
   const [accountPickerAction, setAccountPickerAction] = useState<"quote" | "link" | null>(null);
   const [accountOptions, setAccountOptions] = useState<EnvioEcomAccountOption[]>([]);
   const [pendingLinkContinueToLabel, setPendingLinkContinueToLabel] = useState(false);
+  const boundPackage = packageId ? (order.packages || []).find((pkg) => pkg.id === packageId) : null;
+  const bound: EnvioEcomOrderFields = boundPackage ? { ...order, ...boundPackage, id: order.id } : order;
+  function withPackageId<T extends Record<string, unknown>>(body: T): T & { packageId?: string } {
+    return packageId ? { ...body, packageId } : body;
+  }
 
   const carrierFilters = useMemo(() => {
     const fromResults = [
@@ -178,10 +204,10 @@ export function EnvioEcomOrderActions({
 
   if (isMotoboyOrPickup(order.shippingType)) return null;
 
-  const barcode = order.envioecomBarcode || order.trackingCode || "";
-  const labelBlocked = isLabelBlockedStatus(order.envioecomStatus);
-  const needsBind = isProvisionalBarcode(barcode) && !order.envioecomShipmentId;
-  const labelUrl = order.envioecomLabelUrl || order.trackingLabelUrl || "";
+  const barcode = bound.envioecomBarcode || bound.trackingCode || "";
+  const labelBlocked = isLabelBlockedStatus(bound.envioecomStatus);
+  const needsBind = isProvisionalBarcode(barcode) && !bound.envioecomShipmentId;
+  const labelUrl = bound.envioecomLabelUrl || bound.trackingLabelUrl || "";
   const orderDisplayId = Number.isFinite(Number(order.orderNumber)) && Number(order.orderNumber) > 0
     ? String(Math.trunc(Number(order.orderNumber)))
     : order.id;
@@ -206,7 +232,7 @@ export function EnvioEcomOrderActions({
   }
 
   async function resolveAccountId(opts: { skipIfBound?: boolean } = {}): Promise<string | null> {
-    if (opts.skipIfBound && order.envioecomAccountId) return order.envioecomAccountId;
+    if (opts.skipIfBound && bound.envioecomAccountId) return bound.envioecomAccountId;
     const accounts = await loadConfiguredAccounts();
     setAccountOptions(accounts);
     if (!accounts.length) {
@@ -224,10 +250,10 @@ export function EnvioEcomOrderActions({
       const res = await fetch(`${BASE}/api/admin/envioecom/orders/${order.id}/quote`, {
         method: "POST",
         headers: adminHeaders(),
-        body: JSON.stringify({
+        body: JSON.stringify(withPackageId({
           ...(carriers.length ? { carriers } : {}),
           ...(accountId ? { accountId } : {}),
-        }),
+        })),
       });
       if (!res.ok) throw new Error(await readError(res));
       const data = await res.json() as {
@@ -264,7 +290,7 @@ export function EnvioEcomOrderActions({
       const res = await fetch(`${BASE}/api/admin/envioecom/orders/${order.id}/create`, {
         method: "POST",
         headers: adminHeaders(),
-        body: JSON.stringify({
+        body: JSON.stringify(withPackageId({
           shippingCompany,
           freightCost: quotePrice(quoteOption),
           deliveryTime: quoteDays(quoteOption) || "1",
@@ -274,7 +300,7 @@ export function EnvioEcomOrderActions({
           length: packageInfo?.length,
           weight: packageInfo?.weight,
           accountId: quoteAccountId || undefined,
-        }),
+        })),
       });
       if (!res.ok) throw new Error(await readError(res));
       const data = await res.json() as { order?: EnvioEcomOrderFields };
@@ -355,8 +381,8 @@ export function EnvioEcomOrderActions({
         method: "POST",
         headers: adminHeaders(),
         body: JSON.stringify(parsed.shipmentId
-          ? { shipment_id: parsed.shipmentId, accountId: quoteAccountId || order.envioecomAccountId || undefined }
-          : { barcode: parsed.barcode, accountId: quoteAccountId || order.envioecomAccountId || undefined }),
+          ? withPackageId({ shipment_id: parsed.shipmentId, accountId: quoteAccountId || bound.envioecomAccountId || undefined })
+          : withPackageId({ barcode: parsed.barcode, accountId: quoteAccountId || bound.envioecomAccountId || undefined })),
       });
       if (!res.ok) throw new Error(await readError(res));
       const data = await res.json() as { order?: EnvioEcomOrderFields };
@@ -376,7 +402,7 @@ export function EnvioEcomOrderActions({
   }
 
   async function generateLabel(opts?: { skipBind?: boolean }) {
-    if (isLabelBlockedStatus(order.envioecomStatus)) {
+    if (isLabelBlockedStatus(bound.envioecomStatus)) {
       toast.message("Este envio está cancelado ou aguardando cancelamento. Cote e crie um envio novo.");
       void startQuote();
       return;
@@ -391,7 +417,7 @@ export function EnvioEcomOrderActions({
       const res = await fetch(`${BASE}/api/admin/envioecom/orders/${order.id}/labels`, {
         method: "POST",
         headers: adminHeaders(),
-        body: JSON.stringify({}),
+        body: JSON.stringify(withPackageId({})),
       });
       if (res.status === 202) {
         toast.message("Etiqueta ainda em processamento. Tente de novo em instantes.");
@@ -421,7 +447,7 @@ export function EnvioEcomOrderActions({
       const res = await fetch(`${BASE}/api/admin/envioecom/orders/${order.id}/sync`, {
         method: "POST",
         headers: adminHeaders(),
-        body: "{}",
+        body: JSON.stringify(withPackageId({})),
       });
       if (!res.ok) throw new Error(await readError(res));
       const data = await res.json() as { order?: EnvioEcomOrderFields };
@@ -441,7 +467,7 @@ export function EnvioEcomOrderActions({
       const res = await fetch(`${BASE}/api/admin/envioecom/orders/${order.id}/cancel`, {
         method: "POST",
         headers: adminHeaders(),
-        body: JSON.stringify({ reason: "Cancelado pelo admin" }),
+        body: JSON.stringify(withPackageId({ reason: "Cancelado pelo admin" })),
       });
       if (!res.ok) throw new Error(await readError(res));
       const data = await res.json() as { order?: EnvioEcomOrderFields; message?: string; autoCancelled?: boolean };
@@ -472,19 +498,19 @@ export function EnvioEcomOrderActions({
         {busy === "bind" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />}
         Vincular EE
       </Button>
-      {(order.envioecomShipmentId || barcode) && !labelBlocked && (
+      {(bound.envioecomShipmentId || barcode) && !labelBlocked && (
         <Button size="sm" variant="outline" className="gap-1.5 text-emerald-800 border-emerald-200 hover:bg-emerald-50" disabled={!!busy} onClick={() => void generateLabel()}>
           {busy === "label" || busy === "bind" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
           Etiqueta EE
         </Button>
       )}
-      {(order.envioecomShipmentId || barcode) && (
+      {(bound.envioecomShipmentId || barcode) && (
         <Button size="sm" variant="outline" className="gap-1.5" disabled={!!busy} onClick={() => void sync()}>
           {busy === "sync" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
           Sync EE
         </Button>
       )}
-      {(order.envioecomShipmentId || barcode) && (
+      {(bound.envioecomShipmentId || barcode) && (
         <Button size="sm" variant="outline" className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50" disabled={!!busy} onClick={() => void cancelShipment()}>
           {busy === "cancel" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />}
           Cancelar EE
@@ -495,13 +521,13 @@ export function EnvioEcomOrderActions({
           <ExternalLink className="w-3.5 h-3.5" /> Ver PDF
         </Button>
       )}
-      {order.envioecomStatus && (
+      {bound.envioecomStatus && (
         <p className={`basis-full text-xs ${labelBlocked ? "text-rose-700" : "text-emerald-800"}`}>
-          EnvioEcom: {order.envioecomStatus}
-          {prettyAccountName(order) ? ` · ${prettyAccountName(order)}` : ""}
-          {order.envioecomDeliveryMode ? ` · ${order.envioecomDeliveryMode}` : ""}
+          EnvioEcom{poolLabel ? ` ${poolLabel}` : ""}: {bound.envioecomStatus}
+          {prettyAccountName(bound) ? ` · ${prettyAccountName(bound)}` : ""}
+          {bound.envioecomDeliveryMode ? ` · ${bound.envioecomDeliveryMode}` : ""}
           {barcode ? ` · ${barcode}` : ""}
-          {order.envioecomFreightCost != null ? ` · ${formatCurrency(order.envioecomFreightCost)}` : ""}
+          {bound.envioecomFreightCost != null ? ` · ${formatCurrency(bound.envioecomFreightCost)}` : ""}
         </p>
       )}
 
@@ -688,6 +714,16 @@ export function EnvioEcomOrderActions({
 }
 
 export function hasEnvioEcomLabelReady(order: EnvioEcomOrderFields): boolean {
+  const packages = Array.isArray(order.packages) ? order.packages : [];
+  if (packages.length >= 2) {
+    return packages.every((pkg) => hasEnvioEcomLabelReady({
+      ...order,
+      envioecomStatus: pkg.envioecomStatus,
+      envioecomLabelUrl: pkg.envioecomLabelUrl,
+      enviado: pkg.enviado,
+      packages: [],
+    }));
+  }
   const normalized = String(order.envioecomStatus || "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -702,6 +738,7 @@ export function hasEnvioEcomLabelReady(order: EnvioEcomOrderFields): boolean {
     "pronto para envio",
     "processando envio",
     "aguardando expedicao",
+    "aguardando coleta",
     "dc-e emitida",
     "dce emitida",
     "coletado",
