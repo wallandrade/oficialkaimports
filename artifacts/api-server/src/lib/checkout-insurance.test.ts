@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  canReship,
   parseInsurancePlan,
   resolveCheckoutInsurance,
   type CheckoutInsuranceSettings,
@@ -106,6 +107,15 @@ test("full desligado no Admin + create manda full → none (não vira reduced)",
   assert.equal(result.plan, "none");
   assert.equal(result.insuranceAmount, 0);
   assert.equal(result.total, 900);
+});
+
+test("canReship: fila só recebe quem pagou seguro", () => {
+  assert.equal(canReship("none", "extravio"), false);
+  assert.equal(canReship("none", "missing_items"), false);
+  assert.equal(canReship("reduced", "apreensao"), false);
+  assert.equal(canReship("reduced", "extravio"), true);
+  assert.equal(canReship("full", "extravio"), true);
+  assert.equal(canReship(parseInsurancePlan(true, ""), "extravio"), true);
 });
 
 test("legado: só checkbox true sem plano = full", () => {

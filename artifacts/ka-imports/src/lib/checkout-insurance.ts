@@ -233,6 +233,15 @@ export function insuranceCoversProblem(plan: InsurancePlan, problem: InsurancePr
   return false;
 }
 
+/** Fila de reenvio: none nunca; extravio/apreensão precisa cobrir; faltou/outro basta ter seguro. */
+export function canReship(plan: InsurancePlan, problem?: InsuranceProblem | null): boolean {
+  if (plan === "none") return false;
+  if (problem === "extravio" || problem === "apreensao") {
+    return insuranceCoversProblem(plan, problem);
+  }
+  return true;
+}
+
 export function insuranceSnapshotColumns(snapshot: CheckoutInsuranceSnapshot) {
   return {
     includeInsurance: snapshot.includeInsurance,

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+  evaluateCanReship,
   evaluateOpenInsuranceClaim,
   evaluateResolveInsuranceClaim,
 } from "./insurance-claims-policy";
@@ -75,4 +76,28 @@ test("missing_items não usa política de seguro", () => {
     isChildOrder: false,
   });
   assert.equal(open.ok, true);
+});
+
+test("none nunca reenvia, mesmo faltou item", () => {
+  const missing = evaluateCanReship("none", "missing_items");
+  assert.equal(missing.ok, false);
+  if (!missing.ok) assert.equal(missing.error, "NO_INSURANCE");
+
+  const lost = evaluateCanReship("none", "extravio");
+  assert.equal(lost.ok, false);
+  if (!lost.ok) assert.equal(lost.error, "NO_INSURANCE");
+});
+
+test("reduced cobre extravio e bloqueia apreensão", () => {
+  const lost = evaluateCanReship("reduced", "extravio");
+  assert.equal(lost.ok, true);
+
+  const seized = evaluateCanReship("reduced", "apreensao");
+  assert.equal(seized.ok, false);
+  if (!seized.ok) assert.equal(seized.error, "NO_COVERAGE");
+});
+
+test("full + faltou item pode reenviar", () => {
+  const result = evaluateCanReship("full", "missing_items");
+  assert.equal(result.ok, true);
 });

@@ -727,7 +727,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { AnimatePresence, motion } from "framer-motion";
 import { formatCurrency, formatDateOnlyBR } from "@/lib/utils";
-import { parseInsuranceSettingsFromMap, resolveCheckoutInsurance } from "@/lib/checkout-insurance";
+import { canReship, parseInsurancePlan, parseInsuranceSettingsFromMap, resolveCheckoutInsurance, type InsuranceProblem } from "@/lib/checkout-insurance";
 import { parseMotoboyDistanceEnabled } from "@/lib/motoboy-distance-config";
 import { AdminInsurancePanel } from "@/components/admin/AdminInsurancePanel";
 import { MotoboyDistanceCard } from "@/components/admin/MotoboyDistanceCard";
@@ -1302,6 +1302,8 @@ interface SupportTicketRecord {
   resolutionReason?: string | null;
   orderTotal: number | null;
   orderProducts?: Array<{ id: string; name: string; quantity: number; price?: number }>;
+  includeInsurance?: boolean;
+  insurancePlan?: string | null;
   orderCreatedAt: string | null;
   resolvedAt: string | null;
   createdAt: string;
@@ -12088,7 +12090,25 @@ function SupportTicketsPanel({
   const [reenviarAddProductId, setReenviarAddProductId] = useState("");
   const [reenviarAddQty, setReenviarAddQty] = useState("1");
 
+  const ticketReshipPlan = (ticket: SupportTicketRecord) =>
+    parseInsurancePlan(ticket.includeInsurance, ticket.insurancePlan);
+  const ticketReshipProblem = (ticket: SupportTicketRecord): InsuranceProblem | undefined => {
+    const value = String(ticket.problemType || "").trim();
+    if (value === "extravio" || value === "apreensao" || value === "missing_items") return value;
+    return undefined;
+  };
+  const ticketCanReship = (ticket: SupportTicketRecord) =>
+    canReship(ticketReshipPlan(ticket), ticketReshipProblem(ticket));
+
   const openReenviarModal = (ticket: SupportTicketRecord) => {
+    if (!ticketCanReship(ticket)) {
+      toast.error(
+        ticketReshipPlan(ticket) === "none"
+          ? "Pedido sem seguro · sem opção de reenvio"
+          : "Este plano não cobre reenvio neste chamado.",
+      );
+      return;
+    }
     const baseItems = (ticket.orderProducts || [])
       .map((item) => ({
         id: String(item.id || "").trim(),
@@ -12201,12 +12221,25 @@ function SupportTicketsPanel({
                   {ticket.orderTotal != null && (
                     <p className="text-xs text-muted-foreground">Valor pedido: {formatCurrency(ticket.orderTotal)}</p>
                   )}
+                  {!ticketCanReship(ticket) && (
+                    <p className="text-xs font-medium text-amber-800">
+                      {ticketReshipPlan(ticket) === "none"
+                        ? "Pedido sem seguro · sem opção de reenvio"
+                        : "Sem cobertura para reenvio neste tipo de chamado"}
+                    </p>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   {ticket.status !== "resolved" ? (
                     <>
                       <Button size="sm" onClick={() => onSetStatus(ticket.id, "resolved")}>Marcar resolvido</Button>
-                      <Button size="sm" variant="outline" className="border-red-200 text-red-700 hover:bg-red-50" onClick={() => openReenviarModal(ticket)}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-red-200 text-red-700 hover:bg-red-50"
+                        disabled={!ticketCanReship(ticket)}
+                        onClick={() => openReenviarModal(ticket)}
+                      >
                         Reenviar
                       </Button>
                       {(ticket.problemType === "extravio" || ticket.problemType === "apreensao") && (

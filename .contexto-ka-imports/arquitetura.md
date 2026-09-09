@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-09-04  
+> **Última atualização:** 2026-09-09  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-09 | `canReship`/`evaluateCanReship` em checkout-insurance + insurance-claims-policy; support tickets devolvem plano | Trava de reenvio nas rotas de chamado/reenviar/status | Schema de `orders`/`reshipments`; reenvio manual Estoque |
 | 2026-09-04 | Tabela `order_shipments` + `orders.inventory_reserved`; `GET/POST /admin/orders/:id/shipments`; `packageId` nas rotas EE | Split 1:N no runtime; rollup no pai; webhook tenta pacote primeiro | Colunas `envioecom_*` do pedido (fluxo 1:1 sem linhas); reenvio/`parent_order_id` |
 | 2026-09-04 | `motoboy-route.ts` + `resolveMotoboyDistanceKm` no lookup | Cotação km no api-server passa a ser rua, não Haversine | Endpoint `GET /api/motoboy-coverage/lookup` e settings iguais |
 | 2026-09-03 | Coluna `orders.observation_visible_to_customer` + `mapOrder(..., { forCustomer })` | `/me` e guest não vazam nota interna | Admin continua vendo `observation` sempre; ALTER runtime |
@@ -85,14 +86,14 @@ Monorepo **pnpm workspaces** + TypeScript.
 - APPCNPay: `gateway.ts` + `lib/pix-gateway-credentials.ts`. Par por tenant (`gateway_appcnpay_public_key` / `_secret_key`); fallback env. Webhook PIX resolve tenant pelo `transactionId`.
 - Extrato OFX: `artifacts/api-server/src/routes/bank-statement.ts` (`analyze`/`apply`/`clear`/`bank-deposits`) + `order_bank_deposits`. Painéis FE: `AdminBankStatementPanel.tsx` (sessão) e `AdminBankDepositsPanel.tsx` (histórico + Desfazer por FITID).
 - Lista admin: `GET /admin/orders` em modo leve (sem `data:`/OCR); `GET /admin/orders/:id` devolve mídia completa. `mapOrder` inclui `packages[]` (vazio = 1:1). Histórico de gestão: `order_events` + `history` na lista/`GET :id` + `GET /admin/orders/:id/events`. `mapOrder` no admin inclui `observation` + `observationVisibleToCustomer`; rotas de cliente/guest passam `{ forCustomer: true }` (`order-observation-visibility.ts`). PATCH observação: `/admin/orders/:id/observation`.
-- Seguro: `lib/checkout-insurance.ts` + `insurance-claims-policy.ts` + `customer-wallet.ts`; rotas `routes/wallet.ts` (`/api/me/wallet`, `/api/admin/wallet/*`); ALTERs em `runtime-schema.ts`. Settings `checkout_insurance_*` em `PUBLIC_KEYS`. Dashboard: `totalInsurancePaid` / `insuredOrdersCount` em `financial-summary.ts` (SUM no mesmo De/Até do faturamento, pedidos pagos).
+- Seguro: `lib/checkout-insurance.ts` + `insurance-claims-policy.ts` + `customer-wallet.ts`; rotas `routes/wallet.ts` (`/api/me/wallet`, `/api/admin/wallet/*`); ALTERs em `runtime-schema.ts`. Settings `checkout_insurance_*` em `PUBLIC_KEYS`. Dashboard: `totalInsurancePaid` / `insuredOrdersCount` em `financial-summary.ts` (SUM no mesmo De/Até do faturamento, pedidos pagos). Reenvio de suporte: `canReship` / `evaluateCanReship` em abrir chamado, `POST .../reenviar` e “marcar resolvido”+endereço; lista admin devolve `includeInsurance`/`insurancePlan`.
 - OpenAPI cobre só um subconjunto (health/products/pix/orders…); **muitas rotas existem só no Express** — não assumir que Orval cobre tudo.
 
 ## Frontend
 
 - Rotas: `artifacts/ka-imports/src/App.tsx` (wouter).
 - Carrinho: Zustand persist `src/store/use-cart.ts`.
-- Admin monolítico: `src/pages/Admin.tsx` (arquivo grande — leitura seletiva). `fetchOrders` usa AbortController + seq e não apaga `envioecomLabelUrl` se o GET vier vazio. Busca de pedidos: input com debounce 300ms. Troca de data da lista não chama `fetchStatsData`. Aba **Seguro**: `AdminInsurancePanel.tsx` (primary-only). Checkout: `CheckoutInsuranceOffer.tsx` (2 cards, clique de novo = none). Split de envio: `SplitOrderShipments.tsx` + `packageId` em `EnvioEcomOrderActions.tsx`; cliente em `CustomerOrders.tsx` (`packages.length >= 2`).
+- Admin monolítico: `src/pages/Admin.tsx` (arquivo grande — leitura seletiva). `fetchOrders` usa AbortController + seq e não apaga `envioecomLabelUrl` se o GET vier vazio. Busca de pedidos: input com debounce 300ms. Troca de data da lista não chama `fetchStatsData`. Aba **Seguro**: `AdminInsurancePanel.tsx` (primary-only). Checkout: `CheckoutInsuranceOffer.tsx` (2 cards, clique de novo = none). Suporte: `Support.tsx` + card de chamado no admin usam `canReship`. Split de envio: `SplitOrderShipments.tsx` + `packageId` em `EnvioEcomOrderActions.tsx`; cliente em `CustomerOrders.tsx` (`packages.length >= 2`).
 - Proxy/API: requests sob `/api` (Vercel rewrite → Railway).
 - SW: `public/sw.js` — **somente notificações admin**, não PWA offline/sync.
 

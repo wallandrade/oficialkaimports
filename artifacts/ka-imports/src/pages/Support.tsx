@@ -1,10 +1,16 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { AlertCircle, CheckCircle2, ImagePlus, Loader2, Search, ShieldAlert, ShoppingBag } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { getCheckoutSecurityHeaders } from "@/lib/checkout-security";
+import {
+  canReship,
+  insuranceCoversProblem,
+  parseInsurancePlan,
+  type InsuranceProblem,
+} from "@/lib/checkout-insurance";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -89,6 +95,17 @@ export default function Support() {
     () => orders.find((order) => order.id === selectedOrderId) ?? null,
     [orders, selectedOrderId],
   );
+  const selectedPlan = useMemo(
+    () => parseInsurancePlan(selectedOrder?.includeInsurance, selectedOrder?.insurancePlan),
+    [selectedOrder],
+  );
+
+  useEffect(() => {
+    if (!selectedOrder) return;
+    if (problemType !== "missing_items" && !insuranceCoversProblem(selectedPlan, problemType)) {
+      setProblemType("missing_items");
+    }
+  }, [selectedOrder, selectedPlan, problemType]);
 
   const handleLookup = async () => {
     const cpfDigits = digitsOnly(cpf);
@@ -203,6 +220,14 @@ export default function Support() {
     }
     if (trackingCode.trim().length < 6) {
       toast.error("Informe o numero de rastreio (minimo 6 caracteres).");
+      return;
+    }
+    if (problemType !== "missing_items" && !insuranceCoversProblem(selectedPlan, problemType)) {
+      toast.error(
+        selectedPlan === "none"
+          ? "Seu pedido não foi comprado com seguro. Não tem opção de reenvio."
+          : "Este plano não cobre este tipo de chamado.",
+      );
       return;
     }
 
@@ -368,24 +393,46 @@ export default function Support() {
                 {selectedOrder && (
                   <div className="rounded-2xl border border-slate-200 p-4 sm:p-5 space-y-3">
                     <p className="text-sm font-semibold text-slate-800">3. Tipo do problema</p>
+                    {selectedPlan === "none" && (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                        Seu pedido não foi comprado com seguro. Não tem opção de reenvio.
+                      </div>
+                    )}
                     <div className="space-y-2">
                       {([
-                        { id: "missing_items", label: "Veio faltando item" },
-                        { id: "extravio", label: "Sumiu / roubaram (extravio)" },
-                        { id: "apreensao", label: "Receita / quebrado" },
-                      ] as const).map((option) => (
-                        <label key={option.id} className="flex items-center gap-2 text-sm cursor-pointer">
-                          <input
-                            type="radio"
-                            name="problemType"
-                            checked={problemType === option.id}
-                            onChange={() => setProblemType(option.id)}
-                          />
-                          {option.label}
-                        </label>
-                      ))}
+                        { id: "missing_items" as const, label: "Veio faltando item", reshipOption: false },
+                        { id: "extravio" as const, label: "Sumiu / roubaram (extravio)", reshipOption: true },
+                        { id: "apreensao" as const, label: "Receita / quebrado", reshipOption: true },
+                      ]).map((option) => {
+                        const blocked = option.reshipOption && !canReship(selectedPlan, option.id as InsuranceProblem);
+                        return (
+                          <label
+                            key={option.id}
+                            className={`flex items-center gap-2 text-sm ${blocked ? "cursor-not-allowed text-slate-400" : "cursor-pointer"}`}
+                          >
+                            <input
+                              type="radio"
+                              name="problemType"
+                              checked={problemType === option.id}
+                              disabled={blocked}
+                              onChange={() => {
+                                if (blocked) {
+                                  toast.error(
+                                    selectedPlan === "none"
+                                      ? "Seu pedido não foi comprado com seguro. Não tem opção de reenvio."
+                                      : "Este plano não cobre este tipo de chamado.",
+                                  );
+                                  return;
+                                }
+                                setProblemType(option.id);
+                              }}
+                            />
+                            {option.label}
+                          </label>
+                        );
+                      })}
                     </div>
-                    {problemType !== "missing_items" && (selectedOrder.insurancePlan === "full" || (selectedOrder.includeInsurance && !selectedOrder.insurancePlan)) && (
+                    {problemType !== "missing_items" && selectedPlan === "full" && (
                       <div className="rounded-xl border border-slate-200 p-3 space-y-2">
                         <p className="text-xs font-semibold text-slate-700">Se o seguro cobrir, o que você prefere?</p>
                         <label className="flex items-center gap-2 text-sm cursor-pointer">
@@ -398,7 +445,7 @@ export default function Support() {
                         </label>
                       </div>
                     )}
-                    {problemType === "extravio" && selectedOrder.insurancePlan === "reduced" && (
+                    {problemType === "extravio" && selectedPlan === "reduced" && (
                       <p className="text-xs text-slate-600">Plano reduzido: só 1 reenvio. Não devolve o produto.</p>
                     )}
                     <p className="text-sm font-semibold text-slate-800">4. Descreva o problema</p>

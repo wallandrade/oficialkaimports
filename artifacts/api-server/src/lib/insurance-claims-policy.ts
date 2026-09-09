@@ -1,5 +1,5 @@
 import type { InsurancePlan, InsuranceProblem } from "./checkout-insurance";
-import { insuranceCoversProblem, parseInsurancePlan } from "./checkout-insurance";
+import { canReship, insuranceCoversProblem, parseInsurancePlan } from "./checkout-insurance";
 
 export type InsuranceClaimStatus = "none" | "first_lost" | "reship_sent" | "refund_product";
 export type InsuranceClaimChoice = "choose_reship" | "choose_refund";
@@ -41,6 +41,34 @@ export function orderInsurancePlan(order: {
   insurancePlan?: unknown;
 }): InsurancePlan {
   return parseInsurancePlan(order.includeInsurance, order.insurancePlan);
+}
+
+export function evaluateCanReship(
+  plan: InsurancePlan,
+  problem?: InsuranceProblem | null,
+): { ok: true } | { ok: false; error: string; message: string } {
+  if (plan === "none") {
+    return {
+      ok: false,
+      error: "NO_INSURANCE",
+      message: "Pedido sem seguro. Não tem opção de reenvio.",
+    };
+  }
+  if (!canReship(plan, problem)) {
+    return {
+      ok: false,
+      error: "NO_COVERAGE",
+      message: "Este plano não cobre este tipo de chamado.",
+    };
+  }
+  return { ok: true };
+}
+
+export function assertCanReship(plan: InsurancePlan, problem?: InsuranceProblem | null): void {
+  const result = evaluateCanReship(plan, problem);
+  if (!result.ok) {
+    throw new InsuranceClaimError(result.error, result.message);
+  }
 }
 
 export function evaluateOpenInsuranceClaim(input: {

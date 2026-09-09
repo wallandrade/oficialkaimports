@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-09-04  
+> **Última atualização:** 2026-09-09  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-09 | Anti-padrão: só desabilitar Reenviar e deixar a API criar filho/fila sem seguro | `canReship`/`evaluateCanReship` nas 3 camadas; 400 `NO_INSURANCE`/`NO_COVERAGE` | Reenvio manual Estoque de propósito fora |
 | 2026-09-04 | Anti-padrão: 2º volume via reenvio/filho, `shipments:[a,b]` no mesmo create, copiar 1º PDF no pai, baixa `orders.id` após split, webhook só em `orders` | `order_shipments` + `packageId` + `pkg:{id}` + webhook do pacote primeiro | Reenvio de suporte/`parent_order_id` continua outro domínio |
 | 2026-09-04 | Anti-padrão: Haversine como km principal do Motoboy, fator 1,3 ou rota no browser | `resolveMotoboyDistanceKm` no servidor (Google→OSRM→Haversine) | Geocode BrasilAPI e faixas iguais |
 | 2026-09-03 | Anti-padrão: devolver `orders.observation` em `/me` ou guest sem o flag `observation_visible_to_customer` | `mapOrder(..., { forCustomer: true })` omite nota interna | Admin e PDF/cópia iguais; OFX não liga o flag |
@@ -208,6 +209,7 @@ Código > memória > suposições.
 - Mostrar status técnico EnvioEcom (“Pronto para envio”, “Etiqueta emitida”) na Minha conta; traduzir só na UI do cliente (`isPackingBeforePostStatus` / `toCustomerFriendlyShippingLabel`). Admin e banco ficam iguais.
 - Tratar só **Etiqueta emitida** (status interno do PDF) como pronta e ignorar **Etiqueta gerada** que a EnvioEcom devolve no create/sync/webhook — o card fica Pendente mesmo com rastreio. `hasEnvioEcomLabelReady` / `LABEL_READY_MARKERS` nos dois lados.
 - Calcular o seguro sobre `subtotal − cupom`, usar `computeShippingInsuranceAmount` no create, gravar o `insuranceAmount` do front, ou deixar `full` e `reduced` ao mesmo tempo. Base = subtotal dos produtos **sem** frete/cupom; `resolveCheckoutInsurance` no create e na edição. Plano desligado no Admin + create com esse plano = `none` (não troca de plano). `shipping-insurance.ts` é legado — não reativar no create.
+- Autorizar reenvio de suporte (filho/fila) sem `canReship` no pedido pago, ou só `disabled` no botão e deixar Postman/API livre. Abrir `extravio`/`apreensao` sem cobertura também 400. “Marcar resolvido” com endereço **não** cria fila se o plano é `none`/sem cobertura. Não espalhar `if (temSeguro)` nas telas — usar o helper. Reenvio manual da aba Estoque / `POST /admin/orders/:id/reshipment` fica **de fora** desta trava.
 - Misturar carteira da loja (`customer_wallet_ledger`) com crédito de afiliado. Cashback só no status EnvioEcom **entregue**; “Marcar enviado” / Motoboy não creditam.
 - Fazer `.reverse()` cego no `status_history` da EnvioEcom na Minha conta (a API já vem newest-first); ordenar por `at` desc.
 
