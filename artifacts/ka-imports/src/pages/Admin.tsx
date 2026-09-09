@@ -13526,6 +13526,7 @@ function OrdersPanel({
   const [whatsappGroupUpdating, setWhatsappGroupUpdating] = useState<Record<string, boolean>>({});
   const trackingBatchInputRef = useRef<HTMLInputElement | null>(null);
   const trackingBatchWatchdogRef = useRef<number | null>(null);
+  const [ordersListTab, setOrdersListTab] = useState<"normal" | "reenvios">("normal");
 
   const withTimeout = async <T,>(promise: Promise<T>, ms: number, message: string): Promise<T> => {
     let timeoutId: number | null = null;
@@ -13547,6 +13548,10 @@ function OrdersPanel({
     if (status === "reenvio_cancelado") return "Reenvio · Cancelado";
     return "Reenvio";
   };
+
+  const isActiveReshipmentOrderCard = (order: AdminOrder): boolean =>
+    Boolean((order as { reshipment?: { id?: string; status?: string } }).reshipment?.id)
+    && !isClosedReshipmentStatus((order as { reshipment?: { status?: string } }).reshipment?.status);
 
   const orderAddressText = (order: AdminOrder) => {
     const cityState = [order.addressCity || "", order.addressState || ""].filter(Boolean).join("/");
@@ -14755,6 +14760,11 @@ function OrdersPanel({
     ? verifyOrderStock(trackingTargetOrderId, defaultKaExitPool(trackingTargetOrder || trackingReview?.order), modalInventoryBalances)
     : { hasStock: true, message: "", missingItems: [] as string[] };
 
+  const listedOrders = orders.filter((order) => typeof order.id === "string" && order.id.length > 0);
+  const reshipmentOrders = listedOrders.filter((order) => isActiveReshipmentOrderCard(order));
+  const normalOrders = listedOrders.filter((order) => !isActiveReshipmentOrderCard(order));
+  const visibleOrders = ordersListTab === "reenvios" ? reshipmentOrders : normalOrders;
+
   if (orders.length === 0) return (
     <div className="text-center py-16 bg-muted/30 rounded-2xl border border-dashed">
       <IconLucide name="Package" className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
@@ -14764,6 +14774,26 @@ function OrdersPanel({
 
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {([
+          { id: "normal" as const, label: "Pedidos", count: normalOrders.length },
+          { id: "reenvios" as const, label: "Reenvios", count: reshipmentOrders.length },
+        ]).map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => setOrdersListTab(item.id)}
+            className={`h-8 px-3 rounded-full text-xs font-semibold border transition-colors ${
+              ordersListTab === item.id
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-white text-foreground border-border hover:bg-muted"
+            }`}
+          >
+            {item.label}
+            <span className="ml-1.5 tabular-nums opacity-80">{item.count}</span>
+          </button>
+        ))}
+      </div>
       <div className="rounded-2xl border border-dashed border-indigo-200 bg-gradient-to-r from-indigo-50 via-white to-sky-50 p-4 sm:p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -14797,9 +14827,14 @@ function OrdersPanel({
         </div>
       </div>
 
-      {orders
-        .filter(order => typeof order.id === "string" && order.id.length > 0)
-        .map((order) => {
+      {visibleOrders.length === 0 ? (
+        <div className="text-center py-16 bg-muted/30 rounded-2xl border border-dashed">
+          <IconLucide name="Package" className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+          <p className="font-semibold text-lg">
+            {ordersListTab === "reenvios" ? "Nenhum reenvio pendente" : "Nenhum pedido encontrado"}
+          </p>
+        </div>
+      ) : visibleOrders.map((order) => {
           const isPrioridade = resolveOrderPriority(order);
           const isProcurandoProduto = resolveSearchingProduct(order);
           const currentOrderStatus = normalizeOrderStatus(order.status);
