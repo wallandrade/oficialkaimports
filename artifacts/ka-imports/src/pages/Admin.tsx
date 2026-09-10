@@ -15099,15 +15099,17 @@ function OrdersPanel({
                   )}
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="text-2xl font-bold text-primary">{formatCurrency(order.total)}</p>
-                  {!isSupportTicketReshipmentChild && (
-                    <p
-                      className={`text-xs font-semibold mt-1 ${estimatedProfit >= 0 ? "text-emerald-700" : "text-red-600"}`}
-                      title="Lucro estimado = total - custo dos produtos - comissão - taxa do gateway (exceto WhatsApp)"
-                    >
-                      Lucro est.: {formatCurrency(estimatedProfit)}
-                    </p>
-                  )}
+                  <p className="text-2xl font-bold text-primary">
+                    {formatCurrency(isSupportTicketReshipmentChild ? 0 : order.total)}
+                  </p>
+                  <p
+                    className={`text-xs font-semibold mt-1 ${isSupportTicketReshipmentChild || estimatedProfit >= 0 ? "text-emerald-700" : "text-red-600"}`}
+                    title={isSupportTicketReshipmentChild
+                      ? "Reenvio filho: sem venda e sem lucro no faturamento."
+                      : "Lucro estimado = total - custo dos produtos - comissão - taxa do gateway (exceto WhatsApp)"}
+                  >
+                    Lucro est.: {formatCurrency(isSupportTicketReshipmentChild ? 0 : estimatedProfit)}
+                  </p>
                 </div>
               </div>
 
