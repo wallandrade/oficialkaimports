@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { and, desc, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
 import { db, ordersTable, sellerCommissionPaymentsTable, sellersTable } from "@workspace/db";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
+import { isReshipmentChildOrder } from "../lib/product-sold-qty";
 
 const router: IRouter = Router();
 const DEFAULT_TENANT_ID = "tenant_loja1";
@@ -186,6 +187,8 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
         sellerCommissionRateSnapshot: ordersTable.sellerCommissionRateSnapshot,
         sellerCommissionBatchId: ordersTable.sellerCommissionBatchId,
         sellerCommissionPaidAt: ordersTable.sellerCommissionPaidAt,
+        observation: ordersTable.observation,
+        parentOrderId: ordersTable.parentOrderId,
       })
       .from(ordersTable)
       .where(pendingConditions.length > 0 ? and(...pendingConditions) : undefined)
@@ -216,6 +219,7 @@ router.get("/admin/seller-commission-payments", requireAdminAuth, async (req, re
 
     const pendingOrders = pendingRows
       .filter((row) => {
+        if (isReshipmentChildOrder(row.observation, row.parentOrderId)) return false;
         if (!activeSellerCode) return true;
         return normalizeSellerCode(row.sellerCode) === activeSellerCode;
       })
@@ -314,6 +318,8 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
         status: ordersTable.status,
         createdAt: ordersTable.createdAt,
         sellerCommissionRateSnapshot: ordersTable.sellerCommissionRateSnapshot,
+        observation: ordersTable.observation,
+        parentOrderId: ordersTable.parentOrderId,
       })
       .from(ordersTable)
       .where(and(...conditions))
@@ -332,6 +338,7 @@ router.post("/admin/seller-commission-payments", requireAdminAuth, async (req, r
     const sellerRateMap = await getSellerRateMap([targetSellerCode]);
 
     const eligibleOrders = rows
+      .filter((row) => !isReshipmentChildOrder(row.observation, row.parentOrderId))
       .map((row) => ({
         id: row.id,
         sellerCode: row.sellerCode ?? null,

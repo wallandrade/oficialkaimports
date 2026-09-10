@@ -9,7 +9,8 @@ export function normalizeCatalogName(value: unknown): string {
     .trim();
 }
 
-export function isReshipmentChildOrder(observation: unknown): boolean {
+export function isReshipmentChildOrder(observation: unknown, parentOrderId?: unknown): boolean {
+  if (String(parentOrderId || "").trim()) return true;
   return String(observation || "").toUpperCase().includes("REENVIO DO PEDIDO");
 }
 

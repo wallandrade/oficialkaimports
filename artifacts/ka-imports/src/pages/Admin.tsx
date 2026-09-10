@@ -14862,8 +14862,8 @@ function OrdersPanel({
           const gatewayFee = isWhatsAppPix
             ? 0
             : (grossAmount > 0 ? Math.max(gatewayFeeRaw, gatewayFeeMin) : 0);
-          const isSupportTicketReshipmentChild = String(order?.observation || "").toUpperCase().includes("REENVIO DO PEDIDO");
-          const hasIncrementalCommission = isSupportTicketReshipmentChild && Number(order.sellerCommissionRateSnapshot) > 0;
+          const isSupportTicketReshipmentChild = String(order?.observation || "").toUpperCase().includes("REENVIO DO PEDIDO")
+            || Boolean(String((order as { parentOrderId?: string | null })?.parentOrderId || "").trim());
           const estimatedProfit = grossAmount - orderProductsCost - commissionAmount - gatewayFee;
           const reshipmentTrackingCode = String(order?.reshipment?.ticketTrackingCode || "").trim();
           const previewProducts = orderProducts.slice(0, 5);
@@ -14991,15 +14991,11 @@ function OrdersPanel({
                         )}
                         {isSupportTicketReshipmentChild && (
                           <span
-                            title={hasIncrementalCommission
-                              ? "Pedido de reenvio: comissão aplicada apenas no acréscimo de produtos/quantidade."
-                              : "Pedido de reenvio: sem nova comissão (somente reposição do pedido original)."}
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${hasIncrementalCommission
-                              ? "bg-amber-100 text-amber-800 border-amber-200"
-                              : "bg-emerald-100 text-emerald-800 border-emerald-200"}`}
+                            title="Pedido de reenvio: sem venda, custo ou comissão no faturamento."
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border bg-emerald-100 text-emerald-800 border-emerald-200"
                           >
                             <Percent className="w-3 h-3" />
-                            {hasIncrementalCommission ? "Comissão só no acréscimo" : "Sem nova comissão"}
+                            Sem nova comissão
                           </span>
                         )}
                         {statusBadge(order.status)}
@@ -15104,12 +15100,14 @@ function OrdersPanel({
                 </div>
                 <div className="text-right shrink-0">
                   <p className="text-2xl font-bold text-primary">{formatCurrency(order.total)}</p>
-                  <p
-                    className={`text-xs font-semibold mt-1 ${estimatedProfit >= 0 ? "text-emerald-700" : "text-red-600"}`}
-                    title="Lucro estimado = total - custo dos produtos - comissão - taxa do gateway (exceto WhatsApp)"
-                  >
-                    Lucro est.: {formatCurrency(estimatedProfit)}
-                  </p>
+                  {!isSupportTicketReshipmentChild && (
+                    <p
+                      className={`text-xs font-semibold mt-1 ${estimatedProfit >= 0 ? "text-emerald-700" : "text-red-600"}`}
+                      title="Lucro estimado = total - custo dos produtos - comissão - taxa do gateway (exceto WhatsApp)"
+                    >
+                      Lucro est.: {formatCurrency(estimatedProfit)}
+                    </p>
+                  )}
                 </div>
               </div>
 

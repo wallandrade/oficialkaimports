@@ -10,6 +10,7 @@ import {
 test("ignora pedido filho de reenvio", () => {
   assert.equal(isReshipmentChildOrder("REENVIO DO PEDIDO abc · TICKET 1"), true);
   assert.equal(isReshipmentChildOrder("Pedido normal"), false);
+  assert.equal(isReshipmentChildOrder("Pedido normal", "parent123"), true);
 });
 
 test("soldQty usa max de id e nome e nao soma os dois mapas", () => {

@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { db, filialPurchaseRequestsTable, marketingExpensesTable, ordersTable, productsTable, sellersTable, siteSettingsTable, tenantSettingsTable } from "@workspace/db";
 import { and, desc, eq, gt, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
+import { isReshipmentChildOrder } from "../lib/product-sold-qty";
 
 const router: IRouter = Router();
 const DEFAULT_TENANT_ID = "tenant_loja1";
@@ -121,6 +122,10 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
     ]);
     const totalInsurancePaid = Number(Number(insuranceAggRows[0]?.totalInsurancePaid || 0).toFixed(2));
     const insuredOrdersCount = Number(insuranceAggRows[0]?.insuredOrdersCount || 0);
+    const saleOrders = orders.filter((order) => !isReshipmentChildOrder(
+      (order as { observation?: string | null }).observation,
+      (order as { parentOrderId?: string | null }).parentOrderId,
+    ));
 
     // Customer recurrence in selected period
     const periodCustomerKeys = new Set<string>();
@@ -180,7 +185,7 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
     // Calcula taxas de transação, separando economia WhatsApp
     let totalGatewayFees = 0;
     let whatsappEconomy = 0; // economia por nao cobrar taxa nos pedidos WhatsApp
-    for (const order of orders) {
+    for (const order of saleOrders) {
       const amount = parseFloat(order.total || "0");
       let fee = (amount * (fees.feePercent / 100)) + fees.feeFixed;
       if (fee < fees.feeMin) fee = fees.feeMin;
@@ -197,7 +202,7 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
     let totalCost = 0;
 
     const productIds = new Set<string>();
-    for (const order of orders) {
+    for (const order of saleOrders) {
       const products = parseOrderProducts(order.products);
       for (const item of products) {
         const id = String(item.id ?? item.productId ?? "").trim();
@@ -214,13 +219,7 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
       productCostMap = new Map(rows.map((row) => [String(row.id), Number(row.costPrice || 0)]));
     }
 
-    for (const order of orders) {
-      const observation = String((order as { observation?: string | null }).observation || "").toUpperCase();
-      const isReplacementReshipment = observation.includes("REENVIO DO PEDIDO")
-        && Number(order.total || 0) <= 0.01
-        && Number((order as { subtotal?: string | number | null }).subtotal || 0) <= 0.01;
-      if (isReplacementReshipment) continue;
-
+    for (const order of saleOrders) {
       const products = parseOrderProducts(order.products);
 
       let orderTotal = 0;
@@ -242,7 +241,7 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
 
     // Cálculo robusto da comissão do vendedor: só desconta se tem sellerCode e taxa > 0
     const sellerCodes = Array.from(new Set(
-      orders
+      saleOrders
         .map((order) => String(order.sellerCode ?? "").trim().toLowerCase())
         .filter(Boolean),
     ));
@@ -267,7 +266,7 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
     }
 
     let totalCommission = 0;
-    for (const order of orders) {
+    for (const order of saleOrders) {
       const amount = parseFloat(order.total || "0");
       let rate = 0;
 
@@ -332,7 +331,7 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
       .map(([channelName, channelTotal]) => ({ channel: channelName, total: channelTotal }))
       .sort((a, b) => b.total - a.total);
 
-    const totalPaid = orders.reduce((sum, o) => sum + parseFloat(o.total || "0"), 0);
+    const totalPaid = saleOrders.reduce((sum, o) => sum + parseFloat(o.total || "0"), 0);
     const realNetRevenue = totalPaid - totalCost - totalCommission - totalGatewayFees - totalWithdrawFees - totalMarketingExpenses;
 
     let affiliateRepasseNetProfit = 0;
@@ -403,7 +402,7 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
         newRate,
       },
       fees,
-      ordersCount: orders.length,
+      ordersCount: saleOrders.length,
     });
   } catch (err) {
     console.error("[FinancialSummary] Error:", err);

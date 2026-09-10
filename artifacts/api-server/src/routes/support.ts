@@ -710,29 +710,14 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
       return;
     }
 
-    const originalById = new Map(originalProducts.map((item) => [item.id, item]));
-    let commissionableSubtotal = 0;
     let saleSubtotal = 0;
     for (const item of selectedProducts) {
       const qty = Number(item.quantity || 0);
       const unitPrice = Number(item.price || 0);
       saleSubtotal += qty * unitPrice;
-      const original = originalById.get(item.id);
-      const extraQty = Math.max(0, qty - Number(original?.quantity || 0));
-      if (extraQty <= 0) continue;
-      const extraUnitPrice = Number(item.price || original?.price || 0);
-      if (extraUnitPrice <= 0) continue;
-      commissionableSubtotal += extraQty * extraUnitPrice;
     }
-    commissionableSubtotal = Math.round(commissionableSubtotal * 100) / 100;
     saleSubtotal = Math.round(saleSubtotal * 100) / 100;
     const saleSubtotalStr = saleSubtotal.toFixed(2);
-
-    const originalRateRaw = order.sellerCommissionRateSnapshot;
-    const originalRate = Number(originalRateRaw ?? 0);
-    const nextSellerCommissionRateSnapshot = commissionableSubtotal > 0
-      ? (originalRateRaw == null ? null : String(Number.isFinite(originalRate) ? originalRate : 0))
-      : "0";
 
     const childOrderId = crypto.randomBytes(8).toString("hex");
     let childOrderNumber = 0;
@@ -777,7 +762,7 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
         status: "awaiting_payment",
         paymentMethod: "whatsapp_pix",
         sellerCode: order.sellerCode,
-        sellerCommissionRateSnapshot: nextSellerCommissionRateSnapshot,
+        sellerCommissionRateSnapshot: "0",
         couponCode: null,
         discountAmount: null,
         affiliateCreditUsed: null,
