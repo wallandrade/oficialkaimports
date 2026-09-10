@@ -13677,6 +13677,16 @@ function OrdersPanel({
   const trackingBatchInputRef = useRef<HTMLInputElement | null>(null);
   const trackingBatchWatchdogRef = useRef<number | null>(null);
   const [ordersListTab, setOrdersListTab] = useState<"normal" | "reenvios">("normal");
+  const [enviando, setEnviando] = useState<Record<string, boolean>>({});
+  const [exitingStock, setExitingStock] = useState<Record<string, boolean>>({});
+  const [exitPoolByOrder, setExitPoolByOrder] = useState<Record<string, KaExitPool>>({});
+  const [yuryBalances, setYuryBalances] = useState<YuryInventoryBalanceRecord[]>([]);
+  const [yuryInventoryReady, setYuryInventoryReady] = useState(false);
+  const [yuryExitStatus, setYuryExitStatus] = useState<YuryExitStatus | null>(null);
+  const [yuryExitPassword, setYuryExitPassword] = useState("");
+  const [yuryExitPasswordVisible, setYuryExitPasswordVisible] = useState(false);
+  const [yuryExitPasswordError, setYuryExitPasswordError] = useState("");
+  const [yuryExitForcePassword, setYuryExitForcePassword] = useState(false);
 
   const withTimeout = async <T,>(promise: Promise<T>, ms: number, message: string): Promise<T> => {
     let timeoutId: number | null = null;
@@ -14099,16 +14109,6 @@ function OrdersPanel({
     }
   };
 
-  const [enviando, setEnviando] = useState<Record<string, boolean>>({});
-  const [exitingStock, setExitingStock] = useState<Record<string, boolean>>({});
-  const [exitPoolByOrder, setExitPoolByOrder] = useState<Record<string, KaExitPool>>({});
-  const [yuryBalances, setYuryBalances] = useState<YuryInventoryBalanceRecord[]>([]);
-  const [yuryInventoryReady, setYuryInventoryReady] = useState(false);
-  const [yuryExitStatus, setYuryExitStatus] = useState<YuryExitStatus | null>(null);
-  const [yuryExitPassword, setYuryExitPassword] = useState("");
-  const [yuryExitPasswordVisible, setYuryExitPasswordVisible] = useState(false);
-  const [yuryExitPasswordError, setYuryExitPasswordError] = useState("");
-  const [yuryExitForcePassword, setYuryExitForcePassword] = useState(false);
   const [adminPasswordModalOpen, setAdminPasswordModalOpen] = useState(false);
   const [adminPasswordModalTitle, setAdminPasswordModalTitle] = useState("Confirmar ação sensível");
   const [adminPasswordModalDescription, setAdminPasswordModalDescription] = useState("");
