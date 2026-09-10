@@ -628,12 +628,14 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
 
     const problemType = parseInsuranceProblem(ticket.problemType);
     const plan = orderInsurancePlan(order);
+    const forceRaw = (req.body as { force?: unknown } | undefined)?.force;
+    const forceReship = forceRaw === true || forceRaw === "true" || forceRaw === 1 || forceRaw === "1";
     const reshipGate = evaluateCanReship(plan, problemType);
-    if (!reshipGate.ok) {
+    if (!reshipGate.ok && !forceReship) {
       res.status(400).json({ error: reshipGate.error, message: reshipGate.message });
       return;
     }
-    if (problemType === "extravio" || problemType === "apreensao") {
+    if (!forceReship && (problemType === "extravio" || problemType === "apreensao")) {
       const choice = parseInsuranceClaimChoice(req.body?.insuranceChoice) || parseInsuranceClaimChoice(ticket.insuranceChoice) || "choose_reship";
       const resolved = evaluateResolveInsuranceClaim({
         plan,
@@ -791,7 +793,7 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
     });
 
     const reshipProblem = parseInsuranceProblem(ticket.problemType);
-    if (reshipProblem === "extravio" || reshipProblem === "apreensao") {
+    if (reshipGate.ok && (reshipProblem === "extravio" || reshipProblem === "apreensao")) {
       await db.update(ordersTable).set({
         insuranceClaimStatus: "reship_sent",
         insuranceReshipCount: Number(order.insuranceReshipCount || 0) + 1,
@@ -805,14 +807,14 @@ router.post("/admin/support-tickets/:id/reenviar", requireAdminAuth, async (req,
       tenantId: scope.tenantId,
       action: "created",
       ...actor,
-      payload: { paymentMethod: "whatsapp_pix", parentOrderId: order.id, source: "support_reshipment" },
+      payload: { paymentMethod: "whatsapp_pix", parentOrderId: order.id, source: "support_reshipment", forced: forceReship },
     });
     await addOrderEvent({
       orderId: order.id,
       tenantId: scope.tenantId,
       action: "reshipment",
       ...actor,
-      payload: { childOrderId, ticketId: id },
+      payload: { childOrderId, ticketId: id, forced: forceReship },
     });
 
     const reshipment = await createOrRefreshReshipment({

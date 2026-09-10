@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-09 | `POST .../reenviar` aceita `force: true` para override admin | Sem flag continua 400 `NO_INSURANCE`/`NO_COVERAGE` | Schema; cliente; reenvio Estoque |
 | 2026-09-09 | Filho de reenvio fora do `financial-summary` e do lote de comissão (`isReshipmentChildOrder`) | Sem venda/custo/comissão/lucro no filho | Schema; pedido original; `soldQty` já ignorava |
 | 2026-09-09 | `canReship`/`evaluateCanReship` em checkout-insurance + insurance-claims-policy; support tickets devolvem plano | Trava de reenvio nas rotas de chamado/reenviar/status | Schema de `orders`/`reshipments`; reenvio manual Estoque |
 | 2026-09-04 | Tabela `order_shipments` + `orders.inventory_reserved`; `GET/POST /admin/orders/:id/shipments`; `packageId` nas rotas EE | Split 1:N no runtime; rollup no pai; webhook tenta pacote primeiro | Colunas `envioecom_*` do pedido (fluxo 1:1 sem linhas); reenvio/`parent_order_id` |

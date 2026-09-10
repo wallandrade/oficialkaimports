@@ -7616,13 +7616,14 @@ export default function Admin() {
                 toast.error("Erro ao excluir chamado.");
               }
             }}
-            onReenviar={async (id, products) => {
+            onReenviar={async (id, products, force) => {
               try {
                 const res = await fetch(`${BASE}/api/admin/support-tickets/${id}/reenviar`, {
                   method: "POST",
                   headers: authHeaders(),
                   body: JSON.stringify({
                     products: products || [],
+                    force: Boolean(force),
                   }),
                 });
                 const data = await res.json() as { message?: string; reshipment?: { status?: string } };
@@ -12081,7 +12082,7 @@ function SupportTicketsPanel({
   onRefresh: () => void;
   onSetStatus: (id: string, status: "open" | "resolved") => void;
   onDelete: (id: string) => void;
-  onReenviar: (id: string, products?: Array<{ id: string; name: string; quantity: number }>) => Promise<void>;
+  onReenviar: (id: string, products?: Array<{ id: string; name: string; quantity: number }>, force?: boolean) => Promise<void>;
   onInsuranceRefund: (id: string) => Promise<void>;
 }) {
   const [reenviarModalTicket, setReenviarModalTicket] = useState<SupportTicketRecord | null>(null);
@@ -12089,6 +12090,8 @@ function SupportTicketsPanel({
   const [reenviarSubmitting, setReenviarSubmitting] = useState(false);
   const [reenviarAddProductId, setReenviarAddProductId] = useState("");
   const [reenviarAddQty, setReenviarAddQty] = useState("1");
+  const [forceReshipTicket, setForceReshipTicket] = useState<SupportTicketRecord | null>(null);
+  const [reenviarForce, setReenviarForce] = useState(false);
 
   const ticketReshipPlan = (ticket: SupportTicketRecord) =>
     parseInsurancePlan(ticket.includeInsurance, ticket.insurancePlan);
@@ -12100,6 +12103,22 @@ function SupportTicketsPanel({
   const ticketCanReship = (ticket: SupportTicketRecord) =>
     canReship(ticketReshipPlan(ticket), ticketReshipProblem(ticket));
 
+  const fillReenviarModal = (ticket: SupportTicketRecord, force: boolean) => {
+    const baseItems = (ticket.orderProducts || [])
+      .map((item) => ({
+        id: String(item.id || "").trim(),
+        name: String(item.name || "Produto").trim() || "Produto",
+        quantity: Math.max(1, Number(item.quantity) || 1),
+      }))
+      .filter((item) => item.id);
+
+    setReenviarForce(force);
+    setReenviarModalTicket(ticket);
+    setReenviarItems(baseItems);
+    setReenviarAddProductId("");
+    setReenviarAddQty("1");
+  };
+
   const openReenviarModal = (ticket: SupportTicketRecord) => {
     if (!ticketCanReship(ticket)) {
       toast.error(
@@ -12109,18 +12128,12 @@ function SupportTicketsPanel({
       );
       return;
     }
-    const baseItems = (ticket.orderProducts || [])
-      .map((item) => ({
-        id: String(item.id || "").trim(),
-        name: String(item.name || "Produto").trim() || "Produto",
-        quantity: Math.max(1, Number(item.quantity) || 1),
-      }))
-      .filter((item) => item.id);
+    fillReenviarModal(ticket, false);
+  };
 
-    setReenviarModalTicket(ticket);
-    setReenviarItems(baseItems);
-    setReenviarAddProductId("");
-    setReenviarAddQty("1");
+  const approveForcedReship = (ticket: SupportTicketRecord) => {
+    setForceReshipTicket(null);
+    fillReenviarModal(ticket, true);
   };
 
   const addProductToReshipment = () => {
@@ -12165,9 +12178,10 @@ function SupportTicketsPanel({
 
     setReenviarSubmitting(true);
     try {
-      await onReenviar(reenviarModalTicket.id, payload);
+      await onReenviar(reenviarModalTicket.id, payload, reenviarForce);
       setReenviarModalTicket(null);
       setReenviarItems([]);
+      setReenviarForce(false);
     } finally {
       setReenviarSubmitting(false);
     }
@@ -12233,15 +12247,25 @@ function SupportTicketsPanel({
                   {ticket.status !== "resolved" ? (
                     <>
                       <Button size="sm" onClick={() => onSetStatus(ticket.id, "resolved")}>Marcar resolvido</Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="border-red-200 text-red-700 hover:bg-red-50"
-                        disabled={!ticketCanReship(ticket)}
-                        onClick={() => openReenviarModal(ticket)}
-                      >
-                        Reenviar
-                      </Button>
+                      {ticketCanReship(ticket) ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-red-200 text-red-700 hover:bg-red-50"
+                          onClick={() => openReenviarModal(ticket)}
+                        >
+                          Reenviar
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-amber-300 text-amber-800 hover:bg-amber-50"
+                          onClick={() => setForceReshipTicket(ticket)}
+                        >
+                          Forçar reenvio
+                        </Button>
+                      )}
                       {(ticket.problemType === "extravio" || ticket.problemType === "apreensao") && (
                         <Button size="sm" variant="outline" onClick={() => void onInsuranceRefund(ticket.id)}>
                           Estornar subtotal
@@ -12294,6 +12318,43 @@ function SupportTicketsPanel({
       )}
 
       <AnimatePresence>
+        {forceReshipTicket && (
+          <motion.div
+            className="fixed inset-0 z-[145] bg-black/50 p-4 flex items-center justify-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setForceReshipTicket(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.96, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.96, opacity: 0 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+              onClick={(event) => event.stopPropagation()}
+              className="w-full max-w-md rounded-2xl border border-amber-200 bg-white p-5 shadow-2xl space-y-4"
+            >
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Alerta</p>
+                <h3 className="text-lg font-bold mt-1">Reenvio forçado sem seguro</h3>
+                <p className="text-sm text-slate-700 mt-2">
+                  Este pedido não foi comprado com seguro (ou o plano não cobre este chamado). Reenvio forçado não é venda, não gera comissão e a loja assume o custo. Confirma?
+                </p>
+              </div>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setForceReshipTicket(null)}>
+                  Cancelar
+                </Button>
+                <Button type="button" onClick={() => approveForcedReship(forceReshipTicket)}>
+                  Aprovar
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
         {reenviarModalTicket && (
           <motion.div
             className="fixed inset-0 z-[140] bg-black/50 p-4 flex items-center justify-center"
@@ -12303,6 +12364,7 @@ function SupportTicketsPanel({
             onClick={() => {
               if (reenviarSubmitting) return;
               setReenviarModalTicket(null);
+              setReenviarForce(false);
             }}
           >
             <motion.div
@@ -12317,6 +12379,9 @@ function SupportTicketsPanel({
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Reenvio do chamado</p>
                 <h3 className="text-lg font-bold">Pedido original: #{reenviarModalTicket.orderId}</h3>
                 <p className="text-sm text-muted-foreground mt-1">Edite os itens que vão para o novo pedido de reenvio. O pedido original não será alterado.</p>
+                {reenviarForce && (
+                  <p className="text-sm font-medium text-amber-800 mt-2">Reenvio forçado: sem seguro. Não conta como venda nem comissão.</p>
+                )}
               </div>
 
               <div className="space-y-2 max-h-[45vh] overflow-auto pr-1">
@@ -12409,6 +12474,7 @@ function SupportTicketsPanel({
                   onClick={() => {
                     if (reenviarSubmitting) return;
                     setReenviarModalTicket(null);
+                    setReenviarForce(false);
                   }}
                 >
                   Cancelar
