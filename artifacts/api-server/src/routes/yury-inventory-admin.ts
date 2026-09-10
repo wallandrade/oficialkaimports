@@ -7,6 +7,10 @@ import {
   listYuryInventoryBalances,
   pullYuryInventorySnapshot,
 } from "../lib/yury-inventory-sync";
+import {
+  fetchYuryInventoryExitStatus,
+  YuryInventoryExitError,
+} from "../lib/yury-inventory-exit";
 
 const router: IRouter = Router();
 
@@ -67,6 +71,42 @@ router.post("/admin/yury-inventory/sync", requireAdminAuth, async (req, res) => 
     res.status(502).json({
       error: "YURY_SYNC_FAILED",
       message: error instanceof Error ? error.message : "Falha ao sincronizar estoque Yury.",
+    });
+  }
+});
+
+router.get("/admin/yury-inventory/exit-status", requireAdminAuth, async (_req, res) => {
+  try {
+    if (!isYuryInventorySyncConfigured()) {
+      res.json({
+        configured: false,
+        unlocked: true,
+        remainingMs: 0,
+        passwordRequired: false,
+      });
+      return;
+    }
+    const status = await fetchYuryInventoryExitStatus();
+    res.json({ configured: true, ...status });
+  } catch (error) {
+    if (error instanceof YuryInventoryExitError && error.code === "YURY_EXIT_UNAVAILABLE") {
+      res.json({
+        configured: true,
+        unlocked: true,
+        remainingMs: 0,
+        passwordRequired: false,
+      });
+      return;
+    }
+    if (error instanceof YuryInventoryExitError) {
+      const status = error.code === "YURY_TOKEN_INVALID" || error.code === "YURY_SYNC_DISABLED" ? 503 : 502;
+      res.status(status).json({ error: error.code, message: error.message });
+      return;
+    }
+    console.error("[YuryInventory] exit-status error:", error);
+    res.status(502).json({
+      error: "YURY_EXIT_FAILED",
+      message: error instanceof Error ? error.message : "Falha ao consultar status da baixa Yury.",
     });
   }
 });

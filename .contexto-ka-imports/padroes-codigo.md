@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-10 | Anti-padrão: cadastrar senha de baixa Yury no KA ou omitir o campo no 403 `PASSWORD_REQUIRED` | Senha só na Yury; campo na tela de baixa Motoboy/Minas | Snapshot sem senha; Fóz |
 | 2026-09-10 | Anti-padrão: lista Compra 48h só descontar estoque Fóz (ignorar Motoboy/Minas) | `copyShoppingList` soma os 3 pools; compra só o que falta | Envios/Motoboy/Outros de expedição |
 | 2026-09-09 | Anti-padrão: reenvio sem seguro com um clique ou API sem `force` | Alerta + Aprovar; `force: true` só no forçado | Cliente e trava padrão iguais |
 | 2026-09-09 | Card do filho: total e Lucro est. zerados, linha visível | Display só; soma no dashboard inalterada | Pedido original |
@@ -149,6 +150,7 @@ Código > memória > suposições.
 - Inferir duração do slot Motoboy pelo preço (usar `interval_hours`).
 - Cadastrar bairro/faixa Motoboy neste repo como fonte da verdade quando `YURY_MOTOBOY_SYNC_TOKEN` está setado (espelho Yury; CRUD local 409).
 - Somar Motoboy + Minas, gravar esses saldos em `inventory_balances`, aplicar `quantityDelta` do webhook Yury, puxar estoque deles em `/api/admin/inventory/...`, ou mandar o uuid/`orderNumber` do KA no campo `orderId` da Yury (usar `POST /api/integrations/inventory/exit` com `referenceId` = `orders.id`; `orderId` só se for pedido da Yury). Não decrementar `yury_inventory_balances` no POST — webhook `balances` ou snapshot. Não debitar Fóz quando o pool do pedido é Motoboy/Minas.
+- Cadastrar senha de baixa Motoboy/Minas neste repo (`tenant_settings`, env, `localStorage`). A senha fica na Yury. Sem janela: `POST /exit` 403 `PASSWORD_REQUIRED` — mostrar input, não só toast. `INVALID_PASSWORD` pede de novo. Snapshot/`GET snapshot` sem senha. Não inventar rota além de `exit-status`, `unlock` e `exit`.
 - Exigir cidade da faixa CEP igual à ViaCEP para mostrar Motoboy (CEP na faixa já libera; cidade só desempata).
 - Lookup Motoboy em duas chamadas no frontend (bairro depois faixa). Usar `GET /api/motoboy-coverage/lookup`. Km e bairro são XOR (`shouldLookupNeighborhoods = !distanceEnabled`).
 - Geocodar CEP no browser ou usar Nominatim no fluxo Motoboy (BrasilAPI só no servidor). Settings `motoboy_distance_*` não entram em `PUBLIC_KEYS`.

@@ -168,11 +168,37 @@ export type YuryInventoryExitBody = {
   items: YuryInventoryExitItem[];
   referenceId: string;
   reason?: string;
+  password?: string;
+};
+
+export type YuryInventoryExitStatus = {
+  unlocked: boolean;
+  remainingMs: number;
+  passwordRequired: boolean;
 };
 
 export type YuryInventoryExitInterpretation =
   | { ok: true; alreadyDebited: boolean }
-  | { ok: false; code: string; message: string };
+  | { ok: false; code: string; message: string; passwordRequired?: boolean };
+
+export const YURY_EXIT_PASSWORD_HINT =
+  "Informe a senha para liberar a baixa. Depois fica 10 minutos e trava de novo.";
+
+export function pickYuryInventoryPassword(raw: unknown): string {
+  if (!raw || typeof raw !== "object") return "";
+  const record = raw as Record<string, unknown>;
+  return asString(record.password || record.senha);
+}
+
+export function parseYuryInventoryExitStatus(raw: unknown): YuryInventoryExitStatus | null {
+  if (!raw || typeof raw !== "object") return null;
+  const record = raw as Record<string, unknown>;
+  const remainingRaw = Number(record.remainingMs);
+  const remainingMs = Number.isFinite(remainingRaw) && remainingRaw > 0 ? Math.trunc(remainingRaw) : 0;
+  const unlocked = record.unlocked === true;
+  const passwordRequired = record.passwordRequired === true || (!unlocked && record.passwordRequired !== false);
+  return { unlocked, remainingMs, passwordRequired };
+}
 
 function normalizeShippingText(value: unknown): string {
   return String(value || "")
@@ -292,6 +318,7 @@ export function buildYuryInventoryExitBody(input: {
   items: YuryInventoryExitItem[];
   referenceId: string;
   reason?: string;
+  password?: string;
 }): YuryInventoryExitBody {
   const body: YuryInventoryExitBody = {
     pool: input.pool,
@@ -303,6 +330,8 @@ export function buildYuryInventoryExitBody(input: {
   };
   const reason = String(input.reason || "").trim();
   if (reason) body.reason = reason;
+  const password = String(input.password || "").trim();
+  if (password) body.password = password;
   return body;
 }
 
@@ -334,6 +363,21 @@ export function interpretYuryInventoryExitResponse(
   if (status === 401) {
     return { ok: false, code: "YURY_TOKEN_INVALID", message: remoteMessage || "Token de sync Yury inválido." };
   }
+  if (status === 403) {
+    if (remoteCode === "INVALID_PASSWORD") {
+      return {
+        ok: false,
+        code: "INVALID_PASSWORD",
+        message: remoteMessage || "Senha inválida. Digite novamente.",
+      };
+    }
+    return {
+      ok: false,
+      code: "PASSWORD_REQUIRED",
+      message: remoteMessage || YURY_EXIT_PASSWORD_HINT,
+      passwordRequired: true,
+    };
+  }
   if (status === 404) {
     return {
       ok: false,
@@ -348,5 +392,47 @@ export function interpretYuryInventoryExitResponse(
     ok: false,
     code: remoteCode || "YURY_EXIT_FAILED",
     message: remoteMessage || `Yury inventory exit HTTP ${status}`,
+  };
+}
+
+export function interpretYuryInventoryUnlockResponse(
+  status: number,
+  raw: unknown,
+): { ok: true; status: YuryInventoryExitStatus } | { ok: false; code: string; message: string; passwordRequired?: boolean } {
+  const parsed = parseYuryInventoryExitStatus(raw);
+  if (status >= 200 && status < 300) {
+    return {
+      ok: true,
+      status: parsed || { unlocked: true, remainingMs: 10 * 60 * 1000, passwordRequired: false },
+    };
+  }
+  const record = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  const remoteCode = asString(record.error || record.code);
+  const remoteMessage = asString(record.message);
+  if (status === 403 && remoteCode === "INVALID_PASSWORD") {
+    return { ok: false, code: "INVALID_PASSWORD", message: remoteMessage || "Senha inválida. Digite novamente." };
+  }
+  if (status === 403 || remoteCode === "PASSWORD_REQUIRED" || record.passwordRequired === true) {
+    return {
+      ok: false,
+      code: "PASSWORD_REQUIRED",
+      message: remoteMessage || YURY_EXIT_PASSWORD_HINT,
+      passwordRequired: true,
+    };
+  }
+  if (status === 401) {
+    return { ok: false, code: "YURY_TOKEN_INVALID", message: remoteMessage || "Token de sync Yury inválido." };
+  }
+  if (status === 404) {
+    return {
+      ok: false,
+      code: "YURY_EXIT_UNAVAILABLE",
+      message: remoteMessage || "Unlock de estoque Yury indisponível (rota ainda não no ar).",
+    };
+  }
+  return {
+    ok: false,
+    code: remoteCode || "YURY_UNLOCK_FAILED",
+    message: remoteMessage || `Yury inventory unlock HTTP ${status}`,
   };
 }

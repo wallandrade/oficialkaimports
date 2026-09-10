@@ -1,12 +1,13 @@
 # Integrações externas — KA Imports
 
-> **Última atualização:** 2026-09-04  
+> **Última atualização:** 2026-09-10  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-10 | Baixa Motoboy/Minas na Yury: senha via `exit-status` + `unlock` + `password` no POST `exit` | Campo na tela de baixa; janela de 10 min na Yury | Snapshot/leitura sem senha; Fóz; senha não é cadastrada no KA |
 | 2026-09-04 | Create EE no split: 1 `shipments[]` por chamada + `packageId`; `orderId` `{n}-{8chars}-{pool}`; webhook casa pacote (barcode/shipment_id/orderId) antes do pedido | N etiquetas independentes (conta/CEP origem diferentes) no mesmo pedido | Checkout não cota EE; create continua 1 linha Mercadoria; Motoboy entrega ≠ pool Motoboy |
 | 2026-09-04 | OSRM (e Google Distance Matrix se houver chave) no lookup Motoboy | Km de rua no servidor; cache 24h/1h; timeout 8s | BrasilAPI continua só CEP→coords; ViaCEP no FE só endereço |
 | 2026-09-03 | Cotação Motoboy por km via BrasilAPI (`cep/v2`) no servidor | Lookup único; ViaCEP no FE só endereço | Webhook/pull de bairro/faixa e estoque Yury iguais |
@@ -107,7 +108,7 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 
 - Espelho em `yury_inventory_balances` (`product_id` da Yury, `qty_motoboy`, `qty_minas`). **Não** mistura com `inventory_balances` (Fóz Guaçu). Não soma os dois pools.
 - Leitura: `GET /api/integrations/inventory/snapshot`. Token: `YURY_INVENTORY_SYNC_TOKEN` se existir; senão o mesmo `YURY_MOTOBOY_SYNC_TOKEN`. Headers `Authorization: Bearer` + `X-Api-Key`.
-- Baixa (pedido): `POST /api/admin/orders/:id/inventory-exit` com `pool` `loja`|`motoboy`|`minas`. Preferência: `PATCH .../inventory-exit-pool`. `enviado` usa o pool salvo (ou o do frete). Fóz = `inventory_balances`. Motoboy/Minas = `POST /api/integrations/inventory/exit` (`items[]` + `referenceId` = `orders.id` no 1:1, **`pkg:{id}` no split**, **sem** `orderId`). 201 / 200 `alreadyDebited` por pool (no split: `inventory_reserved` do pacote). 400 `INSUFFICIENT_STOCK` não marca `enviado`. 404 = rota Yury ainda não no ar. Após split, baixa do pedido inteiro → 409 `ORDER_SPLIT_USE_PACKAGE`.
+- Baixa (pedido): `POST /api/admin/orders/:id/inventory-exit` com `pool` `loja`|`motoboy`|`minas`. Preferência: `PATCH .../inventory-exit-pool`. `enviado` usa o pool salvo (ou o do frete). Fóz = `inventory_balances`. Motoboy/Minas = `POST /api/integrations/inventory/exit` (`items[]` + `referenceId` = `orders.id` no 1:1, **`pkg:{id}` no split**, **sem** `orderId`). Senha da baixa (só Motoboy/Minas): a Yury trava o POST `exit` sem janela. KA consulta `GET /api/integrations/inventory/exit-status` (`unlocked`, `remainingMs`, `passwordRequired`) via `GET /api/admin/yury-inventory/exit-status`. Admin digita a senha na tela de baixa; KA **não** guarda. Com senha, o backend faz `POST /api/integrations/inventory/unlock` `{ password }` (10 min) e reenvia `password` no POST `exit` (aceita também `senha`). 403 `PASSWORD_REQUIRED` + `passwordRequired: true` abre o campo; `INVALID_PASSWORD` pede de novo. Fóz não usa essa senha. 201 / 200 `alreadyDebited` por pool (no split: `inventory_reserved` do pacote). 400 `INSUFFICIENT_STOCK` não marca `enviado`. 404 = rota Yury ainda não no ar. Após split, baixa do pedido inteiro → 409 `ORDER_SPLIT_USE_PACKAGE`.
 - Colunas `orders.inventory_exit_pool`, `inventory_exited_pools` e `inventory_reserved`. Depois da baixa Yury **não** decrementa o espelho à mão. Webhook `inventory.changed` grava `balances.motoboy`/`minas` absolutos (um evento por produto; `quantityDelta` só informativo). Sem webhook, o job/snapshot de 3 min atualiza.
 - Snapshot: linha com `quantity: 0` permanece. Produto só em `motoboy[]` → Minas = 0. Zerar os dois só se o `productId` sumir dos dois arrays.
 - Job: boot (~20s) + a cada 3 min. Admin Estoque puxa ao abrir e no botão Sincronizar Yury (`POST /api/admin/yury-inventory/sync`). Lista: `GET /api/admin/yury-inventory`. Sem formulário de entrada/saída nesses pools.

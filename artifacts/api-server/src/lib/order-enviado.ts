@@ -77,11 +77,22 @@ function parseOrderItemsForInventory(raw: unknown): Array<{ productId: string | 
 
 export class OrderEnviadoError extends Error {
   code: string;
-  constructor(code: string, message: string) {
+  passwordRequired?: boolean;
+  constructor(code: string, message: string, extras?: { passwordRequired?: boolean }) {
     super(message);
     this.name = "OrderEnviadoError";
     this.code = code;
+    if (extras?.passwordRequired) this.passwordRequired = true;
   }
+}
+
+function wrapYuryInventoryError(error: unknown): never {
+  if (error instanceof YuryInventoryExitError) {
+    throw new OrderEnviadoError(error.code, error.message, {
+      passwordRequired: error.passwordRequired,
+    });
+  }
+  throw error;
 }
 
 async function persistInventoryExitState(
@@ -197,6 +208,7 @@ export async function debitOrderInventoryPool(input: {
   orderId: string;
   tenantId: string;
   pool: KaInventoryExitPool;
+  password?: string;
 }): Promise<{ alreadyDebited: boolean; pool: KaInventoryExitPool; exitedPools: KaInventoryExitPool[] }> {
   if (await countOrderShipments(input.orderId) >= 2) {
     throw new OrderEnviadoError(
@@ -244,12 +256,10 @@ export async function debitOrderInventoryPool(input: {
           referenceId: order.id,
           pool: input.pool,
           items: orderItems,
+          password: input.password,
         });
       } catch (error) {
-        if (error instanceof YuryInventoryExitError) {
-          throw new OrderEnviadoError(error.code, error.message);
-        }
-        throw error;
+        wrapYuryInventoryError(error);
       }
     }
   }
@@ -266,6 +276,7 @@ export async function debitPackageInventory(input: {
   pool: KaInventoryExitPool;
   items: Array<{ productId: string | null; productName: string; quantity: number }>;
   clientName?: string | null;
+  password?: string;
 }): Promise<{ alreadyDebited: boolean; pool: KaInventoryExitPool }> {
   const packageId = String(input.packageId || "").trim();
   if (!packageId) throw new OrderEnviadoError("NEED_PACKAGE_ID", "Informe o pacote para baixar o estoque.");
@@ -301,12 +312,10 @@ export async function debitPackageInventory(input: {
         referenceId,
         pool: input.pool,
         items: pkgItems,
+        password: input.password,
       });
     } catch (error) {
-      if (error instanceof YuryInventoryExitError) {
-        throw new OrderEnviadoError(error.code, error.message);
-      }
-      throw error;
+      wrapYuryInventoryError(error);
     }
   }
 
@@ -376,7 +385,11 @@ export async function reverseOrderInventoryForSplit(input: {
     .where(and(eq(ordersTable.id, input.orderId), buildOrderTenantWhere(input.tenantId)));
 }
 
-export async function ensureOrderMarkedEnviado(orderId: string, tenantId: string): Promise<{ enviado: boolean; already: boolean }> {
+export async function ensureOrderMarkedEnviado(
+  orderId: string,
+  tenantId: string,
+  password?: string,
+): Promise<{ enviado: boolean; already: boolean }> {
   const rows = await db
     .select({
       id: ordersTable.id,
@@ -415,6 +428,7 @@ export async function ensureOrderMarkedEnviado(orderId: string, tenantId: string
         pool,
         items: parseOrderShipmentItems(pkg.items),
         clientName: order.clientName || null,
+        password,
       });
       await db.update(orderShipmentsTable)
         .set({ enviado: true, inventoryReserved: true, updatedAt: new Date() })
@@ -425,6 +439,7 @@ export async function ensureOrderMarkedEnviado(orderId: string, tenantId: string
       orderId,
       tenantId,
       pool: defaultKaInventoryExitPool(order),
+      password,
     });
   }
 

@@ -7,13 +7,17 @@ import {
   buildYuryInventoryExitBody,
   defaultKaInventoryExitPool,
   interpretYuryInventoryExitResponse,
+  interpretYuryInventoryUnlockResponse,
   mapKaItemsToYuryExitItems,
   mergeYuryInventorySnapshot,
   parseKaInventoryExitPool,
   parseKaInventoryExitedPools,
   parseYuryInventoryChangedEvent,
+  parseYuryInventoryExitStatus,
   parseYuryInventorySnapshot,
+  pickYuryInventoryPassword,
   resolveYuryInventoryExitPool,
+  YURY_EXIT_PASSWORD_HINT,
 } from "./yury-inventory";
 import { getYuryInventorySyncToken } from "./motoboy-yury-config";
 
@@ -186,4 +190,58 @@ test("HTTP exit: 201 nova baixa, 200 retry por pool, 400 sem saldo, 404 rota for
   assert.equal(missingRoute.ok, false);
   if (missingRoute.ok) return;
   assert.equal(missingRoute.code, "YURY_EXIT_UNAVAILABLE");
+});
+
+test("HTTP exit 403: PASSWORD_REQUIRED abre campo; INVALID_PASSWORD pede de novo", () => {
+  const required = interpretYuryInventoryExitResponse(403, {
+    error: "PASSWORD_REQUIRED",
+    passwordRequired: true,
+    message: "Informe a senha para liberar a baixa. Depois fica 10 minutos e trava de novo.",
+  });
+  assert.equal(required.ok, false);
+  if (required.ok) return;
+  assert.equal(required.code, "PASSWORD_REQUIRED");
+  assert.equal(required.passwordRequired, true);
+  const invalid = interpretYuryInventoryExitResponse(403, { error: "INVALID_PASSWORD", message: "Senha inválida." });
+  assert.equal(invalid.ok, false);
+  if (invalid.ok) return;
+  assert.equal(invalid.code, "INVALID_PASSWORD");
+  const bare = interpretYuryInventoryExitResponse(403, { message: YURY_EXIT_PASSWORD_HINT });
+  assert.equal(bare.ok, false);
+  if (bare.ok) return;
+  assert.equal(bare.code, "PASSWORD_REQUIRED");
+  assert.equal(bare.passwordRequired, true);
+});
+
+test("exit-status e senha no body: password/senha; unlock 10 min; sem orderId", () => {
+  assert.deepEqual(parseYuryInventoryExitStatus({
+    unlocked: false,
+    remainingMs: 0,
+    passwordRequired: true,
+  }), { unlocked: false, remainingMs: 0, passwordRequired: true });
+  assert.deepEqual(parseYuryInventoryExitStatus({
+    unlocked: true,
+    remainingMs: 600000,
+    passwordRequired: false,
+  }), { unlocked: true, remainingMs: 600000, passwordRequired: false });
+  assert.equal(pickYuryInventoryPassword({ password: "  abc  " }), "abc");
+  assert.equal(pickYuryInventoryPassword({ senha: "xyz" }), "xyz");
+  assert.equal(pickYuryInventoryPassword({ pool: "motoboy" }), "");
+  const withPassword = buildYuryInventoryExitBody({
+    pool: "minas",
+    items: [{ productId: "abc", quantity: 1 }],
+    referenceId: "ka-1",
+    password: "segredo",
+  });
+  assert.equal(withPassword.password, "segredo");
+  assert.equal("orderId" in withPassword, false);
+  const unlocked = interpretYuryInventoryUnlockResponse(200, { unlocked: true, remainingMs: 600000, passwordRequired: false });
+  assert.equal(unlocked.ok, true);
+  if (!unlocked.ok) return;
+  assert.equal(unlocked.status.unlocked, true);
+  assert.equal(unlocked.status.remainingMs, 600000);
+  const badUnlock = interpretYuryInventoryUnlockResponse(403, { error: "INVALID_PASSWORD" });
+  assert.equal(badUnlock.ok, false);
+  if (badUnlock.ok) return;
+  assert.equal(badUnlock.code, "INVALID_PASSWORD");
 });

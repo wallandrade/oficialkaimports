@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-10 | `GET /admin/yury-inventory/exit-status` proxy do `exit-status` Yury; senha no POST baixa | Admin vê se precisa de senha | Snapshot 3 min; webhook |
 | 2026-09-10 | Compra 48h lê `/admin/yury-inventory` além do Fóz | Cópia abate Motoboy/Minas | Baixa de pedido e aba Estoque |
 | 2026-09-09 | `POST .../reenviar` aceita `force: true` para override admin | Sem flag continua 400 `NO_INSURANCE`/`NO_COVERAGE` | Schema; cliente; reenvio Estoque |
 | 2026-09-09 | Filho de reenvio fora do `financial-summary` e do lote de comissão (`isReshipmentChildOrder`) | Sem venda/custo/comissão/lucro no filho | Schema; pedido original; `soldQty` já ignorava |
@@ -84,7 +85,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 - Checkout Motoboy: `GET /api/motoboy-coverage/lookup` (público, por tenant). Geocode BrasilAPI só no servidor (`motoboy-geocode.ts`). Km de rua em `motoboy-route.ts` (`resolveMotoboyDistanceKm`). Settings de km em `ALLOWED_KEYS`, fora de `PUBLIC_KEYS`.
 - Webhook cobertura Motoboy: `POST /api/webhooks/yury/motoboy-coverage` (body cru + HMAC) **antes** de `express.json()`.
 - Webhook estoque Yury: `POST /api/webhooks/yury/inventory` (mesmo HMAC; grava `balances`, não o delta).
-- Baixa no pedido: `POST /api/admin/orders/:id/inventory-exit` (Fóz local ou Yury Motoboy/Minas) a partir do card (1:1); após split a baixa é por pacote (`debitPackageInventory`, `referenceId = pkg:{id}`). `ensureOrderMarkedEnviado` no split debita cada pacote. `GET/POST /admin/orders/:id/shipments` aloca/lista `packages[]`.
+- Baixa no pedido: `POST /api/admin/orders/:id/inventory-exit` (Fóz local ou Yury Motoboy/Minas) a partir do card (1:1); após split a baixa é por pacote (`debitPackageInventory`, `referenceId = pkg:{id}`). `ensureOrderMarkedEnviado` no split debita cada pacote. `GET/POST /admin/orders/:id/shipments` aloca/lista `packages[]`. Motoboy/Minas: `GET /admin/yury-inventory/exit-status` proxy do `GET /api/integrations/inventory/exit-status`; senha no body da baixa (unlock + `password` no `exit`).
 - EnvioEcom: `artifacts/api-server/src/routes/envioecom.ts` + webhook em `webhooks.ts`. Contas em `lib/envioecom-accounts.ts` (env + tenant + JSON `envioecom_accounts`). Client cacheia token por `tenantId:accountId`. Coluna `orders.envioecom_account_id`. Split: `packageId` em quote/create/labels/sync/cancel/bind; persistência em `order_shipments` + rollup no pai (`lib/order-shipments.ts`). Pedido sem linhas = colunas `envioecom_*` do pedido.
 - APPCNPay: `gateway.ts` + `lib/pix-gateway-credentials.ts`. Par por tenant (`gateway_appcnpay_public_key` / `_secret_key`); fallback env. Webhook PIX resolve tenant pelo `transactionId`.
 - Extrato OFX: `artifacts/api-server/src/routes/bank-statement.ts` (`analyze`/`apply`/`clear`/`bank-deposits`) + `order_bank_deposits`. Painéis FE: `AdminBankStatementPanel.tsx` (sessão) e `AdminBankDepositsPanel.tsx` (histórico + Desfazer por FITID).

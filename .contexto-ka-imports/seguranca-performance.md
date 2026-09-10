@@ -1,12 +1,13 @@
 # Segurança e performance — KA Imports
 
-> **Última atualização:** 2026-08-30  
+> **Última atualização:** 2026-09-10  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-10 | Senha de baixa Motoboy/Minas só transita no POST (unlock/exit); não grava no KA | Campo no admin; 10 min na Yury | Snapshot; token de sync; Fóz |
 | 2026-08-30 | Webhook estoque Yury com body cru + HMAC (igual cobertura) | `POST /api/webhooks/yury/inventory` antes do `json()` | CORS allowlist e rate limit de checkout iguais |
 | 2026-08-29 | GET contas EnvioEcom mascara token/e-mail; senha nunca sai | Extra no JSON só no servidor | CSP / CORS / rate limit iguais |
 | 2026-08-28 | Chaves APPCNPay mascaradas no GET admin; PUT `***` no-op; fora de `PUBLIC_KEYS` e `localStorage` | Segredo não vaza no browser/cache | CSP / CORS / rate limit iguais |
@@ -27,6 +28,7 @@
 - Password gates no FE (site/pagamento).
 - Isolamento tenant/seller (ver `auth-permissoes.md` + smoke scripts).
 - Credenciais APPCNPay da loja: GET `/api/admin/settings` mascara `gateway_appcnpay_*`; PUT com valor já mascarado não sobrescreve; FE não persiste essas keys em `siteSettings`.
+- Senha de baixa Motoboy/Minas da Yury: o admin digita no card; o KA só encaminha no unlock/`exit` (Bearer/`X-Api-Key` iguais ao snapshot). Não há setting, env nem `localStorage` dessa senha.
 - **CSP do FE** (`index.html` + `vercel.json`): `default-src 'self'`; `object-src 'none'`; `frame-ancestors 'none'`; `frame-src 'self' blob: data: https:` (comprovante PDF no admin usa iframe + blob). `img-src` já permite `data:`/`blob:`/`https:`.
 
 ## Ops / health

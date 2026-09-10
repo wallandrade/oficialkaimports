@@ -41,6 +41,7 @@ import {
 import {
   parseKaInventoryExitPool,
   parseKaInventoryExitedPools,
+  pickYuryInventoryPassword,
   resolveYuryInventoryExitPool,
   serializeKaInventoryExitedPools,
 } from "../lib/yury-inventory";
@@ -2996,10 +2997,24 @@ router.patch("/admin/orders/:id/procurando-produto", requireAdminAuth, async (re
 
 function statusForOrderEnviadoError(code: string): number {
   if (code === "NOT_FOUND") return 404;
+  if (code === "PASSWORD_REQUIRED" || code === "INVALID_PASSWORD") return 403;
   if (code === "ORDER_SPLIT_USE_PACKAGE" || code === "INVENTORY_MUST_REVERSE") return 409;
   if (code === "YURY_EXIT_UNAVAILABLE" || code === "YURY_EXIT_FAILED") return 502;
   if (code === "YURY_SYNC_DISABLED" || code === "YURY_TOKEN_INVALID") return 503;
   return 400;
+}
+
+function jsonForOrderEnviadoError(err: OrderEnviadoError): {
+  error: string;
+  message: string;
+  passwordRequired?: boolean;
+} {
+  const payload: { error: string; message: string; passwordRequired?: boolean } = {
+    error: err.code,
+    message: err.message,
+  };
+  if (err.code === "PASSWORD_REQUIRED" || err.passwordRequired) payload.passwordRequired = true;
+  return payload;
 }
 
 // ---------------------------------------------------------------------------
@@ -3134,6 +3149,7 @@ router.post("/admin/orders/:id/inventory-exit", requireAdminAuth, async (req, re
       res.status(400).json({ error: "INVALID_INPUT", message: "pool deve ser loja, motoboy ou minas." });
       return;
     }
+    const password = pool === "loja" ? "" : pickYuryInventoryPassword(req.body);
 
     const existing = await db
       .select({ id: ordersTable.id })
@@ -3149,6 +3165,7 @@ router.post("/admin/orders/:id/inventory-exit", requireAdminAuth, async (req, re
       orderId: id,
       tenantId: adminScope.tenantId,
       pool,
+      password: password || undefined,
     });
     if (!result.alreadyDebited) {
       await addOrderEvent({
@@ -3170,7 +3187,7 @@ router.post("/admin/orders/:id/inventory-exit", requireAdminAuth, async (req, re
     });
   } catch (err) {
     if (err instanceof OrderEnviadoError) {
-      res.status(statusForOrderEnviadoError(err.code)).json({ error: err.code, message: err.message });
+      res.status(statusForOrderEnviadoError(err.code)).json(jsonForOrderEnviadoError(err));
       return;
     }
     console.error("Order inventory exit error:", err);
@@ -3246,11 +3263,11 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
 
     if (enviado) {
       try {
-        await ensureOrderMarkedEnviado(id, adminScope.tenantId);
+        await ensureOrderMarkedEnviado(id, adminScope.tenantId, pickYuryInventoryPassword(req.body) || undefined);
       } catch (err) {
         if (err instanceof OrderEnviadoError) {
           const status = statusForOrderEnviadoError(err.code);
-          res.status(status).json({ error: err.code, message: err.message });
+          res.status(status).json(jsonForOrderEnviadoError(err));
           return;
         }
         throw err;
