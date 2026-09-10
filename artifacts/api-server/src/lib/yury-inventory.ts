@@ -264,6 +264,10 @@ export function parseKaInventoryExitedPools(value: unknown): KaInventoryExitPool
   return pools;
 }
 
+export function hasKaInventoryExit(current: unknown): boolean {
+  return parseKaInventoryExitedPools(current).length > 0;
+}
+
 export function serializeKaInventoryExitedPools(pools: KaInventoryExitPool[]): string {
   return parseKaInventoryExitedPools(pools).join(",");
 }

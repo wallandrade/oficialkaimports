@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-10 | Anti-padrão: **Marcar Reenvio Enviado** debitar Fóz de novo quando o pedido já baixou Motoboy/Minas/`inventory_exited_pools` | Skip se já saiu; senão pool do card | Reenvio manual Estoque |
 | 2026-09-10 | Anti-padrão: usar `yuryExitStatus` no `useEffect`/render antes do `useState` no `OrdersPanel` | Admin quebrava no boot (`ReferenceError`) | Senha Yury e baixa iguais |
 | 2026-09-10 | Anti-padrão: cadastrar senha de baixa Yury no KA ou omitir o campo no 403 `PASSWORD_REQUIRED` | Senha só na Yury; campo na tela de baixa Motoboy/Minas | Snapshot sem senha; Fóz |
 | 2026-09-10 | Anti-padrão: lista Compra 48h só descontar estoque Fóz (ignorar Motoboy/Minas) | `copyShoppingList` soma os 3 pools; compra só o que falta | Envios/Motoboy/Outros de expedição |
@@ -153,6 +154,7 @@ Código > memória > suposições.
 - Somar Motoboy + Minas, gravar esses saldos em `inventory_balances`, aplicar `quantityDelta` do webhook Yury, puxar estoque deles em `/api/admin/inventory/...`, ou mandar o uuid/`orderNumber` do KA no campo `orderId` da Yury (usar `POST /api/integrations/inventory/exit` com `referenceId` = `orders.id`; `orderId` só se for pedido da Yury). Não decrementar `yury_inventory_balances` no POST — webhook `balances` ou snapshot. Não debitar Fóz quando o pool do pedido é Motoboy/Minas.
 - Cadastrar senha de baixa Motoboy/Minas neste repo (`tenant_settings`, env, `localStorage`). A senha fica na Yury. Sem janela: `POST /exit` 403 `PASSWORD_REQUIRED` — mostrar input, não só toast. `INVALID_PASSWORD` pede de novo. Snapshot/`GET snapshot` sem senha. Não inventar rota além de `exit-status`, `unlock` e `exit`.
 - No `OrdersPanel` do `Admin.tsx`, ler `yuryExitStatus` (deps de `useEffect` ou variável no render) **antes** do `useState`. Isso quebra o admin no boot (`ReferenceError: Cannot access 'yuryExitStatus' before initialization`). Estado da senha Yury fica no bloco “hooks no topo”, junto com `enviando`/`exitPoolByOrder`.
+- **Marcar Reenvio Enviado** debitar `inventory_balances` (Fóz) quando o pedido já tem baixa Motoboy/Minas no card. Se `inventory_exited_pools` já tem pool, só marca o status. Sem baixa ainda: Motoboy/Minas vai na Yury; Fóz só se o pool for loja.
 - Exigir cidade da faixa CEP igual à ViaCEP para mostrar Motoboy (CEP na faixa já libera; cidade só desempata).
 - Lookup Motoboy em duas chamadas no frontend (bairro depois faixa). Usar `GET /api/motoboy-coverage/lookup`. Km e bairro são XOR (`shouldLookupNeighborhoods = !distanceEnabled`).
 - Geocodar CEP no browser ou usar Nominatim no fluxo Motoboy (BrasilAPI só no servidor). Settings `motoboy_distance_*` não entram em `PUBLIC_KEYS`.

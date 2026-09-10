@@ -10,6 +10,16 @@ import {
   reshipmentsTable,
   supportTicketsTable,
 } from "@workspace/db";
+import {
+  addKaInventoryExitedPool,
+  defaultKaInventoryExitPool,
+  hasKaInventoryExit,
+  mapKaItemsToYuryExitItems,
+  serializeKaInventoryExitedPools,
+  type KaInventoryExitPool,
+} from "./yury-inventory";
+import { listYuryInventoryBalances } from "./yury-inventory-sync";
+import { debitYuryInventoryForKaOrder, YuryInventoryExitError } from "./yury-inventory-exit";
 
 const DEFAULT_TENANT_ID = "tenant_loja1";
 
@@ -128,6 +138,52 @@ function hasEnoughStock(items: ReshipmentProduct[], stockByProduct: Map<string, 
   return items.every((item) => (stockByProduct.get(item.id) || 0) >= item.quantity);
 }
 
+type LinkedOrderStock = {
+  id: string;
+  products: unknown;
+  shippingType: unknown;
+  motoboyDeliveryDate: unknown;
+  motoboyDeliveryTime: unknown;
+  inventoryExitPool: unknown;
+  inventoryExitedPools: unknown;
+};
+
+function linkedOrderExitPool(order: LinkedOrderStock | null | undefined): KaInventoryExitPool {
+  if (!order) return "loja";
+  return defaultKaInventoryExitPool(order);
+}
+
+async function persistOrderExitPool(order: LinkedOrderStock, pool: KaInventoryExitPool): Promise<void> {
+  const exited = addKaInventoryExitedPool(order.inventoryExitedPools, pool);
+  await db.update(ordersTable)
+    .set({
+      inventoryExitPool: pool,
+      inventoryExitedPools: serializeKaInventoryExitedPools(exited),
+      updatedAt: new Date(),
+    })
+    .where(eq(ordersTable.id, order.id));
+}
+
+async function missingYuryStock(
+  pool: "motoboy" | "minas",
+  items: ReshipmentProduct[],
+): Promise<string[]> {
+  const rows = await listYuryInventoryBalances();
+  const mapped = mapKaItemsToYuryExitItems(
+    items.map((item) => ({ productId: item.id, productName: item.name, quantity: item.quantity })),
+    rows,
+  );
+  if (!mapped.ok) return mapped.missing;
+  const byId = new Map(rows.map((row) => [row.productId, row]));
+  const missing: string[] = [];
+  for (const item of mapped.items) {
+    const row = byId.get(item.productId);
+    const qty = pool === "minas" ? Number(row?.qtyMinas || 0) : Number(row?.qtyMotoboy || 0);
+    if (qty < item.quantity) missing.push(row?.productName || item.productId);
+  }
+  return missing;
+}
+
 async function changeBalance(productId: string, delta: number, tenantId = DEFAULT_TENANT_ID): Promise<void> {
   const currentRows = await db
     .select({ quantity: inventoryBalancesTable.quantity })
@@ -180,7 +236,13 @@ export async function ensureReshipmentReservation(params: {
     ? await db
         .select({
           productsSnapshot: reshipmentsTable.productsSnapshot,
+          orderId: ordersTable.id,
           orderProducts: ordersTable.products,
+          shippingType: ordersTable.shippingType,
+          motoboyDeliveryDate: ordersTable.motoboyDeliveryDate,
+          motoboyDeliveryTime: ordersTable.motoboyDeliveryTime,
+          inventoryExitPool: ordersTable.inventoryExitPool,
+          inventoryExitedPools: ordersTable.inventoryExitedPools,
         })
         .from(reshipmentsTable)
         .leftJoin(ordersTable, eq(ordersTable.id, reshipmentsTable.orderId))
@@ -194,6 +256,21 @@ export async function ensureReshipmentReservation(params: {
 
   if (!rows[0]) {
     return { ok: false, notFound: true, missingProducts: [] };
+  }
+
+  const linkedOrder = params.source === "support" && (rows[0] as { orderId?: string | null }).orderId
+    ? {
+        id: String((rows[0] as { orderId: string }).orderId),
+        products: (rows[0] as { orderProducts?: unknown }).orderProducts,
+        shippingType: (rows[0] as { shippingType?: unknown }).shippingType,
+        motoboyDeliveryDate: (rows[0] as { motoboyDeliveryDate?: unknown }).motoboyDeliveryDate,
+        motoboyDeliveryTime: (rows[0] as { motoboyDeliveryTime?: unknown }).motoboyDeliveryTime,
+        inventoryExitPool: (rows[0] as { inventoryExitPool?: unknown }).inventoryExitPool,
+        inventoryExitedPools: (rows[0] as { inventoryExitedPools?: unknown }).inventoryExitedPools,
+      }
+    : null;
+  if (linkedOrder && hasKaInventoryExit(linkedOrder.inventoryExitedPools)) {
+    return { ok: true, missingProducts: [] };
   }
 
   const items = params.source === "support"
@@ -231,6 +308,15 @@ export async function ensureReshipmentReservation(params: {
     return { ok: true, missingProducts: [] };
   }
 
+  const pool = linkedOrderExitPool(linkedOrder);
+  if (pool === "motoboy" || pool === "minas") {
+    const missingYury = await missingYuryStock(pool, remainingItems);
+    if (missingYury.length > 0) {
+      return { ok: false, missingProducts: missingYury };
+    }
+    return { ok: true, missingProducts: [] };
+  }
+
   const productIds = Array.from(new Set(remainingItems.map((item) => item.id)));
   const stockByProduct = await getStockMap(productIds, tenantId);
   const missingProducts = remainingItems
@@ -249,10 +335,15 @@ export async function ensureReshipmentSendDebit(params: {
   tenantId?: string;
   id: string;
   source: ReshipmentSource;
+  password?: string;
 }): Promise<{
   ok: boolean;
   notFound?: boolean;
   invalidProducts?: boolean;
+  alreadyDebited?: boolean;
+  passwordRequired?: boolean;
+  error?: string;
+  message?: string;
   missingProducts: string[];
   debitedProducts: Array<{ productId: string; productName: string; quantity: number }>;
 }> {
@@ -261,7 +352,13 @@ export async function ensureReshipmentSendDebit(params: {
     ? await db
         .select({
           productsSnapshot: reshipmentsTable.productsSnapshot,
+          orderId: ordersTable.id,
           orderProducts: ordersTable.products,
+          shippingType: ordersTable.shippingType,
+          motoboyDeliveryDate: ordersTable.motoboyDeliveryDate,
+          motoboyDeliveryTime: ordersTable.motoboyDeliveryTime,
+          inventoryExitPool: ordersTable.inventoryExitPool,
+          inventoryExitedPools: ordersTable.inventoryExitedPools,
         })
         .from(reshipmentsTable)
         .leftJoin(ordersTable, eq(ordersTable.id, reshipmentsTable.orderId))
@@ -275,6 +372,21 @@ export async function ensureReshipmentSendDebit(params: {
 
   if (!rows[0]) {
     return { ok: false, notFound: true, missingProducts: [], debitedProducts: [] };
+  }
+
+  const linkedOrder = params.source === "support" && (rows[0] as { orderId?: string | null }).orderId
+    ? {
+        id: String((rows[0] as { orderId: string }).orderId),
+        products: (rows[0] as { orderProducts?: unknown }).orderProducts,
+        shippingType: (rows[0] as { shippingType?: unknown }).shippingType,
+        motoboyDeliveryDate: (rows[0] as { motoboyDeliveryDate?: unknown }).motoboyDeliveryDate,
+        motoboyDeliveryTime: (rows[0] as { motoboyDeliveryTime?: unknown }).motoboyDeliveryTime,
+        inventoryExitPool: (rows[0] as { inventoryExitPool?: unknown }).inventoryExitPool,
+        inventoryExitedPools: (rows[0] as { inventoryExitedPools?: unknown }).inventoryExitedPools,
+      }
+    : null;
+  if (linkedOrder && hasKaInventoryExit(linkedOrder.inventoryExitedPools)) {
+    return { ok: true, alreadyDebited: true, missingProducts: [], debitedProducts: [] };
   }
 
   const items = params.source === "support"
@@ -325,6 +437,75 @@ export async function ensureReshipmentSendDebit(params: {
     return { ok: true, missingProducts: [], debitedProducts: [] };
   }
 
+  const pool = linkedOrderExitPool(linkedOrder);
+  if (linkedOrder && (pool === "motoboy" || pool === "minas")) {
+    try {
+      const yury = await debitYuryInventoryForKaOrder({
+        referenceId: linkedOrder.id,
+        pool,
+        items: remainingItems.map((item) => ({
+          productId: item.id,
+          productName: item.name,
+          quantity: item.quantity,
+        })),
+        password: params.password,
+      });
+      await persistOrderExitPool(linkedOrder, pool);
+      return {
+        ok: true,
+        alreadyDebited: yury.alreadyDebited,
+        missingProducts: [],
+        debitedProducts: yury.alreadyDebited
+          ? []
+          : remainingItems.map((item) => ({
+              productId: item.id,
+              productName: item.name,
+              quantity: item.quantity,
+            })),
+      };
+    } catch (error) {
+      if (error instanceof YuryInventoryExitError) {
+        if (error.code === "PASSWORD_REQUIRED" || error.passwordRequired) {
+          return {
+            ok: false,
+            passwordRequired: true,
+            error: "PASSWORD_REQUIRED",
+            message: error.message,
+            missingProducts: [],
+            debitedProducts: [],
+          };
+        }
+        if (error.code === "INVALID_PASSWORD") {
+          return {
+            ok: false,
+            error: "INVALID_PASSWORD",
+            message: error.message,
+            missingProducts: [],
+            debitedProducts: [],
+          };
+        }
+        if (error.code === "INSUFFICIENT_STOCK") {
+          const missingYury = await missingYuryStock(pool, remainingItems);
+          return {
+            ok: false,
+            error: "INSUFFICIENT_STOCK",
+            message: error.message,
+            missingProducts: missingYury.length > 0 ? missingYury : remainingItems.map((item) => item.name),
+            debitedProducts: [],
+          };
+        }
+        return {
+          ok: false,
+          error: error.code,
+          message: error.message,
+          missingProducts: remainingItems.map((item) => item.name),
+          debitedProducts: [],
+        };
+      }
+      throw error;
+    }
+  }
+
   const productIds = Array.from(new Set(remainingItems.map((item) => item.id)));
   const stockByProduct = await getStockMap(productIds, tenantId);
   const missingProducts = remainingItems
@@ -345,6 +526,10 @@ export async function ensureReshipmentSendDebit(params: {
       referenceId: params.id,
     });
     debitedProducts.push({ productId: item.id, productName: item.name, quantity: item.quantity });
+  }
+
+  if (linkedOrder) {
+    await persistOrderExitPool(linkedOrder, "loja");
   }
 
   return { ok: true, missingProducts: [], debitedProducts };

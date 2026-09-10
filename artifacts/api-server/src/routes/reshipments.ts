@@ -16,6 +16,7 @@ import {
   undoReshipmentSendDebit,
 } from "../lib/reshipments";
 import { broadcastNotification } from "./notifications";
+import { pickYuryInventoryPassword } from "../lib/yury-inventory";
 
 const router: IRouter = Router();
 const DEFAULT_TENANT_ID = "tenant_loja1";
@@ -500,6 +501,7 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
       let debitSummary: Array<{ productId: string; productName: string; quantity: number }> = [];
       let restoredSummary: Array<{ productId: string; productName: string; quantity: number }> = [];
       let alreadySent = false;
+      let alreadyDebited = false;
       if (status === "reenvio_pronto_para_envio" || status === "reenvio_enviado") {
         if (status === "reenvio_pronto_para_envio" && skipStockValidation) {
           // Manual return-flow action can clear pending card without forcing stock reconciliation.
@@ -510,7 +512,11 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
         const reservation = status === "reenvio_enviado"
           ? (alreadySent
               ? { ok: true, missingProducts: [], debitedProducts: [] }
-              : await ensureReshipmentSendDebit({ id, source: "support" }))
+              : await ensureReshipmentSendDebit({
+                id,
+                source: "support",
+                password: pickYuryInventoryPassword(req.body) || undefined,
+              }))
           : await ensureReshipmentReservation({ id, source: "support" });
         if (!reservation.ok) {
           if (reservation.notFound) {
@@ -521,16 +527,29 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
             res.status(400).json({ error: "INVALID_RESHIPMENT_PRODUCTS", message: "Reenvio sem produtos válidos para reservar estoque." });
             return;
           }
+          if ("passwordRequired" in reservation && reservation.passwordRequired) {
+            res.status(403).json({
+              error: "PASSWORD_REQUIRED",
+              passwordRequired: true,
+              message: reservation.message || "Informe a senha para liberar a baixa. Depois fica 10 minutos e trava de novo.",
+            });
+            return;
+          }
+          if ("error" in reservation && reservation.error === "INVALID_PASSWORD") {
+            res.status(403).json({ error: "INVALID_PASSWORD", message: reservation.message || "Senha inválida. Digite novamente." });
+            return;
+          }
           res.status(400).json({
             error: "INSUFFICIENT_STOCK",
-            message: `Estoque insuficiente para o reenvio: ${(reservation.missingProducts || []).join(", ")}.`,
+            message: reservation.message || `Estoque insuficiente para o reenvio: ${(reservation.missingProducts || []).join(", ")}.`,
             missingProducts: reservation.missingProducts || [],
           });
           return;
         }
         if (status === "reenvio_enviado" && "debitedProducts" in reservation) {
           debitSummary = reservation.debitedProducts || [];
-          console.info("[ReshipmentSendDebit] support", { id, requestedStatus: status, debitedProducts: debitSummary });
+          alreadyDebited = Boolean((reservation as { alreadyDebited?: boolean }).alreadyDebited);
+          console.info("[ReshipmentSendDebit] support", { id, requestedStatus: status, debitedProducts: debitSummary, alreadyDebited });
         }
         }
       }
@@ -561,6 +580,7 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
         debitedProducts: debitSummary,
         restoredProducts: restoredSummary,
         alreadySent,
+        alreadyDebited,
       });
       return;
     } else {

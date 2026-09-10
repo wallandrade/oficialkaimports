@@ -7422,22 +7422,25 @@ export default function Admin() {
             }}
             canManageEnvioEcom={canManageShippingTab}
             availableWhatsappGroups={availableWhatsappGroups}
-            onSetReshipmentStatus={async (reshipmentId, status) => {
+            onSetReshipmentStatus={async (reshipmentId, status, opts) => {
               if (!reshipmentId) return;
               setReshipmentUpdatingId(reshipmentId);
               try {
+                const password = String(opts?.password || "").trim();
                 const res = await fetch(`${BASE}/api/admin/reshipments/${reshipmentId}/status`, {
                   method: "PATCH",
                   headers: authHeaders(),
-                  body: JSON.stringify({ status }),
+                  body: JSON.stringify({ status, ...(password ? { password } : {}) }),
                 });
                 const data = await res.json() as {
                   message?: string;
                   error?: string;
+                  passwordRequired?: boolean;
                   missingProducts?: string[];
                   status?: string;
                   requestedStatus?: string;
                   alreadySent?: boolean;
+                  alreadyDebited?: boolean;
                   debitedProducts?: Array<{ productId?: string; productName?: string; quantity?: number }>;
                   restoredProducts?: Array<{ productId?: string; productName?: string; quantity?: number }>;
                 };
@@ -7460,6 +7463,8 @@ export default function Admin() {
                       .map((item) => `${Number(item?.quantity || 0)}x ${String(item?.productName || item?.productId || "Produto")}`)
                       .join(", ");
                     toast.success(`Baixa de estoque aplicada (${summary}). Reenvio marcado como enviado.`);
+                  } else if (data?.alreadyDebited) {
+                    toast.success("Reenvio marcado como enviado. Estoque já estava baixado neste pedido.");
                   } else {
                     toast.success("Reenvio marcado como enviado.");
                   }
@@ -13617,7 +13622,11 @@ function OrdersPanel({
   onSetOrderEnviado: (id: string, enviado: boolean) => void;
   onSetOrderPatched: (order: AdminOrder) => void;
   availableWhatsappGroups: string[];
-  onSetReshipmentStatus: (reshipmentId: string, status: "reenvio_aguardando_estoque" | "reenvio_pronto_para_envio" | "reenvio_resolvido_sem_entrada" | "reenvio_enviado" | "reenvio_cancelado") => void;
+  onSetReshipmentStatus: (
+    reshipmentId: string,
+    status: "reenvio_aguardando_estoque" | "reenvio_pronto_para_envio" | "reenvio_resolvido_sem_entrada" | "reenvio_enviado" | "reenvio_cancelado",
+    opts?: { password?: string },
+  ) => void;
   onRemoveOrder: (id: string) => void;
   canManageEnvioEcom?: boolean;
 }) {
@@ -15735,7 +15744,9 @@ function OrdersPanel({
                       size="sm"
                       variant="outline"
                       className="gap-1.5 text-red-700 border-red-200 hover:bg-red-50"
-                      onClick={() => onSetReshipmentStatus((order as any).reshipment.id, "reenvio_enviado")}
+                      onClick={() => onSetReshipmentStatus((order as any).reshipment.id, "reenvio_enviado", {
+                        password: isYuryExitPool(selectedExitPool) ? yuryExitPassword.trim() : undefined,
+                      })}
                     >
                       <Truck className="w-3.5 h-3.5" />Marcar Reenvio Enviado
                     </Button>

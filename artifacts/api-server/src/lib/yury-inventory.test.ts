@@ -12,6 +12,7 @@ import {
   mergeYuryInventorySnapshot,
   parseKaInventoryExitPool,
   parseKaInventoryExitedPools,
+  hasKaInventoryExit,
   parseYuryInventoryChangedEvent,
   parseYuryInventoryExitStatus,
   parseYuryInventorySnapshot,
@@ -136,6 +137,8 @@ test("pool KA no card: salva loja/motoboy/minas e default segue o frete", () => 
   assert.equal(defaultKaInventoryExitPool({ shippingType: "48h", inventoryExitPool: "minas" }), "minas");
   assert.deepEqual(addKaInventoryExitedPool("loja", "motoboy"), ["loja", "motoboy"]);
   assert.deepEqual(parseKaInventoryExitedPools("loja,motoboy,loja"), ["loja", "motoboy"]);
+  assert.equal(hasKaInventoryExit("motoboy"), true);
+  assert.equal(hasKaInventoryExit(""), false);
 });
 
 test("body de exit usa items[] + referenceId e nunca manda orderId", () => {
