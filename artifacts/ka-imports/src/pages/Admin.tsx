@@ -600,6 +600,57 @@ function isYuryInventoryShippingOrder(order: any): boolean {
   return Boolean(order?.motoboyDeliveryDate && order?.motoboyDeliveryTime);
 }
 
+function shoppingStockLookup(
+  byId: Map<string, number>,
+  byName: Map<string, number>,
+  productId: string | null,
+  names: string[],
+): number {
+  if (productId) {
+    const fromId = byId.get(productId);
+    if (fromId != null) return Math.max(0, Number(fromId) || 0);
+  }
+  for (const name of names) {
+    const key = String(name || "").trim().toLowerCase();
+    if (!key) continue;
+    const fromName = byName.get(key);
+    if (fromName != null) return Math.max(0, Number(fromName) || 0);
+  }
+  return 0;
+}
+
+function allocateShoppingStock(needed: number, foz: number, motoboy: number, minas: number) {
+  let remaining = Math.max(0, needed);
+  const fromFoz = Math.min(Math.max(0, foz), remaining);
+  remaining -= fromFoz;
+  const fromMotoboy = Math.min(Math.max(0, motoboy), remaining);
+  remaining -= fromMotoboy;
+  const fromMinas = Math.min(Math.max(0, minas), remaining);
+  remaining -= fromMinas;
+  return {
+    fromFoz,
+    fromMotoboy,
+    fromMinas,
+    fromStock: fromFoz + fromMotoboy + fromMinas,
+    toBuy: remaining,
+  };
+}
+
+function formatShoppingCoveredLine(
+  qty: number,
+  label: string,
+  fromFoz: number,
+  fromMotoboy: number,
+  fromMinas: number,
+): string {
+  const parts: string[] = [];
+  if (fromFoz > 0) parts.push(`Fóz ${fromFoz}`);
+  if (fromMotoboy > 0) parts.push(`Motoboy ${fromMotoboy}`);
+  if (fromMinas > 0) parts.push(`Minas ${fromMinas}`);
+  const origin = parts.length > 0 ? ` (${parts.join(", ")})` : "";
+  return `- ${qty}x ${label}${origin}`;
+}
+
 type KaExitPool = "loja" | "motoboy" | "minas";
 
 function parseKaExitPool(value: unknown): KaExitPool | null {
@@ -6497,41 +6548,62 @@ export default function Admin() {
     const productNameById = new Map(products.map((p) => [String(p.id), String(p.name || "").trim()] as const));
 
     let balancesSnapshot = inventoryBalances;
-    if (isPrimary && balancesSnapshot.length === 0) {
-      try {
-        const res = await fetch(`${BASE}/api/admin/inventory/overview`, { headers: authHeaders() });
-        if (res.ok) {
-          const data = await res.json() as { balances?: InventoryBalanceRecord[] };
-          if (Array.isArray(data?.balances)) {
-            balancesSnapshot = data.balances;
-            setInventoryBalances(data.balances);
-          }
+    let yurySnapshot: YuryInventoryBalanceRecord[] = [];
+    try {
+      const [fozRes, yuryRes] = await Promise.all([
+        balancesSnapshot.length === 0
+          ? fetch(`${BASE}/api/admin/inventory/overview`, { headers: authHeaders() })
+          : Promise.resolve(null),
+        fetch(`${BASE}/api/admin/yury-inventory`, { headers: authHeaders() }),
+      ]);
+      if (fozRes && fozRes.ok) {
+        const data = await fozRes.json() as { balances?: InventoryBalanceRecord[] };
+        if (Array.isArray(data?.balances)) {
+          balancesSnapshot = data.balances;
+          setInventoryBalances(data.balances);
         }
-      } catch {
-        // keep current snapshot and continue
       }
+      if (yuryRes.ok) {
+        const data = await yuryRes.json() as { balances?: YuryInventoryBalanceRecord[] };
+        if (Array.isArray(data?.balances)) yurySnapshot = data.balances;
+      }
+    } catch {
+      // keep current Fóz snapshot and continue without Yury if the fetch fails
     }
 
-    const stockById = new Map(
+    const fozById = new Map(
       balancesSnapshot.map((row) => [String(row.productId || "").trim(), Number(row.quantity || 0)] as const),
     );
-    const stockByName = new Map(
+    const fozByName = new Map(
       balancesSnapshot.map((row) => [String(row.productName || "").trim().toLowerCase(), Number(row.quantity || 0)] as const),
     );
+    const motoboyById = new Map(
+      yurySnapshot.map((row) => [String(row.productId || "").trim(), Number(row.qtyMotoboy || 0)] as const),
+    );
+    const motoboyByName = new Map(
+      yurySnapshot.map((row) => [String(row.productName || "").trim().toLowerCase(), Number(row.qtyMotoboy || 0)] as const),
+    );
+    const minasById = new Map(
+      yurySnapshot.map((row) => [String(row.productId || "").trim(), Number(row.qtyMinas || 0)] as const),
+    );
+    const minasByName = new Map(
+      yurySnapshot.map((row) => [String(row.productName || "").trim().toLowerCase(), Number(row.qtyMinas || 0)] as const),
+    );
+
+    const stockLoaded = balancesSnapshot.length > 0 || yurySnapshot.length > 0;
 
     const breakdown = [...totals.values()]
       .sort((a, b) => a.label.localeCompare(b.label, "pt-BR"))
       .map((item) => {
         const normalizedName = item.label.trim().toLowerCase();
         const fallbackName = item.productId ? (productNameById.get(item.productId)?.trim().toLowerCase() || "") : "";
-        const available = item.productId
-          ? (stockById.get(item.productId) ?? stockByName.get(fallbackName) ?? stockByName.get(normalizedName) ?? 0)
-          : (stockByName.get(normalizedName) ?? 0);
-        const fromStock = Math.min(Math.max(available, 0), item.qtyNormal);
-        const toBuyNormal = Math.max(0, item.qtyNormal - fromStock);
-        const toBuyReshipment = Math.max(0, item.qtyReshipment);
-        const toBuy = toBuyNormal + toBuyReshipment;
-        return { ...item, fromStock, toBuy, toBuyReshipment };
+        const names = [fallbackName, normalizedName];
+        const foz = shoppingStockLookup(fozById, fozByName, item.productId, names);
+        const motoboy = shoppingStockLookup(motoboyById, motoboyByName, item.productId, names);
+        const minas = shoppingStockLookup(minasById, minasByName, item.productId, names);
+        const needed = Math.max(0, item.qtyNormal) + Math.max(0, item.qtyReshipment);
+        const allocated = allocateShoppingStock(needed, foz, motoboy, minas);
+        return { ...item, ...allocated };
       });
 
     const buyLines = breakdown
@@ -6540,11 +6612,11 @@ export default function Admin() {
 
     const stockLines = breakdown
       .filter((item) => item.fromStock > 0)
-      .map((item) => `- ${item.fromStock}x ${item.label}`);
+      .map((item) => formatShoppingCoveredLine(item.fromStock, item.label, item.fromFoz, item.fromMotoboy, item.fromMinas));
 
     const reshipmentLines = breakdown
-      .filter((item) => item.toBuyReshipment > 0)
-      .map((item) => `- ${item.toBuyReshipment}x ${item.label}`);
+      .filter((item) => item.qtyReshipment > 0)
+      .map((item) => `- ${item.qtyReshipment}x ${item.label}`);
 
     const estimatedTotalCost = breakdown.reduce((sum, item) => {
       const unitCost = item.productId ? costById.get(item.productId) : undefined;
@@ -6553,8 +6625,8 @@ export default function Admin() {
       return sum + (item.toBuy * effectiveCost);
     }, 0);
 
-    const stockSectionLabel = balancesSnapshot.length > 0
-      ? "Itens ja cobertos por estoque (nao comprar):"
+    const stockSectionLabel = stockLoaded
+      ? "Itens ja cobertos por estoque (nao comprar) — Fóz / Motoboy / Minas:"
       : "Itens ja cobertos por estoque (nao comprar):\n- Estoque nao carregado";
 
     const text = [

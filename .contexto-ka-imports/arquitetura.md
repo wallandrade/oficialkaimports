@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-09-09  
+> **Última atualização:** 2026-09-10  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-10 | Compra 48h lê `/admin/yury-inventory` além do Fóz | Cópia abate Motoboy/Minas | Baixa de pedido e aba Estoque |
 | 2026-09-09 | `POST .../reenviar` aceita `force: true` para override admin | Sem flag continua 400 `NO_INSURANCE`/`NO_COVERAGE` | Schema; cliente; reenvio Estoque |
 | 2026-09-09 | Filho de reenvio fora do `financial-summary` e do lote de comissão (`isReshipmentChildOrder`) | Sem venda/custo/comissão/lucro no filho | Schema; pedido original; `soldQty` já ignorava |
 | 2026-09-09 | `canReship`/`evaluateCanReship` em checkout-insurance + insurance-claims-policy; support tickets devolvem plano | Trava de reenvio nas rotas de chamado/reenviar/status | Schema de `orders`/`reshipments`; reenvio manual Estoque |

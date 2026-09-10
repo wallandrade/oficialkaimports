@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-09-09  
+> **Última atualização:** 2026-09-10  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-10 | Anti-padrão: lista Compra 48h só descontar estoque Fóz (ignorar Motoboy/Minas) | `copyShoppingList` soma os 3 pools; compra só o que falta | Envios/Motoboy/Outros de expedição |
 | 2026-09-09 | Anti-padrão: reenvio sem seguro com um clique ou API sem `force` | Alerta + Aprovar; `force: true` só no forçado | Cliente e trava padrão iguais |
 | 2026-09-09 | Card do filho: total e Lucro est. zerados, linha visível | Display só; soma no dashboard inalterada | Pedido original |
 | 2026-09-09 | Anti-padrão: somar venda/custo/comissão/lucro do filho de reenvio no dashboard ou lote | `isReshipmentChildOrder`; create sempre snapshot `0`; card sem Lucro est. | Pedido original e reenvio manual Estoque |
@@ -206,6 +207,7 @@ Código > memória > suposições.
 - Tratar o relatório da aba **Extrato** como histórico (some no F5); persistência é a aba **Depósitos** + `GET /api/admin/bank-deposits`. FITID já em `ok`/`confirmed_100` deve ser ignorado, não reanalisado.
 - Manter selo **PRIORIDADE URGENTE** depois de `enviado`/coletado; zerar `is_prioridade` no envio e não exibir a estrela.
 - Reusar **Faltando estoque** (saldo vs pedido) para avisar “não fazer etiqueta / atrasados no fornecedor”. Isso é flag manual `is_procurando_produto` no card, independente do inventário.
+- Na lista **Compra 48h/72h/96h**, descontar só `inventoryBalances` (Fóz) e mandar reenvio inteiro para comprar. Abater também Motoboy/Minas (`/api/admin/yury-inventory`) e a qtd de reenvio; “Comprar agora” é só o que falta.
 - Ligar `setSearch` no `onChange` de cada tecla no `Admin.tsx`; o input guarda o texto local e só aplica o filtro após 300ms.
 - Tratar `costPrice: 0` no JSON do pedido como custo real (`!= null`); 0/ausente cai na ficha, e o PATCH do produto só preenche esses itens (além da janela de 24h).
 - Abrir comprovante PDF no admin com `<iframe src="data:application/pdf...">` sem `frame-src blob:` no CSP; converter data URL para blob.
