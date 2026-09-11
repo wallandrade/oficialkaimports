@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-09-10  
+> **Última atualização:** 2026-09-11  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-11 | Anti-padrão: um só status do pedido pai na Minha conta quando há split, ou mostrar Fóz/Motoboy/Minas ao cliente | Envio 1/2 + itens; Aguardando estoque vs Enviado | Admin e pools internos iguais |
 | 2026-09-10 | Anti-padrão: **Marcar Reenvio Enviado** debitar Fóz de novo quando o pedido já baixou Motoboy/Minas/`inventory_exited_pools` | Skip se já saiu; senão pool do card | Reenvio manual Estoque |
 | 2026-09-10 | Anti-padrão: usar `yuryExitStatus` no `useEffect`/render antes do `useState` no `OrdersPanel` | Admin quebrava no boot (`ReferenceError`) | Senha Yury e baixa iguais |
 | 2026-09-10 | Anti-padrão: cadastrar senha de baixa Yury no KA ou omitir o campo no 403 `PASSWORD_REQUIRED` | Senha só na Yury; campo na tela de baixa Motoboy/Minas | Snapshot sem senha; Fóz |
@@ -218,6 +219,7 @@ Código > memória > suposições.
 - Tratar `costPrice: 0` no JSON do pedido como custo real (`!= null`); 0/ausente cai na ficha, e o PATCH do produto só preenche esses itens (além da janela de 24h).
 - Abrir comprovante PDF no admin com `<iframe src="data:application/pdf...">` sem `frame-src blob:` no CSP; converter data URL para blob.
 - Mostrar status técnico EnvioEcom (“Pronto para envio”, “Etiqueta emitida”) na Minha conta; traduzir só na UI do cliente (`isPackingBeforePostStatus` / `toCustomerFriendlyShippingLabel`). Admin e banco ficam iguais.
+- No split, usar só o `enviado`/`envioecomStatus` do pedido pai na Minha conta, ou rotular o pacote como Fóz/Motoboy/Minas. Cliente vê **Envio 1 / Envio 2** + itens; pacote sem rastreio = **Aguardando estoque**; um saiu e o outro não = **Enviado parcialmente**.
 - Tratar só **Etiqueta emitida** (status interno do PDF) como pronta e ignorar **Etiqueta gerada** que a EnvioEcom devolve no create/sync/webhook — o card fica Pendente mesmo com rastreio. `hasEnvioEcomLabelReady` / `LABEL_READY_MARKERS` nos dois lados.
 - Calcular o seguro sobre `subtotal − cupom`, usar `computeShippingInsuranceAmount` no create, gravar o `insuranceAmount` do front, ou deixar `full` e `reduced` ao mesmo tempo. Base = subtotal dos produtos **sem** frete/cupom; `resolveCheckoutInsurance` no create e na edição. Plano desligado no Admin + create com esse plano = `none` (não troca de plano). `shipping-insurance.ts` é legado — não reativar no create.
 - Autorizar reenvio de suporte (filho/fila) sem `canReship` no pedido pago, ou só `disabled` no botão e deixar Postman/API livre. Abrir `extravio`/`apreensao` sem cobertura também 400. Exceção admin: `force: true` depois de alerta + Aprovar. “Marcar resolvido” com endereço **não** cria fila se o plano é `none`/sem cobertura. Não espalhar `if (temSeguro)` nas telas — usar o helper. Reenvio manual da aba Estoque / `POST /admin/orders/:id/reshipment` fica **de fora** desta trava.

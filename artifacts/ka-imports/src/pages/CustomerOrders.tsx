@@ -3,6 +3,14 @@ import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { clearCustomerToken, fetchCustomerProfile, getCustomerAuthHeaders } from "@/lib/customer-auth";
 import { formatCurrency, formatDateBR, getActiveWhatsApp } from "@/lib/utils";
+import {
+  formatCustomerPackageItems,
+  getCustomerPackageSituation,
+  getCustomerSplitBadgeStatus,
+  getCustomerSplitSituation,
+  isCustomerSplitOrder,
+  type CustomerPackageKind,
+} from "@/lib/customer-split-shipping";
 import { ShippingStatusTimeline } from "@/components/ShippingStatusTimeline";
 import { Copy, DollarSign, Gift, Loader2, LogOut, Package, Save, Ticket, Users, CheckCircle2, Clock, AlertCircle, MessageCircle, Truck, Wallet, X } from "lucide-react";
 import { toast } from "sonner";
@@ -20,10 +28,13 @@ type CustomerPackage = {
   id: string;
   inventoryPool?: string;
   enviado?: boolean;
+  inventoryReserved?: boolean;
+  envioecomShipmentId?: number | null;
   envioecomStatus?: string | null;
   envioecomBarcode?: string | null;
   envioecomDeliveryMode?: string | null;
   envioecomStatusHistory?: TrackingEvent[];
+  items?: Array<{ productName?: string; name?: string; quantity?: number }>;
 };
 
 type CustomerOrder = {
@@ -151,6 +162,7 @@ function resolveStoreReferralLink(link: string, code: string): string {
 
 const statusLabel: Record<string, string> = {
   enviado: "Enviado",
+  enviado_parcial: "Enviado parcialmente",
   pending: "Pendente",
   awaiting_payment: "Aguardando pagamento",
   paid: "Pago",
@@ -162,6 +174,8 @@ function getStatusColor(status: string): string {
   switch (status) {
     case "enviado":
       return "bg-blue-100 text-blue-800 border border-blue-300";
+    case "enviado_parcial":
+      return "bg-orange-100 text-orange-800 border border-orange-300";
     case "paid":
     case "completed":
       return "bg-green-100 text-green-800 border border-green-300";
@@ -179,6 +193,8 @@ function getStatusIcon(status: string) {
   switch (status) {
     case "enviado":
       return <Truck className="w-5 h-5" />;
+    case "enviado_parcial":
+      return <Package className="w-5 h-5" />;
     case "paid":
     case "completed":
       return <CheckCircle2 className="w-5 h-5" />;
@@ -189,6 +205,19 @@ function getStatusIcon(status: string) {
       return <X className="w-5 h-5" />;
     default:
       return <Package className="w-5 h-5" />;
+  }
+}
+
+function packageKindClass(kind: CustomerPackageKind): string {
+  switch (kind) {
+    case "delivered":
+      return "border-green-200 bg-green-50/70";
+    case "shipped":
+      return "border-blue-200 bg-blue-50/70";
+    case "packing":
+      return "border-emerald-200 bg-emerald-50/70";
+    default:
+      return "border-amber-200 bg-amber-50/70";
   }
 }
 
@@ -247,24 +276,10 @@ function customerShippingHint(status?: string | null): string | null {
   return "Em breve ele será despachado. Aguarde a atualização do rastreio.";
 }
 
-function packagePoolLabel(pool?: string | null): string {
-  const normalized = String(pool || "").trim().toLowerCase();
-  if (normalized === "motoboy") return "Motoboy";
-  if (normalized === "minas") return "Minas";
-  return "Fóz Guaçu";
-}
-
-function isCustomerPackageDelivered(status?: string | null): boolean {
-  const normalized = normalizeTrackingText(status);
-  return normalized.includes("entregue") && !normalized.includes("cancelad");
-}
-
 function getCustomerSituation(order: CustomerOrder, displayStatus: string): string {
   const packages = Array.isArray(order.packages) ? order.packages : [];
-  if (packages.length >= 2) {
-    if (packages.every((pkg) => isCustomerPackageDelivered(pkg.envioecomStatus))) return "Entregue";
-    const pending = packages.find((pkg) => !isCustomerPackageDelivered(pkg.envioecomStatus));
-    return toCustomerFriendlyShippingLabel(pending?.envioecomStatus || order.envioecomStatus);
+  if (isCustomerSplitOrder(packages)) {
+    return getCustomerSplitSituation(packages);
   }
   if (order.envioecomStatus) {
     return toCustomerFriendlyShippingLabel(order.envioecomStatus);
@@ -386,10 +401,18 @@ export default function CustomerOrders() {
 
   const openTrackingKey = useMemo(
     () => orders
-      .filter((order) => hasEnvioEcomTracking(order) && (
-        isOpenEnvioEcomTracking(order.envioecomStatus)
-        || trackingHistoryMissingLocation(order.envioecomStatusHistory)
-      ))
+      .filter((order) => {
+        if (!hasEnvioEcomTracking(order)) return false;
+        const packages = Array.isArray(order.packages) ? order.packages : [];
+        if (isCustomerSplitOrder(packages)) {
+          return packages.some((pkg) => (
+            isOpenEnvioEcomTracking(pkg.envioecomStatus)
+            || trackingHistoryMissingLocation(pkg.envioecomStatusHistory)
+          ));
+        }
+        return isOpenEnvioEcomTracking(order.envioecomStatus)
+          || trackingHistoryMissingLocation(order.envioecomStatusHistory);
+      })
       .map((order) => order.id)
       .sort()
       .join(","),
@@ -418,6 +441,7 @@ export default function CustomerOrders() {
             envioecomBarcode?: string | null;
             trackingCode?: string | null;
             envioecomStatusHistory?: TrackingEvent[];
+            packages?: CustomerPackage[];
           }>;
         };
         if (cancelled || !Array.isArray(data.orders) || !data.orders.length) return;
@@ -433,6 +457,7 @@ export default function CustomerOrders() {
             envioecomBarcode: next.envioecomBarcode ?? item.envioecomBarcode,
             trackingCode: next.trackingCode ?? item.trackingCode,
             envioecomStatusHistory: next.envioecomStatusHistory ?? item.envioecomStatusHistory,
+            packages: next.packages || item.packages,
           };
         }));
       } catch {
@@ -679,7 +704,11 @@ export default function CustomerOrders() {
                   ) : (
                     <div className="space-y-3">
                       {orders.map((order) => {
-                        const displayStatus = order.enviado ? "enviado" : order.status;
+                        const splitPackages = Array.isArray(order.packages) ? order.packages : [];
+                        const isSplit = isCustomerSplitOrder(splitPackages);
+                        const displayStatus = isSplit
+                          ? getCustomerSplitBadgeStatus(splitPackages, order.status, order.enviado)
+                          : (order.enviado ? "enviado" : order.status);
                         const displaySituation = getCustomerSituation(order, displayStatus);
                         const packingHint = customerShippingHint(order.envioecomStatus);
                         const displayOrderId = getOrderDisplayId(order);
@@ -689,7 +718,7 @@ export default function CustomerOrders() {
                           {/* Header: ID, Status Badge, Data */}
                           <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
                             <div className="flex items-start gap-3">
-                              <div className={`mt-0.5 p-2.5 rounded-xl ${displayStatus === "completed" || displayStatus === "paid" ? "bg-green-100" : displayStatus === "enviado" ? "bg-blue-100" : displayStatus === "cancelled" ? "bg-red-100" : "bg-yellow-100"}`}>
+                              <div className={`mt-0.5 p-2.5 rounded-xl ${displayStatus === "completed" || displayStatus === "paid" ? "bg-green-100" : displayStatus === "enviado" ? "bg-blue-100" : displayStatus === "enviado_parcial" ? "bg-orange-100" : displayStatus === "cancelled" ? "bg-red-100" : "bg-yellow-100"}`}>
                                 {getStatusIcon(displayStatus)}
                               </div>
                               <div>
@@ -726,38 +755,45 @@ export default function CustomerOrders() {
                             </div>
                           </div>
 
-                          {hasEnvioEcomTracking(order) && (
-                            <div className="mb-4 pb-4 border-t border-border/50 pt-4">
-                              {(order.packages || []).length >= 2 ? (
-                                <div className="space-y-4">
-                                  {order.packages!.map((pkg) => (
-                                    <div key={pkg.id}>
-                                      <div className="flex items-center justify-between gap-2">
-                                        <p className="text-xs uppercase tracking-wide text-muted-foreground font-medium">
-                                          Rastreio · {packagePoolLabel(pkg.inventoryPool)}
-                                        </p>
-                                        {pkg.envioecomBarcode && (
-                                          <p className="text-xs font-mono text-muted-foreground">{pkg.envioecomBarcode}</p>
-                                        )}
-                                      </div>
-                                      {pkg.envioecomDeliveryMode && (
-                                        <p className="text-xs text-muted-foreground mt-1">{pkg.envioecomDeliveryMode}</p>
-                                      )}
-                                      {(pkg.envioecomStatusHistory || []).length > 0 ? (
-                                        <ShippingStatusTimeline
-                                          events={pkg.envioecomStatusHistory || []}
-                                          className="mt-3 max-h-72 overflow-y-auto"
-                                        />
-                                      ) : (
-                                        <p className="text-sm font-semibold text-foreground mt-2">
-                                          {toCustomerFriendlyShippingLabel(pkg.envioecomStatus)}
-                                        </p>
-                                      )}
+                          {isSplit ? (
+                            <div className="mb-4 pb-4 border-t border-border/50 pt-4 space-y-3">
+                              <p className="text-xs uppercase tracking-wide text-muted-foreground font-medium">Envios deste pedido</p>
+                              {splitPackages.map((pkg, index) => {
+                                const situation = getCustomerPackageSituation(pkg);
+                                const itemLines = formatCustomerPackageItems(pkg);
+                                return (
+                                  <div key={pkg.id} className={`rounded-xl border p-3 ${packageKindClass(situation.kind)}`}>
+                                    <div className="flex items-start justify-between gap-2">
+                                      <p className="text-sm font-semibold text-foreground">Envio {index + 1}</p>
+                                      <span className="text-xs font-semibold text-foreground whitespace-nowrap">{situation.label}</span>
                                     </div>
-                                  ))}
-                                </div>
-                              ) : (
-                                <>
+                                    {itemLines.length > 0 && (
+                                      <ul className="mt-2 space-y-0.5">
+                                        {itemLines.map((line) => (
+                                          <li key={line} className="text-sm text-foreground/90">{line}</li>
+                                        ))}
+                                      </ul>
+                                    )}
+                                    {pkg.envioecomBarcode && (
+                                      <p className="text-xs font-mono text-muted-foreground mt-2">{pkg.envioecomBarcode}</p>
+                                    )}
+                                    {pkg.envioecomDeliveryMode && (
+                                      <p className="text-xs text-muted-foreground mt-1">{pkg.envioecomDeliveryMode}</p>
+                                    )}
+                                    {(pkg.envioecomStatusHistory || []).length > 0 ? (
+                                      <ShippingStatusTimeline
+                                        events={pkg.envioecomStatusHistory || []}
+                                        className="mt-3 max-h-72 overflow-y-auto"
+                                      />
+                                    ) : situation.hint ? (
+                                      <p className="text-xs text-muted-foreground mt-2">{situation.hint}</p>
+                                    ) : null}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : hasEnvioEcomTracking(order) && (
+                            <div className="mb-4 pb-4 border-t border-border/50 pt-4">
                               <div className="flex items-center justify-between gap-2">
                                 <p className="text-xs uppercase tracking-wide text-muted-foreground font-medium">Rastreio</p>
                                 {(order.envioecomBarcode || order.trackingCode) && (
@@ -777,8 +813,6 @@ export default function CustomerOrders() {
                               )}
                               {packingHint && (
                                 <p className="text-xs text-muted-foreground mt-1">{packingHint}</p>
-                              )}
-                                </>
                               )}
                             </div>
                           )}
@@ -881,7 +915,7 @@ export default function CustomerOrders() {
                                 </div>
                               )}
 
-                              {(order.envioecomStatus || order.envioecomBarcode || order.trackingCode) && (
+                              {!isSplit && (order.envioecomStatus || order.envioecomBarcode || order.trackingCode) && (
                                 <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-100">
                                   <p className="text-sm font-semibold text-emerald-900 mb-1">Envio / Rastreio</p>
                                   <p className="text-sm font-semibold text-emerald-900">

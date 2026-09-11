@@ -60,6 +60,7 @@ import {
   findPackageForEnvioEcomWebhook,
   isSplitShipments,
   listOrderShipments,
+  listOrderShipmentsByOrderIds,
   mappedPackagesForOrder,
   persistEnvioEcomPackage,
   OrderShipmentError,
@@ -1413,11 +1414,20 @@ router.post("/me/orders/tracking-sync", requireCustomerAuth, async (req, res) =>
       isOpenEnvioEcomTrackingStatus(order.envioecomStatus)
       || trackingHistoryMissingLocation(order.envioecomStatusHistory)
     )).slice(0, limit);
+
+    async function withPackages<T extends { id: string }>(items: T[]) {
+      const packagesByOrder = await listOrderShipmentsByOrderIds(items.map((item) => item.id));
+      return items.map((item) => ({
+        ...item,
+        packages: packagesByOrder.get(item.id) || [],
+      }));
+    }
+
     if (!configured || !targets.length) {
       res.json({
         ok: true,
         synced: 0,
-        orders: targets.map((order) => ({
+        orders: await withPackages(targets.map((order) => ({
           id: order.id,
           enviado: !!order.enviado,
           status: order.status,
@@ -1426,7 +1436,7 @@ router.post("/me/orders/tracking-sync", requireCustomerAuth, async (req, res) =>
           envioecomBarcode: order.envioecomBarcode || order.trackingCode || null,
           trackingCode: order.trackingCode ?? null,
           envioecomStatusHistory: order.envioecomStatusHistory ?? [],
-        })),
+        }))),
       });
       return;
     }
@@ -1449,7 +1459,7 @@ router.post("/me/orders/tracking-sync", requireCustomerAuth, async (req, res) =>
         console.warn("[EnvioEcom] tracking-sync cliente falhou", order.id, err);
       }
     }
-    res.json({ ok: true, synced: synced.length, orders: synced });
+    res.json({ ok: true, synced: synced.length, orders: await withPackages(synced) });
   } catch (err) {
     sendEnvioEcomError(res, err);
   }
