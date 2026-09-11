@@ -1962,7 +1962,7 @@ function OrdersSearchInput({
   useEffect(() => {
     const timer = window.setTimeout(() => {
       if (local === value) return;
-      startTransition(() => onDebouncedChangeRef.current(local));
+      onDebouncedChangeRef.current(local);
     }, 300);
     return () => window.clearTimeout(timer);
   }, [local, value]);
@@ -1975,7 +1975,10 @@ function OrdersSearchInput({
         value={local}
         onChange={(e) => setLocal(e.target.value)}
         onFocus={() => { focusedRef.current = true; }}
-        onBlur={() => { focusedRef.current = false; }}
+        onBlur={() => {
+          focusedRef.current = false;
+          if (local !== value) onDebouncedChangeRef.current(local);
+        }}
         placeholder={placeholder}
         className={inputClassName}
       />

@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-11 | Debounce da busca aplica `setSearch` na hora (sem `startTransition`); refresh silencioso de pedidos continua em transition | Nome/nº filtram de novo; digitação ainda isolada do `Admin` | CSP / CORS / rate limit; debounce 300ms |
 | 2026-09-11 | Busca admin isolada do monólito; poll de visitantes ao vivo num filho; refresh silencioso de pedidos em `startTransition` | Digitação e poll 5s não redesenham o `Admin` | CSP / CORS / rate limit; debounce 300ms |
 | 2026-09-10 | Senha de baixa Motoboy/Minas só transita no POST (unlock/exit); não grava no KA | Campo no admin; 10 min na Yury | Snapshot; token de sync; Fóz |
 | 2026-08-30 | Webhook estoque Yury com body cru + HMAC (igual cobertura) | `POST /api/webhooks/yury/inventory` antes do `json()` | CORS allowlist e rate limit de checkout iguais |
@@ -43,7 +44,7 @@
 - Cache de hosts CORS de tenants (TTL env).
 - Produtos: caminhos de cache/fallback Sheets documentados em rotas/docs de catálogo — validar no arquivo antes de “otimizar”.
 - FE assets: headers long-cache em `/assets/*` no `vercel.json`; HTML `no-store`.
-- Admin Pedidos: busca em `AdminOrdersChargesSearchShell` (debounce 300ms, `startTransition`; o `Admin` só recebe semente de `goToOrder`). Visitantes ao vivo em `AdminLiveVisitorStats` (poll 5s). Refresh silencioso de `GET /admin/orders` aplica `setOrders` via `startTransition`. Troca de `dateFrom`/`dateTo` não chama `fetchStatsData` (stats tem intervalo próprio). `GET /admin/orders` devolve lista sem `data:` de comprovante/etiqueta e sem `trackingLabelText`; `GET /admin/orders/:id` hidrata na abertura do comprovante.
+- Admin Pedidos: busca em `AdminOrdersChargesSearchShell` (debounce 300ms aplica o filtro na hora, sem `startTransition`; o `Admin` só recebe semente de `goToOrder`). Visitantes ao vivo em `AdminLiveVisitorStats` (poll 5s). Refresh silencioso de `GET /admin/orders` aplica `setOrders` via `startTransition`. Troca de `dateFrom`/`dateTo` não chama `fetchStatsData` (stats tem intervalo próprio). `GET /admin/orders` devolve lista sem `data:` de comprovante/etiqueta e sem `trackingLabelText`; `GET /admin/orders/:id` hidrata na abertura do comprovante.
 - Análise longa em `PERFORMANCE_OPTIMIZATION_ANALYSIS.md` — **não** ler por padrão; só se a tarefa for perf.
 
 ## Anti-padrões
@@ -53,4 +54,5 @@
 - Mandar comprovante/etiqueta em `data:` e OCR (`trackingLabelText`) em **toda** a lista `GET /admin/orders`; a lista é leve e o detalhe vem em `GET /admin/orders/:id`.
 - Reativar polling de gateway.
 - Guardar o poll de visitantes ao vivo (`/api/admin/tracking/live` a cada 5s) no estado do `Admin`; isso redesenha o monólito. Usar `AdminLiveVisitorStats`.
+- Envolver o `setSearch` da busca em `startTransition` com o campo focado — a lista não filtra. O debounce chama o setState do filho na hora.
 - Logar tokens/senhas em claro (há redaction parcial em admin-auth).
