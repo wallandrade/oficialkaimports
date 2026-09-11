@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-11 | Busca de Pedidos/Links num filho; visitantes ao vivo fora do `Admin`; busca de Clientes interna | Digitar não re-renderiza o monólito | Filtro local, debounce 300ms, `goToOrder` |
 | 2026-09-11 | Anti-padrão: um só status do pedido pai na Minha conta quando há split, ou mostrar Fóz/Motoboy/Minas ao cliente | Envio 1/2 + itens; Aguardando estoque vs Enviado | Admin e pools internos iguais |
 | 2026-09-10 | Anti-padrão: **Marcar Reenvio Enviado** debitar Fóz de novo quando o pedido já baixou Motoboy/Minas/`inventory_exited_pools` | Skip se já saiu; senão pool do card | Reenvio manual Estoque |
 | 2026-09-10 | Anti-padrão: usar `yuryExitStatus` no `useEffect`/render antes do `useState` no `OrdersPanel` | Admin quebrava no boot (`ReferenceError`) | Senha Yury e baixa iguais |
@@ -215,7 +216,7 @@ Código > memória > suposições.
 - Manter selo **PRIORIDADE URGENTE** depois de `enviado`/coletado; zerar `is_prioridade` no envio e não exibir a estrela.
 - Reusar **Faltando estoque** (saldo vs pedido) para avisar “não fazer etiqueta / atrasados no fornecedor”. Isso é flag manual `is_procurando_produto` no card, independente do inventário.
 - Na lista **Compra 48h/72h/96h**, descontar só `inventoryBalances` (Fóz) e mandar reenvio inteiro para comprar. Abater também Motoboy/Minas (`/api/admin/yury-inventory`) e a qtd de reenvio; “Comprar agora” é só o que falta.
-- Ligar `setSearch` no `onChange` de cada tecla no `Admin.tsx`; o input guarda o texto local e só aplica o filtro após 300ms.
+- Ligar `setSearch` do `Admin` no `onChange` (ou no debounce) da busca de Pedidos/Links; texto e filtro ficam em `AdminOrdersChargesSearchShell`. Não pôr o poll de visitantes ao vivo no estado do `Admin` (`AdminLiveVisitorStats` próprio). Busca de Clientes/recorrentes é estado interno do painel.
 - Tratar `costPrice: 0` no JSON do pedido como custo real (`!= null`); 0/ausente cai na ficha, e o PATCH do produto só preenche esses itens (além da janela de 24h).
 - Abrir comprovante PDF no admin com `<iframe src="data:application/pdf...">` sem `frame-src blob:` no CSP; converter data URL para blob.
 - Mostrar status técnico EnvioEcom (“Pronto para envio”, “Etiqueta emitida”) na Minha conta; traduzir só na UI do cliente (`isPackingBeforePostStatus` / `toCustomerFriendlyShippingLabel`). Admin e banco ficam iguais.

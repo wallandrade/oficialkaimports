@@ -1,12 +1,13 @@
 # Segurança e performance — KA Imports
 
-> **Última atualização:** 2026-09-10  
+> **Última atualização:** 2026-09-11  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-11 | Busca admin isolada do monólito; poll de visitantes ao vivo num filho; refresh silencioso de pedidos em `startTransition` | Digitação e poll 5s não redesenham o `Admin` | CSP / CORS / rate limit; debounce 300ms |
 | 2026-09-10 | Senha de baixa Motoboy/Minas só transita no POST (unlock/exit); não grava no KA | Campo no admin; 10 min na Yury | Snapshot; token de sync; Fóz |
 | 2026-08-30 | Webhook estoque Yury com body cru + HMAC (igual cobertura) | `POST /api/webhooks/yury/inventory` antes do `json()` | CORS allowlist e rate limit de checkout iguais |
 | 2026-08-29 | GET contas EnvioEcom mascara token/e-mail; senha nunca sai | Extra no JSON só no servidor | CSP / CORS / rate limit iguais |
@@ -42,7 +43,7 @@
 - Cache de hosts CORS de tenants (TTL env).
 - Produtos: caminhos de cache/fallback Sheets documentados em rotas/docs de catálogo — validar no arquivo antes de “otimizar”.
 - FE assets: headers long-cache em `/assets/*` no `vercel.json`; HTML `no-store`.
-- Admin Pedidos: busca com debounce 300ms (estado local no input); troca de `dateFrom`/`dateTo` não chama `fetchStatsData` (stats tem intervalo próprio). `GET /admin/orders` devolve lista sem `data:` de comprovante/etiqueta e sem `trackingLabelText`; `GET /admin/orders/:id` hidrata na abertura do comprovante.
+- Admin Pedidos: busca em `AdminOrdersChargesSearchShell` (debounce 300ms, `startTransition`; o `Admin` só recebe semente de `goToOrder`). Visitantes ao vivo em `AdminLiveVisitorStats` (poll 5s). Refresh silencioso de `GET /admin/orders` aplica `setOrders` via `startTransition`. Troca de `dateFrom`/`dateTo` não chama `fetchStatsData` (stats tem intervalo próprio). `GET /admin/orders` devolve lista sem `data:` de comprovante/etiqueta e sem `trackingLabelText`; `GET /admin/orders/:id` hidrata na abertura do comprovante.
 - Análise longa em `PERFORMANCE_OPTIMIZATION_ANALYSIS.md` — **não** ler por padrão; só se a tarefa for perf.
 
 ## Anti-padrões
@@ -51,4 +52,5 @@
 - Tirar `frame-src` do CSP do FE e voltar a iframe de comprovante em `data:` (quebra o PDF no Chrome).
 - Mandar comprovante/etiqueta em `data:` e OCR (`trackingLabelText`) em **toda** a lista `GET /admin/orders`; a lista é leve e o detalhe vem em `GET /admin/orders/:id`.
 - Reativar polling de gateway.
+- Guardar o poll de visitantes ao vivo (`/api/admin/tracking/live` a cada 5s) no estado do `Admin`; isso redesenha o monólito. Usar `AdminLiveVisitorStats`.
 - Logar tokens/senhas em claro (há redaction parcial em admin-auth).

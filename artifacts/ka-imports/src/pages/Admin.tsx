@@ -779,7 +779,7 @@ function formatRaffleDescriptionPreview(value: string | undefined | null): strin
 }
 
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo, startTransition, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { Loader2, Save, Plus, Trash2, X, CheckCircle, XCircle, Zap, Info, Pencil, MessageCircle, Tag, Bell, RefreshCw, Download, LogOut, QrCode, LinkIcon, Ticket, ShoppingBag, Clock, Upload, ChevronDown, ChevronUp, Copy, Users, Percent, Calendar, DollarSign, ShieldCheck, CreditCard, Truck, RotateCcw, UserPlus, Eye, EyeOff, ToggleLeft, Webhook, ImageOff, Lock, AlertTriangle, Star, Send, Mail, Store, Bike, MapPin, Search } from "lucide-react";
 import { IconLucide } from "@/components/ui/IconLucide";
@@ -1884,39 +1884,203 @@ interface DnsCheckResponse {
   message: string;
 }
 
+function filterAdminOrders<T>(orders: T[], search: string): T[] {
+  const q = search.toLowerCase().trim();
+  if (!q) return orders;
+  const digitsOnly = /^\d+$/.test(q);
+  if (digitsOnly) {
+    const asNumber = Number(q);
+    return orders.filter((item) => {
+      const o = item as { orderNumber?: number | string | null; id?: string };
+      if (o.orderNumber != null && Number(o.orderNumber) === asNumber) return true;
+      return getOrderDisplayId(o) === q || String(o.id) === q;
+    });
+  }
+  const queryDigits = /^[\d.\-\s]+$/.test(q) ? q.replace(/\D/g, "") : "";
+  return orders.filter((item) => {
+    const o = item as {
+      id?: string;
+      clientName?: string | null;
+      clientPhone?: string | null;
+      clientEmail?: string | null;
+      addressCep?: string | null;
+      products?: unknown;
+    };
+    const orderNumber = getOrderDisplayId(o);
+    const productNames = getOrderProducts(o.products).map((product) => product.name).join(" ");
+    const searchableText = [
+      o.id,
+      orderNumber,
+      `ka-${orderNumber}`,
+      o.clientName,
+      o.clientPhone,
+      o.clientEmail,
+      o.addressCep,
+      productNames,
+    ].map((value) => String(value || "").toLowerCase()).join(" ");
+    return searchableText.includes(q)
+      || Boolean(queryDigits && String(o.addressCep || "").replace(/\D/g, "").includes(queryDigits));
+  });
+}
+
+function filterAdminCharges<T extends { id: string; clientName?: string | null; clientPhone?: string | null; clientEmail?: string | null }>(
+  charges: T[],
+  search: string,
+): T[] {
+  const q = search.toLowerCase();
+  if (!q) return charges;
+  return charges.filter((c) =>
+    String(c.id || "").toLowerCase().includes(q)
+    || String(c.clientName || "").toLowerCase().includes(q)
+    || String(c.clientPhone || "").includes(q)
+    || String(c.clientEmail || "").toLowerCase().includes(q),
+  );
+}
+
 function OrdersSearchInput({
   value,
   onDebouncedChange,
   placeholder,
+  className = "relative flex-1",
+  inputClassName = "w-full h-11 pl-10 pr-4 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm",
 }: {
   value: string;
   onDebouncedChange: (next: string) => void;
   placeholder: string;
+  className?: string;
+  inputClassName?: string;
 }) {
   const [local, setLocal] = useState(value);
+  const focusedRef = useRef(false);
+  const onDebouncedChangeRef = useRef(onDebouncedChange);
+  onDebouncedChangeRef.current = onDebouncedChange;
 
   useEffect(() => {
-    setLocal(value);
+    if (!focusedRef.current) setLocal(value);
   }, [value]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      if (local !== value) onDebouncedChange(local);
+      if (local === value) return;
+      startTransition(() => onDebouncedChangeRef.current(local));
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [local, onDebouncedChange, value]);
+  }, [local, value]);
 
   return (
-    <div className="relative flex-1">
+    <div className={className}>
       <IconLucide name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
       <input
         type="text"
         value={local}
         onChange={(e) => setLocal(e.target.value)}
+        onFocus={() => { focusedRef.current = true; }}
+        onBlur={() => { focusedRef.current = false; }}
         placeholder={placeholder}
-        className="w-full h-11 pl-10 pr-4 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+        className={inputClassName}
       />
     </div>
+  );
+}
+
+function AdminLiveVisitorStats() {
+  const [liveStats, setLiveStats] = useState({ catalog: 0, checkout: 0 });
+
+  useEffect(() => {
+    if (!getToken()) return;
+    const fetchLive = () => {
+      fetch(`${BASE}/api/admin/tracking/live`, { headers: authHeaders() })
+        .then((r) => r.json())
+        .then((data) => {
+          if (typeof data.catalog === "number" && typeof data.checkout === "number") {
+            setLiveStats(data);
+          }
+        })
+        .catch(() => {});
+    };
+    fetchLive();
+    const intv = window.setInterval(fetchLive, 5000);
+    return () => window.clearInterval(intv);
+  }, []);
+
+  return (
+    <>
+      <div className="hidden sm:flex gap-3 mr-2 bg-orange-50 border border-orange-200 px-3 py-1.5 rounded-lg text-sm font-semibold text-orange-800">
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          👁️ {liveStats.catalog} visitantes ao vivo catálogo
+        </span>
+        <span className="w-px h-5 bg-orange-200 mx-1"></span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          🛒 {liveStats.checkout} visitantes ao vivo checkout
+        </span>
+      </div>
+      <div className="flex sm:hidden w-full gap-2 mb-2 bg-orange-50 border border-orange-200 p-2 rounded-lg text-xs font-semibold text-orange-800 justify-between items-center">
+        <span className="flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+          👁️ {liveStats.catalog} no catálogo
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+          🛒 {liveStats.checkout} no checkout
+        </span>
+      </div>
+    </>
+  );
+}
+
+function AdminOrdersChargesSearchShell<
+  TOrder,
+  TCharge extends { id: string; clientName?: string | null; clientPhone?: string | null; clientEmail?: string | null },
+>({
+  seedSearch,
+  orders,
+  charges,
+  activeTab,
+  loading,
+  toolbarExtra,
+  renderOrders,
+  renderCharges,
+}: {
+  seedSearch: string;
+  orders: TOrder[];
+  charges: TCharge[];
+  activeTab: "orders" | "charges";
+  loading: boolean;
+  toolbarExtra: ReactNode;
+  renderOrders: (filteredOrders: TOrder[]) => ReactNode;
+  renderCharges: (filteredCharges: TCharge[]) => ReactNode;
+}) {
+  const [search, setSearch] = useState(seedSearch);
+  const seedRef = useRef(seedSearch);
+
+  useEffect(() => {
+    if (seedSearch === seedRef.current) return;
+    seedRef.current = seedSearch;
+    setSearch(seedSearch);
+  }, [seedSearch]);
+
+  const filteredOrders = useMemo(() => filterAdminOrders(orders, search), [orders, search]);
+  const filteredCharges = useMemo(() => filterAdminCharges(charges, search), [charges, search]);
+
+  return (
+    <>
+      <div className="flex flex-col sm:flex-row gap-3 mb-6">
+        <OrdersSearchInput
+          value={search}
+          onDebouncedChange={setSearch}
+          placeholder={activeTab === "orders" ? "Buscar por nome, CEP, pedido ou produto..." : "Buscar por nome, e-mail, telefone ou ID..."}
+        />
+        {toolbarExtra}
+      </div>
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-20">
+          <Loader2 className="w-10 h-10 text-primary animate-spin mb-4" />
+          <p className="text-muted-foreground">Carregando...</p>
+        </div>
+      ) : activeTab === "orders" ? renderOrders(filteredOrders) : renderCharges(filteredCharges)}
+    </>
   );
 }
 
@@ -2028,8 +2192,6 @@ export default function Admin() {
   const [customersLoading, setCustomersLoading] = useState(false);
   const [recurringCustomersLoading, setRecurringCustomersLoading] = useState(false);
   const [customerImpersonatingId, setCustomerImpersonatingId] = useState<string | null>(null);
-  const [customerSearch, setCustomerSearch] = useState("");
-  const [recurringCustomerSearch, setRecurringCustomerSearch] = useState("");
   const [exportingCustomersCSV, setExportingCustomersCSV] = useState(false);
   const [syncingCustomersBrevo, setSyncingCustomersBrevo] = useState(false);
   const [exportModalOpen, setExportModalOpen] = useState(false);
@@ -2331,8 +2493,6 @@ export default function Admin() {
   const ordersFetchAbortRef = useRef<AbortController | null>(null);
   const ordersFetchSeqRef = useRef(0);
   const swRef  = useRef<ServiceWorkerRegistration | null>(null);
-  // Live Visitors Tracking
-  const [liveStats, setLiveStats] = useState({ catalog: 0, checkout: 0 });
   const canManageTenants = isPrimary && adminTenantId === "tenant_loja1";
   const canManageProductsTab = isPrimary || adminTenantId !== "tenant_loja1";
   const canManageInventoryTab = isPrimary || adminTenantId !== "tenant_loja1";
@@ -2840,23 +3000,6 @@ export default function Admin() {
     }
   }, [BASE, fetchFinancialSummary]);
 
-  useEffect(() => {
-    if (!authChecked || !getToken()) return;
-    const fetchLive = () => {
-      fetch(`${BASE}/api/admin/tracking/live`, { headers: authHeaders() })
-        .then((r) => r.json())
-        .then((data) => {
-          if (typeof data.catalog === "number" && typeof data.checkout === "number") {
-            setLiveStats(data);
-          }
-        })
-        .catch(() => {});
-    };
-    fetchLive();
-    const intv = setInterval(fetchLive, 5000);
-    return () => clearInterval(intv);
-  }, [authChecked]);
-
   const unreadCount = notifications.filter((n) => !n.read).length;
   const webhookUrl  = `${window.location.origin}${BASE}/api/webhook/pix`;
 
@@ -2957,11 +3100,15 @@ export default function Admin() {
       const data = await res.json() as { orders: AdminOrder[] };
       if (seq !== ordersFetchSeqRef.current) return;
       const incoming = data.orders || [];
-      setOrders((prev) => {
-        const prevById = new Map(prev.map((order) => [order.id, order]));
-        return incoming.map((order) => preserveEnvioEcomLabelFields(order, prevById.get(order.id)));
-      });
-      setOrdersReady(true);
+      const applyIncoming = () => {
+        setOrders((prev) => {
+          const prevById = new Map(prev.map((order) => [order.id, order]));
+          return incoming.map((order) => preserveEnvioEcomLabelFields(order, prevById.get(order.id)));
+        });
+        setOrdersReady(true);
+      };
+      if (_silent) startTransition(applyIncoming);
+      else applyIncoming();
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
       if (err instanceof Error && err.name === "AbortError") return;
@@ -6385,6 +6532,26 @@ export default function Admin() {
   // Atualizar junto com stats (must be before the early return to respect Rules of Hooks)
   React.useEffect(() => { if (authChecked) fetchFinancialSummary(); }, [authChecked, statsDateFrom, statsDateTo, statsSeller, fetchFinancialSummary]);
 
+  const productImageById = useMemo(() => Object.fromEntries(
+    (products as Array<{ id?: string; image?: string | null }>)
+      .map((p) => [String(p?.id || "").trim(), String(p?.image || "").trim()] as const)
+      .filter(([id, image]) => !!id && !!image),
+  ), [products]);
+  const productCostById = useMemo(() => Object.fromEntries(
+    (products as Array<{ id?: string; costPrice?: number | null }>)
+      .map((p) => [String(p?.id || "").trim(), Number(p?.costPrice || 0)] as const)
+      .filter(([id]) => !!id),
+  ), [products]);
+  const productNameById = useMemo(() => Object.fromEntries(
+    (products as Array<{ id?: string; name?: string | null }>)
+      .map((p) => [String(p?.id || "").trim(), String(p?.name || "").trim()] as const)
+      .filter(([id, name]) => !!id && !!name),
+  ), [products]);
+  const trackingCandidates = useMemo(
+    () => orders.filter((order) => !order.enviado && order.status !== "cancelled"),
+    [orders],
+  );
+
   // -------------------------------------------------------------------------
   // Guard
   // -------------------------------------------------------------------------
@@ -6398,41 +6565,6 @@ export default function Admin() {
       </div>
     );
   }
-
-  const filteredOrders = (() => {
-    const q = search.toLowerCase().trim();
-    if (!q) return orders;
-    const digitsOnly = /^\d+$/.test(q);
-    if (digitsOnly) {
-      const asNumber = Number(q);
-      return orders.filter((o) => {
-        if (o.orderNumber != null && Number(o.orderNumber) === asNumber) return true;
-        return getOrderDisplayId(o) === q || String(o.id) === q;
-      });
-    }
-    const queryDigits = /^[\d.\-\s]+$/.test(q) ? q.replace(/\D/g, "") : "";
-    return orders.filter((o) => {
-      const orderNumber = getOrderDisplayId(o);
-      const productNames = getOrderProducts(o.products).map((product) => product.name).join(" ");
-      const searchableText = [
-        o.id,
-        orderNumber,
-        `ka-${orderNumber}`,
-        o.clientName,
-        o.clientPhone,
-        o.clientEmail,
-        o.addressCep,
-        productNames,
-      ].map((value) => String(value || "").toLowerCase()).join(" ");
-      return searchableText.includes(q)
-        || Boolean(queryDigits && String(o.addressCep || "").replace(/\D/g, "").includes(queryDigits));
-    });
-  })();
-  const filteredCharges = charges.filter((c) => {
-    const q = search.toLowerCase();
-    return !q || c.id.toLowerCase().includes(q) || c.clientName.toLowerCase().includes(q) ||
-      c.clientPhone.includes(q) || c.clientEmail.toLowerCase().includes(q);
-  });
 
   const paidOrders      = orders.filter((o) => o.status === "paid" || o.status === "completed");
   const revenue         = paidOrders.reduce((s, o) => s + Number(o.total), 0);
@@ -6880,29 +7012,7 @@ export default function Admin() {
             <p className="text-muted-foreground text-sm mt-0.5">Gerencie pedidos, vendas e configurações</p>
           </div>
           <div className="flex gap-2 flex-wrap self-start sm:self-auto items-center">
-            {/* Live Stats */}
-            <div className="hidden sm:flex gap-3 mr-2 bg-orange-50 border border-orange-200 px-3 py-1.5 rounded-lg text-sm font-semibold text-orange-800">
-              <span className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                👁️ {liveStats.catalog} visitantes ao vivo catálogo
-              </span>
-              <span className="w-px h-5 bg-orange-200 mx-1"></span>
-              <span className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                🛒 {liveStats.checkout} visitantes ao vivo checkout
-              </span>
-            </div>
-            
-            <div className="flex sm:hidden w-full gap-2 mb-2 bg-orange-50 border border-orange-200 p-2 rounded-lg text-xs font-semibold text-orange-800 justify-between items-center">
-              <span className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                👁️ {liveStats.catalog} no catálogo
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                🛒 {liveStats.checkout} no checkout
-              </span>
-            </div>
+            <AdminLiveVisitorStats />
             {/* Notification bell */}
             <div className="relative">
               <Button variant="outline" size="sm" onClick={() => { setShowNotif((v) => !v); setNotifications((n) => n.map((x) => ({ ...x, read: true }))); }} className="gap-2 relative h-9">
@@ -7323,14 +7433,14 @@ export default function Admin() {
           ))}
         </div>
 
-        {/* Filters (only for orders/charges) */}
         {(tab === "orders" || tab === "charges") && (
-            <div className="flex flex-col sm:flex-row gap-3 mb-6">
-            <OrdersSearchInput
-              value={search}
-              onDebouncedChange={setSearch}
-              placeholder={tab === "orders" ? "Buscar por nome, CEP, pedido ou produto..." : "Buscar por nome, e-mail, telefone ou ID..."}
-            />
+          <AdminOrdersChargesSearchShell
+            seedSearch={search}
+            orders={orders}
+            charges={charges}
+            activeTab={tab === "charges" ? "charges" : "orders"}
+            loading={(tab === "orders" && !ordersReady) || (tab === "charges" && !chargesReady)}
+            toolbarExtra={(
             <div className="flex gap-2 flex-wrap">
               <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm cursor-pointer" />
               <input type="date" value={dateTo}   onChange={(e) => setDateTo(e.target.value)}   className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm cursor-pointer" />
@@ -7364,35 +7474,15 @@ export default function Admin() {
                 </>
               )}
             </div>
-          </div>
-        )}
-
-        {/* Content */}
-        {(tab === "orders" && !ordersReady) || (tab === "charges" && !chargesReady) ? (
-          <div className="flex flex-col items-center justify-center py-20">
-            <Loader2 className="w-10 h-10 text-primary animate-spin mb-4" />
-            <p className="text-muted-foreground">Carregando...</p>
-          </div>
-        ) : tab === "orders" ? (
+            )}
+            renderOrders={(filteredOrders) => (
           <OrdersPanel
             allOrders={orders}
             orders={filteredOrders}
-            trackingCandidates={orders.filter((order) => !order.enviado && order.status !== "cancelled")}
-            productImageById={Object.fromEntries(
-              (products as Array<{ id?: string; image?: string | null }>)
-                .map((p) => [String(p?.id || "").trim(), String(p?.image || "").trim()] as const)
-                .filter(([id, image]) => !!id && !!image),
-            )}
-            productCostById={Object.fromEntries(
-              (products as Array<{ id?: string; costPrice?: number | null }>)
-                .map((p) => [String(p?.id || "").trim(), Number(p?.costPrice || 0)] as const)
-                .filter(([id]) => !!id),
-            )}
-            productNameById={Object.fromEntries(
-              (products as Array<{ id?: string; name?: string | null }>)
-                .map((p) => [String(p?.id || "").trim(), String(p?.name || "").trim()] as const)
-                .filter(([id, name]) => !!id && !!name),
-            )}
+            trackingCandidates={trackingCandidates}
+            productImageById={productImageById}
+            productCostById={productCostById}
+            productNameById={productNameById}
             inventoryBalances={inventoryBalances}
             getCommissionRate={getCommissionRate}
             gatewayFeePercent={Number(settings["gateway_fee_percent"] || 0)}
@@ -7493,19 +7583,8 @@ export default function Admin() {
               setOrders((prev) => prev.filter((o) => o.id !== id));
             }}
           />
-        ) : tab === "extrato" ? (
-          <AdminBankStatementPanel
-            authHeaders={authHeaders}
-            onUnauthorized={handleUnauthorized}
-            onGoToOrder={goToOrder}
-          />
-        ) : tab === "depositos" ? (
-          <AdminBankDepositsPanel
-            authHeaders={authHeaders}
-            onUnauthorized={handleUnauthorized}
-            onGoToOrder={goToOrder}
-          />
-        ) : tab === "charges" ? (
+            )}
+            renderCharges={(filteredCharges) => (
           <ChargesPanel
             charges={filteredCharges}
             openWhatsApp={openChargeWhatsApp}
@@ -7548,6 +7627,22 @@ export default function Admin() {
               } catch { toast.error("Erro de conexão."); }
               finally { setCreateChargeSubmitting(false); }
             }}
+          />
+            )}
+          />
+        )}
+
+        {tab === "extrato" ? (
+          <AdminBankStatementPanel
+            authHeaders={authHeaders}
+            onUnauthorized={handleUnauthorized}
+            onGoToOrder={goToOrder}
+          />
+        ) : tab === "depositos" ? (
+          <AdminBankDepositsPanel
+            authHeaders={authHeaders}
+            onUnauthorized={handleUnauthorized}
+            onGoToOrder={goToOrder}
           />
         ) : tab === "commissions" ? (
           <CommissionPaymentsPanel
@@ -7614,8 +7709,6 @@ export default function Admin() {
           <CustomersPanel
             customers={customerUsers}
             loading={customersLoading}
-            search={customerSearch}
-            setSearch={setCustomerSearch}
             onRefresh={fetchCustomers}
             onImpersonate={impersonateCustomerAccount}
             impersonatingId={customerImpersonatingId}
@@ -7633,8 +7726,6 @@ export default function Admin() {
           <RecurringCustomersPanel
             customers={recurringCustomers}
             loading={recurringCustomersLoading}
-            search={recurringCustomerSearch}
-            setSearch={setRecurringCustomerSearch}
             onRefresh={fetchRecurringCustomers}
           />
         ) : tab === "support" ? (
@@ -17255,12 +17346,10 @@ function CommissionPaymentsPanel({
 // CustomersPanel
 // ---------------------------------------------------------------------------
 function CustomersPanel({
-  customers, loading, search, setSearch, onRefresh, onImpersonate, impersonatingId, canImpersonate, onExportCSV, onSyncBrevo, exportingCSV, syncingBrevo, exportModalOpen, setExportModalOpen, exportColumns, setExportColumns,
+  customers, loading, onRefresh, onImpersonate, impersonatingId, canImpersonate, onExportCSV, onSyncBrevo, exportingCSV, syncingBrevo, exportModalOpen, setExportModalOpen, exportColumns, setExportColumns,
 }: {
   customers: CustomerUserRecord[];
   loading: boolean;
-  search: string;
-  setSearch: (v: string) => void;
   onRefresh: () => void;
   onImpersonate: (customer: CustomerUserRecord) => void;
   impersonatingId: string | null;
@@ -17274,15 +17363,16 @@ function CustomersPanel({
   exportColumns: Record<string, boolean>;
   setExportColumns: (v: Record<string, boolean>) => void;
 }) {
-  const filtered = customers.filter((c) => {
-    if (!search.trim()) return true;
+  const [search, setSearch] = useState("");
+  const filtered = useMemo(() => {
+    if (!search.trim()) return customers;
     const q = search.toLowerCase();
-    return (
+    return customers.filter((c) =>
       c.name.toLowerCase().includes(q) ||
       c.email.toLowerCase().includes(q) ||
-      (c.affiliateCode || "").toLowerCase().includes(q)
+      (c.affiliateCode || "").toLowerCase().includes(q),
     );
-  });
+  }, [customers, search]);
 
   return (
     <div className="space-y-4">
@@ -17293,13 +17383,12 @@ function CustomersPanel({
         </div>
         <div className="flex gap-2">
           <div className="relative">
-            <IconLucide name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input
-              type="text"
+            <OrdersSearchInput
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onDebouncedChange={setSearch}
               placeholder="Buscar por nome, e-mail ou cód. afiliado..."
-              className="h-10 pl-9 pr-4 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm w-72"
+              className="relative"
+              inputClassName="h-10 pl-9 pr-4 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm w-72"
             />
           </div>
           <button
@@ -17557,30 +17646,27 @@ function CustomersPanel({
 function RecurringCustomersPanel({
   customers,
   loading,
-  search,
-  setSearch,
   onRefresh,
 }: {
   customers: RecurringCustomerRecord[];
   loading: boolean;
-  search: string;
-  setSearch: (v: string) => void;
   onRefresh: () => void;
 }) {
+  const [search, setSearch] = useState("");
   const [expandedCustomerId, setExpandedCustomerId] = useState<string | null>(null);
   const [messageTemplate, setMessageTemplate] = useState(
     "Olá, {{nome}}! Tudo bem? Vi aqui que você já comprou conosco antes e queria falar com você.",
   );
 
-  const filtered = customers.filter((customer) => {
-    if (!search.trim()) return true;
+  const filtered = useMemo(() => {
+    if (!search.trim()) return customers;
     const query = search.toLowerCase();
-    return (
+    return customers.filter((customer) =>
       customer.name.toLowerCase().includes(query) ||
       customer.email.toLowerCase().includes(query) ||
-      String(customer.phone || "").toLowerCase().includes(query)
+      String(customer.phone || "").toLowerCase().includes(query),
     );
-  });
+  }, [customers, search]);
 
   const totalSpent = filtered.reduce((sum, customer) => sum + Number(customer.totalSpent || 0), 0);
   const totalOrders = filtered.reduce((sum, customer) => sum + Number(customer.orderCount || 0), 0);
@@ -17615,13 +17701,12 @@ function RecurringCustomersPanel({
         </div>
         <div className="flex gap-2">
           <div className="relative">
-            <IconLucide name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input
-              type="text"
+            <OrdersSearchInput
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onDebouncedChange={setSearch}
               placeholder="Buscar por nome, e-mail ou telefone..."
-              className="h-10 pl-9 pr-4 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm w-72"
+              className="relative"
+              inputClassName="h-10 pl-9 pr-4 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm w-72"
             />
           </div>
           <button
