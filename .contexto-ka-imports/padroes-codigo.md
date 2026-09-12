@@ -1,13 +1,14 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-09-11  
+> **Última atualização:** 2026-09-12  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
-| 2026-09-11 | Anti-padrão: `startTransition` no debounce da busca com o input focado | Filtro não aplicava (nome/nº); `setSearch` do filho é urgente | Isolamento no filho; poll 5s; refresh silencioso ainda em transition |
+| 2026-09-12 | Anti-padrão: SHA256 de admin em `customer_users`, PATCH em `guest:`, ou seller-scoped resetar senha | PBKDF2 + `hasGlobalAccess` + tenant | Impersonar e lista de clientes iguais |
+| 2026-09-11 | Busca Pedidos/Links: `onChange` imediato no filho (sem debounce/`startTransition`/estado local no input) | Nome e nº filtram a cada tecla; `Admin` não re-renderiza | Isolamento; `goToOrder`; refresh silencioso em transition |
 | 2026-09-11 | Busca de Pedidos/Links num filho; visitantes ao vivo fora do `Admin`; busca de Clientes interna | Digitar não re-renderiza o monólito | Filtro local, debounce 300ms, `goToOrder` |
 | 2026-09-11 | Anti-padrão: um só status do pedido pai na Minha conta quando há split, ou mostrar Fóz/Motoboy/Minas ao cliente | Envio 1/2 + itens; Aguardando estoque vs Enviado | Admin e pools internos iguais |
 | 2026-09-10 | Anti-padrão: **Marcar Reenvio Enviado** debitar Fóz de novo quando o pedido já baixou Motoboy/Minas/`inventory_exited_pools` | Skip se já saiu; senão pool do card | Reenvio manual Estoque |
@@ -217,8 +218,8 @@ Código > memória > suposições.
 - Manter selo **PRIORIDADE URGENTE** depois de `enviado`/coletado; zerar `is_prioridade` no envio e não exibir a estrela.
 - Reusar **Faltando estoque** (saldo vs pedido) para avisar “não fazer etiqueta / atrasados no fornecedor”. Isso é flag manual `is_procurando_produto` no card, independente do inventário.
 - Na lista **Compra 48h/72h/96h**, descontar só `inventoryBalances` (Fóz) e mandar reenvio inteiro para comprar. Abater também Motoboy/Minas (`/api/admin/yury-inventory`) e a qtd de reenvio; “Comprar agora” é só o que falta.
-- Ligar `setSearch` do `Admin` no `onChange` (ou no debounce) da busca de Pedidos/Links; texto e filtro ficam em `AdminOrdersChargesSearchShell`. Não pôr o poll de visitantes ao vivo no estado do `Admin` (`AdminLiveVisitorStats` próprio). Busca de Clientes/recorrentes é estado interno do painel.
-- Envolver o `setSearch` da busca em `startTransition` com o input focado (React 19 adia/descarta e a lista não filtra). Debounce 300ms chama o setState do filho na hora; `startTransition` fica só no refresh silencioso de pedidos.
+- Ligar `setSearch` do `Admin` no `onChange` da busca de Pedidos/Links; texto e filtro ficam em `AdminOrdersChargesSearchShell` e o input é controlado por esse filho (sem debounce, sem estado local, sem `startTransition`). Não pôr o poll de visitantes ao vivo no estado do `Admin` (`AdminLiveVisitorStats` próprio). Busca de Clientes/recorrentes é estado interno do painel.
+- Envolver o `setSearch` da busca em `startTransition` ou debounce+estado local no input: a lista não filtra. Debounce só fazia sentido quando o estado era o `Admin` monolítico.
 - Tratar `costPrice: 0` no JSON do pedido como custo real (`!= null`); 0/ausente cai na ficha, e o PATCH do produto só preenche esses itens (além da janela de 24h).
 - Abrir comprovante PDF no admin com `<iframe src="data:application/pdf...">` sem `frame-src blob:` no CSP; converter data URL para blob.
 - Mostrar status técnico EnvioEcom (“Pronto para envio”, “Etiqueta emitida”) na Minha conta; traduzir só na UI do cliente (`isPackingBeforePostStatus` / `toCustomerFriendlyShippingLabel`). Admin e banco ficam iguais.
@@ -229,6 +230,7 @@ Código > memória > suposições.
 - Somar venda, custo ou comissão do filho de reenvio no dashboard / lote do vendedor, mostrar o total/lucro reais nesse card, ou gravar `sellerCommissionRateSnapshot` > 0 no create (mesmo com qtd extra). No card do filho, total e Lucro est. ficam R$ 0. Usar `isReshipmentChildOrder(observation, parentOrderId)`. Venda/custo/comissão ficam no pedido original.
 - Misturar carteira da loja (`customer_wallet_ledger`) com crédito de afiliado. Cashback só no status EnvioEcom **entregue**; “Marcar enviado” / Motoboy não creditam.
 - Fazer `.reverse()` cego no `status_history` da EnvioEcom na Minha conta (a API já vem newest-first); ordenar por `at` desc.
+- Hashear senha de `customer_users` com SHA256 do admin, aceitar `PATCH` em id `guest:`, ou deixar seller-scoped resetar senha. Usar PBKDF2 (`hashPassword` do middleware de cliente), `hasGlobalAccess` e filtro de tenant.
 
 ## Idioma
 

@@ -8,6 +8,7 @@ import {
   getCustomerSession,
   hashPassword,
   removeCustomerSession,
+  removeCustomerSessionsForUser,
   requireCustomerAuth,
 } from "../middlewares/customer-auth";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
@@ -501,6 +502,77 @@ router.post("/admin/customers/:id/impersonate", requireAdminAuth, async (req, re
   } catch (err) {
     console.error("[Admin] customer impersonation error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao entrar na conta do cliente." });
+  }
+});
+
+// --------------------------------------------------------------------------
+// PATCH /api/admin/customers/:id/password — set customer password (admin)
+// --------------------------------------------------------------------------
+router.patch("/admin/customers/:id/password", requireAdminAuth, async (req, res) => {
+  try {
+    const customerId = String(req.params.id || "").trim();
+    const { password } = req.body as { password?: string };
+    const adminScope = getAdminScope(req);
+
+    if (!adminScope) {
+      res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
+      return;
+    }
+
+    if (!adminScope.hasGlobalAccess) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Apenas administrador principal pode alterar a senha do cliente." });
+      return;
+    }
+
+    if (!customerId || customerId.startsWith("guest:")) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Cliente sem conta cadastrada." });
+      return;
+    }
+
+    const nextPassword = String(password || "");
+    if (nextPassword.length < 8) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "A senha deve ter pelo menos 8 caracteres." });
+      return;
+    }
+
+    const users = await db
+      .select({
+        id: customerUsersTable.id,
+        email: customerUsersTable.email,
+      })
+      .from(customerUsersTable)
+      .where(and(
+        eq(customerUsersTable.id, customerId),
+        buildCustomerUsersTenantWhere(adminScope.tenantId),
+      ))
+      .limit(1);
+
+    const user = users[0];
+    if (!user) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Cliente não encontrado." });
+      return;
+    }
+
+    const salt = generateSalt();
+    await db
+      .update(customerUsersTable)
+      .set({
+        passwordHash: hashPassword(nextPassword, salt),
+        salt,
+        updatedAt: new Date(),
+      })
+      .where(eq(customerUsersTable.id, user.id));
+
+    removeCustomerSessionsForUser(user.id);
+    console.warn("[Admin] customer password changed", {
+      customerId: user.id,
+      admin: adminScope.username,
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[Admin] customer password change error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao alterar senha do cliente." });
   }
 });
 

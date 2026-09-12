@@ -1,12 +1,13 @@
 # Auth e permissões — KA Imports
 
-> **Última atualização:** 2026-09-02  
+> **Última atualização:** 2026-09-12  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-12 | Admin redefine senha do cliente (`PATCH /admin/customers/:id/password`); sessões Bearer daquele user caem | Só `hasGlobalAccess` + tenant; min 8 | Impersonar; convidado; senha de admin |
 | 2026-09-02 | Aba Seguro no admin da filial (`isPrimary \|\| tenant ≠ loja1`) | Cada loja grava os próprios `checkout_insurance_*` | Seller-scoped da loja 1 sem a aba; Checkout/Cupons continuam primary |
 | 2026-09-02 | Aba Seguro primary-only; carteira `GET /api/me/wallet`; ajuste admin `hasGlobalAccess` | Textos/% do seguro; saldo do cliente | Seller-scoped sem a aba; afiliado inalterado |
 | 2026-08-29 | CRUD contas EnvioEcom com `hasGlobalAccess` (filial no próprio tenant); GET mascara segredo | Vendedor seller-scoped continua sem cotar/criar | Papéis inalterados |
@@ -66,6 +67,7 @@ Código > memória > tipagens.
 - Sessões **in-memory** no processo Node (não persistidas em DB) — reinício do server invalida tokens.
 - Tenant da sessão = tenant resolvido no registro/login **ou** o `tenantId` do `customer_users` na impersonação admin.
 - Impersonar (`POST /api/admin/customers/:id/impersonate`): só `hasGlobalAccess`. A nova aba abre `/minha-conta/pedidos#customerToken=…` (hash, não query); o FE grava em `sessionStorage` e tira o hash. `/auth/me` usa o tenant da sessão com o mesmo legado null/vazio da loja 1.
+- Redefinir senha (`PATCH /api/admin/customers/:id/password`): só `hasGlobalAccess`; cliente do próprio `tenantId`; mínimo 8; PBKDF2 + salt novos; `removeCustomerSessionsForUser`. Convidado (`guest:`) 400. Seller-scoped 403. FE: botão **Alterar senha** na aba Clientes (mesmo `isPrimary` do impersonar). Log só `customerId` + admin, sem a senha.
 
 ## Site / payment password gate
 

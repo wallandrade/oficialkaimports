@@ -1950,35 +1950,13 @@ function OrdersSearchInput({
   className?: string;
   inputClassName?: string;
 }) {
-  const [local, setLocal] = useState(value);
-  const focusedRef = useRef(false);
-  const onDebouncedChangeRef = useRef(onDebouncedChange);
-  onDebouncedChangeRef.current = onDebouncedChange;
-
-  useEffect(() => {
-    if (!focusedRef.current) setLocal(value);
-  }, [value]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      if (local === value) return;
-      onDebouncedChangeRef.current(local);
-    }, 300);
-    return () => window.clearTimeout(timer);
-  }, [local, value]);
-
   return (
     <div className={className}>
       <IconLucide name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
       <input
         type="text"
-        value={local}
-        onChange={(e) => setLocal(e.target.value)}
-        onFocus={() => { focusedRef.current = true; }}
-        onBlur={() => {
-          focusedRef.current = false;
-          if (local !== value) onDebouncedChangeRef.current(local);
-        }}
+        value={value}
+        onChange={(e) => onDebouncedChange(e.target.value)}
         placeholder={placeholder}
         className={inputClassName}
       />
@@ -17367,6 +17345,11 @@ function CustomersPanel({
   setExportColumns: (v: Record<string, boolean>) => void;
 }) {
   const [search, setSearch] = useState("");
+  const [passwordCustomer, setPasswordCustomer] = useState<CustomerUserRecord | null>(null);
+  const [passwordDraft, setPasswordDraft] = useState("");
+  const [showPasswordDraft, setShowPasswordDraft] = useState(false);
+  const [passwordSaving, setPasswordSaving] = useState(false);
+
   const filtered = useMemo(() => {
     if (!search.trim()) return customers;
     const q = search.toLowerCase();
@@ -17376,6 +17359,52 @@ function CustomersPanel({
       (c.affiliateCode || "").toLowerCase().includes(q),
     );
   }, [customers, search]);
+
+  const closePasswordModal = () => {
+    if (passwordSaving) return;
+    setPasswordCustomer(null);
+    setPasswordDraft("");
+    setShowPasswordDraft(false);
+  };
+
+  const submitCustomerPassword = async () => {
+    if (!passwordCustomer) return;
+    if (!canImpersonate) {
+      toast.error("Apenas administrador principal pode alterar a senha do cliente.");
+      return;
+    }
+    if (!passwordCustomer.hasAccount) {
+      toast.error("Este comprador não possui conta cadastrada (compra como convidado).");
+      return;
+    }
+    const password = passwordDraft.trim();
+    if (password.length < 8) {
+      toast.error("A senha deve ter pelo menos 8 caracteres.");
+      return;
+    }
+
+    setPasswordSaving(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/customers/${passwordCustomer.id}/password`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({ password }),
+      });
+      const data = await res.json().catch(() => ({})) as { message?: string };
+      if (!res.ok) {
+        toast.error(data.message || "Erro ao alterar senha.");
+        return;
+      }
+      toast.success(`Senha de "${passwordCustomer.name}" atualizada.`);
+      setPasswordCustomer(null);
+      setPasswordDraft("");
+      setShowPasswordDraft(false);
+    } catch {
+      toast.error("Erro ao alterar senha.");
+    } finally {
+      setPasswordSaving(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -17473,30 +17502,96 @@ function CustomersPanel({
                   </td>
                   <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{formatDateBR(c.createdAt)}</td>
                   <td className="px-4 py-3">
-                    <button
-                      type="button"
-                      onClick={() => onImpersonate(c)}
-                      disabled={!canImpersonate || !c.hasAccount || impersonatingId === c.id}
-                      className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg border border-border bg-white hover:bg-muted text-xs font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
-                      title={!canImpersonate ? "Apenas administrador principal pode entrar na conta" : !c.hasAccount ? "Comprador sem cadastro (convidado)" : "Entrar na conta do cliente"}
-                    >
-                      {impersonatingId === c.id ? (
-                        <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          Entrando...
-                        </>
-                      ) : (
-                        <>
-                          <Eye className="w-3.5 h-3.5" />
-                          Entrar na conta
-                        </>
-                      )}
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onImpersonate(c)}
+                        disabled={!canImpersonate || !c.hasAccount || impersonatingId === c.id}
+                        className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg border border-border bg-white hover:bg-muted text-xs font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+                        title={!canImpersonate ? "Apenas administrador principal pode entrar na conta" : !c.hasAccount ? "Comprador sem cadastro (convidado)" : "Entrar na conta do cliente"}
+                      >
+                        {impersonatingId === c.id ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Entrando...
+                          </>
+                        ) : (
+                          <>
+                            <Eye className="w-3.5 h-3.5" />
+                            Entrar na conta
+                          </>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPasswordCustomer(c);
+                          setPasswordDraft("");
+                          setShowPasswordDraft(false);
+                        }}
+                        disabled={!canImpersonate || !c.hasAccount || passwordSaving}
+                        className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg border border-border bg-white hover:bg-muted text-xs font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+                        title={!canImpersonate ? "Apenas administrador principal pode alterar a senha" : !c.hasAccount ? "Comprador sem cadastro (convidado)" : "Alterar senha do cliente"}
+                      >
+                        <Lock className="w-3.5 h-3.5" />
+                        Alterar senha
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {passwordCustomer && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-lg max-w-md w-full mx-4 p-6 space-y-4">
+            <div>
+              <h3 className="text-lg font-bold text-foreground">Alterar senha</h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                Nova senha para {passwordCustomer.name} ({passwordCustomer.email}).
+              </p>
+            </div>
+            <div className="relative">
+              <input
+                type={showPasswordDraft ? "text" : "password"}
+                value={passwordDraft}
+                onChange={(e) => setPasswordDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    void submitCustomerPassword();
+                  }
+                }}
+                placeholder="Nova senha (mínimo 8 caracteres)"
+                autoComplete="new-password"
+                className="w-full h-11 px-4 pr-12 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPasswordDraft(!showPasswordDraft)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                title={showPasswordDraft ? "Ocultar senha" : "Mostrar senha"}
+              >
+                {showPasswordDraft ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <Button size="sm" variant="ghost" onClick={closePasswordModal} disabled={passwordSaving}>
+                Cancelar
+              </Button>
+              <Button
+                size="sm"
+                className="gap-2"
+                onClick={() => void submitCustomerPassword()}
+                disabled={passwordSaving || passwordDraft.trim().length < 8}
+              >
+                {passwordSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                Salvar senha
+              </Button>
+            </div>
+          </div>
         </div>
       )}
 

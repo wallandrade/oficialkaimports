@@ -52,7 +52,24 @@ const readTests: TestCase[] = [
   { name: "Reshipments list (scoped)", path: "/api/admin/reshipments", role: "scoped", expected: [200] },
 ];
 
-const writeTests: TestCase[] = [];
+const writeTests: TestCase[] = [
+  {
+    name: "Customer password change (scoped)",
+    method: "PATCH",
+    path: "/api/admin/customers/does-not-exist/password",
+    body: { password: "12345678" },
+    role: "scoped",
+    expected: [403],
+  },
+  {
+    name: "Customer password change (primary missing)",
+    method: "PATCH",
+    path: "/api/admin/customers/does-not-exist/password",
+    body: { password: "12345678" },
+    role: "primary",
+    expected: [404],
+  },
+];
 
 // Cross-seller filters
 if (foreignSellerCode) {

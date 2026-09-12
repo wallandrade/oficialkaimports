@@ -56,6 +56,7 @@ Valida acesso a endpoints de **leitura e escrita** com rollback automático:
 - Testes de PATCH/POST
 - Auto-cleanup: dados modificados são revertidos após o teste
 - Valida que operações de escrita respeitam escopo do seller
+- `PATCH /api/admin/customers/:id/password`: scoped **403**; primary com id inexistente **404** (sempre, sem `TEST_ORDER_ID`)
 
 **Variáveis de ambiente:**
 ```bash

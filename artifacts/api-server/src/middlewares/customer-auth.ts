@@ -68,6 +68,17 @@ export function removeCustomerSession(req: Request): void {
   sessions.delete(token);
 }
 
+export function removeCustomerSessionsForUser(userId: string): void {
+  purgeExpired();
+  const id = String(userId || "").trim();
+  if (!id) return;
+  for (const [token, session] of sessions) {
+    if (session.userId === id) {
+      sessions.delete(token);
+    }
+  }
+}
+
 export function getCustomerSession(req: Request): CustomerSession | null {
   purgeExpired();
   const token = readBearerToken(req);
