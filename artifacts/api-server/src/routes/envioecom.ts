@@ -1363,8 +1363,13 @@ router.get("/me/orders/:id/tracking", requireCustomerAuth, async (req, res) => {
       return;
     }
 
+    const existingPackages = await listOrderShipments(order.id);
+    const packageHasTracking = existingPackages.some((pkg) => (
+      Boolean(pkg.envioecomShipmentId) || isUsableLabelBarcode(pkg.envioecomBarcode)
+    ));
+
     let current = order;
-    if (order.envioecomShipmentId || isUsableLabelBarcode(order.envioecomBarcode || order.trackingCode)) {
+    if (order.envioecomShipmentId || isUsableLabelBarcode(order.envioecomBarcode || order.trackingCode) || packageHasTracking) {
       try {
         current = await softRefreshOrderWithFallback(tenantId, order);
       } catch (err) {
@@ -1405,15 +1410,29 @@ router.post("/me/orders/tracking-sync", requireCustomerAuth, async (req, res) =>
       .where(and(
         buildOrderTenantWhere(tenantId),
         eq(ordersTable.userId, session.userId),
-        or(isNotNull(ordersTable.envioecomShipmentId), isNotNull(ordersTable.envioecomBarcode)),
       ))
       .orderBy(desc(ordersTable.envioecomStatusUpdatedAt), desc(ordersTable.updatedAt))
       .limit(40);
 
-    const targets = rows.filter((order) => (
-      isOpenEnvioEcomTrackingStatus(order.envioecomStatus)
-      || trackingHistoryMissingLocation(order.envioecomStatusHistory)
-    )).slice(0, limit);
+    const packagesByOrder = await listOrderShipmentsByOrderIds(rows.map((order) => order.id));
+
+    function orderNeedsLiveSync(order: typeof rows[number]): boolean {
+      const packages = packagesByOrder.get(order.id) || [];
+      if (isSplitShipments(packages)) {
+        return packages.some((pkg) => {
+          const hasTrack = Boolean(pkg.envioecomShipmentId) || isUsableLabelBarcode(pkg.envioecomBarcode);
+          if (!hasTrack) return false;
+          return isOpenEnvioEcomTrackingStatus(pkg.envioecomStatus)
+            || trackingHistoryMissingLocation(pkg.envioecomStatusHistory);
+        });
+      }
+      const hasTrack = Boolean(order.envioecomShipmentId) || isUsableLabelBarcode(order.envioecomBarcode || order.trackingCode);
+      if (!hasTrack) return false;
+      return isOpenEnvioEcomTrackingStatus(order.envioecomStatus)
+        || trackingHistoryMissingLocation(order.envioecomStatusHistory);
+    }
+
+    const targets = rows.filter(orderNeedsLiveSync).slice(0, limit);
 
     async function withPackages<T extends { id: string }>(items: T[]) {
       const packagesByOrder = await listOrderShipmentsByOrderIds(items.map((item) => item.id));

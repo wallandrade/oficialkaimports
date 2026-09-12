@@ -11,6 +11,8 @@ export type CustomerSplitPackage = {
   envioecomStatus?: string | null;
   envioecomBarcode?: string | null;
   envioecomShipmentId?: number | null;
+  envioecomDeliveryMode?: string | null;
+  envioecomStatusHistory?: Array<{ at?: string; status?: string; location?: string | null; description?: string | null }>;
   items?: CustomerSplitPackageItem[];
 };
 
@@ -42,6 +44,7 @@ function isPackingBeforePostStatus(status?: string | null): boolean {
     "etiqueta",
     "processando envio",
     "aguardando expedicao",
+    "aguardando coleta",
     "dc-e",
     "dce",
     "envio criado",
@@ -58,10 +61,6 @@ function toFriendlyShippingLabel(status?: string | null): string {
   if (normalized.includes("saiu para entrega") || normalized.includes("em rota")) return "Saiu para entrega";
   if (normalized.includes("entregue")) return "Entregue";
   return raw;
-}
-
-export function isCustomerSplitOrder(packages?: unknown): boolean {
-  return Array.isArray(packages) && packages.length >= 2;
 }
 
 export function isCustomerPackageDelivered(status?: string | null): boolean {
@@ -81,6 +80,36 @@ export function isCustomerPackageShipped(pkg: CustomerSplitPackage): boolean {
     "entregue",
     "objeto entregue",
   ].some((marker) => normalized.includes(marker));
+}
+
+function packageHasCustomerTracking(pkg: CustomerSplitPackage): boolean {
+  return Boolean(
+    pkg.envioecomShipmentId
+    || String(pkg.envioecomBarcode || "").trim()
+    || isCustomerPackageShipped(pkg),
+  );
+}
+
+export function collapseCustomerPackagesForOrder(
+  packages: CustomerSplitPackage[] | undefined,
+  orderEnviado?: boolean,
+): CustomerSplitPackage[] {
+  const list = Array.isArray(packages) ? packages : [];
+  if (list.length < 2 || !orderEnviado) return list;
+  const visible = list.filter(packageHasCustomerTracking);
+  if (visible.length === 0) return list;
+  const hidden = list.filter((pkg) => !packageHasCustomerTracking(pkg));
+  if (hidden.length === 0) return list;
+  const mergedItems = [
+    ...(visible[0].items || []),
+    ...hidden.flatMap((pkg) => pkg.items || []),
+  ];
+  return [{ ...visible[0], items: mergedItems }, ...visible.slice(1)];
+}
+
+export function isCustomerSplitOrder(packages?: unknown, orderEnviado?: boolean): boolean {
+  const list = Array.isArray(packages) ? packages as CustomerSplitPackage[] : [];
+  return collapseCustomerPackagesForOrder(list, orderEnviado).length >= 2;
 }
 
 export function getCustomerPackageSituation(pkg: CustomerSplitPackage): CustomerPackageSituation {
@@ -109,8 +138,8 @@ export function getCustomerPackageSituation(pkg: CustomerSplitPackage): Customer
   }
   return {
     kind: "waiting",
-    label: "Aguardando estoque",
-    hint: "Esta parte do pedido ainda não saiu. Assim que o estoque for liberado, o rastreio aparece aqui.",
+    label: "Aguardando envio",
+    hint: "Este envio ainda está sendo preparado.",
   };
 }
 
@@ -120,25 +149,44 @@ export function getCustomerSplitBadgeStatus(
   orderEnviado?: boolean,
 ): string {
   if (orderStatus === "cancelled") return "cancelled";
-  if (packages.every((pkg) => isCustomerPackageDelivered(pkg.envioecomStatus))) return "completed";
-  const shippedCount = packages.filter((pkg) => isCustomerPackageShipped(pkg)).length;
-  if (shippedCount === packages.length) return "enviado";
+  const visible = collapseCustomerPackagesForOrder(packages, orderEnviado);
+  if (visible.every((pkg) => isCustomerPackageDelivered(pkg.envioecomStatus))) return "completed";
+  if (orderEnviado) return "enviado";
+  const shippedCount = visible.filter((pkg) => isCustomerPackageShipped(pkg)).length;
+  if (shippedCount === visible.length) return "enviado";
   if (shippedCount > 0) return "enviado_parcial";
-  return orderEnviado ? "enviado" : orderStatus;
+  return orderStatus;
 }
 
-export function getCustomerSplitSituation(packages: CustomerSplitPackage[]): string {
-  if (packages.every((pkg) => isCustomerPackageDelivered(pkg.envioecomStatus))) return "Entregue";
-  const kinds = packages.map((pkg) => getCustomerPackageSituation(pkg).kind);
+export function getCustomerSplitSituation(
+  packages: CustomerSplitPackage[],
+  orderEnviado?: boolean,
+): string {
+  const visible = collapseCustomerPackagesForOrder(packages, orderEnviado);
+  if (visible.every((pkg) => isCustomerPackageDelivered(pkg.envioecomStatus))) return "Entregue";
+  if (orderEnviado) {
+    const first = visible.find((pkg) => pkg.envioecomStatus) || visible[0];
+    return toFriendlyShippingLabel(first?.envioecomStatus) || "Enviado";
+  }
+  const kinds = visible.map((pkg) => getCustomerPackageSituation(pkg).kind);
   const shippedOrDelivered = kinds.filter((kind) => kind === "shipped" || kind === "delivered").length;
   const waiting = kinds.filter((kind) => kind === "waiting").length;
   const packing = kinds.filter((kind) => kind === "packing").length;
-  if (shippedOrDelivered > 0 && shippedOrDelivered < packages.length) return "Enviado parcialmente";
-  if (shippedOrDelivered === packages.length) return "Enviado";
-  if (waiting > 0 && waiting < packages.length) return "Parte aguardando estoque";
-  if (waiting === packages.length) return "Aguardando estoque";
-  if (packing === packages.length) return "Estamos embalando seu pedido";
+  if (shippedOrDelivered > 0 && shippedOrDelivered < visible.length) return "Enviado parcialmente";
+  if (shippedOrDelivered === visible.length) return "Enviado";
+  if (waiting > 0 && waiting < visible.length) return "Em preparação";
+  if (waiting === visible.length) return "Aguardando envio";
+  if (packing === visible.length) return "Estamos embalando seu pedido";
   return "Em preparação";
+}
+
+export function getCustomerPartialHint(
+  packages: CustomerSplitPackage[],
+  orderEnviado?: boolean,
+): string | null {
+  if (orderEnviado) return null;
+  if (getCustomerSplitSituation(packages, orderEnviado) !== "Enviado parcialmente") return null;
+  return "Parte do pedido já saiu. O restante ainda está sendo preparado.";
 }
 
 export function formatCustomerPackageItems(pkg: CustomerSplitPackage): string[] {
@@ -150,4 +198,28 @@ export function formatCustomerPackageItems(pkg: CustomerSplitPackage): string[] 
       return `${qty}x ${name}`;
     })
     .filter(Boolean);
+}
+
+const FIFTEEN_DAYS_MS = 15 * 24 * 60 * 60 * 1000;
+
+export function isCustomerOrderDelivered(order: {
+  status?: string;
+  enviado?: boolean;
+  createdAt?: string;
+  envioecomStatus?: string | null;
+  envioecomStatusUpdatedAt?: string | null;
+  packages?: CustomerSplitPackage[];
+}): boolean {
+  if (order.status === "cancelled") return false;
+  const packages = Array.isArray(order.packages) ? order.packages : [];
+  if (packages.length >= 2) {
+    return packages.every((pkg) => isCustomerPackageDelivered(pkg.envioecomStatus));
+  }
+  if (isCustomerPackageDelivered(order.envioecomStatus)) return true;
+  if (order.status === "completed" && !order.envioecomStatus) return true;
+  if (order.enviado && !order.envioecomStatus) {
+    const from = Date.parse(String(order.envioecomStatusUpdatedAt || order.createdAt || ""));
+    return Number.isFinite(from) && Date.now() - from >= FIFTEEN_DAYS_MS;
+  }
+  return false;
 }

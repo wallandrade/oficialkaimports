@@ -5,5 +5,7 @@ export function isObservationVisibleToCustomer(value: unknown): boolean {
 export function observationForCustomerApi(observation: unknown, visible: unknown): string | null {
   if (!isObservationVisibleToCustomer(visible)) return null;
   const text = String(observation || "").trim();
-  return text || null;
+  if (!text) return null;
+  if (text.toUpperCase().includes("REENVIO DO PEDIDO")) return null;
+  return text;
 }

@@ -17,4 +17,5 @@ test("flag ligada devolve o texto só se houver conteúdo", () => {
   assert.equal(observationForCustomerApi("  Atraso na postagem  ", true), "Atraso na postagem");
   assert.equal(observationForCustomerApi("   ", true), null);
   assert.equal(observationForCustomerApi(null, true), null);
+  assert.equal(observationForCustomerApi("REENVIO DO PEDIDO x", true), null);
 });

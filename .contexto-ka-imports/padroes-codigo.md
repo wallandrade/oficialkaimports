@@ -7,10 +7,11 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-12 | Anti-padrão: mostrar Envio 1/2 e “Enviado parcialmente” depois que o admin já marcou o pedido enviado; ou “Aguardando estoque” na Minha conta | Colapsar pacote interno; **Aguardando envio** | Admin e 48h AND iguais |
 | 2026-09-12 | Anti-padrão: SHA256 de admin em `customer_users`, PATCH em `guest:`, ou seller-scoped resetar senha | PBKDF2 + `hasGlobalAccess` + tenant | Impersonar e lista de clientes iguais |
 | 2026-09-11 | Busca Pedidos/Links: `onChange` imediato no filho (sem debounce/`startTransition`/estado local no input) | Nome e nº filtram a cada tecla; `Admin` não re-renderiza | Isolamento; `goToOrder`; refresh silencioso em transition |
 | 2026-09-11 | Busca de Pedidos/Links num filho; visitantes ao vivo fora do `Admin`; busca de Clientes interna | Digitar não re-renderiza o monólito | Filtro local, debounce 300ms, `goToOrder` |
-| 2026-09-11 | Anti-padrão: um só status do pedido pai na Minha conta quando há split, ou mostrar Fóz/Motoboy/Minas ao cliente | Envio 1/2 + itens; Aguardando estoque vs Enviado | Admin e pools internos iguais |
+| 2026-09-11 | Anti-padrão: um só status do pedido pai na Minha conta quando há split, ou mostrar Fóz/Motoboy/Minas ao cliente | Envio 1/2 + itens enquanto não expedido; Aguardando envio vs Enviado | Admin e pools internos iguais |
 | 2026-09-10 | Anti-padrão: **Marcar Reenvio Enviado** debitar Fóz de novo quando o pedido já baixou Motoboy/Minas/`inventory_exited_pools` | Skip se já saiu; senão pool do card | Reenvio manual Estoque |
 | 2026-09-10 | Anti-padrão: usar `yuryExitStatus` no `useEffect`/render antes do `useState` no `OrdersPanel` | Admin quebrava no boot (`ReferenceError`) | Senha Yury e baixa iguais |
 | 2026-09-10 | Anti-padrão: cadastrar senha de baixa Yury no KA ou omitir o campo no 403 `PASSWORD_REQUIRED` | Senha só na Yury; campo na tela de baixa Motoboy/Minas | Snapshot sem senha; Fóz |

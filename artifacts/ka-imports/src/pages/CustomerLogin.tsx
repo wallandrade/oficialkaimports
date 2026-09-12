@@ -1,6 +1,6 @@
 import { FormEvent, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { Loader2, Lock, Mail, User } from "lucide-react";
+import { Loader2, Lock, Mail, User, CreditCard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { saveCustomerToken } from "@/lib/customer-auth";
 import { getStoredReferralCode } from "@/lib/affiliate";
@@ -15,11 +15,20 @@ type AuthResponse = {
   message?: string;
 };
 
+function formatCPF(value: string) {
+  const d = value.replace(/\D/g, "").slice(0, 11);
+  if (d.length <= 3) return d;
+  if (d.length <= 6) return `${d.slice(0, 3)}.${d.slice(3)}`;
+  if (d.length <= 9) return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6)}`;
+  return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+}
+
 export default function CustomerLogin() {
   const [, setLocation] = useLocation();
   const [mode, setMode] = useState<AuthMode>("login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [document, setDocument] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -36,13 +45,30 @@ export default function CustomerLogin() {
       return;
     }
 
+    if (mode === "register" && password.length < 8) {
+      toast.error("A senha deve ter pelo menos 8 caracteres.");
+      return;
+    }
+
+    const documentDigits = document.replace(/\D/g, "");
+    if (documentDigits && documentDigits.length !== 11) {
+      toast.error("Informe um CPF válido ou deixe em branco.");
+      return;
+    }
+
     setLoading(true);
     try {
       const endpoint = mode === "login" ? "/api/auth/login" : "/api/auth/register";
       const affiliateCode = getStoredReferralCode();
       const payload = mode === "login"
-        ? { email: email.trim(), password }
-        : { name: name.trim(), email: email.trim(), password, affiliateCode: affiliateCode || undefined };
+        ? { email: email.trim(), password, document: documentDigits || undefined }
+        : {
+          name: name.trim(),
+          email: email.trim(),
+          password,
+          document: documentDigits || undefined,
+          affiliateCode: affiliateCode || undefined,
+        };
 
       const res = await fetch(`${BASE}${endpoint}`, {
         method: "POST",
@@ -129,6 +155,23 @@ export default function CustomerLogin() {
                 className="w-full h-11 pl-9 pr-3 rounded-xl border border-input bg-white text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:border-primary"
               />
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-foreground">CPF <span className="text-muted-foreground font-normal">(opcional)</span></label>
+            <div className="relative">
+              <CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input
+                type="text"
+                inputMode="numeric"
+                value={document}
+                onChange={(e) => setDocument(formatCPF(e.target.value))}
+                placeholder="000.000.000-00"
+                autoComplete="off"
+                className="w-full h-11 pl-9 pr-3 rounded-xl border border-input bg-white text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:border-primary"
+              />
+            </div>
+            <p className="text-[11px] text-muted-foreground">Se você comprou sem conta, o CPF ajuda a encontrar seus pedidos.</p>
           </div>
 
           <div className="space-y-1.5">

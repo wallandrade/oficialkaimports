@@ -5,6 +5,7 @@ import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { getCustomerSession, requireCustomerAuth } from "../middlewares/customer-auth";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-context";
 import { creditWallet, getWalletBalance, listWalletEntries } from "../lib/customer-wallet";
+import { attachGuestOrdersForCustomer } from "../lib/customer-guest-orders";
 
 const router: IRouter = Router();
 
@@ -22,6 +23,17 @@ router.get("/me/wallet", requireCustomerAuth, async (req, res) => {
     return;
   }
   const tenantId = session.tenantId || DEFAULT_TENANT_ID;
+  const [user] = await db
+    .select({ document: customerUsersTable.document, email: customerUsersTable.email })
+    .from(customerUsersTable)
+    .where(eq(customerUsersTable.id, session.userId))
+    .limit(1);
+  await attachGuestOrdersForCustomer({
+    userId: session.userId,
+    email: session.email || user?.email || "",
+    document: user?.document,
+    tenantId,
+  });
   const available = await getWalletBalance(session.userId, tenantId);
   res.json({ availableCredit: available, entries: await listWalletEntries(session.userId, tenantId, 20) });
 });

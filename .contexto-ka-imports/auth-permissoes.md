@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-12 | CPF opcional em `customer_users.document`; claim guest por e-mail ou CPF no login/cadastro/`/me` | Pedidos visitante grudam na conta | Sessão in-memory; impersonar |
 | 2026-09-12 | Admin redefine senha do cliente (`PATCH /admin/customers/:id/password`); sessões Bearer daquele user caem | Só `hasGlobalAccess` + tenant; min 8 | Impersonar; convidado; senha de admin |
 | 2026-09-02 | Aba Seguro no admin da filial (`isPrimary \|\| tenant ≠ loja1`) | Cada loja grava os próprios `checkout_insurance_*` | Seller-scoped da loja 1 sem a aba; Checkout/Cupons continuam primary |
 | 2026-09-02 | Aba Seguro primary-only; carteira `GET /api/me/wallet`; ajuste admin `hasGlobalAccess` | Textos/% do seguro; saldo do cliente | Seller-scoped sem a aba; afiliado inalterado |
@@ -64,6 +65,8 @@ Código > memória > tipagens.
 
 - `artifacts/api-server/src/middlewares/customer-auth.ts` + `routes/customer-auth.ts`.
 - Password: PBKDF2 (120k, sha256) + salt.
+- CPF opcional (`document`, 11 dígitos) no register/login; grava na conta se ainda vazio.
+- `attachGuestOrdersForCustomer` no register/login, lista/detalhe `/me/orders` e `GET /me/wallet`: pega pedidos `user_id` nulo pelo e-mail ou CPF.
 - Sessões **in-memory** no processo Node (não persistidas em DB) — reinício do server invalida tokens.
 - Tenant da sessão = tenant resolvido no registro/login **ou** o `tenantId` do `customer_users` na impersonação admin.
 - Impersonar (`POST /api/admin/customers/:id/impersonate`): só `hasGlobalAccess`. A nova aba abre `/minha-conta/pedidos#customerToken=…` (hash, não query); o FE grava em `sessionStorage` e tira o hash. `/auth/me` usa o tenant da sessão com o mesmo legado null/vazio da loja 1.

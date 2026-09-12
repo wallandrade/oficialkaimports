@@ -1,6 +1,6 @@
 import { enqueueFilialOrderPurchaseRequest } from "../lib/filial-purchase-queue";
 import { Router, type IRouter, type Request, type Response } from "express";
-import { db, pool, ordersTable, customChargesTable, sellersTable, productsTable, siteSettingsTable, tenantSettingsTable, reshipmentsTable, couponsTable, motoboyDeliveryReservationsTable, orderLogisticsAllocationsTable } from "@workspace/db";
+import { db, pool, ordersTable, customChargesTable, sellersTable, productsTable, siteSettingsTable, tenantSettingsTable, reshipmentsTable, couponsTable, motoboyDeliveryReservationsTable, orderLogisticsAllocationsTable, customerUsersTable } from "@workspace/db";
 import { desc, and, gte, lte, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { getAdminScope, requireAdminAuth, verifyCurrentAdminPassword } from "./admin-auth";
@@ -53,6 +53,7 @@ import {
   resolveCheckoutInsurance,
 } from "../lib/checkout-insurance";
 import { applyStoreCreditToOrder } from "../lib/customer-wallet";
+import { attachGuestOrdersForCustomer } from "../lib/customer-guest-orders";
 import {
   actionFromStatusChange,
   actorFromAdminRequest,
@@ -1111,19 +1112,17 @@ function parseOrderItemsForInventory(raw: unknown): Array<{ productId: string | 
 }
 
 async function attachLegacyGuestOrdersToCustomer(userId: string, email: string, tenantId: string): Promise<void> {
-  const normalizedEmail = String(email || "").trim().toLowerCase();
-  if (!userId || !normalizedEmail || !tenantId) return;
-
-  await db
-    .update(ordersTable)
-    .set({ userId })
-    .where(
-      and(
-        buildOrderTenantWhere(tenantId),
-        isNull(ordersTable.userId),
-        sql`lower(trim(${ordersTable.clientEmail})) = ${normalizedEmail}`,
-      ),
-    );
+  const [user] = await db
+    .select({ document: customerUsersTable.document })
+    .from(customerUsersTable)
+    .where(eq(customerUsersTable.id, userId))
+    .limit(1);
+  await attachGuestOrdersForCustomer({
+    userId,
+    email,
+    document: user?.document,
+    tenantId,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -2823,15 +2822,63 @@ function mapOrder(o: typeof ordersTable.$inferSelect, options?: { light?: boolea
   };
 }
 
+type MappedOrder = ReturnType<typeof mapOrder>;
+
+async function enrichCustomerOrderViews(mapped: MappedOrder[], tenantId: string): Promise<MappedOrder[]> {
+  if (mapped.length === 0) return mapped;
+
+  const productIds = [...new Set(
+    mapped.flatMap((order) => (order.products || []).map((item) => String(item.id || "").trim()).filter(Boolean)),
+  )];
+  const parentIds = [...new Set(
+    mapped.map((order) => String(order.parentOrderId || "").trim()).filter(Boolean),
+  )];
+
+  const imageByProductId = new Map<string, string>();
+  if (productIds.length > 0) {
+    const rows = await db
+      .select({ id: productsTable.id, image: productsTable.image })
+      .from(productsTable)
+      .where(inArray(productsTable.id, productIds));
+    for (const row of rows) {
+      const image = String(row.image || "").trim();
+      if (image) imageByProductId.set(row.id, image);
+    }
+  }
+
+  const parentNumberById = new Map<string, number | null>();
+  if (parentIds.length > 0) {
+    const rows = await db
+      .select({ id: ordersTable.id, orderNumber: ordersTable.orderNumber })
+      .from(ordersTable)
+      .where(and(buildOrderTenantWhere(tenantId), inArray(ordersTable.id, parentIds)));
+    for (const row of rows) {
+      parentNumberById.set(row.id, row.orderNumber ?? null);
+    }
+  }
+
+  return mapped.map((order) => ({
+    ...order,
+    parentOrderNumber: order.parentOrderId ? (parentNumberById.get(order.parentOrderId) ?? null) : null,
+    products: (order.products || []).map((item) => ({
+      ...item,
+      image: imageByProductId.get(String(item.id || "").trim()) || null,
+    })),
+  }));
+}
+
 async function mapOrdersWithPackages(
   orders: Array<typeof ordersTable.$inferSelect>,
   options?: { light?: boolean; forCustomer?: boolean },
 ) {
   const packagesByOrder = await listOrderShipmentsByOrderIds(orders.map((order) => order.id));
-  return orders.map((order) => mapOrder(order, {
+  const mapped = orders.map((order) => mapOrder(order, {
     ...options,
     packages: packagesByOrder.get(order.id) || [],
   }));
+  if (!options?.forCustomer || mapped.length === 0) return mapped;
+  const tenantId = orders[0]?.tenantId || DEFAULT_TENANT_ID;
+  return enrichCustomerOrderViews(mapped, tenantId);
 }
 
 async function mapOrderWithPackages(
@@ -2839,7 +2886,10 @@ async function mapOrderWithPackages(
   options?: { light?: boolean; forCustomer?: boolean },
 ) {
   const packages = mappedPackagesForOrder(await listOrderShipments(order.id), { light: options?.light });
-  return mapOrder(order, { ...options, packages });
+  const mapped = mapOrder(order, { ...options, packages });
+  if (!options?.forCustomer) return mapped;
+  const [enriched] = await enrichCustomerOrderViews([mapped], order.tenantId || DEFAULT_TENANT_ID);
+  return enriched;
 }
 
 // ---------------------------------------------------------------------------

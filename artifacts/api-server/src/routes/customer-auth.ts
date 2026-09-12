@@ -14,6 +14,8 @@ import {
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { normalizeAffiliateCode, registerAffiliateLead, resolveAffiliateByCode } from "../lib/affiliates";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
+import { parseOptionalCustomerDocument } from "../lib/customer-document";
+import { attachGuestOrdersForCustomer } from "../lib/customer-guest-orders";
 
 const router: IRouter = Router();
 
@@ -43,11 +45,12 @@ function buildAffiliatesTenantWhere(tenantId: string) {
 
 router.post("/auth/register", async (req, res) => {
   const tenantId = await resolvePublicTenantId(req as Request);
-  const { name, email, password, affiliateCode } = req.body as {
+  const { name, email, password, affiliateCode, document } = req.body as {
     name?: string;
     email?: string;
     password?: string;
     affiliateCode?: string;
+    document?: string;
   };
 
   if (!name || !email || !password) {
@@ -57,6 +60,12 @@ router.post("/auth/register", async (req, res) => {
 
   if (password.length < 8) {
     res.status(400).json({ error: "INVALID_INPUT", message: "A senha deve ter pelo menos 8 caracteres." });
+    return;
+  }
+
+  const parsedDocument = parseOptionalCustomerDocument(document);
+  if (!parsedDocument.ok) {
+    res.status(400).json({ error: "INVALID_INPUT", message: parsedDocument.message });
     return;
   }
 
@@ -82,6 +91,7 @@ router.post("/auth/register", async (req, res) => {
       tenantId,
       name: name.trim(),
       email: normalizedEmail,
+      document: parsedDocument.document,
       passwordHash: hashPassword(password, salt),
       salt,
       updatedAt: new Date(),
@@ -99,6 +109,13 @@ router.post("/auth/register", async (req, res) => {
         });
       }
     }
+
+    await attachGuestOrdersForCustomer({
+      userId: id,
+      email: normalizedEmail,
+      document: parsedDocument.document,
+      tenantId,
+    });
 
     const session = createCustomerSession({ tenantId, userId: id, email: normalizedEmail, name: name.trim() });
 
@@ -119,9 +136,10 @@ router.post("/auth/register", async (req, res) => {
 
 router.post("/auth/login", async (req, res) => {
   const tenantId = await resolvePublicTenantId(req as Request);
-  const { email, password } = req.body as {
+  const { email, password, document } = req.body as {
     email?: string;
     password?: string;
+    document?: string;
   };
 
   if (!email || !password) {
@@ -149,6 +167,28 @@ router.post("/auth/login", async (req, res) => {
       res.status(401).json({ error: "INVALID_CREDENTIALS", message: "E-mail ou senha inválidos." });
       return;
     }
+
+    const parsedDocument = parseOptionalCustomerDocument(document);
+    if (!parsedDocument.ok) {
+      res.status(400).json({ error: "INVALID_INPUT", message: parsedDocument.message });
+      return;
+    }
+
+    let savedDocument = String(user.document || "").replace(/\D/g, "") || null;
+    if (parsedDocument.document && !savedDocument) {
+      await db
+        .update(customerUsersTable)
+        .set({ document: parsedDocument.document, updatedAt: new Date() })
+        .where(eq(customerUsersTable.id, user.id));
+      savedDocument = parsedDocument.document;
+    }
+
+    await attachGuestOrdersForCustomer({
+      userId: user.id,
+      email: user.email,
+      document: parsedDocument.document || savedDocument,
+      tenantId,
+    });
 
     const session = createCustomerSession({
       tenantId,

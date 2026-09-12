@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-12 | `customer_users.document`; `attachGuestOrdersForCustomer`; split colapsa na Minha conta se `enviado`; tracking-sync por pacote | Claim guest + UI cliente | Sessão in-memory; Admin split |
 | 2026-09-12 | `PATCH /admin/customers/:id/password` + `removeCustomerSessionsForUser` | Admin redefine senha; Bearer daquele cliente cai neste processo | Impersonar; sessões in-memory |
 | 2026-09-11 | Busca Pedidos/Links: `onChange` imediato no `AdminOrdersChargesSearchShell` | Filtra a cada tecla sem debounce | `goToOrder`; poll visitantes; refresh silencioso |
 | 2026-09-11 | Minha conta (`CustomerOrders` + `customer-split-shipping.ts`): status por pacote no split | Só UI/cliente + `packages` no tracking-sync | Split admin, `order_shipments`, baixa |
@@ -100,7 +101,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 
 - Rotas: `artifacts/ka-imports/src/App.tsx` (wouter).
 - Carrinho: Zustand persist `src/store/use-cart.ts`.
-- Admin monolítico: `src/pages/Admin.tsx` (arquivo grande — leitura seletiva). `fetchOrders` usa AbortController + seq e não apaga `envioecomLabelUrl` se o GET vier vazio. Busca de Pedidos/Links: `AdminOrdersChargesSearchShell` (estado + filtro no filho; `onChange` imediato; `goToOrder` semeia). Visitantes ao vivo: `AdminLiveVisitorStats` (poll 5s próprio). Refresh silencioso de pedidos usa `startTransition`. Troca de data da lista não chama `fetchStatsData`. Aba **Seguro**: `AdminInsurancePanel.tsx` (primary-only). Checkout: `CheckoutInsuranceOffer.tsx` (2 cards, clique de novo = none). Suporte: `Support.tsx` + card de chamado no admin usam `canReship`. Split de envio: `SplitOrderShipments.tsx` + `packageId` em `EnvioEcomOrderActions.tsx`; cliente em `CustomerOrders.tsx` + `customer-split-shipping.ts` (`packages.length >= 2`, Envio 1/2).
+- Admin monolítico: `src/pages/Admin.tsx` (arquivo grande — leitura seletiva). `fetchOrders` usa AbortController + seq e não apaga `envioecomLabelUrl` se o GET vier vazio. Busca de Pedidos/Links: `AdminOrdersChargesSearchShell` (estado + filtro no filho; `onChange` imediato; `goToOrder` semeia). Visitantes ao vivo: `AdminLiveVisitorStats` (poll 5s próprio). Refresh silencioso de pedidos usa `startTransition`. Troca de data da lista não chama `fetchStatsData`. Aba **Seguro**: `AdminInsurancePanel.tsx` (primary-only). Checkout: `CheckoutInsuranceOffer.tsx` (2 cards, clique de novo = none). Suporte: `Support.tsx` + card de chamado no admin usam `canReship`. Split de envio: `SplitOrderShipments.tsx` + `packageId` em `EnvioEcomOrderActions.tsx`; cliente em `CustomerOrders.tsx` + `customer-split-shipping.ts` (Envio 1/2 se ainda não `enviado`; colapsa pacote sem etiqueta depois da expedição).
 - Proxy/API: requests sob `/api` (Vercel rewrite → Railway).
 - SW: `public/sw.js` — **somente notificações admin**, não PWA offline/sync.
 
