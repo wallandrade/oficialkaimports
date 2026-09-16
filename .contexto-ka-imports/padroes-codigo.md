@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-16 | Anti-padrão: `/suporte` listar compra só com nome, sem foto | `orders-by-cpf` hidrata `image` do catálogo; thumbnail na lista | Tickets e Minha conta |
 | 2026-09-16 | Anti-padrão: trocar SKU pelo Editar pedido (preço de vitrine) ou depois de enviado/baixado | `POST .../replace-product` + `keep_price`/`pass_difference` + `swappedFrom` | Reenvio; `PATCH .../edit` de endereço/itens |
 | 2026-09-16 | Anti-padrão: OCR/Vincular gravar só em `orders.trackingCode` e devolver `packages: []`; toast de Vincular com `resolved: false` | PATCH tracking-code no pacote; merge preserva split; Vincular honesto | Create EE; webhook |
 | 2026-09-15 | Anti-padrão: Etiqueta EE do pacote B usar `orders.trackingCode`/8880 do pacote A | Bind só do pacote; API recusa pacote sem envio próprio | Rollup do pai, OCR **Etiqueta/Rastreio** |
@@ -234,6 +235,7 @@ Código > memória > suposições.
 - Tratar só **Etiqueta emitida** (status interno do PDF) como pronta e ignorar **Etiqueta gerada** que a EnvioEcom devolve no create/sync/webhook — o card fica Pendente mesmo com rastreio. `hasEnvioEcomLabelReady` / `LABEL_READY_MARKERS` nos dois lados.
 - Calcular o seguro sobre `subtotal − cupom`, usar `computeShippingInsuranceAmount` no create, gravar o `insuranceAmount` do front, ou deixar `full` e `reduced` ao mesmo tempo. Base = subtotal dos produtos **sem** frete/cupom; `resolveCheckoutInsurance` no create e na edição. Plano desligado no Admin + create com esse plano = `none` (não troca de plano). `shipping-insurance.ts` é legado — não reativar no create.
 - Autorizar reenvio de suporte (filho/fila) sem `canReship` no pedido pago, ou só `disabled` no botão e deixar Postman/API livre. Abrir `extravio`/`apreensao` sem cobertura também 400. Exceção admin: `force: true` depois de alerta + Aprovar. “Marcar resolvido” com endereço **não** cria fila se o plano é `none`/sem cobertura. Não espalhar `if (temSeguro)` nas telas — usar o helper. Reenvio manual da aba Estoque / `POST /admin/orders/:id/reshipment` fica **de fora** desta trava.
+- Em `/suporte`, listar pedidos só com nome/`ShoppingBag`. `POST /support/orders-by-cpf` devolve `products[].image` (snapshot ou catálogo pelo id), igual à Minha conta.
 - Somar venda, custo ou comissão do filho de reenvio no dashboard / lote do vendedor, mostrar o total/lucro reais nesse card, ou gravar `sellerCommissionRateSnapshot` > 0 no create (mesmo com qtd extra). No card do filho, total e Lucro est. ficam R$ 0. Usar `isReshipmentChildOrder(observation, parentOrderId)`. Venda/custo/comissão ficam no pedido original.
 - Misturar carteira da loja (`customer_wallet_ledger`) com crédito de afiliado. Cashback só no status EnvioEcom **entregue**; “Marcar enviado” / Motoboy não creditam.
 - Fazer `.reverse()` cego no `status_history` da EnvioEcom na Minha conta (a API já vem newest-first); ordenar por `at` desc.

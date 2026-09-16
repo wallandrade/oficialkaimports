@@ -17,6 +17,7 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 type SupportOrderItem = {
   name: string;
   quantity: number;
+  image?: string | null;
 };
 
 type SupportOrder = {
@@ -355,7 +356,7 @@ export default function Support() {
                 {orders.length > 0 && (
                   <div className="rounded-2xl border border-slate-200 p-4 sm:p-5 space-y-3">
                     <p className="text-sm font-semibold text-slate-800">2. Escolha a compra com problema</p>
-                    <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                    <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
                       {orders.map((order) => (
                         <button
                           key={order.id}
@@ -376,13 +377,32 @@ export default function Support() {
                               {formatCurrency(order.total)}
                             </span>
                           </div>
-                          <div className="mt-2 text-xs text-slate-600 flex flex-wrap gap-2">
-                            {order.products.slice(0, 3).map((product, idx) => (
-                              <span key={`${order.id}-${idx}`} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5">
-                                <ShoppingBag className="w-3 h-3" /> {product.quantity}x {product.name}
-                              </span>
-                            ))}
-                            {order.products.length > 3 && <span>+{order.products.length - 3} itens</span>}
+                          <div className="mt-2 space-y-2">
+                            {order.products.slice(0, 3).map((product, idx) => {
+                              const image = String(product.image || "").trim();
+                              return (
+                                <div key={`${order.id}-${idx}`} className="flex items-center gap-2">
+                                  {image ? (
+                                    <img
+                                      src={image}
+                                      alt={product.name}
+                                      className="h-12 w-12 rounded-lg object-cover border border-slate-200 shrink-0 bg-white"
+                                      loading="lazy"
+                                    />
+                                  ) : (
+                                    <span className="h-12 w-12 rounded-lg border border-slate-200 bg-slate-100 shrink-0 inline-flex items-center justify-center">
+                                      <ShoppingBag className="w-4 h-4 text-slate-400" />
+                                    </span>
+                                  )}
+                                  <span className="text-xs text-slate-600 leading-snug">
+                                    {product.quantity}x {product.name}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                            {order.products.length > 3 && (
+                              <span className="text-xs text-slate-500">+{order.products.length - 3} itens</span>
+                            )}
                           </div>
                         </button>
                       ))}

@@ -110,17 +110,24 @@ function maskName(raw: string | null | undefined): string {
   return `${firstMasked} ${lastMasked}`;
 }
 
-function getOrderProducts(raw: unknown): Array<{ name?: string; quantity?: number }> {
-  if (Array.isArray(raw)) return raw as Array<{ name?: string; quantity?: number }>;
+function getOrderProducts(raw: unknown): Array<{ id?: string; name?: string; quantity?: number; image?: string | null }> {
+  if (Array.isArray(raw)) return raw as Array<{ id?: string; name?: string; quantity?: number; image?: string | null }>;
   if (typeof raw === "string") {
     try {
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? (parsed as Array<{ name?: string; quantity?: number }>) : [];
+      return Array.isArray(parsed) ? (parsed as Array<{ id?: string; name?: string; quantity?: number; image?: string | null }>) : [];
     } catch {
       return [];
     }
   }
   return [];
+}
+
+function publicProductImage(raw: unknown, catalogImage?: string): string | null {
+  const snapshot = String(raw ?? "").trim();
+  if (snapshot) return snapshot;
+  const catalog = String(catalogImage ?? "").trim();
+  return catalog || null;
 }
 
 type AdminOrderProduct = {
@@ -277,7 +284,23 @@ router.post("/support/orders-by-cpf", async (req, res) => {
       .orderBy(desc(ordersTable.createdAt))
       .limit(10);
 
-    const orders = rows.map((row) => ({
+    const parsedProducts = rows.map((row) => getOrderProducts(row.products));
+    const productIds = [...new Set(
+      parsedProducts.flatMap((items) => items.map((item) => String(item?.id ?? "").trim()).filter(Boolean)),
+    )];
+    const imageByProductId = new Map<string, string>();
+    if (productIds.length > 0) {
+      const catalogRows = await db
+        .select({ id: productsTable.id, image: productsTable.image })
+        .from(productsTable)
+        .where(and(buildProductsTenantWhere(tenantId), inArray(productsTable.id, productIds)));
+      for (const catalog of catalogRows) {
+        const image = String(catalog.image || "").trim();
+        if (image) imageByProductId.set(catalog.id, image);
+      }
+    }
+
+    const orders = rows.map((row, index) => ({
       id: row.id,
       clientName: maskName(row.clientName),
       total: Number(row.total),
@@ -288,10 +311,14 @@ router.post("/support/orders-by-cpf", async (req, res) => {
       insurancePlan: row.insurancePlan || null,
       insuranceClaimStatus: row.insuranceClaimStatus || "none",
       insuranceReshipCount: Number(row.insuranceReshipCount || 0),
-      products: getOrderProducts(row.products).map((p) => ({
-        name: String(p?.name ?? "Produto"),
-        quantity: Number(p?.quantity) || 0,
-      })),
+      products: parsedProducts[index].map((p) => {
+        const id = String(p?.id ?? "").trim();
+        return {
+          name: String(p?.name ?? "Produto"),
+          quantity: Number(p?.quantity) || 0,
+          image: publicProductImage(p?.image, id ? imageByProductId.get(id) : undefined),
+        };
+      }),
     }));
 
     res.json({ orders });
