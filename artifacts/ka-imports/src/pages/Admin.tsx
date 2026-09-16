@@ -127,7 +127,7 @@ function isoToSPDate(iso: string) {
   return iso ? iso.slice(0, 10) : "";
 }
 
-type OrderProductLite = { id: string; name: string; quantity: number; price: number; costPrice?: number; image?: string | null };
+type OrderProductLite = { id: string; name: string; quantity: number; price: number; costPrice?: number; image?: string | null; swappedFrom?: { id?: string; name?: string; quantity?: number; price?: number } | null; swapMode?: string | null };
 
 function resolveOrderItemUnitCost(
   item: { id?: string; costPrice?: number | null },
@@ -825,6 +825,7 @@ import { generateChargePdf, generateOrderPdf } from "@/lib/generateOrderPdf";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { EnvioEcomOrderActions, hasEnvioEcomLabelReady, preserveEnvioEcomLabelFields } from "@/components/admin/EnvioEcomOrderActions";
 import { SplitOrderShipmentsButton, isSplitOrder } from "@/components/admin/SplitOrderShipments";
+import { ReplaceOrderProductButton } from "@/components/admin/ReplaceOrderProductModal";
 import { OrderHistoryTimeline } from "@/components/admin/OrderHistoryTimeline";
 import { EnvioEcomTrackingBoard } from "@/components/admin/EnvioEcomTrackingBoard";
 import { EnvioEcomSettingsCard } from "@/components/admin/EnvioEcomSettingsCard";
@@ -6554,6 +6555,17 @@ export default function Admin() {
       .map((p) => [String(p?.id || "").trim(), String(p?.name || "").trim()] as const)
       .filter(([id, name]) => !!id && !!name),
   ), [products]);
+  const catalogProductsForSwap = useMemo(() => (
+    (products as Array<{ id?: string; name?: string | null; image?: string | null; price?: number | null; costPrice?: number | null }>)
+      .map((p) => ({
+        id: String(p?.id || "").trim(),
+        name: String(p?.name || "").trim(),
+        image: String(p?.image || "").trim() || null,
+        price: Number(p?.price || 0),
+        costPrice: Number(p?.costPrice || 0),
+      }))
+      .filter((p) => p.id && p.name)
+  ), [products]);
   const trackingCandidates = useMemo(
     () => orders.filter((order) => !order.enviado && order.status !== "cancelled"),
     [orders],
@@ -7490,6 +7502,7 @@ export default function Admin() {
             productImageById={productImageById}
             productCostById={productCostById}
             productNameById={productNameById}
+            catalogProducts={catalogProductsForSwap}
             inventoryBalances={inventoryBalances}
             getCommissionRate={getCommissionRate}
             gatewayFeePercent={Number(settings["gateway_fee_percent"] || 0)}
@@ -13689,6 +13702,7 @@ function OrdersPanel({
   productImageById,
   productCostById,
   productNameById,
+  catalogProducts,
   inventoryBalances,
   getCommissionRate,
   gatewayFeePercent,
@@ -13703,6 +13717,7 @@ function OrdersPanel({
   productImageById: Record<string, string>;
   productCostById: Record<string, number>;
   productNameById: Record<string, string>;
+  catalogProducts: Array<{ id: string; name: string; image?: string | null; price?: number; costPrice?: number }>;
   inventoryBalances: InventoryBalanceRecord[];
   getCommissionRate: (sellerCode?: string | null, snapshot?: number | null) => number;
   gatewayFeePercent: number;
@@ -15890,6 +15905,31 @@ function OrdersPanel({
                     <Pencil className="w-3.5 h-3.5" />Editar Pedido
                   </Button>
                 )}
+                {canEditOrders && (
+                  <ReplaceOrderProductButton
+                    orderId={order.id}
+                    orderNumber={getOrderDisplayId(order)}
+                    products={orderProducts}
+                    catalogProducts={catalogProducts}
+                    productImageById={productImageById}
+                    disabled={Boolean(enviados[order.id] || order.enviado || order.inventoryReserved || currentOrderStatus === "cancelled" || isSupportTicketReshipmentChild)}
+                    disabledReason={enviados[order.id] || order.enviado
+                      ? "Pedido já enviado"
+                      : order.inventoryReserved
+                        ? "Estoque já baixado"
+                        : currentOrderStatus === "cancelled"
+                          ? "Pedido cancelado"
+                          : isSupportTicketReshipmentChild
+                            ? "Filho de reenvio"
+                            : undefined}
+                    onPatched={(patch) => {
+                      onSetOrderPatched({ ...order, ...patch } as AdminOrder);
+                      if (typeof patch.enviado === "boolean") {
+                        setEnviados((prev) => ({ ...prev, [order.id]: patch.enviado as boolean }));
+                      }
+                    }}
+                  />
+                )}
                 {isCard && (
                   <Button size="sm" variant="outline" className="gap-1.5 text-amber-600 border-amber-200 hover:bg-amber-50"
                     onClick={() => onOpenKycModal(order.id)}>
@@ -15986,6 +16026,12 @@ function OrdersPanel({
                           </div>
                           <div className="min-w-0">
                             <span className="truncate block">{p.quantity}x {p.name}</span>
+                            {p.swappedFrom?.name ? (
+                              <span className="block text-[11px] text-fuchsia-700">
+                                Trocado de {p.swappedFrom.name}
+                                {p.swapMode === "keep_price" ? " · manteve o valor" : p.swapMode === "pass_difference" ? " · diferença repassada" : ""}
+                              </span>
+                            ) : null}
                           </div>
                         </div>
                         <div className="text-right shrink-0">

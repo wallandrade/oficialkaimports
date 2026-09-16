@@ -1,13 +1,13 @@
 # Auth e permissões — KA Imports
 
-> **Última atualização:** 2026-09-12  
+> **Última atualização:** 2026-09-16  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
-| 2026-09-12 | CPF opcional em `customer_users.document`; claim guest por e-mail ou CPF no login/cadastro/`/me` | Pedidos visitante grudam na conta | Sessão in-memory; impersonar |
+| 2026-09-16 | `POST /admin/orders/:id/replace-product` exige `hasGlobalAccess` | Mesmo recorte do Editar pedido | Seller-scoped; reenvio |
 | 2026-09-12 | Admin redefine senha do cliente (`PATCH /admin/customers/:id/password`); sessões Bearer daquele user caem | Só `hasGlobalAccess` + tenant; min 8 | Impersonar; convidado; senha de admin |
 | 2026-09-02 | Aba Seguro no admin da filial (`isPrimary \|\| tenant ≠ loja1`) | Cada loja grava os próprios `checkout_insurance_*` | Seller-scoped da loja 1 sem a aba; Checkout/Cupons continuam primary |
 | 2026-09-02 | Aba Seguro primary-only; carteira `GET /api/me/wallet`; ajuste admin `hasGlobalAccess` | Textos/% do seguro; saldo do cliente | Seller-scoped sem a aba; afiliado inalterado |
@@ -52,7 +52,7 @@ Código > memória > tipagens.
 - Middleware: `requireAdminAuth`; subset: `requirePrimaryAdmin`.
 - EnvioEcom (cotar/criar/etiqueta/config/accounts/shipment-item-name): `hasGlobalAccess` (primary e admin de filial). Seller-scoped recebe 403. GET accounts mascara token/e-mail. POST/PUT/DELETE extras no próprio tenant; não apaga/edita `id=env`. Board `tracking-board` lista/sync com filtro de `sellerCode` se não for global.
 - Extrato OFX (`POST /api/admin/bank-statement/analyze|apply|clear`) e histórico (`GET /api/admin/bank-deposits`): `requireAdminAuth`; filtra `tenantId`; seller-scoped só pedidos do próprio `sellerCode`. Não exige primary. `clear` não altera `paid`.
-- Editar pedido (`PATCH /api/admin/orders/:id/edit`): `hasGlobalAccess` (primary da loja 1 e admin de filial). Cada um só no próprio `tenantId`. Seller-scoped 403. O botão no FE usa `isPrimary || adminTenantId !== tenant_loja1`.
+- Editar pedido (`PATCH /api/admin/orders/:id/edit`) e troca de produto (`POST /api/admin/orders/:id/replace-product`): `hasGlobalAccess` (primary da loja 1 e admin de filial). Cada um só no próprio `tenantId`. Seller-scoped 403. O botão no FE usa `isPrimary || adminTenantId !== tenant_loja1`.
 - Rifas no admin: aba visível com `isPrimary || tenant ≠ tenant_loja1` (igual Produtos). API `/api/admin/raffles*` é `requireAdminAuth` + `tenantId`; seller-scoped da loja 1 não vê a aba.
 - Configurações (`GET`/`PUT`/`DELETE /api/admin/settings*`): `canManageSettings` = `isPrimary` **ou** `tenantId ≠ tenant_loja1`. Chaves APPCNPay (`gateway_appcnpay_public_key` / `_secret_key`) estão na allowlist admin, **fora** de `PUBLIC_KEYS`; GET devolve mascarado; PUT com `***` não grava. Escopo é o `tenantId` da sessão (filial não lê/grava as chaves da loja 1). Chaves `checkout_insurance_*` estão em `PUBLIC_KEYS` (checkout lê o GET público). Aba **Seguro** no FE: `isPrimary || tenant ≠ tenant_loja1` (igual Rifas). Seller-scoped da loja 1 não vê.
 - Carteira: `GET /api/me/wallet` exige customer auth. `GET /api/admin/wallet/:userId` é `requireAdminAuth`. `POST /api/admin/wallet/adjust` exige `hasGlobalAccess`.

@@ -36,6 +36,7 @@ const ACTION_LABELS: Record<string, string> = {
   tracking_label: "Enviou etiqueta/rastreio",
   reshipment: "Lançou reenvio",
   difference_charge: "Gerou cobrança de diferença",
+  product_swap: "Trocou produto do pedido",
   motoboy: "Marcou Motoboy",
 };
 

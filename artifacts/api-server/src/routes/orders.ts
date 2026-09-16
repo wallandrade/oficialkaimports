@@ -1,6 +1,6 @@
 import { enqueueFilialOrderPurchaseRequest } from "../lib/filial-purchase-queue";
 import { Router, type IRouter, type Request, type Response } from "express";
-import { db, pool, ordersTable, customChargesTable, sellersTable, productsTable, siteSettingsTable, tenantSettingsTable, reshipmentsTable, couponsTable, motoboyDeliveryReservationsTable, orderLogisticsAllocationsTable, customerUsersTable } from "@workspace/db";
+import { db, pool, ordersTable, customChargesTable, sellersTable, productsTable, siteSettingsTable, tenantSettingsTable, reshipmentsTable, couponsTable, motoboyDeliveryReservationsTable, orderLogisticsAllocationsTable, customerUsersTable, orderShipmentsTable } from "@workspace/db";
 import { desc, and, gte, lte, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { getAdminScope, requireAdminAuth, verifyCurrentAdminPassword } from "./admin-auth";
@@ -40,7 +40,16 @@ import {
   persistEnvioEcomPackage,
   OrderShipmentError,
 } from "../lib/order-shipments";
-import { pickUnboundPackageId } from "../lib/order-shipments-logic";
+import { pickUnboundPackageId, parseOrderShipmentItems } from "../lib/order-shipments-logic";
+import {
+  applyProductSwap,
+  applySwapToShipmentItems,
+  assertOrderCanSwapProduct,
+  lineCost,
+  lineTotal,
+  pickPackageForProductSwap,
+  type ProductSwapMode,
+} from "../lib/order-product-swap";
 import {
   parseKaInventoryExitPool,
   parseKaInventoryExitedPools,
@@ -55,7 +64,7 @@ import {
   loadCheckoutInsuranceSettings,
   resolveCheckoutInsurance,
 } from "../lib/checkout-insurance";
-import { applyStoreCreditToOrder } from "../lib/customer-wallet";
+import { applyStoreCreditToOrder, creditWallet } from "../lib/customer-wallet";
 import { attachGuestOrdersForCustomer } from "../lib/customer-guest-orders";
 import {
   actionFromStatusChange,
@@ -2422,6 +2431,292 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
   } catch (err) {
     console.error("Edit order error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao editar pedido." });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/admin/orders/:id/replace-product  (protected, full-access only)
+// ---------------------------------------------------------------------------
+router.post("/admin/orders/:id/replace-product", requireAdminAuth, async (req, res) => {
+  try {
+    const adminScope = ensureSellerScopeOnOrderQuery(req, res);
+    if (!adminScope) return;
+    if (!adminScope.hasGlobalAccess) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para trocar produto do pedido." });
+      return;
+    }
+
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
+    const { lineIndex, toProductId, quantity, mode, confirm, packageId } = req.body as {
+      lineIndex?: number;
+      toProductId?: string;
+      quantity?: number;
+      mode?: ProductSwapMode;
+      confirm?: boolean;
+      packageId?: string;
+    };
+
+    const existing = await db.select().from(ordersTable).where(buildAdminOrderWhere(id, adminScope)).limit(1);
+    const current = existing[0];
+    if (!current) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
+
+    const packages = await listOrderShipments(current.id);
+    const mappedPackages = packages.map((row) => ({
+      id: row.id,
+      enviado: row.enviado,
+      items: parseOrderShipmentItems(row.items),
+    }));
+    const canSwap = assertOrderCanSwapProduct({
+      status: current.status,
+      enviado: current.enviado,
+      inventoryReserved: current.inventoryReserved,
+      inventoryExitedPools: current.inventoryExitedPools,
+      parentOrderId: current.parentOrderId,
+      observation: current.observation,
+      packages: mappedPackages,
+    });
+    if (!canSwap.ok) {
+      res.status(409).json({ error: canSwap.code, message: canSwap.message });
+      return;
+    }
+
+    const replacementId = String(toProductId || "").trim();
+    if (!replacementId) {
+      res.status(400).json({ error: "REPLACEMENT_REQUIRED", message: "Escolha o produto novo." });
+      return;
+    }
+    const catalogRows = await db.select().from(productsTable).where(eq(productsTable.id, replacementId)).limit(1);
+    const catalog = catalogRows[0];
+    if (!catalog) {
+      res.status(404).json({ error: "PRODUCT_NOT_FOUND", message: "Produto novo não encontrado no catálogo." });
+      return;
+    }
+
+    const qtyHint = Math.trunc(Number(quantity || 0));
+    const unitPrice = resolveUnitPriceForQuantity(catalog, qtyHint > 0 ? qtyHint : 1);
+    const replacement = {
+      id: catalog.id,
+      name: String(catalog.name || "Produto").trim() || "Produto",
+      unitPrice,
+      costPrice: Number(catalog.costPrice || 0),
+      image: String(catalog.image || "").trim() || null,
+    };
+
+    const keep = applyProductSwap({
+      products: current.products,
+      lineIndex: Number(lineIndex),
+      quantity,
+      replacement,
+      mode: "keep_price",
+    });
+    if (!keep.ok) {
+      res.status(400).json({ error: keep.code, message: keep.message });
+      return;
+    }
+    const pass = applyProductSwap({
+      products: current.products,
+      lineIndex: Number(lineIndex),
+      quantity,
+      replacement,
+      mode: "pass_difference",
+    });
+    if (!pass.ok) {
+      res.status(400).json({ error: pass.code, message: pass.message });
+      return;
+    }
+
+    const pkgPick = pickPackageForProductSwap(mappedPackages, keep.from.id, packageId);
+    if (!pkgPick.ok) {
+      res.status(400).json({ error: pkgPick.code, message: pkgPick.message });
+      return;
+    }
+
+    const currentShipping = Math.max(0, Number(current.shippingCost) || 0);
+    const currentDiscount = Math.max(0, Number(current.discountAmount) || 0);
+    const currentTotal = Number(current.total || 0);
+    const paidAmount = current.paidAmount != null ? Number(current.paidAmount) : null;
+    const isPaid = current.status === "paid" || current.status === "completed";
+    const paidRef = paidAmount != null ? paidAmount : (isPaid ? currentTotal : 0);
+
+    const passSubtotal = Math.round(pass.products.reduce((sum, line) => sum + lineTotal(line), 0) * 100) / 100;
+    const passInsurance = resolveCheckoutInsurance({
+      includeInsurance: current.includeInsurance,
+      insurancePlan: current.insurancePlan,
+      subtotal: passSubtotal,
+      shippingCost: currentShipping,
+      discountAmount: currentDiscount,
+      lines: insuranceLinesFromProducts(pass.products),
+      settings: insuranceSettings,
+      honorToggles: false,
+    });
+    const passTotal = passInsurance.total;
+    const passDiff = Math.round((passTotal - (paidRef || currentTotal)) * 100) / 100;
+    const needsDifferenceCharge = isPaid && passDiff > 0.01;
+    const walletCredit = isPaid && passDiff < -0.01 ? Math.round(Math.abs(passDiff) * 100) / 100 : 0;
+
+    const fromPreview = {
+      id: keep.from.id,
+      name: keep.from.name,
+      quantity: keep.from.quantity,
+      unitPrice: keep.from.price,
+      costPrice: Number(keep.from.costPrice || 0),
+      lineTotal: lineTotal(keep.from),
+      lineCost: lineCost(keep.from),
+      lineProfit: Math.round((lineTotal(keep.from) - lineCost(keep.from)) * 100) / 100,
+    };
+    const preview = {
+      from: fromPreview,
+      packageId: pkgPick.packageId,
+      keepPrice: {
+        to: {
+          id: keep.to.id,
+          name: keep.to.name,
+          quantity: keep.to.quantity,
+          unitPrice: keep.to.price,
+          costPrice: Number(keep.to.costPrice || 0),
+          lineTotal: lineTotal(keep.to),
+          lineCost: lineCost(keep.to),
+          lineProfit: Math.round((lineTotal(keep.to) - lineCost(keep.to)) * 100) / 100,
+        },
+        newTotal: currentTotal,
+        difference: 0,
+        needsDifferenceCharge: false,
+        walletCredit: 0,
+      },
+      passDifference: {
+        to: {
+          id: pass.to.id,
+          name: pass.to.name,
+          quantity: pass.to.quantity,
+          unitPrice: pass.to.price,
+          costPrice: Number(pass.to.costPrice || 0),
+          lineTotal: lineTotal(pass.to),
+          lineCost: lineCost(pass.to),
+          lineProfit: Math.round((lineTotal(pass.to) - lineCost(pass.to)) * 100) / 100,
+        },
+        newSubtotal: passSubtotal,
+        newInsurance: passInsurance.insuranceAmount,
+        newTotal: passTotal,
+        difference: passDiff,
+        needsDifferenceCharge,
+        walletCredit,
+        guestNoWallet: walletCredit > 0 && !current.userId,
+      },
+    };
+
+    if (!confirm) {
+      res.json({ ok: true, preview: true, ...preview });
+      return;
+    }
+
+    const chosenMode: ProductSwapMode = mode === "pass_difference" ? "pass_difference" : "keep_price";
+    const chosen = chosenMode === "pass_difference" ? pass : keep;
+    if (pkgPick.packageId) {
+      const pkg = packages.find((row) => row.id === pkgPick.packageId);
+      if (!pkg) {
+        res.status(400).json({ error: "PACKAGE_NOT_FOUND", message: "Pacote não encontrado neste pedido." });
+        return;
+      }
+      const swappedItems = applySwapToShipmentItems({
+        items: parseOrderShipmentItems(pkg.items),
+        fromProductId: keep.from.id,
+        quantity: keep.to.quantity,
+        replacement: { id: keep.to.id, name: keep.to.name },
+      });
+      if (!swappedItems.ok) {
+        res.status(400).json({ error: swappedItems.code, message: swappedItems.message });
+        return;
+      }
+      await db.update(orderShipmentsTable).set({
+        items: swappedItems.items,
+        updatedAt: new Date(),
+      }).where(eq(orderShipmentsTable.id, pkg.id));
+    }
+
+    const updates: Partial<typeof ordersTable.$inferInsert> = {
+      products: chosen.products,
+      isProcurandoProduto: false,
+      updatedAt: new Date(),
+    };
+
+    let newStatus = current.status;
+    if (chosenMode === "pass_difference") {
+      updates.subtotal = String(passSubtotal);
+      updates.insuranceAmount = String(passInsurance.insuranceAmount);
+      updates.insuranceKeepAmount = String(passInsurance.keepAmount);
+      updates.insuranceCashbackAmount = String(passInsurance.cashbackAmount);
+      updates.includeInsurance = passInsurance.includeInsurance;
+      updates.insurancePlan = passInsurance.plan === "none" ? null : passInsurance.plan;
+      updates.total = String(passTotal);
+      if (paidAmount != null) {
+        newStatus = passTotal > paidAmount + 0.01 ? "awaiting_payment" : (isPaid ? "paid" : current.status);
+      } else if (isPaid && passTotal > currentTotal + 0.01) {
+        newStatus = "awaiting_payment";
+      }
+      updates.status = newStatus;
+    }
+
+    await db.update(ordersTable).set(updates).where(buildAdminOrderWhere(id, adminScope));
+
+    let credited = 0;
+    if (chosenMode === "pass_difference" && walletCredit > 0 && current.userId) {
+      credited = await creditWallet({
+        tenantId: adminScope.tenantId,
+        userId: current.userId,
+        amount: walletCredit,
+        type: "product_refund",
+        orderId: current.id,
+        note: `Troca de produto: ${keep.from.name} → ${keep.to.name}`,
+      });
+    }
+
+    await addOrderEvent({
+      orderId: id,
+      tenantId: adminScope.tenantId,
+      action: "product_swap",
+      ...actorFromAdminRequest(req),
+      payload: {
+        summary: `${keep.from.name} → ${keep.to.name}${chosenMode === "keep_price" ? " · manteve o valor pago" : " · repassou a diferença"}`,
+        fromId: keep.from.id,
+        fromName: keep.from.name,
+        toId: keep.to.id,
+        toName: keep.to.name,
+        quantity: keep.to.quantity,
+        mode: chosenMode,
+        packageId: pkgPick.packageId,
+        fromTotal: currentTotal,
+        toTotal: chosenMode === "pass_difference" ? passTotal : currentTotal,
+        walletCredit: credited,
+      },
+    });
+
+    if (chosenMode === "pass_difference") {
+      if (newStatus === "paid" || newStatus === "completed") {
+        await allocateOrderLogistics(id);
+      } else if (isPaid) {
+        await releaseOrderLogistics(id, adminScope.tenantId);
+      }
+    }
+
+    const persisted = await db.select().from(ordersTable).where(buildAdminOrderWhere(id, adminScope)).limit(1);
+    broadcastNotification({ type: "order_updated", data: { id, tenantId: adminScope.tenantId } });
+    res.json({
+      ok: true,
+      preview: false,
+      order: persisted[0] ? await mapOrderWithPackages(persisted[0]) : null,
+      mode: chosenMode,
+      ...preview,
+      walletCredited: credited,
+      needsDifferenceCharge: chosenMode === "pass_difference" ? needsDifferenceCharge : false,
+      difference: chosenMode === "pass_difference" ? passDiff : 0,
+    });
+  } catch (err) {
+    console.error("Replace product error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao trocar produto do pedido." });
   }
 });
 

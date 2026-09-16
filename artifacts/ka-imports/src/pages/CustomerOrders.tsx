@@ -52,7 +52,7 @@ type CustomerOrder = {
   createdAt: string;
   clientName?: string;
   clientPhone?: string;
-  products?: Array<{ name: string; quantity: number; price: number; image?: string | null }>;
+  products?: Array<{ name: string; quantity: number; price: number; image?: string | null; id?: string; swappedFrom?: { name?: string; quantity?: number } | null }>;
   subtotal?: number;
   shippingCost?: number;
   insuranceAmount?: number;
@@ -981,9 +981,23 @@ export default function CustomerOrders() {
                                     <div key={pkg.id} className="p-3 rounded-lg bg-muted/30 border border-border/30">
                                       <p className="text-xs uppercase tracking-wide text-muted-foreground font-medium mb-2">Envio {index + 1}</p>
                                       <ul className="space-y-1">
-                                        {formatCustomerPackageItems(pkg).map((line) => (
-                                          <li key={line} className="text-sm font-medium text-foreground">{line}</li>
-                                        ))}
+                                        {formatCustomerPackageItems(pkg).map((line) => {
+                                          const swapped = (order.products || []).find((product) => {
+                                            const note = String(product.swappedFrom?.name || "").trim();
+                                            if (!note) return false;
+                                            return line.toLowerCase().includes(String(product.name || "").trim().toLowerCase());
+                                          });
+                                          return (
+                                            <li key={line} className="text-sm font-medium text-foreground">
+                                              {line}
+                                              {swapped?.swappedFrom?.name ? (
+                                                <span className="block text-xs text-muted-foreground font-normal mt-0.5">
+                                                  Trocado de {swapped.swappedFrom.name}
+                                                </span>
+                                              ) : null}
+                                            </li>
+                                          );
+                                        })}
                                       </ul>
                                     </div>
                                   ))}
@@ -1001,6 +1015,11 @@ export default function CustomerOrders() {
                                           <p className="font-medium text-foreground text-sm truncate">
                                             {product.quantity}x {product.name}
                                           </p>
+                                          {product.swappedFrom?.name ? (
+                                            <p className="text-xs text-muted-foreground mt-0.5">
+                                              Trocado de {product.swappedFrom.name}
+                                            </p>
+                                          ) : null}
                                         </div>
                                         <p className="font-semibold text-foreground ml-3">
                                           {formatCurrency(product.price * product.quantity)}
