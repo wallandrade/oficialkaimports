@@ -276,6 +276,55 @@ export function pickInheritPackageIndex(
   return 0;
 }
 
+export type EnvioEcomBindableFields = {
+  envioecomShipmentId?: number | null;
+  envioecomBarcode?: string | null;
+  envioecomTrackingKey?: string | null;
+  envioecomDeliveryMode?: string | null;
+  envioecomStatus?: string | null;
+  envioecomStatusUpdatedAt?: Date | string | null;
+  envioecomStatusHistory?: unknown;
+  envioecomLabelUrl?: string | null;
+  envioecomFreightCost?: string | number | null;
+  envioecomExternalOrderNumber?: string | null;
+  envioecomAccountId?: string | null;
+  trackingCode?: string | null;
+  trackingLabelUrl?: string | null;
+};
+
+export function packageHasOwnEnvioEcomRef(pkg: {
+  envioecomShipmentId?: number | null;
+  envioecomBarcode?: string | null;
+}): boolean {
+  const shipmentId = Number(pkg.envioecomShipmentId || 0);
+  if (Number.isFinite(shipmentId) && shipmentId > 0) return true;
+  return Boolean(String(pkg.envioecomBarcode || "").trim());
+}
+
+export function bindEnvioEcomFieldsToPackage<T extends EnvioEcomBindableFields>(
+  order: T,
+  pkg: EnvioEcomBindableFields,
+): T {
+  const barcode = String(pkg.envioecomBarcode || "").trim() || null;
+  const labelUrl = String(pkg.envioecomLabelUrl || "").trim() || null;
+  return {
+    ...order,
+    envioecomShipmentId: pkg.envioecomShipmentId ?? null,
+    envioecomBarcode: barcode,
+    envioecomTrackingKey: pkg.envioecomTrackingKey ?? null,
+    envioecomDeliveryMode: pkg.envioecomDeliveryMode ?? null,
+    envioecomStatus: pkg.envioecomStatus ?? null,
+    envioecomStatusUpdatedAt: pkg.envioecomStatusUpdatedAt ?? null,
+    envioecomStatusHistory: pkg.envioecomStatusHistory ?? null,
+    envioecomLabelUrl: labelUrl,
+    envioecomFreightCost: pkg.envioecomFreightCost ?? null,
+    envioecomExternalOrderNumber: pkg.envioecomExternalOrderNumber ?? null,
+    envioecomAccountId: pkg.envioecomAccountId ?? null,
+    trackingCode: barcode,
+    trackingLabelUrl: labelUrl,
+  };
+}
+
 export function mapOrderShipmentPackage(row: {
   id: string;
   orderId: string;

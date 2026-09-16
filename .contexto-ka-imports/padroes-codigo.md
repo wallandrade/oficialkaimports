@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-09-12  
+> **Última atualização:** 2026-09-15
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-15 | Anti-padrão: Etiqueta EE do pacote B usar `orders.trackingCode`/8880 do pacote A | Bind só do pacote; API recusa pacote sem envio próprio | Rollup do pai, OCR **Etiqueta/Rastreio** |
 | 2026-09-12 | Anti-padrão: mostrar Envio 1/2 e “Enviado parcialmente” depois que o admin já marcou o pedido enviado; ou “Aguardando estoque” na Minha conta | Colapsar pacote interno; **Aguardando envio** | Admin e 48h AND iguais |
 | 2026-09-12 | Anti-padrão: SHA256 de admin em `customer_users`, PATCH em `guest:`, ou seller-scoped resetar senha | PBKDF2 + `hasGlobalAccess` + tenant | Impersonar e lista de clientes iguais |
 | 2026-09-11 | Busca Pedidos/Links: `onChange` imediato no filho (sem debounce/`startTransition`/estado local no input) | Nome e nº filtram a cada tecla; `Admin` não re-renderiza | Isolamento; `goToOrder`; refresh silencioso em transition |
@@ -180,6 +181,7 @@ Código > memória > suposições.
 - Restaurar vaga `allocated` no reconcile só porque `enviado` é false quando a etiqueta EnvioEcom já existe. No split a fila 48h só some com AND de todos os pacotes.
 - Tratar PDF da etiqueta EnvioEcom como “Pronto para envio” se o status for **Cancelado** ou **Aguardando cancelamento**.
 - Copiar o PDF/status do 1º pacote para `orders.envioecom_label_url` quando ainda falta URL noutro pacote (some da lista 48h cedo demais). Rollup só promove PDF no pai se **todos** têm URL.
+- Gerar **Etiqueta EE** / Sync / Cancelar do pacote B com o `trackingCode` (8880) ou PDF do pedido/pacote A. No split, bind só com `envioecom_*` daquele pacote; pacote sem envio próprio não herda o irmão.
 - Fazer o 2º volume virando reenvio, pedido filho (`parent_order_id`) ou duplicando o pedido. Split é `order_shipments` no **mesmo** pedido; reenvio de suporte continua outro domínio.
 - Esperar a EnvioEcom ir para **Cancelado** antes de cotar de novo, ou deixar `shipment_id`/8880/`orderId` no pedido enquanto está em Aguardando cancelamento (`DUPLICATE_ORDER`). Cancelar EE desvincula na hora; create usa orderId novo se já houve histórico. No split o orderId inclui o pool (`{n}-{8chars}-{pool}`).
 - Casar webhook EnvioEcom por prefixo `{n}-` do orderId, por `orderNumber` ou por UUID do pedido; só barcode/`external_order_number`/`shipment_id` **exatos** do envio atual. No split: casar o **pacote** primeiro (`findPackageForEnvioEcomWebhook`); não gravar o 2º envio em `orders.envioecom_*` com `persistEnvioEcomShipment`. Pedido solto não reatacha o 8880 velho.

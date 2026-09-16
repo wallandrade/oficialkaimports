@@ -113,6 +113,28 @@ function prettyAccountName(order: EnvioEcomOrderFields) {
   return order.envioecomAccountId || "";
 }
 
+export function bindOrderFieldsToPackage(
+  order: EnvioEcomOrderFields,
+  pkg: EnvioEcomPackageFields,
+): EnvioEcomOrderFields {
+  const barcode = String(pkg.envioecomBarcode || "").trim() || null;
+  const labelUrl = String(pkg.envioecomLabelUrl || "").trim() || null;
+  return {
+    ...order,
+    ...pkg,
+    id: order.id,
+    trackingCode: barcode,
+    trackingLabelUrl: labelUrl,
+    envioecomBarcode: barcode,
+    envioecomLabelUrl: labelUrl,
+    envioecomShipmentId: pkg.envioecomShipmentId ?? null,
+    envioecomStatus: pkg.envioecomStatus ?? null,
+    envioecomDeliveryMode: pkg.envioecomDeliveryMode ?? null,
+    envioecomFreightCost: pkg.envioecomFreightCost ?? null,
+    envioecomAccountId: pkg.envioecomAccountId ?? null,
+  };
+}
+
 function quoteCarrier(quote: QuoteOption) {
   return String(quote.carrier || quote.shipping_company || "").trim();
 }
@@ -189,7 +211,7 @@ export function EnvioEcomOrderActions({
   const [accountOptions, setAccountOptions] = useState<EnvioEcomAccountOption[]>([]);
   const [pendingLinkContinueToLabel, setPendingLinkContinueToLabel] = useState(false);
   const boundPackage = packageId ? (order.packages || []).find((pkg) => pkg.id === packageId) : null;
-  const bound: EnvioEcomOrderFields = boundPackage ? { ...order, ...boundPackage, id: order.id } : order;
+  const bound: EnvioEcomOrderFields = boundPackage ? bindOrderFieldsToPackage(order, boundPackage) : order;
   function withPackageId<T extends Record<string, unknown>>(body: T): T & { packageId?: string } {
     return packageId ? { ...body, packageId } : body;
   }
@@ -204,10 +226,10 @@ export function EnvioEcomOrderActions({
 
   if (isMotoboyOrPickup(order.shippingType)) return null;
 
-  const barcode = bound.envioecomBarcode || bound.trackingCode || "";
+  const barcode = String(bound.envioecomBarcode || (!packageId ? bound.trackingCode : "") || "").trim();
   const labelBlocked = isLabelBlockedStatus(bound.envioecomStatus);
   const needsBind = isProvisionalBarcode(barcode) && !bound.envioecomShipmentId;
-  const labelUrl = bound.envioecomLabelUrl || bound.trackingLabelUrl || "";
+  const labelUrl = String(bound.envioecomLabelUrl || (!packageId ? bound.trackingLabelUrl : "") || "").trim();
   const orderDisplayId = Number.isFinite(Number(order.orderNumber)) && Number(order.orderNumber) > 0
     ? String(Math.trunc(Number(order.orderNumber)))
     : order.id;

@@ -5,9 +5,11 @@ import {
   allPackagesDelivered,
   allPackagesEnviado,
   allPackagesLabelReady,
+  bindEnvioEcomFieldsToPackage,
   buildPackageExternalOrderNumber,
   isSplitShipments,
   leastAdvancedShipmentStatus,
+  packageHasOwnEnvioEcomRef,
   packageInventoryReferenceId,
   pickInheritPackageIndex,
   rollupParentLabelUrl,
@@ -99,4 +101,40 @@ test("helpers de split e referenceId do pacote", () => {
     { pool: "loja", items: [] },
     { pool: "minas", items: [] },
   ], "minas"), 1);
+});
+
+test("bind do pacote nao herda rastreio/etiqueta do pedido irmao", () => {
+  const order = {
+    envioecomShipmentId: 99,
+    envioecomBarcode: "888030937018141",
+    envioecomStatus: "DC-e emitida",
+    envioecomLabelUrl: "https://minas.pdf",
+    trackingCode: "888030937018141",
+    trackingLabelUrl: "https://minas.pdf",
+    envioecomAccountId: "minas",
+  };
+  const unbound = bindEnvioEcomFieldsToPackage(order, {
+    envioecomShipmentId: null,
+    envioecomBarcode: null,
+    envioecomStatus: null,
+    envioecomLabelUrl: null,
+    envioecomAccountId: null,
+  });
+  assert.equal(unbound.envioecomShipmentId, null);
+  assert.equal(unbound.envioecomBarcode, null);
+  assert.equal(unbound.trackingCode, null);
+  assert.equal(unbound.trackingLabelUrl, null);
+  assert.equal(unbound.envioecomStatus, null);
+  assert.equal(packageHasOwnEnvioEcomRef(unbound), false);
+
+  const own = bindEnvioEcomFieldsToPackage(order, {
+    envioecomShipmentId: 71,
+    envioecomBarcode: "888030900000001",
+    envioecomStatus: "Envio criado",
+    envioecomLabelUrl: "https://foz.pdf",
+  });
+  assert.equal(own.envioecomShipmentId, 71);
+  assert.equal(own.trackingCode, "888030900000001");
+  assert.equal(own.trackingLabelUrl, "https://foz.pdf");
+  assert.equal(packageHasOwnEnvioEcomRef(own), true);
 });

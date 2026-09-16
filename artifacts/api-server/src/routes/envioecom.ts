@@ -54,7 +54,7 @@ import {
   sanitizeUf,
   shipmentEventMatchesOrder,
 } from "../lib/envioecom-order";
-import { buildPackageExternalOrderNumber } from "../lib/order-shipments-logic";
+import { bindEnvioEcomFieldsToPackage, buildPackageExternalOrderNumber, packageHasOwnEnvioEcomRef } from "../lib/order-shipments-logic";
 import {
   detachEnvioEcomPackage,
   findPackageForEnvioEcomWebhook,
@@ -269,22 +269,7 @@ function orderBoundFromPackage(
   order: typeof ordersTable.$inferSelect,
   pkg: Awaited<ReturnType<typeof listOrderShipments>>[number],
 ): typeof ordersTable.$inferSelect {
-  return {
-    ...order,
-    envioecomShipmentId: pkg.envioecomShipmentId,
-    envioecomBarcode: pkg.envioecomBarcode,
-    envioecomTrackingKey: pkg.envioecomTrackingKey,
-    envioecomDeliveryMode: pkg.envioecomDeliveryMode,
-    envioecomStatus: pkg.envioecomStatus,
-    envioecomStatusUpdatedAt: pkg.envioecomStatusUpdatedAt,
-    envioecomStatusHistory: pkg.envioecomStatusHistory,
-    envioecomLabelUrl: pkg.envioecomLabelUrl,
-    envioecomFreightCost: pkg.envioecomFreightCost,
-    envioecomExternalOrderNumber: pkg.envioecomExternalOrderNumber,
-    envioecomAccountId: pkg.envioecomAccountId,
-    trackingCode: pkg.envioecomBarcode || order.trackingCode,
-    trackingLabelUrl: pkg.envioecomLabelUrl || order.trackingLabelUrl,
-  };
+  return bindEnvioEcomFieldsToPackage(order, pkg);
 }
 
 function requireEnvioEcomBoardAdmin(req: Request, res: Response): { tenantId: string; sellerCode: string | null; hasGlobalAccess: boolean } | null {
@@ -1044,7 +1029,17 @@ router.post("/admin/envioecom/orders/:id/labels", requireAdminAuth, async (req, 
       return;
     }
     const requestedId = Number((req.body as { shipmentId?: number; accountId?: string })?.shipmentId);
-    const shipmentId = Number.isFinite(requestedId) && requestedId > 0 ? requestedId : bound.envioecomShipmentId;
+    const ownShipmentId = Number(bound.envioecomShipmentId || 0);
+    const shipmentId = ownShipmentId > 0
+      ? ownShipmentId
+      : (!target.pkg && Number.isFinite(requestedId) && requestedId > 0 ? requestedId : undefined);
+    if (target.pkg && !packageHasOwnEnvioEcomRef(target.pkg) && !shipmentId) {
+      res.status(400).json({
+        error: "SHIPMENT_ID_REQUIRED",
+        message: "Este pacote ainda não tem envio EnvioEcom. Cote e crie o envio deste pacote.",
+      });
+      return;
+    }
     if (!shipmentId) {
       const barcode = String(bound.envioecomBarcode || bound.trackingCode || "").trim();
       if (isProvisionalBarcode(barcode) || !barcode) {
@@ -1063,9 +1058,11 @@ router.post("/admin/envioecom/orders/:id/labels", requireAdminAuth, async (req, 
       });
       return;
     }
+    const ownBarcode = String(bound.envioecomBarcode || "").trim()
+      || (target.pkg ? "" : String(bound.trackingCode || "").trim());
     const payload = shipmentId
       ? { ids: [Number(shipmentId)] }
-      : { barcodes: [String(bound.envioecomBarcode || bound.trackingCode)] };
+      : { barcodes: [ownBarcode] };
     const preferred = String((req.body as { accountId?: string })?.accountId || bound.envioecomAccountId || "").trim() || undefined;
     const found = await withEnvioEcomAccountFallback(
       admin.tenantId,
@@ -1089,7 +1086,9 @@ router.post("/admin/envioecom/orders/:id/labels", requireAdminAuth, async (req, 
     const labelUrl = await uploadShipmentLabelPdfToR2({ buffer: result.buffer, orderId: target.pkg ? `${order.id}-${target.pkg.id}` : order.id });
     const labelPatch = {
       shipmentId: shipmentId || bound.envioecomShipmentId,
-      barcode: isUsableLabelBarcode(bound.envioecomBarcode) ? bound.envioecomBarcode : bound.trackingCode,
+      barcode: isUsableLabelBarcode(bound.envioecomBarcode)
+        ? bound.envioecomBarcode
+        : (target.pkg ? bound.envioecomBarcode : bound.trackingCode),
       labelUrl,
       status: resolveStatusAfterLabelGenerated(bound.envioecomStatus),
     };
@@ -1142,6 +1141,14 @@ router.post("/admin/envioecom/orders/:id/sync", requireAdminAuth, async (req, re
     const shipmentIdRaw = Number(body.shipment_id || body.shipmentId || parsed.shipmentId);
     const shipmentId = Number.isFinite(shipmentIdRaw) && shipmentIdRaw > 0 ? Math.trunc(shipmentIdRaw) : undefined;
     const barcode = String(body.barcode || parsed.barcode || "").trim() || undefined;
+    const hasExplicitRef = Boolean(shipmentId || barcode);
+    if (target.pkg && !hasExplicitRef && !packageHasOwnEnvioEcomRef(target.pkg)) {
+      res.status(400).json({
+        error: "NO_SHIPMENT",
+        message: "Este pacote ainda não tem envio EnvioEcom. Cote e crie o envio deste pacote.",
+      });
+      return;
+    }
     const preferred = String(body.accountId || bound.envioecomAccountId || "").trim() || undefined;
 
     const found = await withEnvioEcomAccountFallback(
@@ -1189,7 +1196,12 @@ router.post("/admin/envioecom/orders/:id/cancel", requireAdminAuth, async (req, 
     }
     const target = await resolveEnvioEcomTarget(order, readPackageId(req.body));
     const bound = target.pkg ? orderBoundFromPackage(order, target.pkg) : order;
-    const identifier = String(bound.envioecomShipmentId || bound.envioecomBarcode || bound.trackingCode || "").trim();
+    const identifier = String(
+      bound.envioecomShipmentId
+      || bound.envioecomBarcode
+      || (target.pkg ? "" : bound.trackingCode)
+      || "",
+    ).trim();
     const hasBinding = Boolean(
       identifier
       || bound.envioecomExternalOrderNumber
@@ -1197,7 +1209,12 @@ router.post("/admin/envioecom/orders/:id/cancel", requireAdminAuth, async (req, 
       || bound.envioecomStatus,
     );
     if (!hasBinding) {
-      res.status(400).json({ error: "NO_SHIPMENT", message: "Este pedido ainda não tem envio EnvioEcom." });
+      res.status(400).json({
+        error: "NO_SHIPMENT",
+        message: target.pkg
+          ? "Este pacote ainda não tem envio EnvioEcom. Cote e crie o envio deste pacote."
+          : "Este pedido ainda não tem envio EnvioEcom.",
+      });
       return;
     }
     const reason = String((req.body as { reason?: string; accountId?: string })?.reason || "").trim();
