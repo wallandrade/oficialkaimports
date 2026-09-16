@@ -15611,6 +15611,7 @@ function OrdersPanel({
                         }}
                         inventoryByProduct={Object.fromEntries(inventoryBalances.map((row) => [row.productId, row.quantity]))}
                         yuryByProduct={Object.fromEntries(yuryBalances.map((row) => [row.productId, { motoboy: row.qtyMotoboy, minas: row.qtyMinas }]))}
+                        productImageById={productImageById}
                       />
                     ) : (
                       <>
@@ -15633,6 +15634,7 @@ function OrdersPanel({
                           }}
                           inventoryByProduct={Object.fromEntries(inventoryBalances.map((row) => [row.productId, row.quantity]))}
                           yuryByProduct={Object.fromEntries(yuryBalances.map((row) => [row.productId, { motoboy: row.qtyMotoboy, minas: row.qtyMinas }]))}
+                          productImageById={productImageById}
                         />
                       </>
                     )

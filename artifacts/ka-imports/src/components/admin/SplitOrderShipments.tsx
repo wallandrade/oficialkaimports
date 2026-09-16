@@ -8,7 +8,7 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 type Pool = "loja" | "motoboy" | "minas";
 
-type OrderProduct = { id?: string; name?: string; quantity?: number };
+type OrderProduct = { id?: string; name?: string; quantity?: number; image?: string | null };
 
 function adminHeaders() {
   const token = sessionStorage.getItem("adminToken") || localStorage.getItem("adminToken") || "";
@@ -23,7 +23,7 @@ function poolLabel(pool: string): string {
   return "Fóz Guaçu";
 }
 
-function parseProducts(products: unknown): Array<{ id: string; name: string; quantity: number }> {
+function parseProducts(products: unknown): Array<{ id: string; name: string; quantity: number; image: string | null }> {
   const rows = Array.isArray(products) ? products : [];
   return rows
     .map((item) => {
@@ -32,9 +32,34 @@ function parseProducts(products: unknown): Array<{ id: string; name: string; qua
         id: String(row.id || "").trim(),
         name: String(row.name || "Produto").trim() || "Produto",
         quantity: Math.trunc(Number(row.quantity || 0)),
+        image: String(row.image || "").trim() || null,
       };
     })
     .filter((item) => item.quantity > 0);
+}
+
+function resolveProductImage(
+  product: { id?: string | null; image?: string | null; name?: string },
+  catalog?: Record<string, string>,
+): string {
+  const fromSnapshot = String(product.image || "").trim();
+  if (fromSnapshot) return fromSnapshot;
+  const productId = String(product.id || "").trim();
+  return productId ? String(catalog?.[productId] || "").trim() : "";
+}
+
+function ProductThumb({ src, name }: { src: string; name: string }) {
+  return (
+    <div className="h-11 w-11 rounded-lg overflow-hidden border border-neutral-200 bg-neutral-50 shrink-0">
+      {src ? (
+        <img src={src} alt={name} className="h-full w-full object-cover" loading="lazy" />
+      ) : (
+        <div className="h-full w-full flex items-center justify-center text-[11px] font-semibold text-neutral-400">
+          {(name || "?").slice(0, 1).toUpperCase()}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function isSplitOrder(order: { packages?: EnvioEcomPackageFields[] | null }): boolean {
@@ -46,17 +71,26 @@ export function SplitOrderShipmentsButton({
   onPatched,
   inventoryByProduct,
   yuryByProduct,
+  productImageById,
   onUploadTrackingLabel,
 }: {
   order: EnvioEcomOrderFields & { products?: unknown; enviado?: boolean };
   onPatched: (patch: Partial<EnvioEcomOrderFields> & { id: string }) => void;
   inventoryByProduct?: Record<string, number>;
   yuryByProduct?: Record<string, { motoboy: number; minas: number }>;
+  productImageById?: Record<string, string>;
   onUploadTrackingLabel?: (packageId: string, file: File) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const products = useMemo(() => parseProducts(order.products), [order.products]);
+  const imageByProductId = useMemo(() => {
+    const map: Record<string, string> = { ...(productImageById || {}) };
+    for (const product of products) {
+      if (product.id && product.image) map[product.id] = product.image;
+    }
+    return map;
+  }, [productImageById, products]);
   const [qty, setQty] = useState<Record<string, Record<Pool, number>>>(() => {
     const next: Record<string, Record<Pool, number>> = {};
     for (const product of products) {
@@ -113,12 +147,20 @@ export function SplitOrderShipmentsButton({
               Pacote {poolLabel(String(pkg.inventoryPool || ""))}
               {pkg.enviado ? " · Enviado" : pkg.inventoryReserved ? " · Estoque baixado" : ""}
             </p>
-            <ul className="text-xs text-emerald-900/80 space-y-0.5">
-              {(pkg.items || []).map((item, index) => (
-                <li key={`${pkg.id}-${item.productId || item.productName || index}`}>
-                  {item.quantity}× {item.productName || item.productId}
-                </li>
-              ))}
+            <ul className="text-xs text-emerald-900/80 space-y-1.5">
+              {(pkg.items || []).map((item, index) => {
+                const name = item.productName || item.productId || "Produto";
+                const imageSrc = resolveProductImage(
+                  { id: item.productId, name, image: products.find((row) => row.id && row.id === item.productId)?.image },
+                  imageByProductId,
+                );
+                return (
+                  <li key={`${pkg.id}-${item.productId || item.productName || index}`} className="flex items-center gap-2">
+                    <ProductThumb src={imageSrc} name={name} />
+                    <span>{item.quantity}× {name}</span>
+                  </li>
+                );
+              })}
             </ul>
             <div className="flex flex-wrap gap-2">
               <EnvioEcomOrderActions
@@ -175,7 +217,7 @@ export function SplitOrderShipmentsButton({
       </Button>
       {open && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setOpen(false)}>
-          <div className="bg-white rounded-[28px] max-w-lg w-full shadow-xl max-h-[88vh] overflow-auto p-5 sm:p-6" onClick={(event) => event.stopPropagation()}>
+          <div className="bg-white rounded-[28px] max-w-xl w-full shadow-xl max-h-[88vh] overflow-auto p-5 sm:p-6" onClick={(event) => event.stopPropagation()}>
             <h2 className="text-lg font-bold text-neutral-900">Dividir envio</h2>
             <p className="text-sm text-neutral-500 mt-1">
               Um pacote por origem. A soma das qtds precisa fechar o pedido. O mesmo SKU pode partir.
@@ -199,10 +241,15 @@ export function SplitOrderShipmentsButton({
                     return (
                       <tr key={key} className="border-t border-neutral-100">
                         <td className="py-2 pr-2">
-                          <p className="font-medium text-neutral-900">{product.name}</p>
-                          <p className="text-[11px] text-neutral-400">
-                            Fóz {lojaStock} · Motoboy {yury?.motoboy ?? "—"} · Minas {yury?.minas ?? "—"}
-                          </p>
+                          <div className="flex items-start gap-2.5 min-w-[12rem]">
+                            <ProductThumb src={resolveProductImage(product, imageByProductId)} name={product.name} />
+                            <div className="min-w-0">
+                              <p className="font-medium text-neutral-900 leading-snug">{product.name}</p>
+                              <p className="text-[11px] text-neutral-400 mt-0.5">
+                                Fóz {lojaStock} · Motoboy {yury?.motoboy ?? "—"} · Minas {yury?.minas ?? "—"}
+                              </p>
+                            </div>
+                          </div>
                         </td>
                         <td className="py-2 px-1 font-semibold">{product.quantity}</td>
                         {(["loja", "motoboy", "minas"] as const).map((pool) => (
