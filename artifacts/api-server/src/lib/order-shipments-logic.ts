@@ -301,6 +301,14 @@ export function packageHasOwnEnvioEcomRef(pkg: {
   return Boolean(String(pkg.envioecomBarcode || "").trim());
 }
 
+export function pickUnboundPackageId(
+  packages: Array<{ id?: string | null; envioecomShipmentId?: number | null; envioecomBarcode?: string | null }>,
+): string | null {
+  const rows = Array.isArray(packages) ? packages : [];
+  const unbound = rows.find((pkg) => String(pkg.id || "").trim() && !packageHasOwnEnvioEcomRef(pkg));
+  return String(unbound?.id || "").trim() || null;
+}
+
 export function bindEnvioEcomFieldsToPackage<T extends EnvioEcomBindableFields>(
   order: T,
   pkg: EnvioEcomBindableFields,

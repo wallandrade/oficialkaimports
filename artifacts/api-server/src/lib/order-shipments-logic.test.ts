@@ -12,6 +12,7 @@ import {
   packageHasOwnEnvioEcomRef,
   packageInventoryReferenceId,
   pickInheritPackageIndex,
+  pickUnboundPackageId,
   rollupParentLabelUrl,
   validateOrderShipmentAllocation,
 } from "./order-shipments-logic";
@@ -137,4 +138,15 @@ test("bind do pacote nao herda rastreio/etiqueta do pedido irmao", () => {
   assert.equal(own.trackingCode, "888030900000001");
   assert.equal(own.trackingLabelUrl, "https://foz.pdf");
   assert.equal(packageHasOwnEnvioEcomRef(own), true);
+});
+
+test("pickUnboundPackageId escolhe o pacote sem envio proprio", () => {
+  assert.equal(pickUnboundPackageId([
+    { id: "minas", envioecomShipmentId: 71, envioecomBarcode: "888030936387775" },
+    { id: "motoboy", envioecomShipmentId: null, envioecomBarcode: null },
+  ]), "motoboy");
+  assert.equal(pickUnboundPackageId([
+    { id: "minas", envioecomBarcode: "8880" },
+    { id: "motoboy", envioecomBarcode: "8881" },
+  ]), null);
 });

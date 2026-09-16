@@ -33,11 +33,14 @@ import { isMotoboyShippingType } from "../lib/motoboy-shipping-type";
 import { ensureOrderMarkedEnviado, OrderEnviadoError, debitOrderInventoryPool, countOrderShipments } from "../lib/order-enviado";
 import {
   allocateOrderShipments,
+  isSplitShipments,
   listOrderShipments,
   listOrderShipmentsByOrderIds,
   mappedPackagesForOrder,
+  persistEnvioEcomPackage,
   OrderShipmentError,
 } from "../lib/order-shipments";
+import { pickUnboundPackageId } from "../lib/order-shipments-logic";
 import {
   parseKaInventoryExitPool,
   parseKaInventoryExitedPools,
@@ -3462,7 +3465,11 @@ router.patch("/admin/orders/:id/tracking-code", requireAdminAuth, async (req, re
 
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
-    const { trackingCode, overwrite } = req.body as { trackingCode?: string; overwrite?: boolean };
+    const { trackingCode, overwrite, packageId: bodyPackageId } = req.body as {
+      trackingCode?: string;
+      overwrite?: boolean;
+      packageId?: string;
+    };
 
     const normalized = normalizeTrackingCode(trackingCode);
     if (!isTrackingCodeValid(normalized)) {
@@ -3482,29 +3489,65 @@ router.patch("/admin/orders/:id/tracking-code", requireAdminAuth, async (req, re
       return;
     }
 
-    const currentTracking = normalizeTrackingCode(current.trackingCode || "");
-    if (currentTracking && currentTracking !== normalized && overwrite !== true) {
-      res.status(409).json({
-        error: "TRACKING_ALREADY_SET",
-        message: "O pedido já possui código de rastreio. Confirme substituição para atualizar.",
-        currentTrackingCode: currentTracking,
+    const packages = await listOrderShipments(current.id);
+    let persistedOrder = current;
+    let attachedPackageId: string | null = null;
+
+    if (isSplitShipments(packages)) {
+      const requested = String(bodyPackageId || "").trim();
+      const pkg = requested
+        ? (packages.find((row) => row.id === requested) || null)
+        : (packages.find((row) => row.id === pickUnboundPackageId(packages)) || null);
+      if (!pkg) {
+        res.status(400).json({
+          error: requested ? "PACKAGE_NOT_FOUND" : "NEED_PACKAGE_ID",
+          message: requested
+            ? "Pacote não encontrado neste pedido."
+            : "Pedido dividido: informe o pacote da etiqueta (Fóz, Motoboy ou Minas).",
+        });
+        return;
+      }
+      const currentPkgTracking = normalizeTrackingCode(pkg.envioecomBarcode || "");
+      if (currentPkgTracking && currentPkgTracking !== normalized && overwrite !== true) {
+        res.status(409).json({
+          error: "TRACKING_ALREADY_SET",
+          message: "Este pacote já possui código de rastreio. Confirme substituição para atualizar.",
+          currentTrackingCode: currentPkgTracking,
+        });
+        return;
+      }
+      const persisted = await persistEnvioEcomPackage(current, pkg, {
+        barcode: normalized,
+        status: pkg.envioecomStatus || "Rastreio vinculado",
       });
-      return;
+      persistedOrder = persisted.order;
+      attachedPackageId = pkg.id;
+    } else {
+      const currentTracking = normalizeTrackingCode(current.trackingCode || "");
+      if (currentTracking && currentTracking !== normalized && overwrite !== true) {
+        res.status(409).json({
+          error: "TRACKING_ALREADY_SET",
+          message: "O pedido já possui código de rastreio. Confirme substituição para atualizar.",
+          currentTrackingCode: currentTracking,
+        });
+        return;
+      }
+
+      await db
+        .update(ordersTable)
+        .set({
+          trackingCode: normalized,
+          updatedAt: new Date(),
+        })
+        .where(buildAdminOrderWhere(id, adminScope));
+
+      const updated = await db
+        .select()
+        .from(ordersTable)
+        .where(buildAdminOrderWhere(id, adminScope))
+        .limit(1);
+      persistedOrder = updated[0] || current;
     }
-
-    await db
-      .update(ordersTable)
-      .set({
-        trackingCode: normalized,
-        updatedAt: new Date(),
-      })
-      .where(buildAdminOrderWhere(id, adminScope));
-
-    const updated = await db
-      .select()
-      .from(ordersTable)
-      .where(buildAdminOrderWhere(id, adminScope))
-      .limit(1);
 
     broadcastNotification({ type: "order_tracking_updated", data: { id, trackingCode: normalized, tenantId: adminScope.tenantId } });
     await addOrderEvent({
@@ -3512,9 +3555,9 @@ router.patch("/admin/orders/:id/tracking-code", requireAdminAuth, async (req, re
       tenantId: adminScope.tenantId,
       action: "tracking",
       ...actorFromAdminRequest(req),
-      payload: { trackingCode: normalized },
+      payload: { trackingCode: normalized, packageId: attachedPackageId },
     });
-    res.json({ ok: true, order: updated[0] ? mapOrder(updated[0]) : null });
+    res.json({ ok: true, order: await mapOrderWithPackages(persistedOrder), packageId: attachedPackageId });
   } catch (err) {
     console.error("Update order tracking code error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao atualizar código de rastreio." });
@@ -3573,11 +3616,11 @@ router.post("/admin/orders/tracking-label/match", requireAdminAuth, async (req, 
     const deterministicMatch = pickDeterministicTrackingMatch(parsed, candidates);
     const aiMatch = deterministicMatch || await runOpenAIMatchTrackingOrderOnImageDataUrl({ imageData, parsed, candidates });
     let matchedOrderId: string | null = aiMatch?.matchedOrderId || null;
-    let matchedOrder: ReturnType<typeof mapOrder> | null = null;
+    let matchedOrder: Awaited<ReturnType<typeof mapOrderWithPackages>> | null = null;
 
     if (matchedOrderId) {
       const rows = await db.select().from(ordersTable).where(buildAdminOrderWhere(matchedOrderId, adminScope)).limit(1);
-      matchedOrder = rows[0] ? mapOrder(rows[0]) : null;
+      matchedOrder = rows[0] ? await mapOrderWithPackages(rows[0]) : null;
       if (!matchedOrder) {
         matchedOrderId = null;
       }
@@ -3675,11 +3718,11 @@ router.post("/admin/orders/tracking-label/parse", requireAdminAuth, async (req, 
       const deterministicMatch = pickDeterministicTrackingMatch(parsed, candidates);
       const aiMatch = deterministicMatch || await runOpenAIMatchTrackingOrderOnImageDataUrl({ imageData, parsed, candidates });
       let matchedOrderId: string | null = aiMatch?.matchedOrderId || null;
-      let matchedOrder: ReturnType<typeof mapOrder> | null = null;
+      let matchedOrder: Awaited<ReturnType<typeof mapOrderWithPackages>> | null = null;
 
       if (matchedOrderId) {
         const rows = await db.select().from(ordersTable).where(buildAdminOrderWhere(matchedOrderId, adminScope)).limit(1);
-        matchedOrder = rows[0] ? mapOrder(rows[0]) : null;
+        matchedOrder = rows[0] ? await mapOrderWithPackages(rows[0]) : null;
         if (!matchedOrder) {
           matchedOrderId = null;
         }
@@ -3761,7 +3804,7 @@ router.post("/admin/orders/tracking-label/parse", requireAdminAuth, async (req, 
 
     res.status(201).json({
       ok: true,
-      order: updated[0] ? mapOrder(updated[0]) : null,
+      order: updated[0] ? await mapOrderWithPackages(updated[0]) : null,
       imageUrl: labelUrl,
       parsed: {
         suggestedTrackingCode: parsed.trackingCode,

@@ -407,7 +407,10 @@ export function EnvioEcomOrderActions({
           : withPackageId({ barcode: parsed.barcode, accountId: quoteAccountId || bound.envioecomAccountId || undefined })),
       });
       if (!res.ok) throw new Error(await readError(res));
-      const data = await res.json() as { order?: EnvioEcomOrderFields };
+      const data = await res.json() as { order?: EnvioEcomOrderFields; resolved?: boolean };
+      if (data.resolved === false) {
+        throw new Error("Não encontramos esse envio na EnvioEcom. Confira o ID ou o código de rastreio.");
+      }
       await patchFromResponse(data);
       setLinkOpen(false);
       setLinkRef("");
@@ -543,9 +546,9 @@ export function EnvioEcomOrderActions({
           <ExternalLink className="w-3.5 h-3.5" /> Ver PDF
         </Button>
       )}
-      {bound.envioecomStatus && (
+      {(bound.envioecomStatus || barcode) && (
         <p className={`basis-full text-xs ${labelBlocked ? "text-rose-700" : "text-emerald-800"}`}>
-          EnvioEcom{poolLabel ? ` ${poolLabel}` : ""}: {bound.envioecomStatus}
+          EnvioEcom{poolLabel ? ` ${poolLabel}` : ""}: {bound.envioecomStatus || "Rastreio vinculado"}
           {prettyAccountName(bound) ? ` · ${prettyAccountName(bound)}` : ""}
           {bound.envioecomDeliveryMode ? ` · ${bound.envioecomDeliveryMode}` : ""}
           {barcode ? ` · ${barcode}` : ""}

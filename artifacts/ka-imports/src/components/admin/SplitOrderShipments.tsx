@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Loader2, Split } from "lucide-react";
+import { Loader2, Split, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EnvioEcomOrderActions, type EnvioEcomOrderFields, type EnvioEcomPackageFields } from "@/components/admin/EnvioEcomOrderActions";
@@ -46,11 +46,13 @@ export function SplitOrderShipmentsButton({
   onPatched,
   inventoryByProduct,
   yuryByProduct,
+  onUploadTrackingLabel,
 }: {
   order: EnvioEcomOrderFields & { products?: unknown; enviado?: boolean };
   onPatched: (patch: Partial<EnvioEcomOrderFields> & { id: string }) => void;
   inventoryByProduct?: Record<string, number>;
   yuryByProduct?: Record<string, { motoboy: number; minas: number }>;
+  onUploadTrackingLabel?: (packageId: string, file: File) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -125,6 +127,32 @@ export function SplitOrderShipmentsButton({
                 poolLabel={poolLabel(String(pkg.inventoryPool || ""))}
                 onPatched={onPatched}
               />
+              {onUploadTrackingLabel ? (
+                <>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    id={`split-tracking-${pkg.id}`}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      event.target.value = "";
+                      if (!file) return;
+                      onUploadTrackingLabel(pkg.id, file);
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 text-indigo-700 border-indigo-200 hover:bg-indigo-50"
+                    onClick={() => document.getElementById(`split-tracking-${pkg.id}`)?.click()}
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    Etiqueta/Rastreio
+                  </Button>
+                </>
+              ) : null}
             </div>
           </div>
         ))}

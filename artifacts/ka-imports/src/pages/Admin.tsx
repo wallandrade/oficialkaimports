@@ -687,6 +687,32 @@ function kaExitPoolLabel(pool: KaExitPool): string {
   return "Foz Guaçu";
 }
 
+function pickUnboundAdminPackageId(order: {
+  packages?: Array<{ id?: string; envioecomShipmentId?: number | null; envioecomBarcode?: string | null }> | null;
+}): string | null {
+  const rows = Array.isArray(order?.packages) ? order.packages : [];
+  const unbound = rows.find((pkg) => {
+    const id = String(pkg.id || "").trim();
+    if (!id) return false;
+    const shipmentId = Number(pkg.envioecomShipmentId || 0);
+    if (Number.isFinite(shipmentId) && shipmentId > 0) return false;
+    return !String(pkg.envioecomBarcode || "").trim();
+  });
+  return String(unbound?.id || "").trim() || null;
+}
+
+function packageBarcodeForTracking(order: {
+  packages?: Array<{ id?: string; envioecomBarcode?: string | null }> | null;
+  trackingCode?: string | null;
+}, packageId?: string | null): string {
+  const requested = String(packageId || "").trim();
+  if (requested) {
+    const pkg = (Array.isArray(order?.packages) ? order.packages : []).find((row) => row.id === requested);
+    return String(pkg?.envioecomBarcode || "").trim();
+  }
+  return String(order?.trackingCode || "").trim();
+}
+
 function parseKaExitedPools(value: unknown): KaExitPool[] {
   const raw = Array.isArray(value) ? value : String(value || "").split(",");
   const seen = new Set<KaExitPool>();
@@ -7489,7 +7515,21 @@ export default function Admin() {
               setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, enviado, isPrioridade: enviado ? false : o.isPrioridade } : o)));
             }}
             onSetOrderPatched={(order) => {
-              setOrders((prev) => prev.map((o) => (o.id === order.id ? { ...o, ...order } : o)));
+              setOrders((prev) => prev.map((o) => {
+                if (o.id !== order.id) return o;
+                const incomingPackages = Array.isArray((order as { packages?: unknown[] }).packages)
+                  ? (order as { packages: unknown[] }).packages
+                  : null;
+                const previousPackages = Array.isArray((o as { packages?: unknown[] }).packages)
+                  ? (o as { packages: unknown[] }).packages
+                  : [];
+                const keepPackages = (!incomingPackages || incomingPackages.length === 0) && previousPackages.length >= 2;
+                return {
+                  ...o,
+                  ...order,
+                  packages: keepPackages ? previousPackages : (incomingPackages ?? previousPackages),
+                } as AdminOrder;
+              }));
             }}
             canManageEnvioEcom={canManageShippingTab}
             availableWhatsappGroups={availableWhatsappGroups}
@@ -13751,6 +13791,7 @@ function OrdersPanel({
   const [trackingBatchIndex, setTrackingBatchIndex] = useState(0);
   const [trackingBatchProcessing, setTrackingBatchProcessing] = useState(false);
   const [trackingSelectedOrderId, setTrackingSelectedOrderId] = useState<string | null>(null);
+  const [trackingPackageId, setTrackingPackageId] = useState<string | null>(null);
   const [trackingInventoryBalances, setTrackingInventoryBalances] = useState<InventoryBalanceRecord[] | null>(null);
   const [trackingInventoryLoading, setTrackingInventoryLoading] = useState(false);
   const [whatsappGroupDrafts, setWhatsappGroupDrafts] = useState<Record<string, string>>({});
@@ -14876,7 +14917,11 @@ function OrdersPanel({
         }
       }
 
-      setTrackingDraftCode(suggestedTracking || String((orderForReview as any)?.trackingCode || "").trim());
+      const batchPackageId = isSplitOrder(orderForReview as { packages?: unknown[] })
+        ? pickUnboundAdminPackageId(orderForReview as { packages?: Array<{ id?: string; envioecomShipmentId?: number | null; envioecomBarcode?: string | null }> })
+        : null;
+      setTrackingPackageId(batchPackageId);
+      setTrackingDraftCode(suggestedTracking || packageBarcodeForTracking(orderForReview as { packages?: Array<{ id?: string; envioecomBarcode?: string | null }>; trackingCode?: string | null }, batchPackageId));
       setTrackingReview({
         order: orderForReview,
         imageUrl: String(data?.imageUrl || (orderForReview as any)?.trackingLabelUrl || "").trim(),
@@ -14909,8 +14954,9 @@ function OrdersPanel({
     await processBatchFileSimple(nextIndex, trackingBatchFiles);
   };
 
-  const uploadTrackingLabel = async (orderId: string, file: File) => {
+  const uploadTrackingLabel = async (orderId: string, file: File, packageId?: string) => {
     if (!orderId) return;
+    setTrackingPackageId(packageId || null);
     setTrackingUploading((prev) => ({ ...prev, [orderId]: true }));
     try {
       const rawDataUrl = await fileToDataUrl(file);
@@ -14956,7 +15002,12 @@ function OrdersPanel({
           toast.success(`Rastreio detectado por código de barras: ${detectedByBarcode}`);
         }
       }
-      setTrackingDraftCode(suggestedTracking || String((orderForReview as any)?.trackingCode || "").trim());
+      const reviewPackageId = packageId
+        || (isSplitOrder(orderForReview as { packages?: unknown[] })
+          ? pickUnboundAdminPackageId(orderForReview as { packages?: Array<{ id?: string; envioecomShipmentId?: number | null; envioecomBarcode?: string | null }> })
+          : null);
+      setTrackingPackageId(reviewPackageId);
+      setTrackingDraftCode(suggestedTracking || packageBarcodeForTracking(orderForReview as { packages?: Array<{ id?: string; envioecomBarcode?: string | null }>; trackingCode?: string | null }, reviewPackageId));
       setTrackingReview({
         order: orderForReview,
         imageUrl: String(data?.imageUrl || (orderForReview as any)?.trackingLabelUrl || "").trim(),
@@ -14992,7 +15043,10 @@ function OrdersPanel({
       toast.error(stockCheck.message);
       return;
     }
-    const currentTracking = String((targetOrder as any)?.trackingCode || "").toUpperCase().replace(/\s+/g, "").trim();
+    const currentTracking = packageBarcodeForTracking(
+      targetOrder as { packages?: Array<{ id?: string; envioecomBarcode?: string | null }>; trackingCode?: string | null },
+      trackingPackageId,
+    ).toUpperCase().replace(/\s+/g, "").trim();
     const overwrite = !!currentTracking && currentTracking !== normalized;
 
     setTrackingSaving(true);
@@ -15000,9 +15054,13 @@ function OrdersPanel({
       const saveRes = await fetch(`${BASE}/api/admin/orders/${targetOrderId}/tracking-code`, {
         method: "PATCH",
         headers: authHeaders(),
-        body: JSON.stringify({ trackingCode: normalized, overwrite }),
+        body: JSON.stringify({
+          trackingCode: normalized,
+          overwrite,
+          ...(trackingPackageId ? { packageId: trackingPackageId } : {}),
+        }),
       });
-      const saveData = await saveRes.json().catch(() => ({})) as { message?: string; order?: AdminOrder };
+      const saveData = await saveRes.json().catch(() => ({})) as { message?: string; order?: AdminOrder; packageId?: string | null };
       if (!saveRes.ok) {
         throw new Error(saveData?.message || "Erro ao salvar código de rastreio.");
       }
@@ -15010,8 +15068,24 @@ function OrdersPanel({
         onSetOrderPatched(saveData.order);
       }
 
+      const savedPackageId = String(saveData.packageId || trackingPackageId || "").trim();
+      if (savedPackageId) {
+        try {
+          const syncRes = await fetch(`${BASE}/api/admin/envioecom/orders/${targetOrderId}/sync`, {
+            method: "POST",
+            headers: authHeaders(),
+            body: JSON.stringify({ barcode: normalized, packageId: savedPackageId }),
+          });
+          const syncData = await syncRes.json().catch(() => ({})) as { order?: AdminOrder };
+          if (syncRes.ok && syncData.order) onSetOrderPatched(syncData.order);
+        } catch {
+          /* OCR já salvou o código no pacote; sync EE é extra */
+        }
+      }
+
+      const savedOnSplit = isSplitOrder((saveData.order || targetOrder) as { packages?: unknown[] });
       // Mark as shipped right after tracking confirmation so inventory can be decremented.
-      if (!enviados[targetOrderId]) {
+      if (!savedOnSplit && !enviados[targetOrderId]) {
         const envioRes = await fetch(`${BASE}/api/admin/orders/${targetOrderId}/enviado`, {
           method: "PATCH",
           headers: {
@@ -15039,7 +15113,10 @@ function OrdersPanel({
       setTrackingReview(null);
       setTrackingDraftCode("");
       setTrackingSelectedOrderId(null);
-      toast.success(`Rastreio salvo e pedido marcado como enviado: ${normalized}`);
+      setTrackingPackageId(null);
+      toast.success(savedOnSplit
+        ? `Rastreio salvo no pacote: ${normalized}`
+        : `Rastreio salvo e pedido marcado como enviado: ${normalized}`);
       if (trackingBatchFiles.length > 0) {
         await advanceToNextBatchFile();
       } else if (trackingBatchWatchdogRef.current != null) {
@@ -15529,6 +15606,9 @@ function OrdersPanel({
                             setEnviados((prev) => ({ ...prev, [order.id]: patch.enviado as boolean }));
                           }
                         }}
+                        onUploadTrackingLabel={(packageId, file) => {
+                          void uploadTrackingLabel(order.id, file, packageId);
+                        }}
                         inventoryByProduct={Object.fromEntries(inventoryBalances.map((row) => [row.productId, row.quantity]))}
                         yuryByProduct={Object.fromEntries(yuryBalances.map((row) => [row.productId, { motoboy: row.qtyMotoboy, minas: row.qtyMinas }]))}
                       />
@@ -15557,6 +15637,8 @@ function OrdersPanel({
                       </>
                     )
                   ) : null}
+                  {!isSplitOrder(order as { packages?: unknown[] }) && (
+                  <>
                   <input
                     ref={(el) => { trackingInputRefs.current[order.id] = el; }}
                     type="file"
@@ -15578,6 +15660,8 @@ function OrdersPanel({
                     {trackingUploading[order.id] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
                     {trackingUploading[order.id] ? "Lendo Etiqueta..." : "Etiqueta/Rastreio"}
                   </Button>
+                  </>
+                  )}
                   {(order.proofUrls && order.proofUrls.length > 0) && (
                     <div className="flex items-center gap-1 flex-wrap">
                       {order.proofUrls.map((url, i) => (
@@ -16098,7 +16182,7 @@ function OrdersPanel({
                         <p><span className="font-semibold">Cliente:</span> {trackingTargetOrder?.clientName || trackingReview.order.clientName}</p>
                         <p><span className="font-semibold">Telefone:</span> {trackingTargetOrder?.clientPhone || trackingReview.order.clientPhone}</p>
                         <p><span className="font-semibold">Endereço:</span> {orderAddressText(trackingTargetOrder || trackingReview.order)}</p>
-                        <p><span className="font-semibold">Rastreio atual:</span> {String((trackingTargetOrder as any)?.trackingCode || "").trim() || "-"}</p>
+                        <p><span className="font-semibold">Rastreio atual:</span> {packageBarcodeForTracking(trackingTargetOrder as { packages?: Array<{ id?: string; envioecomBarcode?: string | null }>; trackingCode?: string | null }, trackingPackageId) || "-"}</p>
                       </div>
                     </div>
 
@@ -16142,7 +16226,14 @@ function OrdersPanel({
                       </label>
                       <select
                         value={trackingSelectedOrderId || trackingReview.order.id}
-                        onChange={(event) => setTrackingSelectedOrderId(event.target.value || null)}
+                        onChange={(event) => {
+                          const nextId = event.target.value || null;
+                          setTrackingSelectedOrderId(nextId);
+                          const nextOrder = ordersLookup.find((item) => item.id === nextId);
+                          setTrackingPackageId(nextOrder && isSplitOrder(nextOrder as { packages?: unknown[] })
+                            ? pickUnboundAdminPackageId(nextOrder as { packages?: Array<{ id?: string; envioecomShipmentId?: number | null; envioecomBarcode?: string | null }> })
+                            : null);
+                        }}
                         className="w-full h-10 px-3 rounded-lg border border-border bg-white focus:border-primary outline-none text-sm"
                       >
                         {[
@@ -16162,6 +16253,29 @@ function OrdersPanel({
                         Se o pedido sugerido não for o correto, escolha manualmente entre os pedidos em aberto.
                       </p>
                     </div>
+
+                    {isSplitOrder((trackingTargetOrder || trackingReview.order) as { packages?: unknown[] }) && (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+                      <label className="text-xs font-semibold text-emerald-700 uppercase tracking-wide block mb-2">
+                        Pacote da etiqueta
+                      </label>
+                      <select
+                        value={trackingPackageId || ""}
+                        onChange={(event) => setTrackingPackageId(event.target.value || null)}
+                        className="w-full h-10 px-3 rounded-lg border border-border bg-white focus:border-primary outline-none text-sm"
+                      >
+                        {(((trackingTargetOrder || trackingReview.order) as { packages?: Array<{ id?: string; inventoryPool?: string; envioecomBarcode?: string | null }> }).packages || []).map((pkg) => (
+                          <option key={pkg.id} value={pkg.id}>
+                            {kaExitPoolLabel((pkg.inventoryPool as KaExitPool) || "loja")}
+                            {pkg.envioecomBarcode ? ` · ${pkg.envioecomBarcode}` : " · sem rastreio"}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Cada origem (Fóz, Motoboy, Minas) tem a própria etiqueta. Não use o código do pacote de cima.
+                      </p>
+                    </div>
+                    )}
 
                     <div className={`rounded-xl border p-3 ${!trackingInventoryReady ? "border-amber-200 bg-amber-50/60" : trackingTargetStock.hasStock ? "border-green-200 bg-green-50/60" : "border-red-200 bg-red-50/60"}`}>
                       <p className={`text-xs font-semibold uppercase tracking-wide mb-2 ${!trackingInventoryReady ? "text-amber-700" : trackingTargetStock.hasStock ? "text-green-700" : "text-red-700"}`}>

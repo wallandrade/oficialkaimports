@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-09-12  
+> **Última atualização:** 2026-09-16  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-16 | `PATCH /admin/orders/:id/tracking-code` + parse/match devolvem `packages[]`; OCR por pacote no `SplitOrderShipments` | Card split não some após Vincular/OCR | Board 1 card; create EE |
 | 2026-09-12 | `customer_users.document`; `attachGuestOrdersForCustomer`; split colapsa na Minha conta se `enviado`; tracking-sync por pacote | Claim guest + UI cliente | Sessão in-memory; Admin split |
 | 2026-09-12 | `PATCH /admin/customers/:id/password` + `removeCustomerSessionsForUser` | Admin redefine senha; Bearer daquele cliente cai neste processo | Impersonar; sessões in-memory |
 | 2026-09-11 | Busca Pedidos/Links: `onChange` imediato no `AdminOrdersChargesSearchShell` | Filtra a cada tecla sem debounce | `goToOrder`; poll visitantes; refresh silencioso |
@@ -90,7 +91,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 - Webhook cobertura Motoboy: `POST /api/webhooks/yury/motoboy-coverage` (body cru + HMAC) **antes** de `express.json()`.
 - Webhook estoque Yury: `POST /api/webhooks/yury/inventory` (mesmo HMAC; grava `balances`, não o delta).
 - Baixa no pedido: `POST /api/admin/orders/:id/inventory-exit` (Fóz local ou Yury Motoboy/Minas) a partir do card (1:1); após split a baixa é por pacote (`debitPackageInventory`, `referenceId = pkg:{id}`). `ensureOrderMarkedEnviado` no split debita cada pacote. `GET/POST /admin/orders/:id/shipments` aloca/lista `packages[]`. Motoboy/Minas: `GET /admin/yury-inventory/exit-status` proxy do `GET /api/integrations/inventory/exit-status`; senha no body da baixa (unlock + `password` no `exit`).
-- EnvioEcom: `artifacts/api-server/src/routes/envioecom.ts` + webhook em `webhooks.ts`. Contas em `lib/envioecom-accounts.ts` (env + tenant + JSON `envioecom_accounts`). Client cacheia token por `tenantId:accountId`. Coluna `orders.envioecom_account_id`. Split: `packageId` em quote/create/labels/sync/cancel/bind; persistência em `order_shipments` + rollup no pai (`lib/order-shipments.ts`). Pedido sem linhas = colunas `envioecom_*` do pedido.
+- EnvioEcom: `artifacts/api-server/src/routes/envioecom.ts` + webhook em `webhooks.ts`. Contas em `lib/envioecom-accounts.ts` (env + tenant + JSON `envioecom_accounts`). Client cacheia token por `tenantId:accountId`. Coluna `orders.envioecom_account_id`. Split: `packageId` em quote/create/labels/sync/cancel/bind e no `PATCH /admin/orders/:id/tracking-code`; persistência em `order_shipments` + rollup no pai (`lib/order-shipments.ts`). Pedido sem linhas = colunas `envioecom_*` do pedido.
 - APPCNPay: `gateway.ts` + `lib/pix-gateway-credentials.ts`. Par por tenant (`gateway_appcnpay_public_key` / `_secret_key`); fallback env. Webhook PIX resolve tenant pelo `transactionId`.
 - Extrato OFX: `artifacts/api-server/src/routes/bank-statement.ts` (`analyze`/`apply`/`clear`/`bank-deposits`) + `order_bank_deposits`. Painéis FE: `AdminBankStatementPanel.tsx` (sessão) e `AdminBankDepositsPanel.tsx` (histórico + Desfazer por FITID).
 - Lista admin: `GET /admin/orders` em modo leve (sem `data:`/OCR); `GET /admin/orders/:id` devolve mídia completa. `mapOrder` inclui `packages[]` (vazio = 1:1). Histórico de gestão: `order_events` + `history` na lista/`GET :id` + `GET /admin/orders/:id/events`. `mapOrder` no admin inclui `observation` + `observationVisibleToCustomer`; rotas de cliente/guest passam `{ forCustomer: true }` (`order-observation-visibility.ts`). PATCH observação: `/admin/orders/:id/observation`.
@@ -101,7 +102,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 
 - Rotas: `artifacts/ka-imports/src/App.tsx` (wouter).
 - Carrinho: Zustand persist `src/store/use-cart.ts`.
-- Admin monolítico: `src/pages/Admin.tsx` (arquivo grande — leitura seletiva). `fetchOrders` usa AbortController + seq e não apaga `envioecomLabelUrl` se o GET vier vazio. Busca de Pedidos/Links: `AdminOrdersChargesSearchShell` (estado + filtro no filho; `onChange` imediato; `goToOrder` semeia). Visitantes ao vivo: `AdminLiveVisitorStats` (poll 5s próprio). Refresh silencioso de pedidos usa `startTransition`. Troca de data da lista não chama `fetchStatsData`. Aba **Seguro**: `AdminInsurancePanel.tsx` (primary-only). Checkout: `CheckoutInsuranceOffer.tsx` (2 cards, clique de novo = none). Suporte: `Support.tsx` + card de chamado no admin usam `canReship`. Split de envio: `SplitOrderShipments.tsx` + `packageId` em `EnvioEcomOrderActions.tsx`; cliente em `CustomerOrders.tsx` + `customer-split-shipping.ts` (Envio 1/2 se ainda não `enviado`; colapsa pacote sem etiqueta depois da expedição).
+- Admin monolítico: `src/pages/Admin.tsx` (arquivo grande — leitura seletiva). `fetchOrders` usa AbortController + seq e não apaga `envioecomLabelUrl` se o GET vier vazio. `onSetOrderPatched` não zera `packages[]` se o patch vier vazio. Busca de Pedidos/Links: `AdminOrdersChargesSearchShell` (estado + filtro no filho; `onChange` imediato; `goToOrder` semeia). Visitantes ao vivo: `AdminLiveVisitorStats` (poll 5s próprio). Refresh silencioso de pedidos usa `startTransition`. Troca de data da lista não chama `fetchStatsData`. Aba **Seguro**: `AdminInsurancePanel.tsx` (primary-only). Checkout: `CheckoutInsuranceOffer.tsx` (2 cards, clique de novo = none). Suporte: `Support.tsx` + card de chamado no admin usam `canReship`. Split de envio: `SplitOrderShipments.tsx` + `packageId` em `EnvioEcomOrderActions.tsx` (OCR **Etiqueta/Rastreio** por pacote; linha de status se houver barcode mesmo sem status EE); cliente em `CustomerOrders.tsx` + `customer-split-shipping.ts` (Envio 1/2 se ainda não `enviado`; colapsa pacote sem etiqueta depois da expedição).
 - Proxy/API: requests sob `/api` (Vercel rewrite → Railway).
 - SW: `public/sw.js` — **somente notificações admin**, não PWA offline/sync.
 
