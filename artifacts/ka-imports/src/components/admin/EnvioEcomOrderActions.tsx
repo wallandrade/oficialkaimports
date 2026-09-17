@@ -3,6 +3,9 @@ import { Loader2, RefreshCw, Truck, FileText, Ban, ExternalLink, X, Link2 } from
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
+import { hasEnvioEcomLabelReady } from "@/lib/pending-shipment-copy";
+
+export { hasEnvioEcomLabelReady };
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -736,43 +739,6 @@ export function EnvioEcomOrderActions({
       )}
     </>
   );
-}
-
-export function hasEnvioEcomLabelReady(order: EnvioEcomOrderFields): boolean {
-  const packages = Array.isArray(order.packages) ? order.packages : [];
-  if (packages.length >= 2) {
-    return packages.every((pkg) => hasEnvioEcomLabelReady({
-      ...order,
-      envioecomStatus: pkg.envioecomStatus,
-      envioecomLabelUrl: pkg.envioecomLabelUrl,
-      enviado: pkg.enviado,
-      packages: [],
-    }));
-  }
-  const normalized = String(order.envioecomStatus || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLowerCase();
-  if (normalized.includes("cancelad") || normalized.includes("cancelamento") || normalized.includes("aguardando pagamento")) return false;
-  if (String(order.envioecomLabelUrl || "").trim()) return true;
-  if (!normalized) return false;
-  return [
-    "etiqueta emitida",
-    "etiqueta gerada",
-    "pronto para envio",
-    "processando envio",
-    "aguardando expedicao",
-    "aguardando coleta",
-    "dc-e emitida",
-    "dce emitida",
-    "coletado",
-    "em transito",
-    "postado",
-    "saiu para entrega",
-    "entregue",
-    "objeto entregue",
-  ].some((marker) => normalized.includes(marker));
 }
 
 export function preserveEnvioEcomLabelFields<T extends {

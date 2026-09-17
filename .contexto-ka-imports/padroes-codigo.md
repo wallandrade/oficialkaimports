@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-09-16
+> **Última atualização:** 2026-09-17
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-17 | Anti-padrão: busca do **Editar Pedido** só com nome/preço | Thumbnail `editCatalog[].image` no dropdown e na lista | PATCH `/edit`; preço de vitrine |
 | 2026-09-16 | Anti-padrão: `/suporte` listar compra só com nome, sem foto | `orders-by-cpf` hidrata `image` do catálogo; thumbnail na lista | Tickets e Minha conta |
 | 2026-09-16 | Anti-padrão: trocar SKU pelo Editar pedido (preço de vitrine) ou depois de enviado/baixado | `POST .../replace-product` + `keep_price`/`pass_difference` + `swappedFrom` | Reenvio; `PATCH .../edit` de endereço/itens |
 | 2026-09-16 | Anti-padrão: OCR/Vincular gravar só em `orders.trackingCode` e devolver `packages: []`; toast de Vincular com `resolved: false` | PATCH tracking-code no pacote; merge preserva split; Vincular honesto | Create EE; webhook |
@@ -182,6 +183,7 @@ Código > memória > suposições.
 - Setar `orders.enviado` na etiqueta EnvioEcom sem passar por `ensureOrderMarkedEnviado` (estoque/logística).
 - Marcar `enviado` ao gerar etiqueta / DC-e / “Pronto para envio” / **Aguardando coleta**; isso só na coleta/postagem da API. No split o pai só marca quando todos os pacotes já teriam `enviado`.
 - Restaurar vaga `allocated` no reconcile só porque `enviado` é false quando a etiqueta EnvioEcom já existe. No split a fila 48h só some com AND de todos os pacotes.
+- Copiar Envios/Compra 48h/72h/96h com `order.products` no split quando um pacote já tem etiqueta. Usar `getPendingShipmentCopy` (itens dos pacotes ainda sem etiqueta). O pedido permanece 1 vaga até o AND.
 - Tratar PDF da etiqueta EnvioEcom como “Pronto para envio” se o status for **Cancelado** ou **Aguardando cancelamento**.
 - Copiar o PDF/status do 1º pacote para `orders.envioecom_label_url` quando ainda falta URL noutro pacote (some da lista 48h cedo demais). Rollup só promove PDF no pai se **todos** têm URL.
 - Gerar **Etiqueta EE** / Sync / Cancelar do pacote B com o `trackingCode` (8880) ou PDF do pedido/pacote A. No split, bind só com `envioecom_*` daquele pacote; pacote sem envio próprio não herda o irmão.
@@ -209,6 +211,7 @@ Código > memória > suposições.
 - Editar pedido sem persistir telefone, e-mail e CPF (`clientPhone` / `clientEmail` / `clientDocument`); não são só o card.
 - Enviar CPF placeholder `000.000.000-00` no create EnvioEcom, ou devolver 400 da EnvioEcom sem logar `message`/`details` e sem juntar `details` no toast.
 - Usar `<datalist>` nativo na busca de produto do estoque (não mostra foto); usar combobox com `products[].image` igual ao saldo.
+- Listar o catálogo no **Editar Pedido** só com nome e preço; usar foto (`editCatalog[].image`) no dropdown e em **Produtos no pedido**, como no estoque e em Trocar produto.
 - Miniatura no **Saldo atual por produto** só como `<img>` sem clique; usar zoom/lightbox para identificar a embalagem.
 - Listar saldo de estoque só por nome, misturando 0 un no topo; positivo primeiro, zeros no fim.
 - Debitar estoque no PATCH de reenvio fora de `reenvio_enviado`, ou não ter **Cancelar Reenvio** para quem não vai mais enviar (`reenvio_cancelado`). “Cancelar Reenvio Enviado” é só o undo do enviado.

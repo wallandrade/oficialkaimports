@@ -1,3 +1,5 @@
+import { getPendingShipmentCopy, pendingShipmentResumoHeading } from "@/lib/pending-shipment-copy";
+
 // Utilitário para formatar datas no padrão brasileiro (dd/MM/yyyy)
 function formatDateBR(date: string | Date | undefined | null): string {
   if (!date) return "";
@@ -530,16 +532,14 @@ export function chargeToText(charge: any): string {
     .join("\n");
 }
 
-function supplierOrderContent(order: any): { addressBlock: string; resumoPedido: string; reshipmentLines: string[] } {
-  const products = getOrderProducts(order?.products);
-  const resumoPedido = products.length
-    ? products
-        .map((p) => {
-          const qty = Number(p?.quantity) || 0;
-          return `- ${qty}x ${p?.name || "Produto"}`;
-        })
+function supplierOrderContent(order: any): { addressBlock: string; resumoPedido: string; resumoHeading: string; reshipmentLines: string[] } {
+  const pending = getPendingShipmentCopy(order);
+  const resumoPedido = pending.items.length
+    ? pending.items
+        .map((p) => `- ${p.quantity}x ${p.name}`)
         .join("\n")
     : "- Sem itens";
+  const resumoHeading = pendingShipmentResumoHeading(pending);
 
   const rua = [order?.addressStreet, order?.addressNumber].filter(Boolean).join(", ") || "-";
   const isReshipment = Boolean(order?.reshipment?.id) && !isClosedReshipmentStatus(order?.reshipment?.status);
@@ -560,6 +560,7 @@ function supplierOrderContent(order: any): { addressBlock: string; resumoPedido:
   return {
     addressBlock,
     resumoPedido,
+    resumoHeading,
     reshipmentLines: [
       isReshipment ? "🚨 ATENCAO REENVIO - ABATER NO PAGAMENTO" : "",
       isReshipment ? `Data do pedido original: ${firstOrderDate}` : "",
@@ -569,13 +570,13 @@ function supplierOrderContent(order: any): { addressBlock: string; resumoPedido:
 }
 
 function logisticsOrderBlock(order: any): string {
-  const { addressBlock, resumoPedido, reshipmentLines } = supplierOrderContent(order);
+  const { addressBlock, resumoPedido, resumoHeading, reshipmentLines } = supplierOrderContent(order);
   return [
     searchingProductCopyLine(order),
     `PEDIDO #KA-${getOrderDisplayId(order)}`,
     ...reshipmentLines,
     addressBlock,
-    `Resumo pedido:\n${resumoPedido}`,
+    `${resumoHeading}:\n${resumoPedido}`,
     "_______________________________",
   ].filter(Boolean).join("\n\n");
 }
@@ -778,14 +779,14 @@ function motoboyOrderBlock(order: any): string {
 }
 
 function legacySupplierOrderBlock(order: any, sequence: number): string {
-  const { addressBlock, resumoPedido, reshipmentLines } = supplierOrderContent(order);
+  const { addressBlock, resumoPedido, resumoHeading, reshipmentLines } = supplierOrderContent(order);
   return [
     searchingProductCopyLine(order),
     order?.isPrioridade ? "🚨 PRIORIDADE URGENTE" : "",
     ...reshipmentLines,
     `Pedido numero: ${sequence}`,
     addressBlock,
-    `Resumo pedido:\n${resumoPedido}`,
+    `${resumoHeading}:\n${resumoPedido}`,
     "_______________________________",
   ].filter(Boolean).join("\n\n");
 }
@@ -2243,7 +2244,7 @@ export default function Admin() {
   const [webhookCopied, setWebhookCopied] = useState(false);
   // Order editing
   const [editOrderModal, setEditOrderModal] = useState<AdminOrder | null>(null);
-  const [editItems, setEditItems] = useState<Array<{ id: string; name: string; quantity: number; price: number }>>([]);
+  const [editItems, setEditItems] = useState<OrderProductLite[]>([]);
   const [editAddress, setEditAddress] = useState({
     cep: "",
     street: "",
@@ -2261,7 +2262,7 @@ export default function Admin() {
   const [editProductSearch, setEditProductSearch] = useState("");
   const [editSaving, setEditSaving] = useState(false);
   const [editAsReshipment, setEditAsReshipment] = useState(false);
-  const [editItemsBeforeReshipmentMode, setEditItemsBeforeReshipmentMode] = useState<Array<{ id: string; name: string; quantity: number; price: number }> | null>(null);
+  const [editItemsBeforeReshipmentMode, setEditItemsBeforeReshipmentMode] = useState<OrderProductLite[] | null>(null);
   const [editCatalog, setEditCatalog] = useState<AdminProduct[]>([]);
   const [editCatalogLoading, setEditCatalogLoading] = useState(false);
   // Diff PIX
@@ -5977,7 +5978,7 @@ export default function Admin() {
   // Order editing
   const openEditOrder = async (order: AdminOrder) => {
     setEditOrderModal(order);
-    setEditItems(getOrderProducts(order.products).map((p) => ({ id: p.id, name: p.name, quantity: p.quantity, price: p.price })));
+    setEditItems(getOrderProducts(order.products).map((p) => ({ id: p.id, name: p.name, quantity: p.quantity, price: p.price, image: p.image })));
     setEditClientName(String(order.clientName || ""));
     setEditClientPhone(String(order.clientPhone || ""));
     setEditClientEmail(String(order.clientEmail || ""));
@@ -6691,9 +6692,9 @@ export default function Admin() {
     const totals = new Map<string, { label: string; productId: string | null; qtyNormal: number; qtyReshipment: number }>();
     for (const order of shoppingOrders) {
       const isReshipment = isActiveReshipmentOrder(order);
-      for (const p of getOrderProducts(order.products)) {
+      for (const p of getPendingShipmentCopy(order).items) {
         const name = (p.name || "Produto").trim();
-        const productId = String((p as { id?: string })?.id || "").trim() || null;
+        const productId = String(p.id || "").trim() || null;
         const qty = Number(p.quantity) || 0;
         const key = productId ? `id:${productId}` : `name:${name.toLowerCase()}`;
         const prev = totals.get(key);
@@ -11698,23 +11699,26 @@ export default function Admin() {
                           placeholder="Digite o nome do produto..."
                           className="w-full h-9 px-3 rounded-lg border border-border bg-muted/30 text-sm outline-none focus:border-primary" />
                         {editProductSearch.trim().length > 0 && (
-                          <div className="absolute top-full left-0 right-0 z-10 bg-white border border-border rounded-lg shadow-lg max-h-48 overflow-y-auto mt-1">
+                          <div className="absolute top-full left-0 right-0 z-10 bg-white border border-border rounded-lg shadow-lg max-h-64 overflow-y-auto mt-1">
                             {editCatalog.filter((p) => p.name.toLowerCase().includes(editProductSearch.toLowerCase())).slice(0, 8).map((p) => (
-                              <button key={p.id} className="w-full px-3 py-2 text-sm text-left hover:bg-muted/50 flex justify-between items-center"
+                              <button key={p.id} type="button" className="w-full px-3 py-2 text-sm text-left hover:bg-muted/50 flex justify-between items-center gap-2"
                                 onClick={() => {
                                   const exists = editItems.find((i) => i.id === p.id);
                                   if (exists) {
                                     const newQty = exists.quantity + 1;
                                     const newPrice = resolveEditItemPrice(p, newQty);
-                                    setEditItems((prev) => prev.map((i) => i.id === p.id ? { ...i, quantity: newQty, price: newPrice } : i));
+                                    setEditItems((prev) => prev.map((i) => i.id === p.id ? { ...i, quantity: newQty, price: newPrice, image: i.image || p.image } : i));
                                   } else {
                                     const newPrice = resolveEditItemPrice(p, 1);
-                                    setEditItems((prev) => [...prev, { id: p.id, name: p.name, quantity: 1, price: newPrice }]);
+                                    setEditItems((prev) => [...prev, { id: p.id, name: p.name, quantity: 1, price: newPrice, image: p.image }]);
                                   }
                                   setEditProductSearch("");
                                 }}>
-                                <span>{p.name}</span>
-                                <span className="text-muted-foreground text-xs">{formatCurrency(p.promoPrice ?? p.price)}</span>
+                                <span className="flex items-center gap-2 min-w-0">
+                                  <InventoryProductThumb name={p.name} image={p.image} size="h-8 w-8" />
+                                  <span className="truncate">{p.name}</span>
+                                </span>
+                                <span className="text-muted-foreground text-xs shrink-0">{formatCurrency(p.promoPrice ?? p.price)}</span>
                               </button>
                             ))}
                             {editCatalog.filter((p) => p.name.toLowerCase().includes(editProductSearch.toLowerCase())).length === 0 && (
@@ -11734,6 +11738,10 @@ export default function Admin() {
                       <div className="space-y-2">
                         {editItems.map((item, idx) => (
                           <div key={idx} className="flex items-center gap-3 p-2.5 rounded-lg bg-muted/30 border border-border/50">
+                            <InventoryProductThumb
+                              name={item.name}
+                              image={item.image || editCatalog.find((c) => c.id === item.id)?.image}
+                            />
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium truncate">{item.name}</p>
                               <p className="text-xs text-muted-foreground">{formatCurrency(item.price)} × {item.quantity} = {formatCurrency(item.price * item.quantity)}</p>
@@ -12442,7 +12450,7 @@ function SupportTicketsPanel({
                   <p className="text-xs text-muted-foreground">CPF: {ticket.clientDocument} | Pedido: {ticket.orderId}</p>
                   {ticket.problemType && (
                     <p className="text-xs text-muted-foreground">
-                      Tipo: {ticket.problemType === "extravio" ? "Extravio/roubo" : ticket.problemType === "apreensao" ? "Receita/quebrado" : "Veio faltando"}
+                      Tipo: {ticket.problemType === "extravio" ? "Extravio/roubo" : ticket.problemType === "apreensao" ? "Apreensão/quebrado" : "Veio faltando"}
                       {ticket.insuranceChoice === "choose_refund" ? " · Estorno" : ticket.insuranceChoice === "choose_reship" ? " · Reenvio" : ""}
                     </p>
                   )}

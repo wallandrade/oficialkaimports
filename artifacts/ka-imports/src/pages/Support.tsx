@@ -422,7 +422,7 @@ export default function Support() {
                       {([
                         { id: "missing_items" as const, label: "Veio faltando item", reshipOption: false },
                         { id: "extravio" as const, label: "Sumiu / roubaram (extravio)", reshipOption: true },
-                        { id: "apreensao" as const, label: "Receita / quebrado", reshipOption: true },
+                        { id: "apreensao" as const, label: "Apreensão / quebrado", reshipOption: true },
                       ]).map((option) => {
                         const blocked = option.reshipOption && !canReship(selectedPlan, option.id as InsuranceProblem);
                         return (
