@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-17 | Anti-padrão: copiar Envios/Compra 48h com `order.products` no split quando um pacote já tem etiqueta | `getPendingShipmentCopy` usa `packages[].items` sem etiqueta | Fila 48h AND; Motoboy; `orderToText` |
 | 2026-09-17 | Anti-padrão: busca do **Editar Pedido** só com nome/preço | Thumbnail `editCatalog[].image` no dropdown e na lista | PATCH `/edit`; preço de vitrine |
 | 2026-09-16 | Anti-padrão: `/suporte` listar compra só com nome, sem foto | `orders-by-cpf` hidrata `image` do catálogo; thumbnail na lista | Tickets e Minha conta |
 | 2026-09-16 | Anti-padrão: trocar SKU pelo Editar pedido (preço de vitrine) ou depois de enviado/baixado | `POST .../replace-product` + `keep_price`/`pass_difference` + `swappedFrom` | Reenvio; `PATCH .../edit` de endereço/itens |
