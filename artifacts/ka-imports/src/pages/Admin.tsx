@@ -610,6 +610,26 @@ function isMotoboyShippingOrder(order: any): boolean {
   return shipping.includes("motoboy") || Boolean(order?.motoboyDeliveryDate && order?.motoboyDeliveryTime);
 }
 
+type OrdersListTabId = "normal" | "reenvios" | "aguardando_estoque" | "motoboy";
+
+function isActiveReshipmentOrderRecord(order: any): boolean {
+  return Boolean(order?.reshipment?.id) && !isClosedReshipmentStatus(order?.reshipment?.status);
+}
+
+function orderMatchesOrdersListTab(order: any, tab: OrdersListTabId): boolean {
+  const isReshipment = isActiveReshipmentOrderRecord(order);
+  const isWaiting = isAguardandoEstoqueOrder(order);
+  const isMotoboy = isMotoboyShippingOrder(order);
+  if (tab === "reenvios") return isReshipment;
+  if (tab === "aguardando_estoque") return !isReshipment && isWaiting;
+  if (tab === "motoboy") return !isReshipment && !isWaiting && isMotoboy;
+  return !isReshipment && !isWaiting && !isMotoboy;
+}
+
+function filterCopyOrdersForTab<T>(orders: T[], tab: OrdersListTabId): T[] {
+  return orders.filter((order) => orderMatchesOrdersListTab(order, tab));
+}
+
 function isYuryInventoryShippingOrder(order: any): boolean {
   const shipping = String(order?.shippingType || "")
     .normalize("NFD")
@@ -6912,10 +6932,13 @@ export default function Admin() {
     }
   };
 
-  const copyOtherShippingOrders = async (event?: React.MouseEvent<HTMLButtonElement>) => {
+  const copyOtherShippingOrders = async (
+    selectedOrders: AdminOrder[],
+    event?: React.MouseEvent<HTMLButtonElement>,
+  ) => {
     event?.preventDefault();
     event?.stopPropagation();
-    const otherOrders = withoutParkedShippingOrders(logisticsCopyGroups.otherOrders);
+    const otherOrders = withoutParkedShippingOrders(selectedOrders);
     if (otherOrders.length === 0) {
       toast.info("Nenhum pedido em Outros para enviar. Os marcados foram para Procurando produtos ou Aguardando estoque.");
       return;
@@ -6932,10 +6955,13 @@ export default function Admin() {
     }
   };
 
-  const copyMotoboyOrders = async (event?: React.MouseEvent<HTMLButtonElement>) => {
+  const copyMotoboyOrders = async (
+    selectedOrders: AdminOrder[],
+    event?: React.MouseEvent<HTMLButtonElement>,
+  ) => {
     event?.preventDefault();
     event?.stopPropagation();
-    const motoboyOrders = withoutParkedShippingOrders(logisticsCopyGroups.motoboyOrders);
+    const motoboyOrders = withoutParkedShippingOrders(selectedOrders);
     if (motoboyOrders.length === 0) {
       toast.info("Nenhum motoboy para enviar. Os marcados foram para Procurando produtos ou Aguardando estoque.");
       return;
@@ -6954,17 +6980,20 @@ export default function Admin() {
     }
   };
 
-  const copySearchingProductOrders = async (event?: React.MouseEvent<HTMLButtonElement>) => {
+  const copySearchingProductOrders = async (
+    selectedOrders: AdminOrder[],
+    event?: React.MouseEvent<HTMLButtonElement>,
+  ) => {
     event?.preventDefault();
     event?.stopPropagation();
-    if (searchingProductOrders.length === 0) {
+    if (selectedOrders.length === 0) {
       toast.info("Nenhum pedido marcado como procurando produto.");
       return;
     }
 
     const motoboyIds = new Set(logisticsCopyGroups.motoboyOrders.map((order) => order.id));
     const otherIds = new Set(logisticsCopyGroups.otherOrders.map((order) => order.id));
-    const blocks = searchingProductOrders.map((order, index) => {
+    const blocks = selectedOrders.map((order, index) => {
       if (motoboyIds.has(order.id)) return motoboyOrderBlock(order);
       if (otherIds.has(order.id)) return legacySupplierOrderBlock(order, index + 1);
       return logisticsOrderBlock(order);
@@ -6972,7 +7001,7 @@ export default function Admin() {
     const text = [
       copyStoreLabel ? `Loja: ${copyStoreLabel}` : null,
       "NÃO FAZER ETIQUETA AINDA — atrasados para achar o produto do cliente.",
-      `Pedidos: ${searchingProductOrders.length}`,
+      `Pedidos: ${selectedOrders.length}`,
       "",
       blocks.join("\n\n"),
     ].filter((line) => line != null).join("\n");
@@ -6981,7 +7010,7 @@ export default function Admin() {
       const mode = await copyText(text);
       toast.success(mode === "manual"
         ? "Texto aberto para copia manual."
-        : `${searchingProductOrders.length} pedido${searchingProductOrders.length !== 1 ? "s" : ""} procurando produto copiado${searchingProductOrders.length !== 1 ? "s" : ""}.`);
+        : `${selectedOrders.length} pedido${selectedOrders.length !== 1 ? "s" : ""} procurando produto copiado${selectedOrders.length !== 1 ? "s" : ""}.`);
     } catch {
       toast.error("Nao foi possivel copiar os pedidos procurando produto.");
     }
@@ -7540,8 +7569,9 @@ export default function Admin() {
               }));
             }}
             canManageEnvioEcom={canManageShippingTab}
-            ordersCopyToolbar={(
+            ordersCopyToolbar={(tab) => (
               <OrdersCopyToolbar
+                activeTab={tab}
                 deadlineGroups={logisticsCopyGroups.deadlineGroups}
                 searchingProductOrders={searchingProductOrders}
                 motoboyCopyOrders={motoboyCopyOrders}
@@ -13715,6 +13745,7 @@ function InventoryPanel({
 type LogisticsCopyDeadlineGroup = { promisedHours: number; orders: AdminOrder[] };
 
 function OrdersCopyToolbar({
+  activeTab,
   deadlineGroups,
   searchingProductOrders,
   motoboyCopyOrders,
@@ -13725,36 +13756,47 @@ function OrdersCopyToolbar({
   onCopyMotoboyOrders,
   onCopyOtherShippingOrders,
 }: {
+  activeTab: OrdersListTabId;
   deadlineGroups: LogisticsCopyDeadlineGroup[];
   searchingProductOrders: AdminOrder[];
   motoboyCopyOrders: AdminOrder[];
   otherCopyOrders: AdminOrder[];
   onCopyShoppingList: (orders: AdminOrder[], promisedHours: number, event?: React.MouseEvent<HTMLButtonElement>) => void | Promise<void>;
   onCopyLogisticsDeadlineGroup: (group: LogisticsCopyDeadlineGroup, event?: React.MouseEvent<HTMLButtonElement>) => void | Promise<void>;
-  onCopySearchingProductOrders: (event?: React.MouseEvent<HTMLButtonElement>) => void | Promise<void>;
-  onCopyMotoboyOrders: (event?: React.MouseEvent<HTMLButtonElement>) => void | Promise<void>;
-  onCopyOtherShippingOrders: (event?: React.MouseEvent<HTMLButtonElement>) => void | Promise<void>;
+  onCopySearchingProductOrders: (orders: AdminOrder[], event?: React.MouseEvent<HTMLButtonElement>) => void | Promise<void>;
+  onCopyMotoboyOrders: (orders: AdminOrder[], event?: React.MouseEvent<HTMLButtonElement>) => void | Promise<void>;
+  onCopyOtherShippingOrders: (orders: AdminOrder[], event?: React.MouseEvent<HTMLButtonElement>) => void | Promise<void>;
 }) {
+  const tabSearchingOrders = filterCopyOrdersForTab(searchingProductOrders, activeTab);
+  const tabMotoboyOrders = filterCopyOrdersForTab(motoboyCopyOrders, activeTab);
+  const tabOtherOrders = filterCopyOrdersForTab(otherCopyOrders, activeTab);
+  const showDeadlineCopies = activeTab !== "motoboy";
+  const showEnviosAndOutros = activeTab === "normal" || activeTab === "reenvios";
+  const showMotoboyCopy = activeTab === "motoboy" || activeTab === "reenvios";
+
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      {deadlineGroups.map((group) => {
-        const enviosOrders = withoutParkedShippingOrders(group.orders);
+      {showDeadlineCopies && deadlineGroups.map((group) => {
+        const tabGroupOrders = filterCopyOrdersForTab(group.orders, activeTab);
+        if (tabGroupOrders.length === 0) return null;
+        const enviosOrders = withoutParkedShippingOrders(tabGroupOrders);
+        const tabGroup = { promisedHours: group.promisedHours, orders: tabGroupOrders };
         return (
           <React.Fragment key={group.promisedHours}>
             <button
               type="button"
-              onClick={(event) => { void onCopyShoppingList(group.orders, group.promisedHours, event); }}
+              onClick={(event) => { void onCopyShoppingList(tabGroupOrders, group.promisedHours, event); }}
               className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-100"
-              title={`Copiar lista de compra dos envios em ${group.promisedHours} horas`}
+              title={`Copiar lista de compra dos envios em ${group.promisedHours} horas desta aba`}
             >
               <ShoppingBag className="w-3.5 h-3.5" /> Compra {group.promisedHours}h
             </button>
-            {enviosOrders.length > 0 && (
+            {showEnviosAndOutros && enviosOrders.length > 0 && (
               <button
                 type="button"
-                onClick={(event) => { void onCopyLogisticsDeadlineGroup(group, event); }}
+                onClick={(event) => { void onCopyLogisticsDeadlineGroup(tabGroup, event); }}
                 className="inline-flex items-center gap-1 rounded-md border border-sky-300 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-800 hover:bg-sky-100"
-                title={`Copiar ${enviosOrders.length} pedido${enviosOrders.length !== 1 ? "s" : ""} com prazo de ${group.promisedHours} horas (sem procurando produto nem aguardando estoque)`}
+                title={`Copiar ${enviosOrders.length} pedido${enviosOrders.length !== 1 ? "s" : ""} desta aba com prazo de ${group.promisedHours} horas`}
               >
                 <Copy className="w-3.5 h-3.5" /> Envios {group.promisedHours}h ({enviosOrders.length})
               </button>
@@ -13762,34 +13804,34 @@ function OrdersCopyToolbar({
           </React.Fragment>
         );
       })}
-      {searchingProductOrders.length > 0 && (
+      {tabSearchingOrders.length > 0 && (
         <button
           type="button"
-          onClick={(event) => { void onCopySearchingProductOrders(event); }}
+          onClick={(event) => { void onCopySearchingProductOrders(tabSearchingOrders, event); }}
           className="inline-flex items-center gap-1 rounded-md border border-yellow-500 bg-yellow-200 px-2 py-1 text-[11px] font-semibold text-yellow-950 hover:bg-yellow-300"
-          title={`Copiar só os ${searchingProductOrders.length} pedido${searchingProductOrders.length !== 1 ? "s" : ""} com card amarelo (procurando produto)`}
+          title={`Copiar só os ${tabSearchingOrders.length} pedido${tabSearchingOrders.length !== 1 ? "s" : ""} desta aba com card amarelo (procurando produto)`}
         >
-          <Search className="w-3.5 h-3.5" /> Procurando produtos ({searchingProductOrders.length})
+          <Search className="w-3.5 h-3.5" /> Procurando produtos ({tabSearchingOrders.length})
         </button>
       )}
-      {motoboyCopyOrders.length > 0 && (
+      {showMotoboyCopy && tabMotoboyOrders.length > 0 && (
         <button
           type="button"
-          onClick={(event) => { void onCopyMotoboyOrders(event); }}
+          onClick={(event) => { void onCopyMotoboyOrders(tabMotoboyOrders, event); }}
           className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100"
-          title="Copiar pedidos com entrega por motoboy"
+          title="Copiar pedidos Motoboy desta aba"
         >
-          <Bike className="w-3.5 h-3.5" /> Motoboy ({motoboyCopyOrders.length})
+          <Bike className="w-3.5 h-3.5" /> Motoboy ({tabMotoboyOrders.length})
         </button>
       )}
-      {otherCopyOrders.length > 0 && (
+      {showEnviosAndOutros && tabOtherOrders.length > 0 && (
         <button
           type="button"
-          onClick={(event) => { void onCopyOtherShippingOrders(event); }}
+          onClick={(event) => { void onCopyOtherShippingOrders(tabOtherOrders, event); }}
           className="inline-flex items-center gap-1 rounded-md border border-border bg-white px-2 py-1 text-[11px] font-semibold text-foreground hover:bg-muted"
-          title="Copiar pedidos sem lote de expedição"
+          title="Copiar pedidos desta aba sem lote de expedição"
         >
-          <Copy className="w-3.5 h-3.5" /> Outros ({otherCopyOrders.length})
+          <Copy className="w-3.5 h-3.5" /> Outros ({tabOtherOrders.length})
         </button>
       )}
     </div>
@@ -13856,7 +13898,7 @@ function OrdersPanel({
   ) => void;
   onRemoveOrder: (id: string) => void;
   canManageEnvioEcom?: boolean;
-  ordersCopyToolbar?: ReactNode;
+  ordersCopyToolbar?: (tab: OrdersListTabId) => ReactNode;
 }) {
 
   const normalizeIp = (ip?: string | null) => String(ip || "").trim().replace(/^::ffff:/, "") || "-";
@@ -13916,7 +13958,7 @@ function OrdersPanel({
   const [whatsappGroupUpdating, setWhatsappGroupUpdating] = useState<Record<string, boolean>>({});
   const trackingBatchInputRef = useRef<HTMLInputElement | null>(null);
   const trackingBatchWatchdogRef = useRef<number | null>(null);
-  const [ordersListTab, setOrdersListTab] = useState<"normal" | "reenvios" | "aguardando_estoque" | "motoboy">("normal");
+  const [ordersListTab, setOrdersListTab] = useState<OrdersListTabId>("normal");
   const [enviando, setEnviando] = useState<Record<string, boolean>>({});
   const [exitingStock, setExitingStock] = useState<Record<string, boolean>>({});
   const [exitPoolByOrder, setExitPoolByOrder] = useState<Record<string, KaExitPool>>({});
@@ -15373,7 +15415,7 @@ function OrdersPanel({
             </button>
           ))}
         </div>
-        {ordersCopyToolbar}
+        {ordersCopyToolbar?.(ordersListTab)}
       </div>
       {orders.length === 0 ? (
         <div className="text-center py-16 bg-muted/30 rounded-2xl border border-dashed">
