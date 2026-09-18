@@ -14265,15 +14265,6 @@ function OrdersPanel({
     }
   };
 
-  const scrollToOrdersSection = (id: "normal" | "reenvios" | "aguardando_estoque", orderId?: string) => {
-    setOrdersListTab(id);
-    window.setTimeout(() => {
-      const el = (orderId ? document.getElementById(`order-card-${orderId}`) : null)
-        || document.getElementById(`orders-section-${id}`);
-      el?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 80);
-  };
-
   const toggleWaitingStock = async (order: AdminOrder) => {
     const id = String(order.id || "").trim();
     if (!id) return;
@@ -14298,7 +14289,7 @@ function OrdersPanel({
         if (res.status === 404 || res.status === 503) {
           setOrderWaitingStock((prev) => ({ ...prev, [id]: next }));
           onSetOrderPatched({ ...order, isAguardandoEstoque: next } as AdminOrder);
-          scrollToOrdersSection(next ? "aguardando_estoque" : "normal", id);
+          setOrdersListTab(next ? "aguardando_estoque" : "normal");
           toast.warning("Aviso salvo apenas localmente (migração pendente no servidor).");
           return;
         }
@@ -14310,7 +14301,7 @@ function OrdersPanel({
 
       if (data.order) onSetOrderPatched({ ...data.order, isAguardandoEstoque: saved } as AdminOrder);
       else onSetOrderPatched({ ...order, isAguardandoEstoque: saved } as AdminOrder);
-      scrollToOrdersSection(saved ? "aguardando_estoque" : "normal", id);
+      setOrdersListTab(saved ? "aguardando_estoque" : "normal");
       toast.success(saved
         ? "Pedido enviado para Pedidos aguardando estoque."
         : "Pedido voltou para Pedido normal.");
@@ -15277,6 +15268,8 @@ function OrdersPanel({
     { id: "reenvios" as const, label: "Pedido reenvio", list: reshipmentOrders, empty: "Nenhum reenvio pendente" },
     { id: "aguardando_estoque" as const, label: "Pedidos aguardando estoque", list: waitingStockOrders, empty: "Nenhum pedido aguardando estoque" },
   ];
+  const activeOrderSection = orderListSections.find((item) => item.id === ordersListTab) || orderListSections[0];
+  const visibleOrders = activeOrderSection.list;
 
   if (orders.length === 0) return (
     <div className="text-center py-16 bg-muted/30 rounded-2xl border border-dashed">
@@ -15292,7 +15285,7 @@ function OrdersPanel({
           <button
             key={item.id}
             type="button"
-            onClick={() => scrollToOrdersSection(item.id)}
+            onClick={() => setOrdersListTab(item.id)}
             className={`h-8 px-3 rounded-full text-xs font-semibold border transition-colors ${
               ordersListTab === item.id
                 ? "bg-primary text-primary-foreground border-primary"
@@ -15337,21 +15330,12 @@ function OrdersPanel({
         </div>
       </div>
 
-      {orderListSections.map((section) => (
-        <div
-          key={section.id}
-          id={`orders-section-${section.id}`}
-          className="space-y-4 scroll-mt-32"
-        >
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            {section.label}
-            <span className="ml-1.5 tabular-nums opacity-80">{section.list.length}</span>
-          </p>
-          {section.list.length === 0 ? (
-            <div className="text-center py-10 bg-muted/30 rounded-2xl border border-dashed">
-              <p className="font-semibold text-sm text-muted-foreground">{section.empty}</p>
-            </div>
-          ) : section.list.map((order) => {
+      {visibleOrders.length === 0 ? (
+        <div className="text-center py-16 bg-muted/30 rounded-2xl border border-dashed">
+          <IconLucide name="Package" className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+          <p className="font-semibold text-lg">{activeOrderSection.empty}</p>
+        </div>
+      ) : visibleOrders.map((order) => {
           const isPrioridade = resolveOrderPriority(order);
           const isProcurandoProduto = resolveSearchingProduct(order);
           const isAguardandoEstoque = resolveWaitingStock(order);
@@ -16233,8 +16217,6 @@ function OrdersPanel({
           </div>
         );
       })}
-        </div>
-      ))}
 
       <AnimatePresence>
         {imagePreview && (
