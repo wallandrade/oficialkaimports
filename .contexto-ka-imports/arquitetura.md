@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-09-16  
+> **Última atualização:** 2026-09-17  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-17 | `orders.is_aguardando_estoque` + `PATCH /admin/orders/:id/aguardando-estoque` | Fila operacional na aba Pedidos | Procurando produto; reenvio; saldo |
 | 2026-09-16 | `POST /support/orders-by-cpf` hidrata `products[].image` pelo catálogo; `Support.tsx` mostra thumbnail | Lista de compras no `/suporte` | Tickets; Minha conta |
 | 2026-09-16 | `POST /admin/orders/:id/replace-product` + `swappedFrom` no JSON do item; modal Trocar produto | Troca com 2 modos; cliente vê X→Y | `PATCH .../edit`; reenvio |
 | 2026-09-16 | `PATCH /admin/orders/:id/tracking-code` + parse/match devolvem `packages[]`; OCR por pacote no `SplitOrderShipments` | Card split não some após Vincular/OCR | Board 1 card; create EE |
@@ -76,7 +77,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 ### Tabelas principais (não exaustivo)
 
 - `tenants`, `admin_users`, `admin_user_tenants`, `admin_sessions`
-- `orders` (incl. `envioecom_*`, `enviado`, `inventory_exit_pool`, `inventory_exited_pools`, `inventory_reserved`, `is_prioridade`, `is_procurando_produto`, `tracking_*`, `bank_deposit_*`, `insurance_plan`, `insurance_keep_amount`, `insurance_cashback_amount`, `insurance_claim_status`, `insurance_reship_count`, `insurance_cashback_granted`, `parent_order_id`, `store_credit_used`, `observation`, `observation_visible_to_customer`), `order_shipments` (N envios EE por pedido; unique `(order_id, inventory_pool)`), `order_events` (auditoria do pedido), `order_bank_deposits` (vários PIX OFX por pedido), `custom_charges`, `products`, `coupons`, `sellers`
+- `orders` (incl. `envioecom_*`, `enviado`, `inventory_exit_pool`, `inventory_exited_pools`, `inventory_reserved`, `is_prioridade`, `is_procurando_produto`, `is_aguardando_estoque`, `tracking_*`, `bank_deposit_*`, `insurance_plan`, `insurance_keep_amount`, `insurance_cashback_amount`, `insurance_claim_status`, `insurance_reship_count`, `insurance_cashback_granted`, `parent_order_id`, `store_credit_used`, `observation`, `observation_visible_to_customer`), `order_shipments` (N envios EE por pedido; unique `(order_id, inventory_pool)`), `order_events` (auditoria do pedido), `order_bank_deposits` (vários PIX OFX por pedido), `custom_charges`, `products`, `coupons`, `sellers`
 - `customer_users`, `customer_wallet_ledger` (carteira da loja; não é afiliado), `affiliates` (+ referrals/commissions/credit uses)
 - `kyc_documents`, `site_settings` / `tenant_settings`
 - `shipping_options`, `motoboy_*` (incl. `yury_id` na cobertura), `yury_webhook_events_processed`, `order_logistics_allocations`

@@ -30,6 +30,7 @@ const ACTION_LABELS: Record<string, string> = {
   ee_cancelled: "Cancelou envio EnvioEcom",
   priority: "Alterou prioridade",
   searching: "Alterou procurando produto",
+  waiting_stock: "Alterou aguardando estoque",
   observation: "Alterou observações",
   whatsapp_group: "Alterou grupo WhatsApp",
   tracking: "Vinculou rastreio",

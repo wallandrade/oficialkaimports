@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-17 | Anti-padrão: filtrar a 3ª pill pelo badge **Faltando estoque**, reusar `reenvio_aguardando_estoque` ou o texto da Minha conta | Flag manual `is_aguardando_estoque` + PATCH próprio | Procurando produto; saldo; reenvio |
 | 2026-09-17 | Anti-padrão: copiar Envios/Compra 48h com `order.products` no split quando um pacote já tem etiqueta | `getPendingShipmentCopy` usa `packages[].items` sem etiqueta | Fila 48h AND; Motoboy; `orderToText` |
 | 2026-09-17 | Anti-padrão: busca do **Editar Pedido** só com nome/preço | Thumbnail `editCatalog[].image` no dropdown e na lista | PATCH `/edit`; preço de vitrine |
 | 2026-09-16 | Anti-padrão: `/suporte` listar compra só com nome, sem foto | `orders-by-cpf` hidrata `image` do catálogo; thumbnail na lista | Tickets e Minha conta |
@@ -229,6 +230,7 @@ Código > memória > suposições.
 - Tratar o relatório da aba **Extrato** como histórico (some no F5); persistência é a aba **Depósitos** + `GET /api/admin/bank-deposits`. FITID já em `ok`/`confirmed_100` deve ser ignorado, não reanalisado.
 - Manter selo **PRIORIDADE URGENTE** depois de `enviado`/coletado; zerar `is_prioridade` no envio e não exibir a estrela.
 - Reusar **Faltando estoque** (saldo vs pedido) para avisar “não fazer etiqueta / atrasados no fornecedor”. Isso é flag manual `is_procurando_produto` no card, independente do inventário.
+- Filtrar **Pedidos aguardando estoque** pelo badge automático de saldo, pelo status de reenvio `reenvio_aguardando_estoque` ou pelo “Aguardando estoque” da Minha conta (pacote sem etiqueta). A fila do admin é `is_aguardando_estoque` + `PATCH .../aguardando-estoque`.
 - Na lista **Compra 48h/72h/96h**, descontar só `inventoryBalances` (Fóz) e mandar reenvio inteiro para comprar. Abater também Motoboy/Minas (`/api/admin/yury-inventory`) e a qtd de reenvio; “Comprar agora” é só o que falta.
 - Ligar `setSearch` do `Admin` no `onChange` da busca de Pedidos/Links; texto e filtro ficam em `AdminOrdersChargesSearchShell` e o input é controlado por esse filho (sem debounce, sem estado local, sem `startTransition`). Não pôr o poll de visitantes ao vivo no estado do `Admin` (`AdminLiveVisitorStats` próprio). Busca de Clientes/recorrentes é estado interno do painel.
 - Envolver o `setSearch` da busca em `startTransition` ou debounce+estado local no input: a lista não filtra. Debounce só fazia sentido quando o estado era o `Admin` monolítico.

@@ -168,13 +168,27 @@ function isProcurandoProdutoOrder(order: any): boolean {
   return !!order?.isProcurandoProduto;
 }
 
+function isAguardandoEstoqueOrder(order: any): boolean {
+  return !!order?.isAguardandoEstoque;
+}
+
 function withoutSearchingProductOrders<T extends { isProcurandoProduto?: boolean }>(orders: T[]): T[] {
   return orders.filter((order) => !isProcurandoProdutoOrder(order));
+}
+
+function withoutParkedShippingOrders<T extends { isProcurandoProduto?: boolean; isAguardandoEstoque?: boolean }>(orders: T[]): T[] {
+  return withoutSearchingProductOrders(orders).filter((order) => !isAguardandoEstoqueOrder(order));
 }
 
 function searchingProductCopyLine(order: any): string {
   return isProcurandoProdutoOrder(order)
     ? "NÃO FAZER ETIQUETA AINDA — atrasados para achar o produto do cliente."
+    : "";
+}
+
+function waitingStockCopyLine(order: any): string {
+  return isAguardandoEstoqueOrder(order)
+    ? "AGUARDANDO ESTOQUE — não fazer etiqueta ainda."
     : "";
 }
 
@@ -262,6 +276,7 @@ export function orderToText(order: any): string {
   const products = getOrderProducts(order?.products);
   const prioridadeLine = order?.isPrioridade ? "PRIORIDADE URGENTE" : "";
   const searchingLine = searchingProductCopyLine(order);
+  const waitingStockLine = waitingStockCopyLine(order);
   const productsText = products.length
     ? products
         .map((p) => {
@@ -287,6 +302,7 @@ export function orderToText(order: any): string {
     return [
       prioridadeLine,
       searchingLine,
+      waitingStockLine,
       `🚨 REENVIO - ${reshipmentLabel}`,
       `Data do pedido original: ${formatDateBR(dataPrimeiroPedido) || "-"}`,
       trackingCodeInformado ? `Numero rastreio informado: ${trackingCodeInformado}` : "",
@@ -326,6 +342,7 @@ export function orderToText(order: any): string {
     `PEDIDO #KA-${getOrderDisplayId(order)}`,
     prioridadeLine,
     searchingLine,
+    waitingStockLine,
     addressBlock,
     `Resumo pedido:\n${productsText}`,
     order?.observation ? `Observacao: ${order.observation}` : "",
@@ -336,6 +353,7 @@ export function orderToFullText(order: any): string {
   const products = getOrderProducts(order?.products);
   const prioridadeLine = order?.isPrioridade ? "PRIORIDADE URGENTE" : "";
   const searchingLine = searchingProductCopyLine(order);
+  const waitingStockLine = waitingStockCopyLine(order);
   const productsText = products.length
     ? products
         .map((p) => {
@@ -431,6 +449,7 @@ export function orderToFullText(order: any): string {
   return [
     prioridadeLine,
     searchingLine,
+    waitingStockLine,
     `Pedido #${getOrderDisplayId(order)}`,
     `Data: ${formatDateBR(order?.createdAt) || "-"}`,
     `Cliente: ${order?.clientName || "-"}`,
@@ -573,6 +592,7 @@ function logisticsOrderBlock(order: any): string {
   const { addressBlock, resumoPedido, resumoHeading, reshipmentLines } = supplierOrderContent(order);
   return [
     searchingProductCopyLine(order),
+    waitingStockCopyLine(order),
     `PEDIDO #KA-${getOrderDisplayId(order)}`,
     ...reshipmentLines,
     addressBlock,
@@ -759,7 +779,7 @@ function motoboyOrderBlock(order: any): string {
   const cityLine = state ? `${city} / ${state}` : city;
 
   return [
-    searchingProductCopyLine(order) || null,
+    searchingProductCopyLine(order) || waitingStockCopyLine(order) || null,
     `📦 ENTREGA #${getOrderDisplayId(order)}`,
     `${paid ? "✅" : "⚠️"} Pagamento: ${paid ? "confirmado" : "PENDENTE"}`,
     `👤 Cliente: ${order?.clientName || "-"}`,
@@ -782,6 +802,7 @@ function legacySupplierOrderBlock(order: any, sequence: number): string {
   const { addressBlock, resumoPedido, resumoHeading, reshipmentLines } = supplierOrderContent(order);
   return [
     searchingProductCopyLine(order),
+    waitingStockCopyLine(order),
     order?.isPrioridade ? "🚨 PRIORIDADE URGENTE" : "",
     ...reshipmentLines,
     `Pedido numero: ${sequence}`,
@@ -808,7 +829,7 @@ function formatRaffleDescriptionPreview(value: string | undefined | null): strin
 
 import React, { useState, useEffect, useCallback, useRef, useMemo, startTransition, type ReactNode } from "react";
 import { useLocation } from "wouter";
-import { Loader2, Save, Plus, Trash2, X, CheckCircle, XCircle, Zap, Info, Pencil, MessageCircle, Tag, Bell, RefreshCw, Download, LogOut, QrCode, LinkIcon, Ticket, ShoppingBag, Clock, Upload, ChevronDown, ChevronUp, Copy, Users, Percent, Calendar, DollarSign, ShieldCheck, CreditCard, Truck, RotateCcw, UserPlus, Eye, EyeOff, ToggleLeft, Webhook, ImageOff, Lock, AlertTriangle, Star, Send, Mail, Store, Bike, MapPin, Search } from "lucide-react";
+import { Loader2, Save, Plus, Trash2, X, CheckCircle, XCircle, Zap, Info, Pencil, MessageCircle, Tag, Bell, RefreshCw, Download, LogOut, QrCode, LinkIcon, Ticket, ShoppingBag, Clock, Upload, ChevronDown, ChevronUp, Copy, Users, Percent, Calendar, DollarSign, ShieldCheck, CreditCard, Truck, RotateCcw, UserPlus, Eye, EyeOff, ToggleLeft, Webhook, ImageOff, Lock, AlertTriangle, Star, Send, Mail, Store, Bike, MapPin, Search, Warehouse } from "lucide-react";
 import { IconLucide } from "@/components/ui/IconLucide";
 
 import { toast } from "sonner";
@@ -6672,8 +6693,8 @@ export default function Admin() {
     };
   })();
   const searchingProductOrders = ordersParaEnviarCopyBase.filter((order) => isProcurandoProdutoOrder(order));
-  const motoboyCopyOrders = withoutSearchingProductOrders(logisticsCopyGroups.motoboyOrders);
-  const otherCopyOrders = withoutSearchingProductOrders(logisticsCopyGroups.otherOrders);
+  const motoboyCopyOrders = withoutParkedShippingOrders(logisticsCopyGroups.motoboyOrders);
+  const otherCopyOrders = withoutParkedShippingOrders(logisticsCopyGroups.otherOrders);
   const copyStoreLabel = filialCopyStoreLabel(adminTenantId, settings);
 
   const copyShoppingList = async (
@@ -6824,9 +6845,9 @@ export default function Admin() {
   ) => {
     event?.preventDefault();
     event?.stopPropagation();
-    const shippingOrders = withoutSearchingProductOrders(group.orders);
+    const shippingOrders = withoutParkedShippingOrders(group.orders);
     if (shippingOrders.length === 0) {
-      toast.info("Nenhum pedido neste lote para enviar. Os marcados foram para Procurando produtos.");
+      toast.info("Nenhum pedido neste lote para enviar. Os marcados foram para Procurando produtos ou Aguardando estoque.");
       return;
     }
     const byDeadline = new Map<string, { allocation: any; orders: AdminOrder[] }>();
@@ -6864,9 +6885,9 @@ export default function Admin() {
   const copyOtherShippingOrders = async (event?: React.MouseEvent<HTMLButtonElement>) => {
     event?.preventDefault();
     event?.stopPropagation();
-    const otherOrders = withoutSearchingProductOrders(logisticsCopyGroups.otherOrders);
+    const otherOrders = withoutParkedShippingOrders(logisticsCopyGroups.otherOrders);
     if (otherOrders.length === 0) {
-      toast.info("Nenhum pedido em Outros para enviar. Os marcados foram para Procurando produtos.");
+      toast.info("Nenhum pedido em Outros para enviar. Os marcados foram para Procurando produtos ou Aguardando estoque.");
       return;
     }
     const blocks = otherOrders
@@ -6884,9 +6905,9 @@ export default function Admin() {
   const copyMotoboyOrders = async (event?: React.MouseEvent<HTMLButtonElement>) => {
     event?.preventDefault();
     event?.stopPropagation();
-    const motoboyOrders = withoutSearchingProductOrders(logisticsCopyGroups.motoboyOrders);
+    const motoboyOrders = withoutParkedShippingOrders(logisticsCopyGroups.motoboyOrders);
     if (motoboyOrders.length === 0) {
-      toast.info("Nenhum motoboy para enviar. Os marcados foram para Procurando produtos.");
+      toast.info("Nenhum motoboy para enviar. Os marcados foram para Procurando produtos ou Aguardando estoque.");
       return;
     }
     const text = [
@@ -7283,7 +7304,7 @@ export default function Admin() {
               </p>
               <div className="flex flex-wrap items-center justify-end gap-2">
                 {logisticsCopyGroups.deadlineGroups.map((group) => {
-                  const enviosOrders = withoutSearchingProductOrders(group.orders);
+                  const enviosOrders = withoutParkedShippingOrders(group.orders);
                   return (
                   <React.Fragment key={group.promisedHours}>
                     <button
@@ -7299,7 +7320,7 @@ export default function Admin() {
                       type="button"
                       onClick={(event) => { void copyLogisticsDeadlineGroup(group, event); }}
                       className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-white/90 px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-white"
-                      title={`Copiar ${enviosOrders.length} pedido${enviosOrders.length !== 1 ? "s" : ""} com prazo de ${group.promisedHours} horas (sem procurando produto)`}
+                      title={`Copiar ${enviosOrders.length} pedido${enviosOrders.length !== 1 ? "s" : ""} com prazo de ${group.promisedHours} horas (sem procurando produto nem aguardando estoque)`}
                     >
                       <Copy className="w-3.5 h-3.5" /> Envios {group.promisedHours}h ({enviosOrders.length})
                     </button>
@@ -13793,6 +13814,8 @@ function OrdersPanel({
   const [orderPriorityUpdating, setOrderPriorityUpdating] = useState<Record<string, boolean>>({});
   const [orderSearchingProducts, setOrderSearchingProducts] = useState<Record<string, boolean>>({});
   const [orderSearchingUpdating, setOrderSearchingUpdating] = useState<Record<string, boolean>>({});
+  const [orderWaitingStock, setOrderWaitingStock] = useState<Record<string, boolean>>({});
+  const [orderWaitingStockUpdating, setOrderWaitingStockUpdating] = useState<Record<string, boolean>>({});
   const [enviados, setEnviados] = useState<Record<string, boolean>>({});
   const [enviadoLockUntil, setEnviadoLockUntil] = useState<Record<string, number>>({});
   const [imagePreview, setImagePreview] = useState<{ src: string; name: string } | null>(null);
@@ -13821,7 +13844,7 @@ function OrdersPanel({
   const [whatsappGroupUpdating, setWhatsappGroupUpdating] = useState<Record<string, boolean>>({});
   const trackingBatchInputRef = useRef<HTMLInputElement | null>(null);
   const trackingBatchWatchdogRef = useRef<number | null>(null);
-  const [ordersListTab, setOrdersListTab] = useState<"normal" | "reenvios">("normal");
+  const [ordersListTab, setOrdersListTab] = useState<"normal" | "reenvios" | "aguardando_estoque">("normal");
   const [enviando, setEnviando] = useState<Record<string, boolean>>({});
   const [exitingStock, setExitingStock] = useState<Record<string, boolean>>({});
   const [exitPoolByOrder, setExitPoolByOrder] = useState<Record<string, KaExitPool>>({});
@@ -13986,6 +14009,14 @@ function OrdersPanel({
   }, [ordersLookup]);
 
   useEffect(() => {
+    const map: Record<string, boolean> = {};
+    for (const order of ordersLookup) {
+      map[order.id] = !!(order as any).isAguardandoEstoque;
+    }
+    setOrderWaitingStock(map);
+  }, [ordersLookup]);
+
+  useEffect(() => {
     const map: Record<string, string> = {};
     for (const order of ordersLookup) {
       const current = String((order as { whatsappGroup?: string | null }).whatsappGroup || "").trim();
@@ -14080,12 +14111,21 @@ function OrdersPanel({
       : !!(order as any).isProcurandoProduto;
   };
 
+  const resolveWaitingStock = (order: AdminOrder): boolean => {
+    const id = String(order.id || "").trim();
+    if (!id) return !!(order as any).isAguardandoEstoque;
+    return Object.prototype.hasOwnProperty.call(orderWaitingStock, id)
+      ? !!orderWaitingStock[id]
+      : !!(order as any).isAguardandoEstoque;
+  };
+
   const copyOrder = async (order: AdminOrder) => {
     try {
       const mode = await copyText(orderToText({
         ...order,
         isPrioridade: resolveOrderPriority(order),
         isProcurandoProduto: resolveSearchingProduct(order),
+        isAguardandoEstoque: resolveWaitingStock(order),
       }));
       setCopiedOrderId(order.id);
       if (mode === "auto") {
@@ -14106,6 +14146,7 @@ function OrdersPanel({
         ...order,
         isPrioridade: resolveOrderPriority(order),
         isProcurandoProduto: resolveSearchingProduct(order),
+        isAguardandoEstoque: resolveWaitingStock(order),
       }));
       setCopiedOrderId(order.id + "-full");
       if (mode === "auto") {
@@ -14221,6 +14262,54 @@ function OrdersPanel({
       toast.error(message);
     } finally {
       setOrderSearchingUpdating((prev) => ({ ...prev, [id]: false }));
+    }
+  };
+
+  const toggleWaitingStock = async (order: AdminOrder) => {
+    const id = String(order.id || "").trim();
+    if (!id) return;
+
+    const current = resolveWaitingStock(order);
+    const next = !current;
+
+    setOrderWaitingStockUpdating((prev) => ({ ...prev, [id]: true }));
+    try {
+      const res = await fetch(`${BASE}/api/admin/orders/${id}/aguardando-estoque`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({ isAguardandoEstoque: next }),
+      });
+
+      const data = await res.json().catch(() => ({})) as {
+        message?: string;
+        order?: AdminOrder;
+      };
+
+      if (!res.ok) {
+        if (res.status === 404 || res.status === 503) {
+          setOrderWaitingStock((prev) => ({ ...prev, [id]: next }));
+          onSetOrderPatched({ ...order, isAguardandoEstoque: next } as AdminOrder);
+          setOrdersListTab(next ? "aguardando_estoque" : "normal");
+          toast.warning("Aviso salvo apenas localmente (migração pendente no servidor).");
+          return;
+        }
+        throw new Error(data?.message || "Erro ao atualizar fila de estoque.");
+      }
+
+      const saved = !!(data.order as any)?.isAguardandoEstoque;
+      setOrderWaitingStock((prev) => ({ ...prev, [id]: saved }));
+
+      if (data.order) onSetOrderPatched({ ...data.order, isAguardandoEstoque: saved } as AdminOrder);
+      else onSetOrderPatched({ ...order, isAguardandoEstoque: saved } as AdminOrder);
+      setOrdersListTab(saved ? "aguardando_estoque" : "normal");
+      toast.success(saved
+        ? "Pedido enviado para Pedidos aguardando estoque."
+        : "Pedido voltou para Pedido normal.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Erro ao atualizar fila de estoque.";
+      toast.error(message);
+    } finally {
+      setOrderWaitingStockUpdating((prev) => ({ ...prev, [id]: false }));
     }
   };
 
@@ -15172,8 +15261,13 @@ function OrdersPanel({
 
   const listedOrders = orders.filter((order) => typeof order.id === "string" && order.id.length > 0);
   const reshipmentOrders = listedOrders.filter((order) => isActiveReshipmentOrderCard(order));
-  const normalOrders = listedOrders.filter((order) => !isActiveReshipmentOrderCard(order));
-  const visibleOrders = ordersListTab === "reenvios" ? reshipmentOrders : normalOrders;
+  const waitingStockOrders = listedOrders.filter((order) => !isActiveReshipmentOrderCard(order) && resolveWaitingStock(order));
+  const normalOrders = listedOrders.filter((order) => !isActiveReshipmentOrderCard(order) && !resolveWaitingStock(order));
+  const visibleOrders = ordersListTab === "reenvios"
+    ? reshipmentOrders
+    : ordersListTab === "aguardando_estoque"
+      ? waitingStockOrders
+      : normalOrders;
 
   if (orders.length === 0) return (
     <div className="text-center py-16 bg-muted/30 rounded-2xl border border-dashed">
@@ -15186,8 +15280,9 @@ function OrdersPanel({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-1.5">
         {([
-          { id: "normal" as const, label: "Pedidos", count: normalOrders.length },
-          { id: "reenvios" as const, label: "Reenvios", count: reshipmentOrders.length },
+          { id: "normal" as const, label: "Pedido normal", count: normalOrders.length },
+          { id: "reenvios" as const, label: "Pedido reenvio", count: reshipmentOrders.length },
+          { id: "aguardando_estoque" as const, label: "Pedidos aguardando estoque", count: waitingStockOrders.length },
         ]).map((item) => (
           <button
             key={item.id}
@@ -15241,12 +15336,17 @@ function OrdersPanel({
         <div className="text-center py-16 bg-muted/30 rounded-2xl border border-dashed">
           <IconLucide name="Package" className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
           <p className="font-semibold text-lg">
-            {ordersListTab === "reenvios" ? "Nenhum reenvio pendente" : "Nenhum pedido encontrado"}
+            {ordersListTab === "reenvios"
+              ? "Nenhum reenvio pendente"
+              : ordersListTab === "aguardando_estoque"
+                ? "Nenhum pedido aguardando estoque"
+                : "Nenhum pedido encontrado"}
           </p>
         </div>
       ) : visibleOrders.map((order) => {
           const isPrioridade = resolveOrderPriority(order);
           const isProcurandoProduto = resolveSearchingProduct(order);
+          const isAguardandoEstoque = resolveWaitingStock(order);
           const currentOrderStatus = normalizeOrderStatus(order.status);
           const isPaidOrder = currentOrderStatus === "paid" || currentOrderStatus === "completed";
           const isCard     = order.paymentMethod === "card_simulation";
@@ -15302,7 +15402,7 @@ function OrdersPanel({
             return productId ? String(productImageById[productId] || "").trim() : "";
           };
           return (
-            <div key={order.id} className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${eeLabelReady ? "border-emerald-400" : isCard ? "border-purple-200" : "border-border/60"} ${isPrioridade ? "ring-2 ring-red-400" : isProcurandoProduto ? "ring-2 ring-yellow-400" : ""}`}>
+            <div key={order.id} className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${eeLabelReady ? "border-emerald-400" : isCard ? "border-purple-200" : "border-border/60"} ${isPrioridade ? "ring-2 ring-red-400" : isAguardandoEstoque ? "ring-2 ring-orange-400" : isProcurandoProduto ? "ring-2 ring-yellow-400" : ""}`}>
             <div className="p-5 sm:p-6">
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                 <div className="flex-1 min-w-0">
@@ -15321,6 +15421,12 @@ function OrdersPanel({
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-400 text-yellow-950 text-xs font-bold border border-yellow-600">
                             <Search className="w-3 h-3" />
                             Procurando produto
+                          </span>
+                        )}
+                        {isAguardandoEstoque && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-500 text-white text-xs font-bold border border-orange-700">
+                            <Warehouse className="w-3 h-3" />
+                            Aguardando estoque
                           </span>
                         )}
                         <span className="font-mono text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">#{getOrderDisplayId(order)}</span>
@@ -15761,6 +15867,27 @@ function OrdersPanel({
                     : <Search className="w-4 h-4" />}
                   {orderSearchingUpdating[order.id] ? "Salvando..." : "Procurando produto"}
                 </Button>
+                {!isReshipment && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className={`gap-1.5 ${isAguardandoEstoque ? "bg-orange-500 text-white border-orange-700 hover:bg-orange-400" : "text-orange-800 border-orange-300 hover:bg-orange-50"}`}
+                  title={isAguardandoEstoque
+                    ? "Tirar da fila e voltar para Pedido normal"
+                    : "Mandar este pedido para Pedidos aguardando estoque"}
+                  disabled={!!orderWaitingStockUpdating[order.id] || !!enviados[order.id] || !!order.enviado}
+                  onClick={() => { void toggleWaitingStock(order); }}
+                >
+                  {orderWaitingStockUpdating[order.id]
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Warehouse className="w-4 h-4" />}
+                  {orderWaitingStockUpdating[order.id]
+                    ? "Salvando..."
+                    : isAguardandoEstoque
+                      ? "Voltar para Pedidos"
+                      : "Aguardando estoque"}
+                </Button>
+                )}
                 <Button
                   size="sm"
                   className={`gap-1.5 rounded-full px-5 py-2 font-semibold transition shadow-sm border ${enviados[order.id]

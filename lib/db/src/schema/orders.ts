@@ -71,6 +71,7 @@ export const ordersTable = mysqlTable("orders", {
   inventoryExitPool: varchar("inventory_exit_pool", { length: 16 }),
   inventoryExitedPools: varchar("inventory_exited_pools", { length: 64 }),
   isProcurandoProduto: boolean("is_procurando_produto").notNull().default(false),
+  isAguardandoEstoque: boolean("is_aguardando_estoque").notNull().default(false),
   trackingCode: varchar("tracking_code", { length: 255 }),
   trackingLabelUrl: mediumtext("tracking_label_url"),
   trackingLabelText: mediumtext("tracking_label_text"),

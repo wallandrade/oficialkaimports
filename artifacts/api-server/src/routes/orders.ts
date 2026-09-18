@@ -83,6 +83,7 @@ const router: IRouter = Router();
 
 let priorityColumnCache: { checkedAt: number; available: boolean } = { checkedAt: 0, available: false };
 let searchingProductColumnCache: { checkedAt: number; available: boolean } = { checkedAt: 0, available: false };
+let waitingStockColumnCache: { checkedAt: number; available: boolean } = { checkedAt: 0, available: false };
 const SLA_PRIORITY_BUSINESS_MS = 48 * 60 * 60 * 1000;
 const SAO_PAULO_UTC_OFFSET_MS = -3 * 60 * 60 * 1000;
 const holidayCacheByYear = new Map<number, Set<string>>();
@@ -315,6 +316,65 @@ async function loadOrderSearchingProductMap(orderIds: string[]): Promise<Map<str
     const message = String((err as { message?: string })?.message || "").toLowerCase();
     if (message.includes("unknown column") || message.includes("is_procurando_produto")) {
       searchingProductColumnCache = { checkedAt: Date.now(), available: false };
+      return map;
+    }
+    throw err;
+  }
+
+  return map;
+}
+
+async function isOrderWaitingStockColumnAvailable(force = false): Promise<boolean> {
+  const now = Date.now();
+  if (!force && now - waitingStockColumnCache.checkedAt < 60_000) {
+    return waitingStockColumnCache.available;
+  }
+
+  try {
+    const [rows] = await pool.query(
+      `
+        SELECT 1
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'orders'
+          AND COLUMN_NAME = 'is_aguardando_estoque'
+        LIMIT 1
+      `,
+    );
+    const available = Array.isArray(rows) && rows.length > 0;
+    waitingStockColumnCache = { checkedAt: now, available };
+    return available;
+  } catch {
+    waitingStockColumnCache = { checkedAt: now, available: false };
+    return false;
+  }
+}
+
+async function loadOrderWaitingStockMap(orderIds: string[]): Promise<Map<string, boolean>> {
+  const map = new Map<string, boolean>();
+  if (orderIds.length === 0) return map;
+
+  const available = await isOrderWaitingStockColumnAvailable();
+  if (!available) return map;
+
+  try {
+    const placeholders = orderIds.map(() => "?").join(",");
+    const [rows] = await pool.query(
+      `SELECT id, is_aguardando_estoque FROM orders WHERE id IN (${placeholders})`,
+      orderIds,
+    );
+
+    if (Array.isArray(rows)) {
+      for (const row of rows as Array<{ id?: string; is_aguardando_estoque?: number | boolean | null }>) {
+        const id = String(row?.id || "").trim();
+        if (!id) continue;
+        map.set(id, !!row?.is_aguardando_estoque);
+      }
+    }
+  } catch (err) {
+    const message = String((err as { message?: string })?.message || "").toLowerCase();
+    if (message.includes("unknown column") || message.includes("is_aguardando_estoque")) {
+      waitingStockColumnCache = { checkedAt: Date.now(), available: false };
       return map;
     }
     throw err;
@@ -1723,6 +1783,7 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
     const reshipmentByOrder = await getReshipmentByOrderIds(orders.map((o) => o.id), adminScope.tenantId);
     const priorityByOrder = await loadOrderPriorityMap(orders.map((o) => o.id));
     const searchingProductByOrder = await loadOrderSearchingProductMap(orders.map((o) => o.id));
+    const waitingStockByOrder = await loadOrderWaitingStockMap(orders.map((o) => o.id));
     const orderIds = orders.map((order) => order.id);
     const historyByOrder = await listOrderEventsByOrderIds(orderIds);
     const packagesByOrder = await listOrderShipmentsByOrderIds(orderIds);
@@ -1780,6 +1841,7 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
         logisticsAllocation: logisticsByOrder.get(order.id) || null,
         isPrioridade: !order.enviado && (manualPriority || automaticPriority),
         isProcurandoProduto: searchingProductByOrder.get(order.id) ?? false,
+        isAguardandoEstoque: waitingStockByOrder.get(order.id) ?? false,
         priorityManual: manualPriority,
         priorityAutomatic: automaticPriority,
         prioritySource: manualPriority ? "manual" : automaticPriority ? "automatic" : null,
@@ -2640,6 +2702,7 @@ router.post("/admin/orders/:id/replace-product", requireAdminAuth, async (req, r
     const updates: Partial<typeof ordersTable.$inferInsert> = {
       products: chosen.products,
       isProcurandoProduto: false,
+      isAguardandoEstoque: false,
       updatedAt: new Date(),
     };
 
@@ -3090,6 +3153,7 @@ function mapOrder(o: typeof ordersTable.$inferSelect, options?: { light?: boolea
     ipIsProxy:              o.ipIsProxy ?? null,
     isPrioridade:           !!(o as any).isPrioridade,
     isProcurandoProduto:    !!(o as any).isProcurandoProduto,
+    isAguardandoEstoque:    !!(o as any).isAguardandoEstoque,
     enviado:                !!o.enviado,
     inventoryReserved:      Boolean((o as { inventoryReserved?: unknown }).inventoryReserved),
     inventoryExitPool:      parseKaInventoryExitPool((o as { inventoryExitPool?: unknown }).inventoryExitPool),
@@ -3340,6 +3404,84 @@ router.patch("/admin/orders/:id/procurando-produto", requireAdminAuth, async (re
   } catch (err) {
     console.error("Update order searching product error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao atualizar flag de produto em busca." });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/admin/orders/:id/aguardando-estoque  (protected)
+// ---------------------------------------------------------------------------
+router.patch("/admin/orders/:id/aguardando-estoque", requireAdminAuth, async (req, res) => {
+  try {
+    const adminScope = ensureSellerScopeOnOrderQuery(req, res);
+    if (!adminScope) return;
+
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
+
+    const { isAguardandoEstoque } = req.body as { isAguardandoEstoque: boolean };
+    if (typeof isAguardandoEstoque !== "boolean") {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Campo 'isAguardandoEstoque' obrigatório e deve ser boolean." });
+      return;
+    }
+
+    const available = await isOrderWaitingStockColumnAvailable();
+    if (!available) {
+      res.status(503).json({
+        error: "WAITING_STOCK_COLUMN_PENDING_MIGRATION",
+        message: "Flag de aguardando estoque temporariamente indisponível até aplicar a migração no banco.",
+      });
+      return;
+    }
+
+    const existing = await db
+      .select({ id: ordersTable.id })
+      .from(ordersTable)
+      .where(buildAdminOrderWhere(id, adminScope))
+      .limit(1);
+
+    if (!existing[0]) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
+
+    if (adminScope.hasGlobalAccess) {
+      await pool.query(
+        "UPDATE orders SET is_aguardando_estoque = ?, updated_at = NOW() WHERE id = ?",
+        [isAguardandoEstoque ? 1 : 0, id],
+      );
+    } else {
+      await pool.query(
+        "UPDATE orders SET is_aguardando_estoque = ?, updated_at = NOW() WHERE id = ? AND seller_code = ?",
+        [isAguardandoEstoque ? 1 : 0, id, adminScope.sellerCode],
+      );
+    }
+
+    const updated = await db
+      .select()
+      .from(ordersTable)
+      .where(buildAdminOrderWhere(id, adminScope))
+      .limit(1);
+
+    broadcastNotification({
+      type: "order_waiting_stock_updated",
+      data: { id, isAguardandoEstoque, tenantId: adminScope.tenantId },
+    });
+    await addOrderEvent({
+      orderId: id,
+      tenantId: adminScope.tenantId,
+      action: "waiting_stock",
+      ...actorFromAdminRequest(req),
+      payload: { on: isAguardandoEstoque },
+    });
+    res.json({
+      ok: true,
+      id,
+      isAguardandoEstoque,
+      order: updated[0] ? { ...mapOrder(updated[0]), isAguardandoEstoque } : null,
+    });
+  } catch (err) {
+    console.error("Update order waiting stock error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao atualizar flag de aguardando estoque." });
   }
 });
 
