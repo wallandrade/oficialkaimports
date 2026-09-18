@@ -14265,6 +14265,15 @@ function OrdersPanel({
     }
   };
 
+  const scrollToOrdersSection = (id: "normal" | "reenvios" | "aguardando_estoque", orderId?: string) => {
+    setOrdersListTab(id);
+    window.setTimeout(() => {
+      const el = (orderId ? document.getElementById(`order-card-${orderId}`) : null)
+        || document.getElementById(`orders-section-${id}`);
+      el?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+  };
+
   const toggleWaitingStock = async (order: AdminOrder) => {
     const id = String(order.id || "").trim();
     if (!id) return;
@@ -14289,7 +14298,7 @@ function OrdersPanel({
         if (res.status === 404 || res.status === 503) {
           setOrderWaitingStock((prev) => ({ ...prev, [id]: next }));
           onSetOrderPatched({ ...order, isAguardandoEstoque: next } as AdminOrder);
-          setOrdersListTab(next ? "aguardando_estoque" : "normal");
+          scrollToOrdersSection(next ? "aguardando_estoque" : "normal", id);
           toast.warning("Aviso salvo apenas localmente (migração pendente no servidor).");
           return;
         }
@@ -14301,7 +14310,7 @@ function OrdersPanel({
 
       if (data.order) onSetOrderPatched({ ...data.order, isAguardandoEstoque: saved } as AdminOrder);
       else onSetOrderPatched({ ...order, isAguardandoEstoque: saved } as AdminOrder);
-      setOrdersListTab(saved ? "aguardando_estoque" : "normal");
+      scrollToOrdersSection(saved ? "aguardando_estoque" : "normal", id);
       toast.success(saved
         ? "Pedido enviado para Pedidos aguardando estoque."
         : "Pedido voltou para Pedido normal.");
@@ -15263,11 +15272,11 @@ function OrdersPanel({
   const reshipmentOrders = listedOrders.filter((order) => isActiveReshipmentOrderCard(order));
   const waitingStockOrders = listedOrders.filter((order) => !isActiveReshipmentOrderCard(order) && resolveWaitingStock(order));
   const normalOrders = listedOrders.filter((order) => !isActiveReshipmentOrderCard(order) && !resolveWaitingStock(order));
-  const visibleOrders = ordersListTab === "reenvios"
-    ? reshipmentOrders
-    : ordersListTab === "aguardando_estoque"
-      ? waitingStockOrders
-      : normalOrders;
+  const orderListSections = [
+    { id: "normal" as const, label: "Pedido normal", list: normalOrders, empty: "Nenhum pedido encontrado" },
+    { id: "reenvios" as const, label: "Pedido reenvio", list: reshipmentOrders, empty: "Nenhum reenvio pendente" },
+    { id: "aguardando_estoque" as const, label: "Pedidos aguardando estoque", list: waitingStockOrders, empty: "Nenhum pedido aguardando estoque" },
+  ];
 
   if (orders.length === 0) return (
     <div className="text-center py-16 bg-muted/30 rounded-2xl border border-dashed">
@@ -15278,16 +15287,12 @@ function OrdersPanel({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-1.5">
-        {([
-          { id: "normal" as const, label: "Pedido normal", count: normalOrders.length },
-          { id: "reenvios" as const, label: "Pedido reenvio", count: reshipmentOrders.length },
-          { id: "aguardando_estoque" as const, label: "Pedidos aguardando estoque", count: waitingStockOrders.length },
-        ]).map((item) => (
+      <div className="sticky top-14 z-20 -mx-1 px-1 py-1.5 flex flex-wrap items-center gap-1.5 bg-background/95 backdrop-blur-sm">
+        {orderListSections.map((item) => (
           <button
             key={item.id}
             type="button"
-            onClick={() => setOrdersListTab(item.id)}
+            onClick={() => scrollToOrdersSection(item.id)}
             className={`h-8 px-3 rounded-full text-xs font-semibold border transition-colors ${
               ordersListTab === item.id
                 ? "bg-primary text-primary-foreground border-primary"
@@ -15295,7 +15300,7 @@ function OrdersPanel({
             }`}
           >
             {item.label}
-            <span className="ml-1.5 tabular-nums opacity-80">{item.count}</span>
+            <span className="ml-1.5 tabular-nums opacity-80">{item.list.length}</span>
           </button>
         ))}
       </div>
@@ -15332,18 +15337,21 @@ function OrdersPanel({
         </div>
       </div>
 
-      {visibleOrders.length === 0 ? (
-        <div className="text-center py-16 bg-muted/30 rounded-2xl border border-dashed">
-          <IconLucide name="Package" className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-          <p className="font-semibold text-lg">
-            {ordersListTab === "reenvios"
-              ? "Nenhum reenvio pendente"
-              : ordersListTab === "aguardando_estoque"
-                ? "Nenhum pedido aguardando estoque"
-                : "Nenhum pedido encontrado"}
+      {orderListSections.map((section) => (
+        <div
+          key={section.id}
+          id={`orders-section-${section.id}`}
+          className="space-y-4 scroll-mt-32"
+        >
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {section.label}
+            <span className="ml-1.5 tabular-nums opacity-80">{section.list.length}</span>
           </p>
-        </div>
-      ) : visibleOrders.map((order) => {
+          {section.list.length === 0 ? (
+            <div className="text-center py-10 bg-muted/30 rounded-2xl border border-dashed">
+              <p className="font-semibold text-sm text-muted-foreground">{section.empty}</p>
+            </div>
+          ) : section.list.map((order) => {
           const isPrioridade = resolveOrderPriority(order);
           const isProcurandoProduto = resolveSearchingProduct(order);
           const isAguardandoEstoque = resolveWaitingStock(order);
@@ -15402,7 +15410,7 @@ function OrdersPanel({
             return productId ? String(productImageById[productId] || "").trim() : "";
           };
           return (
-            <div key={order.id} className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${eeLabelReady ? "border-emerald-400" : isCard ? "border-purple-200" : "border-border/60"} ${isPrioridade ? "ring-2 ring-red-400" : isAguardandoEstoque ? "ring-2 ring-orange-400" : isProcurandoProduto ? "ring-2 ring-yellow-400" : ""}`}>
+            <div id={`order-card-${order.id}`} key={order.id} className={`bg-card border rounded-2xl shadow-sm overflow-hidden ${eeLabelReady ? "border-emerald-400" : isCard ? "border-purple-200" : "border-border/60"} ${isPrioridade ? "ring-2 ring-red-400" : isAguardandoEstoque ? "ring-2 ring-orange-400" : isProcurandoProduto ? "ring-2 ring-yellow-400" : ""}`}>
             <div className="p-5 sm:p-6">
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                 <div className="flex-1 min-w-0">
@@ -16225,6 +16233,8 @@ function OrdersPanel({
           </div>
         );
       })}
+        </div>
+      ))}
 
       <AnimatePresence>
         {imagePreview && (
