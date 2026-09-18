@@ -1999,16 +1999,41 @@ function OrdersSearchInput({
   className?: string;
   inputClassName?: string;
 }) {
+  const [autofillLocked, setAutofillLocked] = useState(true);
+
   return (
     <div className={className}>
+      <input
+        type="text"
+        name="ka-admin-username-trap"
+        autoComplete="username"
+        tabIndex={-1}
+        aria-hidden="true"
+        className="sr-only"
+        defaultValue=""
+      />
+      <input
+        type="password"
+        name="ka-admin-password-trap"
+        autoComplete="current-password"
+        tabIndex={-1}
+        aria-hidden="true"
+        className="sr-only"
+        defaultValue=""
+      />
       <IconLucide name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
       <input
         type="text"
         name="ka-admin-list-search"
-        autoComplete="off"
+        role="searchbox"
+        autoComplete="new-password"
         autoCorrect="off"
         autoCapitalize="off"
         spellCheck={false}
+        data-lpignore="true"
+        data-1p-ignore="true"
+        readOnly={autofillLocked}
+        onFocus={() => setAutofillLocked(false)}
         value={value}
         onChange={(e) => onDebouncedChange(e.target.value)}
         placeholder={placeholder}

@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-17 | Anti-padrão: `autoComplete="off"` na busca do admin contra o gerenciador de senhas do Chrome | `readOnly` até o foco + campos-isca username/senha | Filtro local da busca |
 | 2026-09-17 | Anti-padrão: filtrar a 3ª pill pelo badge **Faltando estoque**, reusar `reenvio_aguardando_estoque` ou o texto da Minha conta | Flag manual `is_aguardando_estoque` + PATCH próprio | Procurando produto; saldo; reenvio |
 | 2026-09-17 | Anti-padrão: copiar Envios/Compra 48h com `order.products` no split quando um pacote já tem etiqueta | `getPendingShipmentCopy` usa `packages[].items` sem etiqueta | Fila 48h AND; Motoboy; `orderToText` |
 | 2026-09-17 | Anti-padrão: busca do **Editar Pedido** só com nome/preço | Thumbnail `editCatalog[].image` no dropdown e na lista | PATCH `/edit`; preço de vitrine |
@@ -233,6 +234,7 @@ Código > memória > suposições.
 - Filtrar **Pedidos aguardando estoque** pelo badge automático de saldo, pelo status de reenvio `reenvio_aguardando_estoque` ou pelo “Aguardando estoque” da Minha conta (pacote sem etiqueta). A fila do admin é `is_aguardando_estoque` + `PATCH .../aguardando-estoque`.
 - Na lista **Compra 48h/72h/96h**, descontar só `inventoryBalances` (Fóz) e mandar reenvio inteiro para comprar. Abater também Motoboy/Minas (`/api/admin/yury-inventory`) e a qtd de reenvio; “Comprar agora” é só o que falta.
 - Ligar `setSearch` do `Admin` no `onChange` da busca de Pedidos/Links; texto e filtro ficam em `AdminOrdersChargesSearchShell` e o input é controlado por esse filho (sem debounce, sem estado local, sem `startTransition`). Não pôr o poll de visitantes ao vivo no estado do `Admin` (`AdminLiveVisitorStats` próprio). Busca de Clientes/recorrentes é estado interno do painel.
+- Confiar em `autoComplete="off"` na busca do admin para não preencher sozinho. O Chrome cola o **usuário salvo** (`autoComplete="username"` do login) no primeiro `input` de texto. Usar `readOnly` até o foco, `autoComplete="new-password"` e campos-isca username/senha no `OrdersSearchInput`.
 - Envolver o `setSearch` da busca em `startTransition` ou debounce+estado local no input: a lista não filtra. Debounce só fazia sentido quando o estado era o `Admin` monolítico.
 - Tratar `costPrice: 0` no JSON do pedido como custo real (`!= null`); 0/ausente cai na ficha, e o PATCH do produto só preenche esses itens (além da janela de 24h).
 - Abrir comprovante PDF no admin com `<iframe src="data:application/pdf...">` sem `frame-src blob:` no CSP; converter data URL para blob.
