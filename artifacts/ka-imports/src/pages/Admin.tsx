@@ -2004,6 +2004,11 @@ function OrdersSearchInput({
       <IconLucide name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
       <input
         type="text"
+        name="ka-admin-list-search"
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
         value={value}
         onChange={(e) => onDebouncedChange(e.target.value)}
         placeholder={placeholder}
