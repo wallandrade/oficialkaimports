@@ -7332,66 +7332,9 @@ export default function Admin() {
               <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide flex items-center gap-1.5">
                 <Truck className="w-4 h-4" /> Pedidos para Enviar
               </p>
-              <div className="flex flex-wrap items-center justify-end gap-2">
-                {logisticsCopyGroups.deadlineGroups.map((group) => {
-                  const enviosOrders = withoutParkedShippingOrders(group.orders);
-                  return (
-                  <React.Fragment key={group.promisedHours}>
-                    <button
-                      type="button"
-                      onClick={(event) => { void copyShoppingList(group.orders, group.promisedHours, event); }}
-                      className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-white/90 px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-white"
-                      title={`Copiar lista de compra dos envios em ${group.promisedHours} horas`}
-                    >
-                      <ShoppingBag className="w-3.5 h-3.5" /> Compra {group.promisedHours}h
-                    </button>
-                    {enviosOrders.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={(event) => { void copyLogisticsDeadlineGroup(group, event); }}
-                      className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-white/90 px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-white"
-                      title={`Copiar ${enviosOrders.length} pedido${enviosOrders.length !== 1 ? "s" : ""} com prazo de ${group.promisedHours} horas (sem procurando produto nem aguardando estoque)`}
-                    >
-                      <Copy className="w-3.5 h-3.5" /> Envios {group.promisedHours}h ({enviosOrders.length})
-                    </button>
-                    )}
-                  </React.Fragment>
-                  );
-                })}
-                {searchingProductOrders.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={(event) => { void copySearchingProductOrders(event); }}
-                    className="inline-flex items-center gap-1 rounded-md border border-yellow-500 bg-yellow-200 px-2 py-1 text-[11px] font-semibold text-yellow-950 hover:bg-yellow-300"
-                    title={`Copiar só os ${searchingProductOrders.length} pedido${searchingProductOrders.length !== 1 ? "s" : ""} com card amarelo (procurando produto)`}
-                  >
-                    <Search className="w-3.5 h-3.5" /> Procurando produtos ({searchingProductOrders.length})
-                  </button>
-                )}
-                {motoboyCopyOrders.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={(event) => { void copyMotoboyOrders(event); }}
-                    className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100"
-                    title="Copiar pedidos com entrega por motoboy"
-                  >
-                    <Bike className="w-3.5 h-3.5" /> Motoboy ({motoboyCopyOrders.length})
-                  </button>
-                )}
-                {otherCopyOrders.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={(event) => { void copyOtherShippingOrders(event); }}
-                    className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-white/90 px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-white"
-                    title="Copiar pedidos sem lote de expedição"
-                  >
-                    <Copy className="w-3.5 h-3.5" /> Outros ({otherCopyOrders.length})
-                  </button>
-                )}
-                <span className="text-[10px] bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-bold">
-                  {ordersParaEnviarCopyBase.length}
-                </span>
-              </div>
+              <span className="text-[10px] bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-bold">
+                {ordersParaEnviarCopyBase.length}
+              </span>
             </div>
             {ordersParaEnviar.length === 0 ? (
               <p className="text-sm text-amber-700/80 flex items-center gap-1.5">
@@ -7597,6 +7540,19 @@ export default function Admin() {
               }));
             }}
             canManageEnvioEcom={canManageShippingTab}
+            ordersCopyToolbar={(
+              <OrdersCopyToolbar
+                deadlineGroups={logisticsCopyGroups.deadlineGroups}
+                searchingProductOrders={searchingProductOrders}
+                motoboyCopyOrders={motoboyCopyOrders}
+                otherCopyOrders={otherCopyOrders}
+                onCopyShoppingList={copyShoppingList}
+                onCopyLogisticsDeadlineGroup={copyLogisticsDeadlineGroup}
+                onCopySearchingProductOrders={copySearchingProductOrders}
+                onCopyMotoboyOrders={copyMotoboyOrders}
+                onCopyOtherShippingOrders={copyOtherShippingOrders}
+              />
+            )}
             availableWhatsappGroups={availableWhatsappGroups}
             onSetReshipmentStatus={async (reshipmentId, status, opts) => {
               if (!reshipmentId) return;
@@ -13756,6 +13712,90 @@ function InventoryPanel({
   );
 }
 
+type LogisticsCopyDeadlineGroup = { promisedHours: number; orders: AdminOrder[] };
+
+function OrdersCopyToolbar({
+  deadlineGroups,
+  searchingProductOrders,
+  motoboyCopyOrders,
+  otherCopyOrders,
+  onCopyShoppingList,
+  onCopyLogisticsDeadlineGroup,
+  onCopySearchingProductOrders,
+  onCopyMotoboyOrders,
+  onCopyOtherShippingOrders,
+}: {
+  deadlineGroups: LogisticsCopyDeadlineGroup[];
+  searchingProductOrders: AdminOrder[];
+  motoboyCopyOrders: AdminOrder[];
+  otherCopyOrders: AdminOrder[];
+  onCopyShoppingList: (orders: AdminOrder[], promisedHours: number, event?: React.MouseEvent<HTMLButtonElement>) => void | Promise<void>;
+  onCopyLogisticsDeadlineGroup: (group: LogisticsCopyDeadlineGroup, event?: React.MouseEvent<HTMLButtonElement>) => void | Promise<void>;
+  onCopySearchingProductOrders: (event?: React.MouseEvent<HTMLButtonElement>) => void | Promise<void>;
+  onCopyMotoboyOrders: (event?: React.MouseEvent<HTMLButtonElement>) => void | Promise<void>;
+  onCopyOtherShippingOrders: (event?: React.MouseEvent<HTMLButtonElement>) => void | Promise<void>;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {deadlineGroups.map((group) => {
+        const enviosOrders = withoutParkedShippingOrders(group.orders);
+        return (
+          <React.Fragment key={group.promisedHours}>
+            <button
+              type="button"
+              onClick={(event) => { void onCopyShoppingList(group.orders, group.promisedHours, event); }}
+              className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-100"
+              title={`Copiar lista de compra dos envios em ${group.promisedHours} horas`}
+            >
+              <ShoppingBag className="w-3.5 h-3.5" /> Compra {group.promisedHours}h
+            </button>
+            {enviosOrders.length > 0 && (
+              <button
+                type="button"
+                onClick={(event) => { void onCopyLogisticsDeadlineGroup(group, event); }}
+                className="inline-flex items-center gap-1 rounded-md border border-sky-300 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-800 hover:bg-sky-100"
+                title={`Copiar ${enviosOrders.length} pedido${enviosOrders.length !== 1 ? "s" : ""} com prazo de ${group.promisedHours} horas (sem procurando produto nem aguardando estoque)`}
+              >
+                <Copy className="w-3.5 h-3.5" /> Envios {group.promisedHours}h ({enviosOrders.length})
+              </button>
+            )}
+          </React.Fragment>
+        );
+      })}
+      {searchingProductOrders.length > 0 && (
+        <button
+          type="button"
+          onClick={(event) => { void onCopySearchingProductOrders(event); }}
+          className="inline-flex items-center gap-1 rounded-md border border-yellow-500 bg-yellow-200 px-2 py-1 text-[11px] font-semibold text-yellow-950 hover:bg-yellow-300"
+          title={`Copiar só os ${searchingProductOrders.length} pedido${searchingProductOrders.length !== 1 ? "s" : ""} com card amarelo (procurando produto)`}
+        >
+          <Search className="w-3.5 h-3.5" /> Procurando produtos ({searchingProductOrders.length})
+        </button>
+      )}
+      {motoboyCopyOrders.length > 0 && (
+        <button
+          type="button"
+          onClick={(event) => { void onCopyMotoboyOrders(event); }}
+          className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-800 hover:bg-emerald-100"
+          title="Copiar pedidos com entrega por motoboy"
+        >
+          <Bike className="w-3.5 h-3.5" /> Motoboy ({motoboyCopyOrders.length})
+        </button>
+      )}
+      {otherCopyOrders.length > 0 && (
+        <button
+          type="button"
+          onClick={(event) => { void onCopyOtherShippingOrders(event); }}
+          className="inline-flex items-center gap-1 rounded-md border border-border bg-white px-2 py-1 text-[11px] font-semibold text-foreground hover:bg-muted"
+          title="Copiar pedidos sem lote de expedição"
+        >
+          <Copy className="w-3.5 h-3.5" /> Outros ({otherCopyOrders.length})
+        </button>
+      )}
+    </div>
+  );
+}
+
 function OrdersPanel({
   allOrders,
   productImageById,
@@ -13771,6 +13811,7 @@ function OrdersPanel({
   updateOrderStatus, setProofModal, setProofViewer, onHydrateOrder, openWhatsApp,
   onOpenCardPaidModal, updateOrderObservation, isPrimary, canEditOrders, canMarkMotoboy, onMarkOrderMotoboy, onEditOrder, onOpenKycModal,
   onSetOrderEnviado, onSetOrderPatched, availableWhatsappGroups, onSetReshipmentStatus, onRemoveOrder, canManageEnvioEcom,
+  ordersCopyToolbar,
 }: {
   allOrders: AdminOrder[];
   productImageById: Record<string, string>;
@@ -13815,6 +13856,7 @@ function OrdersPanel({
   ) => void;
   onRemoveOrder: (id: string) => void;
   canManageEnvioEcom?: boolean;
+  ordersCopyToolbar?: ReactNode;
 }) {
 
   const normalizeIp = (ip?: string | null) => String(ip || "").trim().replace(/^::ffff:/, "") || "-";
@@ -13874,7 +13916,7 @@ function OrdersPanel({
   const [whatsappGroupUpdating, setWhatsappGroupUpdating] = useState<Record<string, boolean>>({});
   const trackingBatchInputRef = useRef<HTMLInputElement | null>(null);
   const trackingBatchWatchdogRef = useRef<number | null>(null);
-  const [ordersListTab, setOrdersListTab] = useState<"normal" | "reenvios" | "aguardando_estoque">("normal");
+  const [ordersListTab, setOrdersListTab] = useState<"normal" | "reenvios" | "aguardando_estoque" | "motoboy">("normal");
   const [enviando, setEnviando] = useState<Record<string, boolean>>({});
   const [exitingStock, setExitingStock] = useState<Record<string, boolean>>({});
   const [exitPoolByOrder, setExitPoolByOrder] = useState<Record<string, KaExitPool>>({});
@@ -14319,7 +14361,7 @@ function OrdersPanel({
         if (res.status === 404 || res.status === 503) {
           setOrderWaitingStock((prev) => ({ ...prev, [id]: next }));
           onSetOrderPatched({ ...order, isAguardandoEstoque: next } as AdminOrder);
-          setOrdersListTab(next ? "aguardando_estoque" : "normal");
+          setOrdersListTab(next ? "aguardando_estoque" : (isMotoboyShippingOrder(order) ? "motoboy" : "normal"));
           toast.warning("Aviso salvo apenas localmente (migração pendente no servidor).");
           return;
         }
@@ -14331,10 +14373,10 @@ function OrdersPanel({
 
       if (data.order) onSetOrderPatched({ ...data.order, isAguardandoEstoque: saved } as AdminOrder);
       else onSetOrderPatched({ ...order, isAguardandoEstoque: saved } as AdminOrder);
-      setOrdersListTab(saved ? "aguardando_estoque" : "normal");
+      setOrdersListTab(saved ? "aguardando_estoque" : (isMotoboyShippingOrder(order) ? "motoboy" : "normal"));
       toast.success(saved
         ? "Pedido enviado para Pedidos aguardando estoque."
-        : "Pedido voltou para Pedido normal.");
+        : (isMotoboyShippingOrder(order) ? "Pedido voltou para Motoboy." : "Pedido voltou para Pedido normal."));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Erro ao atualizar fila de estoque.";
       toast.error(message);
@@ -15292,41 +15334,54 @@ function OrdersPanel({
   const listedOrders = orders.filter((order) => typeof order.id === "string" && order.id.length > 0);
   const reshipmentOrders = listedOrders.filter((order) => isActiveReshipmentOrderCard(order));
   const waitingStockOrders = listedOrders.filter((order) => !isActiveReshipmentOrderCard(order) && resolveWaitingStock(order));
-  const normalOrders = listedOrders.filter((order) => !isActiveReshipmentOrderCard(order) && !resolveWaitingStock(order));
+  const motoboyOrders = listedOrders.filter((order) => (
+    !isActiveReshipmentOrderCard(order)
+    && !resolveWaitingStock(order)
+    && isMotoboyShippingOrder(order)
+  ));
+  const normalOrders = listedOrders.filter((order) => (
+    !isActiveReshipmentOrderCard(order)
+    && !resolveWaitingStock(order)
+    && !isMotoboyShippingOrder(order)
+  ));
   const orderListSections = [
     { id: "normal" as const, label: "Pedido normal", list: normalOrders, empty: "Nenhum pedido encontrado" },
     { id: "reenvios" as const, label: "Pedido reenvio", list: reshipmentOrders, empty: "Nenhum reenvio pendente" },
     { id: "aguardando_estoque" as const, label: "Pedidos aguardando estoque", list: waitingStockOrders, empty: "Nenhum pedido aguardando estoque" },
+    { id: "motoboy" as const, label: "Motoboy", list: motoboyOrders, empty: "Nenhum pedido Motoboy" },
   ];
   const activeOrderSection = orderListSections.find((item) => item.id === ordersListTab) || orderListSections[0];
   const visibleOrders = activeOrderSection.list;
 
-  if (orders.length === 0) return (
-    <div className="text-center py-16 bg-muted/30 rounded-2xl border border-dashed">
-      <IconLucide name="Package" className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-      <p className="font-semibold text-lg">Nenhum pedido encontrado</p>
-    </div>
-  );
-
   return (
     <div className="space-y-4">
-      <div className="sticky top-14 z-20 -mx-1 px-1 py-1.5 flex flex-wrap items-center gap-1.5 bg-background/95 backdrop-blur-sm">
-        {orderListSections.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => setOrdersListTab(item.id)}
-            className={`h-8 px-3 rounded-full text-xs font-semibold border transition-colors ${
-              ordersListTab === item.id
-                ? "bg-primary text-primary-foreground border-primary"
-                : "bg-white text-foreground border-border hover:bg-muted"
-            }`}
-          >
-            {item.label}
-            <span className="ml-1.5 tabular-nums opacity-80">{item.list.length}</span>
-          </button>
-        ))}
+      <div className="sticky top-14 z-20 -mx-1 px-1 py-1.5 space-y-1.5 bg-background/95 backdrop-blur-sm">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {orderListSections.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setOrdersListTab(item.id)}
+              className={`h-8 px-3 rounded-full text-xs font-semibold border transition-colors ${
+                ordersListTab === item.id
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-white text-foreground border-border hover:bg-muted"
+              }`}
+            >
+              {item.label}
+              <span className="ml-1.5 tabular-nums opacity-80">{item.list.length}</span>
+            </button>
+          ))}
+        </div>
+        {ordersCopyToolbar}
       </div>
+      {orders.length === 0 ? (
+        <div className="text-center py-16 bg-muted/30 rounded-2xl border border-dashed">
+          <IconLucide name="Package" className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+          <p className="font-semibold text-lg">Nenhum pedido encontrado</p>
+        </div>
+      ) : (
+        <>
       <div className="rounded-2xl border border-dashed border-indigo-200 bg-gradient-to-r from-indigo-50 via-white to-sky-50 p-4 sm:p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -16566,6 +16621,8 @@ function OrdersPanel({
           </div>
         )}
       </AnimatePresence>
+        </>
+      )}
     </div>
   );
 }

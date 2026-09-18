@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-17 | Anti-padrão: pills de copiar lote no card do dashboard; Motoboy misturado em Pedido normal | Cópia embaixo das pills da aba Pedidos; 4ª pill Motoboy | Texto Yury das cópias; `is_aguardando_estoque` |
 | 2026-09-17 | Anti-padrão: `autoComplete="off"` na busca do admin contra o gerenciador de senhas do Chrome | `readOnly` até o foco + campos-isca username/senha | Filtro local da busca |
 | 2026-09-17 | Anti-padrão: filtrar a 3ª pill pelo badge **Faltando estoque**, reusar `reenvio_aguardando_estoque` ou o texto da Minha conta | Flag manual `is_aguardando_estoque` + PATCH próprio | Procurando produto; saldo; reenvio |
 | 2026-09-17 | Anti-padrão: copiar Envios/Compra 48h com `order.products` no split quando um pacote já tem etiqueta | `getPendingShipmentCopy` usa `packages[].items` sem etiqueta | Fila 48h AND; Motoboy; `orderToText` |
@@ -187,6 +188,7 @@ Código > memória > suposições.
 - Marcar `enviado` ao gerar etiqueta / DC-e / “Pronto para envio” / **Aguardando coleta**; isso só na coleta/postagem da API. No split o pai só marca quando todos os pacotes já teriam `enviado`.
 - Restaurar vaga `allocated` no reconcile só porque `enviado` é false quando a etiqueta EnvioEcom já existe. No split a fila 48h só some com AND de todos os pacotes.
 - Copiar Envios/Compra 48h/72h/96h com `order.products` no split quando um pacote já tem etiqueta. Usar `getPendingShipmentCopy` (itens dos pacotes ainda sem etiqueta). O pedido permanece 1 vaga até o AND.
+- Colocar Compra/Envios/Motoboy/Outros no card **Pedidos para Enviar** do dashboard, ou deixar Motoboy em **Pedido normal**. A cópia de lote fica embaixo das pills da aba Pedidos; Motoboy tem pill própria (reenvio ativo e `is_aguardando_estoque` na frente).
 - Tratar PDF da etiqueta EnvioEcom como “Pronto para envio” se o status for **Cancelado** ou **Aguardando cancelamento**.
 - Copiar o PDF/status do 1º pacote para `orders.envioecom_label_url` quando ainda falta URL noutro pacote (some da lista 48h cedo demais). Rollup só promove PDF no pai se **todos** têm URL.
 - Gerar **Etiqueta EE** / Sync / Cancelar do pacote B com o `trackingCode` (8880) ou PDF do pedido/pacote A. No split, bind só com `envioecom_*` daquele pacote; pacote sem envio próprio não herda o irmão.
