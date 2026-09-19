@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-09-17  
+> **Última atualização:** 2026-09-19  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-19 | Setting público `checkout_insurance_cashback_enabled` (default off) | Snapshot keep/cashback e copy do checkout | Schema de `orders`; carteira; sinistro |
 | 2026-09-17 | `orders.is_aguardando_estoque` + `PATCH /admin/orders/:id/aguardando-estoque` | Fila operacional na aba Pedidos | Procurando produto; reenvio; saldo |
 | 2026-09-16 | `POST /support/orders-by-cpf` hidrata `products[].image` pelo catálogo; `Support.tsx` mostra thumbnail | Lista de compras no `/suporte` | Tickets; Minha conta |
 | 2026-09-16 | `POST /admin/orders/:id/replace-product` + `swappedFrom` no JSON do item; modal Trocar produto | Troca com 2 modos; cliente vê X→Y | `PATCH .../edit`; reenvio |
@@ -98,7 +99,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 - APPCNPay: `gateway.ts` + `lib/pix-gateway-credentials.ts`. Par por tenant (`gateway_appcnpay_public_key` / `_secret_key`); fallback env. Webhook PIX resolve tenant pelo `transactionId`.
 - Extrato OFX: `artifacts/api-server/src/routes/bank-statement.ts` (`analyze`/`apply`/`clear`/`bank-deposits`) + `order_bank_deposits`. Painéis FE: `AdminBankStatementPanel.tsx` (sessão) e `AdminBankDepositsPanel.tsx` (histórico + Desfazer por FITID).
 - Lista admin: `GET /admin/orders` em modo leve (sem `data:`/OCR); `GET /admin/orders/:id` devolve mídia completa. `mapOrder` inclui `packages[]` (vazio = 1:1). Histórico de gestão: `order_events` + `history` na lista/`GET :id` + `GET /admin/orders/:id/events`. `mapOrder` no admin inclui `observation` + `observationVisibleToCustomer`; rotas de cliente/guest passam `{ forCustomer: true }` (`order-observation-visibility.ts`). PATCH observação: `/admin/orders/:id/observation`.
-- Seguro: `lib/checkout-insurance.ts` + `insurance-claims-policy.ts` + `customer-wallet.ts`; rotas `routes/wallet.ts` (`/api/me/wallet`, `/api/admin/wallet/*`); ALTERs em `runtime-schema.ts`. Settings `checkout_insurance_*` em `PUBLIC_KEYS`. Dashboard: `totalInsurancePaid` / `insuredOrdersCount` em `financial-summary.ts` (SUM no mesmo De/Até do faturamento, pedidos pagos). Reenvio de suporte: `canReship` / `evaluateCanReship` em abrir chamado, `POST .../reenviar` e “marcar resolvido”+endereço; lista admin devolve `includeInsurance`/`insurancePlan`. `POST /support/orders-by-cpf` devolve `products[].image` (snapshot ou `products.image` pelo id).
+- Seguro: `lib/checkout-insurance.ts` + `insurance-claims-policy.ts` + `customer-wallet.ts`; rotas `routes/wallet.ts` (`/api/me/wallet`, `/api/admin/wallet/*`); ALTERs em `runtime-schema.ts`. Settings `checkout_insurance_*` em `PUBLIC_KEYS` (inclui `checkout_insurance_cashback_enabled`). Cashback na entrega exige `orders.status === completed`. Dashboard: `totalInsurancePaid` / `insuredOrdersCount` em `financial-summary.ts` (SUM no mesmo De/Até do faturamento, pedidos pagos). Reenvio de suporte: `canReship` / `evaluateCanReship` em abrir chamado, `POST .../reenviar` e “marcar resolvido”+endereço; lista admin devolve `includeInsurance`/`insurancePlan`. `POST /support/orders-by-cpf` devolve `products[].image` (snapshot ou catálogo pelo id).
 - OpenAPI cobre só um subconjunto (health/products/pix/orders…); **muitas rotas existem só no Express** — não assumir que Orval cobre tudo.
 
 ## Frontend

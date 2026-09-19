@@ -106,6 +106,7 @@ export async function grantInsuranceCashbackIfEligible(order: typeof ordersTable
     || alreadyGranted
     || claimStatus !== "none"
     || cashbackAmount <= 0
+    || String(order.status || "").toLowerCase() !== "completed"
   ) {
     return false;
   }

@@ -3,7 +3,9 @@ import { test } from "node:test";
 
 import {
   canReship,
+  fullInsuranceMixedRateLabel,
   parseInsurancePlan,
+  parseInsuranceSettingsFromMap,
   resolveCheckoutInsurance,
   type CheckoutInsuranceSettings,
 } from "./checkout-insurance";
@@ -12,6 +14,7 @@ const settings54: CheckoutInsuranceSettings = {
   enabled: true,
   fullEnabled: true,
   reducedEnabled: true,
+  cashbackEnabled: true,
   fullPercent: 54,
   reducedPercent: 10,
   keepPercent: 10,
@@ -135,4 +138,76 @@ test("cupom não entra na base do seguro", () => {
   const withCoupon = resolve("full", { discountAmount: 85 });
   const withoutCoupon = resolve("full");
   assert.equal(withCoupon.insuranceAmount, withoutCoupon.insuranceAmount);
+});
+
+test("setting vazio: cashback desligado; full fica com o seguro inteiro", () => {
+  const parsed = parseInsuranceSettingsFromMap({});
+  assert.equal(parsed.cashbackEnabled, false);
+  const result = resolveCheckoutInsurance({
+    includeInsurance: true,
+    insurancePlan: "full",
+    subtotal: 733,
+    settings: parsed,
+  });
+  assert.equal(result.insuranceAmount, 73.3);
+  assert.equal(result.keepAmount, 73.3);
+  assert.equal(result.cashbackAmount, 0);
+});
+
+test("full + cashback off + produto especial 20% → loja fica com tudo", () => {
+  const result = resolveCheckoutInsurance({
+    includeInsurance: true,
+    insurancePlan: "full",
+    subtotal: 700,
+    lines: [
+      { productId: "reta", lineTotal: 500 },
+      { productId: "outro", lineTotal: 200 },
+    ],
+    settings: {
+      ...settings54,
+      cashbackEnabled: false,
+      fullPercent: 10,
+      specialPercent: 20,
+      specialProductIds: ["reta"],
+    },
+  });
+  assert.equal(result.insuranceAmount, 120);
+  assert.equal(result.keepAmount, 120);
+  assert.equal(result.cashbackAmount, 0);
+});
+
+test("reduced + cashback on → saldo continua 0", () => {
+  const result = resolve("reduced");
+  assert.equal(result.cashbackAmount, 0);
+  assert.equal(result.keepAmount, result.insuranceAmount);
+});
+
+test("full + cashback on + cobra 10% + keep 15% → saldo 0 (teto é o seguro)", () => {
+  const result = resolveCheckoutInsurance({
+    includeInsurance: true,
+    insurancePlan: "full",
+    subtotal: 733,
+    settings: { ...settings54, fullPercent: 10, keepPercent: 15, cashbackEnabled: true },
+  });
+  assert.equal(result.insuranceAmount, 73.3);
+  assert.equal(result.keepAmount, 73.3);
+  assert.equal(result.cashbackAmount, 0);
+});
+
+test("carrinho misto 10%/20% gera rótulo; reduzido não usa", () => {
+  const lines = [
+    { productId: "reta", lineTotal: 500 },
+    { productId: "outro", lineTotal: 200 },
+  ];
+  const mixed = fullInsuranceMixedRateLabel(lines, {
+    fullPercent: 10,
+    specialPercent: 20,
+    specialProductIds: ["reta"],
+  });
+  assert.equal(mixed, "10% / 20%");
+  assert.equal(fullInsuranceMixedRateLabel([{ productId: "reta", lineTotal: 500 }], {
+    fullPercent: 10,
+    specialPercent: 20,
+    specialProductIds: ["reta"],
+  }), null);
 });

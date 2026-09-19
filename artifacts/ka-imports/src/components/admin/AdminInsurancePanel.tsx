@@ -63,6 +63,7 @@ export function AdminInsurancePanel({
   const [enabled, setEnabled] = useState(settingOn(settings.checkout_insurance_enabled, true));
   const [fullEnabled, setFullEnabled] = useState(settingOn(settings.checkout_insurance_full_enabled, true));
   const [reducedEnabled, setReducedEnabled] = useState(settingOn(settings.checkout_insurance_reduced_enabled, true));
+  const [cashbackEnabled, setCashbackEnabled] = useState(settingOn(settings.checkout_insurance_cashback_enabled, false));
   const [fullPercent, setFullPercent] = useState(String(parsed.fullPercent));
   const [reducedPercent, setReducedPercent] = useState(String(parsed.reducedPercent));
   const [keepPercent, setKeepPercent] = useState(String(parsed.keepPercent));
@@ -78,6 +79,7 @@ export function AdminInsurancePanel({
     setEnabled(settingOn(settings.checkout_insurance_enabled, true));
     setFullEnabled(settingOn(settings.checkout_insurance_full_enabled, true));
     setReducedEnabled(settingOn(settings.checkout_insurance_reduced_enabled, true));
+    setCashbackEnabled(settingOn(settings.checkout_insurance_cashback_enabled, false));
     setFullPercent(String(next.fullPercent));
     setReducedPercent(String(next.reducedPercent));
     setKeepPercent(String(next.keepPercent));
@@ -99,6 +101,7 @@ export function AdminInsurancePanel({
     enabled,
     fullEnabled,
     reducedEnabled,
+    cashbackEnabled,
     fullPercent: Number(fullPercent) || 0,
     reducedPercent: Number(reducedPercent) || 0,
     keepPercent: Number(keepPercent) || 0,
@@ -131,6 +134,7 @@ export function AdminInsurancePanel({
       await onSave("checkout_insurance_enabled", enabled ? "1" : "0");
       await onSave("checkout_insurance_full_enabled", fullEnabled ? "1" : "0");
       await onSave("checkout_insurance_reduced_enabled", reducedEnabled ? "1" : "0");
+      await onSave("checkout_insurance_cashback_enabled", cashbackEnabled ? "1" : "0");
       await onSave("checkout_insurance_percent", String(Number(fullPercent) || 10));
       await onSave("checkout_insurance_reduced_percent", String(Number(reducedPercent) || 10));
       await onSave("checkout_insurance_keep_percent", String(Number(keepPercent) || 10));
@@ -190,8 +194,9 @@ export function AdminInsurancePanel({
 
   const statusText = useMemo(() => {
     if (!enabled) return "Desligado";
-    return `Ativo — ${previewSettings.fullPercent}% na loja${specialIds.length ? ` e ${previewSettings.specialPercent || 0}% nos ${specialIds.length} produto(s) especial(is).` : "."}`;
-  }, [enabled, previewSettings.fullPercent, previewSettings.specialPercent, specialIds.length]);
+    const rates = `Ativo — ${previewSettings.fullPercent}% na loja${specialIds.length ? ` e ${previewSettings.specialPercent || 0}% nos ${specialIds.length} produto(s) especial(is)` : ""}`;
+    return cashbackEnabled ? `${rates}. Devolve saldo se entregar.` : `${rates}. Sem devolução de saldo.`;
+  }, [enabled, cashbackEnabled, previewSettings.fullPercent, previewSettings.specialPercent, specialIds.length]);
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1.4fr_0.8fr]">
@@ -234,6 +239,14 @@ export function AdminInsurancePanel({
           </div>
         </div>
 
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2">
+          <div>
+            <p className="text-sm font-semibold">Devolver saldo se chegar certo</p>
+            <p className="text-xs text-muted-foreground">Só no completo. Reduzido nunca devolve. Desligado: a loja fica com o seguro inteiro.</p>
+          </div>
+          <NativeSwitch checked={cashbackEnabled} onCheckedChange={setCashbackEnabled} />
+        </div>
+
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <label className="text-sm">% do seguro completo
             <Input className="mt-1" value={fullPercent} onChange={(e) => setFullPercent(e.target.value)} />
@@ -241,8 +254,8 @@ export function AdminInsurancePanel({
           <label className="text-sm">% do seguro reduzido
             <Input className="mt-1" value={reducedPercent} onChange={(e) => setReducedPercent(e.target.value)} />
           </label>
-          <label className="text-sm">% que a loja fica (se entregar)
-            <Input className="mt-1" value={keepPercent} onChange={(e) => setKeepPercent(e.target.value)} />
+          <label className={`text-sm ${cashbackEnabled ? "" : "opacity-50"}`}>% que a loja fica (se entregar)
+            <Input className="mt-1" value={keepPercent} onChange={(e) => setKeepPercent(e.target.value)} disabled={!cashbackEnabled} />
           </label>
           <label className="text-sm">% especial dos produtos
             <Input className="mt-1" value={specialPercent} onChange={(e) => setSpecialPercent(e.target.value)} />
@@ -285,7 +298,7 @@ export function AdminInsurancePanel({
           <p className="font-semibold">Prévia no checkout</p>
           <CheckoutInsuranceOffer
             enabled={enabled}
-            selectedPlan="none"
+            selectedPlan={fullEnabled ? "full" : reducedEnabled ? "reduced" : "none"}
             onSelect={() => undefined}
             isLoggedIn
             hideIntro
@@ -300,6 +313,7 @@ export function AdminInsurancePanel({
               plan: "full",
               amount: preview.insuranceAmount,
               cashbackAmount: preview.cashbackAmount,
+              cashbackEnabled,
               productSubtotal: 733,
               label: fullLabel,
               description: fullDescription,

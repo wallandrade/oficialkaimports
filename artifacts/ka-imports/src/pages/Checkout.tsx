@@ -20,6 +20,7 @@ import { getCheckoutSecurityHeaders } from "@/lib/checkout-security";
 import { getCustomerAuthHeaders, getCustomerToken } from "@/lib/customer-auth";
 import { formatCurrency, getActiveWhatsApp } from "@/lib/utils";
 import {
+  fullInsuranceMixedRateLabel,
   insuranceLinesFromProducts,
   parseInsuranceSettingsFromMap,
   resolveCheckoutInsurance,
@@ -2447,6 +2448,8 @@ export default function Checkout() {
                   plan: "full",
                   amount: fullInsuranceQuote.insuranceAmount,
                   cashbackAmount: fullInsuranceQuote.cashbackAmount,
+                  cashbackEnabled: insuranceSettings.cashbackEnabled,
+                  mixedRateLabel: fullInsuranceMixedRateLabel(insuranceLines, insuranceSettings),
                   productSubtotal: subtotal,
                   label: insuranceSettings.fullLabel,
                   description: insuranceSettings.fullDescription,

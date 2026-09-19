@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-09-17
+> **Última atualização:** 2026-09-19
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-19 | Anti-padrão: cashback do completo sempre ligado (sem `checkout_insurance_cashback_enabled`) | Default off; loja fica com o seguro; checkout só fala de Receita | Estorno no sinistro; reduzido |
 | 2026-09-17 | Anti-padrão: mostrar Compra/Envios/Motoboy/Outros juntos em qualquer pill | Cópia filtrada pela aba ativa | Texto das cópias |
 | 2026-09-17 | Anti-padrão: pills de copiar lote no card do dashboard; Motoboy misturado em Pedido normal | Cópia embaixo das pills da aba Pedidos; 4ª pill Motoboy | Texto Yury das cópias; `is_aguardando_estoque` |
 | 2026-09-17 | Anti-padrão: `autoComplete="off"` na busca do admin contra o gerenciador de senhas do Chrome | `readOnly` até o foco + campos-isca username/senha | Filtro local da busca |
@@ -245,6 +246,7 @@ Código > memória > suposições.
 - No split, usar só o `enviado`/`envioecomStatus` do pedido pai na Minha conta, ou rotular o pacote como Fóz/Motoboy/Minas. Cliente vê **Envio 1 / Envio 2** + itens; pacote sem rastreio = **Aguardando estoque**; um saiu e o outro não = **Enviado parcialmente**.
 - Tratar só **Etiqueta emitida** (status interno do PDF) como pronta e ignorar **Etiqueta gerada** que a EnvioEcom devolve no create/sync/webhook — o card fica Pendente mesmo com rastreio. `hasEnvioEcomLabelReady` / `LABEL_READY_MARKERS` nos dois lados.
 - Calcular o seguro sobre `subtotal − cupom`, usar `computeShippingInsuranceAmount` no create, gravar o `insuranceAmount` do front, ou deixar `full` e `reduced` ao mesmo tempo. Base = subtotal dos produtos **sem** frete/cupom; `resolveCheckoutInsurance` no create e na edição. Plano desligado no Admin + create com esse plano = `none` (não troca de plano). `shipping-insurance.ts` é legado — não reativar no create.
+- Calcular cashback do completo só porque `%` cobrado > `%` da loja, ou mostrar “se chegar certo ganha R$ X” com a devolução desligada. Setting `checkout_insurance_cashback_enabled` (vazio = off). `%` especial continua só no preço cobrado. Reduced nunca devolve saldo.
 - Autorizar reenvio de suporte (filho/fila) sem `canReship` no pedido pago, ou só `disabled` no botão e deixar Postman/API livre. Abrir `extravio`/`apreensao` sem cobertura também 400. Exceção admin: `force: true` depois de alerta + Aprovar. “Marcar resolvido” com endereço **não** cria fila se o plano é `none`/sem cobertura. Não espalhar `if (temSeguro)` nas telas — usar o helper. Reenvio manual da aba Estoque / `POST /admin/orders/:id/reshipment` fica **de fora** desta trava.
 - Em `/suporte`, listar pedidos só com nome/`ShoppingBag`. `POST /support/orders-by-cpf` devolve `products[].image` (snapshot ou catálogo pelo id), igual à Minha conta.
 - Somar venda, custo ou comissão do filho de reenvio no dashboard / lote do vendedor, mostrar o total/lucro reais nesse card, ou gravar `sellerCommissionRateSnapshot` > 0 no create (mesmo com qtd extra). No card do filho, total e Lucro est. ficam R$ 0. Usar `isReshipmentChildOrder(observation, parentOrderId)`. Venda/custo/comissão ficam no pedido original.

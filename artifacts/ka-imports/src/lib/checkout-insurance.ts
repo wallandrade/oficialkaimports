@@ -5,6 +5,7 @@ export type CheckoutInsuranceSettings = {
   enabled: boolean;
   fullEnabled: boolean;
   reducedEnabled: boolean;
+  cashbackEnabled: boolean;
   fullPercent: number;
   reducedPercent: number;
   keepPercent: number;
@@ -34,6 +35,7 @@ export const INSURANCE_SETTING_KEYS = [
   "checkout_insurance_enabled",
   "checkout_insurance_full_enabled",
   "checkout_insurance_reduced_enabled",
+  "checkout_insurance_cashback_enabled",
   "checkout_insurance_percent",
   "checkout_insurance_reduced_percent",
   "checkout_insurance_keep_percent",
@@ -123,6 +125,7 @@ export function parseInsuranceSettingsFromMap(
     enabled: parseBoolSetting(map.checkout_insurance_enabled, true),
     fullEnabled: parseBoolSetting(map.checkout_insurance_full_enabled, true),
     reducedEnabled: parseBoolSetting(map.checkout_insurance_reduced_enabled, true),
+    cashbackEnabled: parseBoolSetting(map.checkout_insurance_cashback_enabled, false),
     fullPercent: parsePercentSetting(map.checkout_insurance_percent, 10),
     reducedPercent: parsePercentSetting(map.checkout_insurance_reduced_percent, 10),
     keepPercent: parsePercentSetting(map.checkout_insurance_keep_percent, 10),
@@ -185,17 +188,39 @@ export function computeInsuranceSnapshotForPlan(
   subtotal: number,
   insuranceAmount: number,
   keepPercent: number,
+  cashbackEnabled = false,
 ): { keepAmount: number; cashbackAmount: number } {
   if (plan === "none" || insuranceAmount <= 0) {
     return { keepAmount: 0, cashbackAmount: 0 };
   }
-  if (plan === "reduced") {
+  if (plan === "reduced" || !cashbackEnabled) {
     return { keepAmount: insuranceAmount, cashbackAmount: 0 };
   }
   const keepRaw = roundMoney(Math.max(0, Number(subtotal) || 0) * (keepPercent / 100));
   const keepAmount = Math.min(keepRaw, insuranceAmount);
   const cashbackAmount = roundMoney(insuranceAmount - keepAmount);
   return { keepAmount, cashbackAmount };
+}
+
+/** Completo com itens especiais e comuns: rótulo "10% / 20%" no checkout. Reduzido ignora. */
+export function fullInsuranceMixedRateLabel(
+  lines: InsuranceLine[],
+  settings: Pick<CheckoutInsuranceSettings, "fullPercent" | "specialPercent" | "specialProductIds">,
+): string | null {
+  const specialPercent = settings.specialPercent;
+  const specialIds = new Set(settings.specialProductIds.map((id) => String(id).trim()).filter(Boolean));
+  if (!specialIds.size || specialPercent == null || !Number.isFinite(specialPercent)) return null;
+  if (specialPercent === settings.fullPercent) return null;
+
+  let hasSpecial = false;
+  let hasStandard = false;
+  for (const line of lines) {
+    if (Math.max(0, Number(line.lineTotal) || 0) <= 0) continue;
+    if (specialIds.has(String(line.productId).trim())) hasSpecial = true;
+    else hasStandard = true;
+  }
+  if (!hasSpecial || !hasStandard) return null;
+  return `${settings.fullPercent}% / ${specialPercent}%`;
 }
 
 export function resolveCheckoutInsurance(input: {
@@ -214,7 +239,13 @@ export function resolveCheckoutInsurance(input: {
   const shippingCost = Math.max(0, Number(input.shippingCost) || 0);
   const discountAmount = Math.max(0, Number(input.discountAmount) || 0);
   const insuranceAmount = computeInsuranceAmountForPlan(plan, subtotal, input.lines || [], input.settings);
-  const snapshot = computeInsuranceSnapshotForPlan(plan, subtotal, insuranceAmount, input.settings.keepPercent);
+  const snapshot = computeInsuranceSnapshotForPlan(
+    plan,
+    subtotal,
+    insuranceAmount,
+    input.settings.keepPercent,
+    input.settings.cashbackEnabled,
+  );
   const total = roundMoney(Math.max(0, subtotal + shippingCost + insuranceAmount - discountAmount));
   return {
     plan,

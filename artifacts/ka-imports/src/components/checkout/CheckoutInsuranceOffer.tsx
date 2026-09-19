@@ -6,6 +6,8 @@ type Offer = {
   plan: "full" | "reduced";
   amount: number;
   cashbackAmount?: number;
+  cashbackEnabled?: boolean;
+  mixedRateLabel?: string | null;
   productSubtotal?: number;
   label: string;
   description: string;
@@ -39,6 +41,7 @@ export function CheckoutInsuranceOffer({
 
   const fullCashback = Math.max(0, Number(fullOffer?.cashbackAmount || 0));
   const productSubtotal = Math.max(0, Number(fullOffer?.productSubtotal || 0));
+  const showCashbackCopy = Boolean(fullOffer?.cashbackEnabled);
 
   return (
     <div className={hideIntro ? "space-y-3" : "pt-4 border-t border-border space-y-3"}>
@@ -94,9 +97,10 @@ export function CheckoutInsuranceOffer({
               <div className="min-w-0 flex-1">
                 <p className="font-semibold text-foreground">
                   {fullOffer.label} — {formatCurrency(fullOffer.amount)}
+                  {fullOffer.mixedRateLabel ? ` (${fullOffer.mixedRateLabel})` : ""}
                 </p>
                 <p className="text-sm text-muted-foreground mt-1 whitespace-pre-line">{fullOffer.description}</p>
-                {selectedPlan === "full" && (
+                {selectedPlan === "full" && showCashbackCopy && (
                   <div className="mt-3 space-y-2">
                     <p className="text-sm text-foreground leading-relaxed">
                       Se chegar certo: você ganha <strong>{formatCurrency(fullCashback)}</strong> para gastar de novo na loja. Se der ruim: a gente manda outra vez (você não paga o frete) ou devolve os <strong>{formatCurrency(productSubtotal)}</strong> do produto.
@@ -122,6 +126,17 @@ export function CheckoutInsuranceOffer({
                     {!isLoggedIn && (
                       <p className="text-xs text-amber-800">Sem conta o saldo não cai. Entre para receber o cashback na entrega.</p>
                     )}
+                  </div>
+                )}
+                {selectedPlan === "full" && !showCashbackCopy && (
+                  <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
+                    <p className="text-xs font-bold uppercase tracking-wide text-amber-800 flex items-center gap-1.5">
+                      <RefreshCw className="w-3.5 h-3.5 shrink-0" />
+                      Cobre também a Receita
+                    </p>
+                    <p className="text-xs text-amber-900 mt-1.5 leading-relaxed">
+                      Custa mais porque cobre extravio e apreensão da Receita. Se der ruim, a gente <strong>manda de novo, 1 vez só</strong> (a gente paga o frete). Os {formatCurrency(fullOffer.amount)} da garantia <strong>não voltam</strong>.
+                    </p>
                   </div>
                 )}
               </div>
