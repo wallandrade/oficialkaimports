@@ -23,6 +23,7 @@ export type RelatedCpfShipment = {
   products: RelatedCpfProduct[];
   sameProduct: boolean;
   recent: boolean;
+  hasEnvioEcom?: boolean;
 };
 
 export type RelatedCpfShipmentsResult = {

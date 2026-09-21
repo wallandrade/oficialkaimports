@@ -5,7 +5,7 @@ import { isSplitShipments, parseOrderShipmentItems } from "./order-shipments-log
 
 export const RELATED_CPF_SHIPMENT_RECENT_MS = 14 * 24 * 60 * 60 * 1000;
 export const RELATED_CPF_SHIPMENT_SCAN_LIMIT = 25;
-export const RELATED_CPF_SHIPMENT_CARD_LIMIT = 5;
+export const RELATED_CPF_SHIPMENT_CARD_LIMIT = 8;
 
 export type RelatedCpfProduct = {
   productId: string | null;
@@ -30,6 +30,7 @@ export type RelatedCpfShipment = {
   products: RelatedCpfProduct[];
   sameProduct: boolean;
   recent: boolean;
+  hasEnvioEcom: boolean;
 };
 
 export type RelatedCpfShipmentsResult = {
@@ -132,6 +133,20 @@ export function hasUsableRelatedEnvioEcomShipment(input: {
   return Boolean(String(input.envioecomLabelUrl || "").trim());
 }
 
+export function hasListableRelatedShipment(input: {
+  envioecomShipmentId?: number | null;
+  envioecomBarcode?: string | null;
+  trackingCode?: string | null;
+  envioecomStatus?: string | null;
+  envioecomLabelUrl?: string | null;
+  enviado?: boolean | null;
+}, opts?: { anyPaidOrder?: boolean }): boolean {
+  if (isLabelBlockedStatus(input.envioecomStatus)) return false;
+  if (opts?.anyPaidOrder) return true;
+  if (hasUsableRelatedEnvioEcomShipment(input)) return true;
+  return Boolean(input.enviado);
+}
+
 function toIso(value: string | Date | null | undefined, fallback: string): string {
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString();
   const raw = String(value || "").trim();
@@ -170,6 +185,7 @@ function mapShipment(opts: {
   sameProduct: boolean;
   recent: boolean;
   isReshipRelated: boolean;
+  hasEnvioEcom: boolean;
 }): RelatedCpfShipment {
   return {
     orderId: opts.order.id,
@@ -186,6 +202,7 @@ function mapShipment(opts: {
     products: opts.products,
     sameProduct: opts.sameProduct,
     recent: opts.recent,
+    hasEnvioEcom: opts.hasEnvioEcom,
   };
 }
 
@@ -215,7 +232,18 @@ export function collectRelatedCpfShipments(opts: {
     const packages = Array.isArray(sibling.packages) ? sibling.packages : [];
     const usePackages = isSplitShipments(packages);
 
-    const rows = usePackages
+    const orderLevelRow = {
+      barcode: String(sibling.envioecomBarcode || sibling.trackingCode || "").trim() || null,
+      envioecomShipmentId: Number(sibling.envioecomShipmentId || 0) > 0 ? Number(sibling.envioecomShipmentId) : null,
+      envioecomStatus: String(sibling.envioecomStatus || "").trim() || null,
+      enviado: Boolean(sibling.enviado),
+      shippedAt: toIso(sibling.envioecomStatusUpdatedAt, createdAt),
+      accountId: String(sibling.envioecomAccountId || "").trim() || null,
+      products: parseOrderShipmentItems(sibling.products),
+      labelUrl: null as string | null,
+      trackingCode: sibling.trackingCode,
+    };
+    const packageRows = usePackages
       ? packages.map((pkg) => ({
           barcode: String(pkg.envioecomBarcode || "").trim() || null,
           envioecomShipmentId: Number(pkg.envioecomShipmentId || 0) > 0 ? Number(pkg.envioecomShipmentId) : null,
@@ -227,26 +255,26 @@ export function collectRelatedCpfShipments(opts: {
           labelUrl: pkg.envioecomLabelUrl,
           trackingCode: null as string | null,
         }))
-      : [{
-          barcode: String(sibling.envioecomBarcode || sibling.trackingCode || "").trim() || null,
-          envioecomShipmentId: Number(sibling.envioecomShipmentId || 0) > 0 ? Number(sibling.envioecomShipmentId) : null,
-          envioecomStatus: String(sibling.envioecomStatus || "").trim() || null,
-          enviado: Boolean(sibling.enviado),
-          shippedAt: toIso(sibling.envioecomStatusUpdatedAt, createdAt),
-          accountId: String(sibling.envioecomAccountId || "").trim() || null,
-          products: parseOrderShipmentItems(sibling.products),
-          labelUrl: null as string | null,
-          trackingCode: sibling.trackingCode,
-        }];
+      : [];
+    const rows = usePackages ? packageRows : [orderLevelRow];
 
+    let emitted = 0;
     for (const row of rows) {
-      if (!hasUsableRelatedEnvioEcomShipment({
+      const usable = hasUsableRelatedEnvioEcomShipment({
         envioecomShipmentId: row.envioecomShipmentId,
         envioecomBarcode: row.barcode,
         trackingCode: row.trackingCode,
         envioecomStatus: row.envioecomStatus,
         envioecomLabelUrl: row.labelUrl,
-      })) continue;
+      });
+      if (!hasListableRelatedShipment({
+        envioecomShipmentId: row.envioecomShipmentId,
+        envioecomBarcode: row.barcode,
+        trackingCode: row.trackingCode,
+        envioecomStatus: row.envioecomStatus,
+        envioecomLabelUrl: row.labelUrl,
+        enviado: row.enviado,
+      }, { anyPaidOrder: !usePackages })) continue;
       const shippedAtMs = Date.parse(row.shippedAt);
       const recent = Number.isFinite(shippedAtMs) && (now - shippedAtMs) <= recentMs;
       shipments.push(mapShipment({
@@ -262,12 +290,44 @@ export function collectRelatedCpfShipments(opts: {
         sameProduct: relatedProductsOverlap(currentKeys, row.products),
         recent,
         isReshipRelated: reshipRelated,
+        hasEnvioEcom: usable,
+      }));
+      emitted += 1;
+    }
+    if (usePackages && emitted === 0 && hasListableRelatedShipment({
+      envioecomShipmentId: orderLevelRow.envioecomShipmentId,
+      envioecomBarcode: orderLevelRow.barcode,
+      trackingCode: orderLevelRow.trackingCode,
+      envioecomStatus: orderLevelRow.envioecomStatus,
+      enviado: orderLevelRow.enviado,
+    }, { anyPaidOrder: true })) {
+      const usable = hasUsableRelatedEnvioEcomShipment({
+        envioecomShipmentId: orderLevelRow.envioecomShipmentId,
+        envioecomBarcode: orderLevelRow.barcode,
+        trackingCode: orderLevelRow.trackingCode,
+        envioecomStatus: orderLevelRow.envioecomStatus,
+      });
+      const shippedAtMs = Date.parse(orderLevelRow.shippedAt);
+      shipments.push(mapShipment({
+        order: sibling,
+        barcode: orderLevelRow.barcode,
+        envioecomShipmentId: orderLevelRow.envioecomShipmentId,
+        envioecomStatus: orderLevelRow.envioecomStatus,
+        enviado: orderLevelRow.enviado,
+        shippedAt: orderLevelRow.shippedAt,
+        accountId: orderLevelRow.accountId,
+        accountName: prettyRelatedAccountName(orderLevelRow.accountId, opts.accountNames),
+        products: orderLevelRow.products,
+        sameProduct: relatedProductsOverlap(currentKeys, orderLevelRow.products),
+        recent: Number.isFinite(shippedAtMs) && (now - shippedAtMs) <= recentMs,
+        isReshipRelated: reshipRelated,
+        hasEnvioEcom: usable,
       }));
     }
   }
 
   shipments.sort((a, b) => Date.parse(b.shippedAt) - Date.parse(a.shippedAt));
-  const warnable = shipments.filter((row) => !row.isReshipRelated && row.recent);
+  const warnable = shipments.filter((row) => !row.isReshipRelated && row.recent && row.hasEnvioEcom);
   const sameProductRecent = warnable.filter((row) => row.sameProduct);
   const warningLevel: RelatedCpfWarningLevel = sameProductRecent.length > 0
     ? "same_product"

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { formatDateOnlyBR } from "@/lib/utils";
 import {
   fetchRelatedCpfShipments,
@@ -35,11 +35,11 @@ export function RelatedCpfShipmentRows({
             <span className="font-normal text-neutral-600">
               {" · "}
               {formatDateOnlyBR(shipment.shippedAt)}
-              {shipment.barcode ? ` · ${shipment.barcode}` : ""}
+              {shipment.barcode ? ` · ${shipment.barcode}` : " · sem rastreio"}
             </span>
           </p>
           <p className="text-neutral-600">
-            {shipment.envioecomStatus || (shipment.enviado ? "Enviado" : "Etiqueta EnvioEcom")}
+            {shipment.envioecomStatus || (shipment.enviado ? "Enviado" : "Pedido pago")}
             {shipment.accountName ? ` · ${shipment.accountName}` : ""}
             {shipment.sameProduct ? " · mesmo produto" : ""}
             {shipment.isReshipRelated ? " · reenvio" : ""}
@@ -93,51 +93,52 @@ export function RelatedCpfWarningBox({
 }
 
 export function RelatedCpfShipments({ orderId }: { orderId: string }) {
-  const hostRef = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState(false);
   const [related, setRelated] = useState<RelatedCpfShipmentsResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const el = hostRef.current;
-    if (!el) return;
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) setVisible(true);
-    }, { rootMargin: "120px" });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [orderId]);
-
-  useEffect(() => {
-    if (!visible || !orderId) return;
+    if (!orderId) return;
     let cancelled = false;
+    setLoading(true);
+    setError(null);
     void fetchRelatedCpfShipments(orderId)
       .then((data) => {
-        if (!cancelled) setRelated(data);
+        if (cancelled) return;
+        setRelated(data);
+        setLoading(false);
       })
-      .catch(() => {
-        if (!cancelled) setRelated(null);
+      .catch((err) => {
+        if (cancelled) return;
+        setRelated(null);
+        setError(err instanceof Error ? err.message : "Não deu para carregar os envios.");
+        setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [orderId, visible]);
+  }, [orderId]);
 
   const shipments = related?.shipments || [];
-  if (related && shipments.length === 0) {
-    return <div ref={hostRef} />;
-  }
 
   return (
-    <div ref={hostRef} className={shipments.length ? "mt-2 rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-2" : undefined}>
-      {shipments.length > 0 ? (
-        <>
-          <p className="text-[11px] font-bold uppercase tracking-wide text-indigo-900">
-            Últimos envios deste CPF
-          </p>
-          <div className="mt-1.5">
-            <RelatedCpfShipmentRows shipments={shipments} compact />
-          </div>
-        </>
+    <div className="mt-2 rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-2">
+      <p className="text-[11px] font-bold uppercase tracking-wide text-indigo-900">
+        Últimos envios deste CPF
+      </p>
+      {loading ? (
+        <p className="text-xs text-indigo-800/80 mt-1">Carregando envios…</p>
+      ) : null}
+      {error ? (
+        <p className="text-xs text-red-700 mt-1">{error}</p>
+      ) : null}
+      {!loading && !error && shipments.length === 0 ? (
+        <p className="text-xs text-indigo-800/80 mt-1">Nenhum outro pedido pago neste CPF.</p>
+      ) : null}
+      {!loading && !error && shipments.length > 0 ? (
+        <div className="mt-1.5">
+          <RelatedCpfShipmentRows shipments={shipments} compact />
+        </div>
       ) : null}
     </div>
   );

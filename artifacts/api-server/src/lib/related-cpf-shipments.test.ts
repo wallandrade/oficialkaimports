@@ -173,6 +173,65 @@ test("split emite um rastreio por pacote e ignora o pedido atual", () => {
   assert.equal(result.warningLevel, "same_product");
 });
 
+test("rastreio 8880 só no trackingCode entra na lista", () => {
+  const result = collectRelatedCpfShipments({
+    currentOrderId: "order-b",
+    currentProducts: [{ id: "sku-a", name: "JBL", quantity: 1 }],
+    now,
+    siblings: [
+      {
+        id: "order-a",
+        orderNumber: 1990,
+        createdAt: "2026-09-10T12:00:00.000Z",
+        trackingCode: "888030914282340",
+        products: [{ id: "sku-a", name: "JBL", quantity: 1 }],
+      },
+    ],
+  });
+  assert.equal(result.shipments.length, 1);
+  assert.equal(result.shipments[0].barcode, "888030914282340");
+  assert.equal(result.shipments[0].hasEnvioEcom, true);
+});
+
+test("pedido pago sem rastreio ainda aparece, sem alerta", () => {
+  const result = collectRelatedCpfShipments({
+    currentOrderId: "order-b",
+    currentProducts: [{ id: "sku-b", name: "Capinha", quantity: 1 }],
+    now,
+    siblings: [
+      {
+        id: "order-a",
+        orderNumber: 1801,
+        createdAt: "2026-09-08T12:00:00.000Z",
+        enviado: false,
+        products: [{ id: "sku-a", name: "JBL", quantity: 1 }],
+      },
+    ],
+  });
+  assert.equal(result.shipments.length, 1);
+  assert.equal(result.shipments[0].barcode, null);
+  assert.equal(result.shipments[0].hasEnvioEcom, false);
+  assert.equal(result.warningLevel, "none");
+});
+
+test("enviado sem barcode entra na lista e não alerta", () => {
+  const result = collectRelatedCpfShipments({
+    currentOrderId: "order-b",
+    now,
+    siblings: [
+      {
+        id: "order-a",
+        orderNumber: 1700,
+        createdAt: "2026-09-15T12:00:00.000Z",
+        enviado: true,
+        products: [{ id: "sku-a", name: "JBL", quantity: 1 }],
+      },
+    ],
+  });
+  assert.equal(result.shipments.length, 1);
+  assert.equal(result.warningLevel, "none");
+});
+
 test("resultado vazio tem warning none", () => {
   const empty = emptyRelatedCpfShipmentsResult("05040576692");
   assert.equal(empty.warningLevel, "none");
