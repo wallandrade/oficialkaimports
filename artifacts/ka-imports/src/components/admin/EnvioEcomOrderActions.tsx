@@ -4,6 +4,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
 import { hasEnvioEcomLabelReady } from "@/lib/pending-shipment-copy";
+import { fetchRelatedCpfShipments, type RelatedCpfShipmentsResult } from "@/lib/related-cpf-shipments";
+import { RelatedCpfWarningBox } from "@/components/admin/RelatedCpfShipments";
 
 export { hasEnvioEcomLabelReady };
 
@@ -213,6 +215,9 @@ export function EnvioEcomOrderActions({
   const [accountPickerAction, setAccountPickerAction] = useState<"quote" | "link" | null>(null);
   const [accountOptions, setAccountOptions] = useState<EnvioEcomAccountOption[]>([]);
   const [pendingLinkContinueToLabel, setPendingLinkContinueToLabel] = useState(false);
+  const [relatedShipments, setRelatedShipments] = useState<RelatedCpfShipmentsResult | null>(null);
+  const [relatedWarningOpen, setRelatedWarningOpen] = useState(false);
+  const [pendingQuoteAccountId, setPendingQuoteAccountId] = useState<string | null>(null);
   const boundPackage = packageId ? (order.packages || []).find((pkg) => pkg.id === packageId) : null;
   const bound: EnvioEcomOrderFields = boundPackage ? bindOrderFieldsToPackage(order, boundPackage) : order;
   function withPackageId<T extends Record<string, unknown>>(body: T): T & { packageId?: string } {
@@ -345,20 +350,57 @@ export function EnvioEcomOrderActions({
     }
   }
 
-  async function startQuote() {
+  async function loadRelatedShipments() {
     try {
-      const picked = await resolveAccountId();
+      const related = await fetchRelatedCpfShipments(order.id);
+      setRelatedShipments(related);
+      return related;
+    } catch {
+      setRelatedShipments(null);
+      return null;
+    }
+  }
+
+  async function continueQuote(accountId: string) {
+    if (accountId === "PICK") {
+      setAccountPickerAction("quote");
+      setAccountPickerOpen(true);
+      return;
+    }
+    setQuoteAccountId(accountId);
+    await quote(selectedCarriers, accountId);
+  }
+
+  async function startQuote() {
+    setBusy("quote");
+    let quoting = false;
+    try {
+      const [picked, related] = await Promise.all([resolveAccountId(), loadRelatedShipments()]);
       if (!picked) return;
       if (picked === "PICK") {
         setAccountPickerAction("quote");
         setAccountPickerOpen(true);
         return;
       }
-      setQuoteAccountId(picked);
-      await quote(selectedCarriers, picked);
+      if (related && related.warningLevel !== "none") {
+        setPendingQuoteAccountId(picked);
+        setRelatedWarningOpen(true);
+        return;
+      }
+      quoting = true;
+      await continueQuote(picked);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Falha ao listar contas EnvioEcom.");
+    } finally {
+      if (!quoting) setBusy(null);
     }
+  }
+
+  async function confirmRelatedWarning() {
+    const picked = pendingQuoteAccountId;
+    setRelatedWarningOpen(false);
+    setPendingQuoteAccountId(null);
+    if (picked) await continueQuote(picked);
   }
 
   function openEnvioEcomLinkModal(nextContinueToLabel = false) {
@@ -385,6 +427,10 @@ export function EnvioEcomOrderActions({
   }
 
   async function chooseAccount(accountId: string) {
+    if (accountPickerAction === "quote" && relatedShipments?.warningLevel === "same_product") {
+      const ok = window.confirm("Este CPF já recebeu o mesmo produto recentemente. Continuar a cotação nesta API?");
+      if (!ok) return;
+    }
     setAccountPickerOpen(false);
     setQuoteAccountId(accountId);
     const action = accountPickerAction;
@@ -754,6 +800,11 @@ export function EnvioEcomOrderActions({
               </button>
             </div>
             <p className="text-sm text-neutral-600 mt-4">A cotação e a etiqueta precisam ser da mesma conta.</p>
+            {relatedShipments && relatedShipments.warningLevel !== "none" ? (
+              <div className="mt-3">
+                <RelatedCpfWarningBox related={relatedShipments} />
+              </div>
+            ) : null}
             <div className="mt-4 space-y-2">
               {accountOptions.map((account) => (
                 <button
@@ -766,6 +817,40 @@ export function EnvioEcomOrderActions({
                   {account.originCep ? <p className="text-xs text-neutral-500 mt-0.5">CEP origem {account.originCep}</p> : null}
                 </button>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {relatedWarningOpen && relatedShipments ? (
+        <div className="fixed inset-0 z-[90] bg-black/40 flex items-center justify-center p-4" onClick={() => { setRelatedWarningOpen(false); setPendingQuoteAccountId(null); }}>
+          <div className="bg-white rounded-[28px] max-w-md w-full shadow-xl p-5 sm:p-6" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3 pb-4 border-b border-neutral-200">
+              <div>
+                <h2 className="text-lg font-bold text-neutral-900 leading-tight">Atenção antes de cotar</h2>
+                <p className="text-sm text-neutral-500 mt-1">
+                  Pedido #{orderDisplayId}{order.clientName ? ` · ${order.clientName}` : ""}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="text-neutral-500 hover:text-neutral-800 p-1 -mt-1"
+                onClick={() => { setRelatedWarningOpen(false); setPendingQuoteAccountId(null); }}
+                aria-label="Fechar"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="mt-4">
+              <RelatedCpfWarningBox related={relatedShipments} />
+            </div>
+            <div className="flex justify-end gap-2 mt-5">
+              <Button type="button" variant="outline" onClick={() => { setRelatedWarningOpen(false); setPendingQuoteAccountId(null); }}>
+                Voltar
+              </Button>
+              <Button type="button" onClick={() => void confirmRelatedWarning()}>
+                Continuar cotação
+              </Button>
             </div>
           </div>
         </div>

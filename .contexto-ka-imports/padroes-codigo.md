@@ -7,6 +7,8 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-21 | Anti-padrão: `readOnly` só no `onFocus` da busca (iOS não abre teclado) ou `focus()` da lupa com `setTimeout` | `OrdersSearchInput` destrava no toque; Header usa `flushSync` + lupa sem pointer | Autofill Chrome; filtro local |
+| 2026-09-21 | Anti-padrão: meter envios do CPF no GET da lista, chamar a EE por CPF no card, ou tratar `SHIPMENT_EXISTS` como guarda entre pedidos | Endpoint sob demanda; alerta confirmável; reenvio/split fora do aviso | Create 1:1; Motoboy |
 | 2026-09-21 | Anti-padrão: apagar `order_shipments` na realocação sem copiar `envioecom_*` do mesmo pool, ou tirar origem com etiqueta | Preserva vínculo; 409 `SPLIT_HAS_LABEL` | Unlink / Cancelar EE |
 | 2026-09-21 | Anti-padrão: misturar Desvincular com Cancelar EE, ou reatachar webhook pelo orderId antigo | Unlink só local; cancel chama a EE; matcher exige ID/barcode atuais | Token; `enviado`/estoque |
 | 2026-09-19 | Anti-padrão: cashback do completo sempre ligado (sem `checkout_insurance_cashback_enabled`) | Default off; loja fica com o seguro; checkout só fala de Receita | Estorno no sinistro; reduzido |
@@ -183,6 +185,7 @@ Código > memória > suposições.
 - Cachear token EnvioEcom só por `tenantId` com N contas (login A vira B). Chave = `tenantId:accountId`.
 - Gravar extras EnvioEcom misturando a conta `env` no JSON; env = Railway, painel só cria extras. CEP origem é da conta, não um setting global de quote/create.
 - Cotar numa API EnvioEcom e criar a etiqueta em outra; o `accountId` do quote vai no create. 0 contas → Configurações; 1 → direto; 2+ → modal.
+- Tratar 409 `SHIPMENT_EXISTS` como proteção contra o **mesmo CPF** noutro pedido. Isso só trava o pedido/pacote atual. Histórico/alerta: `GET /admin/orders/:id/related-shipments` (BD local). Não encher `GET /admin/orders` com isso. Não listar a EnvioEcom por CPF no card. Não bloquear compra nova; reenvio (`parent_order_id`) e pacotes do próprio split não são duplicata.
 - Pedir ID EnvioEcom com `window.prompt`; usar o modal **Vincular EE** (ID 4–10 dígitos ou rastreio) e `POST .../sync`.
 - Enviar um produto × N linhas na cotação EnvioEcom (empilha altura → `QUOTE_ERROR`); usar 1 pacote **por create**. Split = N creates (um `packageId` cada), não `shipments: [a, b]` no mesmo POST.
 - Cotar EnvioEcom com caixa 10×15×20 e valor declarado = total do pedido; o simulador usa 2×12×17, 0,3 kg, R$ 5.
@@ -241,7 +244,7 @@ Código > memória > suposições.
 - Filtrar **Pedidos aguardando estoque** pelo badge automático de saldo, pelo status de reenvio `reenvio_aguardando_estoque` ou pelo “Aguardando estoque” da Minha conta (pacote sem etiqueta). A fila do admin é `is_aguardando_estoque` + `PATCH .../aguardando-estoque`.
 - Na lista **Compra 48h/72h/96h**, descontar só `inventoryBalances` (Fóz) e mandar reenvio inteiro para comprar. Abater também Motoboy/Minas (`/api/admin/yury-inventory`) e a qtd de reenvio; “Comprar agora” é só o que falta.
 - Ligar `setSearch` do `Admin` no `onChange` da busca de Pedidos/Links; texto e filtro ficam em `AdminOrdersChargesSearchShell` e o input é controlado por esse filho (sem debounce, sem estado local, sem `startTransition`). Não pôr o poll de visitantes ao vivo no estado do `Admin` (`AdminLiveVisitorStats` próprio). Busca de Clientes/recorrentes é estado interno do painel.
-- Confiar em `autoComplete="off"` na busca do admin para não preencher sozinho. O Chrome cola o **usuário salvo** (`autoComplete="username"` do login) no primeiro `input` de texto. Usar `readOnly` até o foco, `autoComplete="new-password"` e campos-isca username/senha no `OrdersSearchInput`.
+- Confiar em `autoComplete="off"` na busca do admin para não preencher sozinho. O Chrome cola o **usuário salvo** (`autoComplete="username"` do login) no primeiro `input` de texto. Usar `readOnly` até o **toque** (`onTouchStart`/`onMouseDown` também tira `readOnly` no DOM, não só no `onFocus` — senão iOS/Android não abrem o teclado), `autoComplete="new-password"` e campos-isca username/senha no `OrdersSearchInput`. Lupa com `pointer-events-none`. Na loja, não focar a busca mobile com `setTimeout` (usar `flushSync` + `.focus()` no mesmo gesto) e não deixar a lupa com `onClick` por cima do input.
 - Envolver o `setSearch` da busca em `startTransition` ou debounce+estado local no input: a lista não filtra. Debounce só fazia sentido quando o estado era o `Admin` monolítico.
 - Tratar `costPrice: 0` no JSON do pedido como custo real (`!= null`); 0/ausente cai na ficha, e o PATCH do produto só preenche esses itens (além da janela de 24h).
 - Abrir comprovante PDF no admin com `<iframe src="data:application/pdf...">` sem `frame-src blob:` no CSP; converter data URL para blob.

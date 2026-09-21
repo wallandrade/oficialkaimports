@@ -1,7 +1,7 @@
 import { enqueueFilialOrderPurchaseRequest } from "../lib/filial-purchase-queue";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db, pool, ordersTable, customChargesTable, sellersTable, productsTable, siteSettingsTable, tenantSettingsTable, reshipmentsTable, couponsTable, motoboyDeliveryReservationsTable, orderLogisticsAllocationsTable, customerUsersTable, orderShipmentsTable } from "@workspace/db";
-import { desc, and, gte, lte, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { desc, and, gte, lte, eq, inArray, isNull, or, sql, ne } from "drizzle-orm";
 import crypto from "crypto";
 import { getAdminScope, requireAdminAuth, verifyCurrentAdminPassword } from "./admin-auth";
 import { broadcastNotification } from "./notifications";
@@ -78,6 +78,13 @@ import {
   isObservationVisibleToCustomer,
   observationForCustomerApi,
 } from "../lib/order-observation-visibility";
+import { listEnvioEcomAccounts } from "../lib/envioecom-accounts";
+import {
+  RELATED_CPF_SHIPMENT_SCAN_LIMIT,
+  collectRelatedCpfShipments,
+  emptyRelatedCpfShipmentsResult,
+  parseRelatedCpfDigits,
+} from "../lib/related-cpf-shipments";
 
 const router: IRouter = Router();
 
@@ -1899,6 +1906,94 @@ router.get("/admin/orders/:id/events", requireAdminAuth, async (req, res) => {
   } catch (err) {
     console.error("Admin order events error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao buscar histórico do pedido." });
+  }
+});
+
+function normalizedClientDocumentSql(column: typeof ordersTable.clientDocument) {
+  return sql<string>`REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(${column}, '.', ''), '-', ''), '/', ''), ' ', ''), '\t', '')`;
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/admin/orders/:id/related-shipments  (protected)
+// Últimos envios EnvioEcom do mesmo CPF — não vai na lista de pedidos.
+// ---------------------------------------------------------------------------
+router.get("/admin/orders/:id/related-shipments", requireAdminAuth, async (req, res) => {
+  try {
+    const adminScope = ensureSellerScopeOnOrderQuery(req, res);
+    if (!adminScope) return;
+
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
+
+    const rows = await db
+      .select({
+        id: ordersTable.id,
+        clientDocument: ordersTable.clientDocument,
+        parentOrderId: ordersTable.parentOrderId,
+        products: ordersTable.products,
+      })
+      .from(ordersTable)
+      .where(buildAdminOrderWhere(id, adminScope))
+      .limit(1);
+
+    const current = rows[0];
+    if (!current) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
+
+    const cpf = parseRelatedCpfDigits(current.clientDocument);
+    if (!cpf) {
+      res.json(emptyRelatedCpfShipmentsResult(null));
+      return;
+    }
+
+    const siblings = await db
+      .select({
+        id: ordersTable.id,
+        orderNumber: ordersTable.orderNumber,
+        parentOrderId: ordersTable.parentOrderId,
+        createdAt: ordersTable.createdAt,
+        enviado: ordersTable.enviado,
+        products: ordersTable.products,
+        trackingCode: ordersTable.trackingCode,
+        envioecomShipmentId: ordersTable.envioecomShipmentId,
+        envioecomBarcode: ordersTable.envioecomBarcode,
+        envioecomStatus: ordersTable.envioecomStatus,
+        envioecomStatusUpdatedAt: ordersTable.envioecomStatusUpdatedAt,
+        envioecomAccountId: ordersTable.envioecomAccountId,
+      })
+      .from(ordersTable)
+      .where(and(
+        buildOrderTenantWhere(adminScope.tenantId),
+        inArray(ordersTable.status, ["paid", "completed"]),
+        ne(ordersTable.id, id),
+        sql`${normalizedClientDocumentSql(ordersTable.clientDocument)} = ${cpf}`,
+      ))
+      .orderBy(desc(ordersTable.createdAt))
+      .limit(RELATED_CPF_SHIPMENT_SCAN_LIMIT);
+
+    const packagesByOrderId = await listOrderShipmentsByOrderIds(siblings.map((row) => row.id));
+    const accounts = await listEnvioEcomAccounts(adminScope.tenantId).catch(() => []);
+    const accountNames: Record<string, string> = {};
+    for (const account of accounts) {
+      accountNames[account.accountId] = account.name;
+    }
+
+    const result = collectRelatedCpfShipments({
+      currentOrderId: id,
+      currentParentOrderId: current.parentOrderId,
+      currentProducts: current.products,
+      accountNames,
+      siblings: siblings.map((row) => ({
+        ...row,
+        packages: packagesByOrderId.get(row.id) || [],
+      })),
+    });
+    res.json({ ...result, cpf });
+  } catch (err) {
+    console.error("Admin related shipments error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao buscar envios deste CPF." });
   }
 });
 

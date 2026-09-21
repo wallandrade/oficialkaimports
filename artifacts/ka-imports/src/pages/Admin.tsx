@@ -867,6 +867,7 @@ import { generateChargePdf, generateOrderPdf } from "@/lib/generateOrderPdf";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { EnvioEcomOrderActions, hasEnvioEcomLabelReady, preserveEnvioEcomLabelFields } from "@/components/admin/EnvioEcomOrderActions";
 import { SplitOrderShipmentsButton, isSplitOrder } from "@/components/admin/SplitOrderShipments";
+import { RelatedCpfShipments } from "@/components/admin/RelatedCpfShipments";
 import { ReplaceOrderProductButton } from "@/components/admin/ReplaceOrderProductModal";
 import { OrderHistoryTimeline } from "@/components/admin/OrderHistoryTimeline";
 import { EnvioEcomTrackingBoard } from "@/components/admin/EnvioEcomTrackingBoard";
@@ -2011,7 +2012,7 @@ function OrdersSearchInput({
   onDebouncedChange,
   placeholder,
   className = "relative flex-1",
-  inputClassName = "w-full h-11 pl-10 pr-4 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm",
+  inputClassName = "w-full h-11 pl-10 pr-4 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-base",
 }: {
   value: string;
   onDebouncedChange: (next: string) => void;
@@ -2020,6 +2021,14 @@ function OrdersSearchInput({
   inputClassName?: string;
 }) {
   const [autofillLocked, setAutofillLocked] = useState(true);
+
+  function unlockAutofill(
+    event: React.TouchEvent<HTMLInputElement> | React.MouseEvent<HTMLInputElement> | React.FocusEvent<HTMLInputElement>,
+  ) {
+    if (!autofillLocked) return;
+    event.currentTarget.readOnly = false;
+    setAutofillLocked(false);
+  }
 
   return (
     <div className={className}>
@@ -2041,7 +2050,7 @@ function OrdersSearchInput({
         className="sr-only"
         defaultValue=""
       />
-      <IconLucide name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+      <IconLucide name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
       <input
         type="text"
         name="ka-admin-list-search"
@@ -2053,7 +2062,9 @@ function OrdersSearchInput({
         data-lpignore="true"
         data-1p-ignore="true"
         readOnly={autofillLocked}
-        onFocus={() => setAutofillLocked(false)}
+        onTouchStart={unlockAutofill}
+        onMouseDown={unlockAutofill}
+        onFocus={unlockAutofill}
         value={value}
         onChange={(e) => onDebouncedChange(e.target.value)}
         placeholder={placeholder}
@@ -15670,6 +15681,9 @@ function OrdersPanel({
                   <p className="text-sm text-muted-foreground">{order.clientEmail} · {order.clientPhone}</p>
                   {order.clientDocument && (
                     <p className="text-xs text-muted-foreground mt-0.5">CPF: {order.clientDocument}</p>
+                  )}
+                  {(order.status === "paid" || order.status === "completed") && (
+                    <RelatedCpfShipments orderId={order.id} />
                   )}
                   <p className="text-xs text-muted-foreground mt-0.5">IP compra: {normalizeIp((order as any).purchaseIp)}</p>
                   {order.addressCity && (
