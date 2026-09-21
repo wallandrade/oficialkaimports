@@ -822,7 +822,7 @@ export function EnvioEcomOrderActions({
         </div>
       )}
 
-      {relatedWarningOpen && relatedShipments ? (
+      {relatedWarningOpen && relatedShipments && (
         <div className="fixed inset-0 z-[90] bg-black/40 flex items-center justify-center p-4" onClick={() => { setRelatedWarningOpen(false); setPendingQuoteAccountId(null); }}>
           <div className="bg-white rounded-[28px] max-w-md w-full shadow-xl p-5 sm:p-6" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-start justify-between gap-3 pb-4 border-b border-neutral-200">
