@@ -298,6 +298,41 @@ export function packageHasOwnEnvioEcomRef(pkg: {
   return Boolean(String(pkg.envioecomBarcode || "").trim());
 }
 
+export function shipmentPoolLabel(pool?: string | null): string {
+  const normalized = String(pool || "").trim().toLowerCase();
+  if (normalized === "motoboy") return "Motoboy";
+  if (normalized === "minas") return "Minas";
+  if (normalized === "loja") return "Fóz Guaçu";
+  return pool || "pacote";
+}
+
+/** Pacotes com envio EE cuja origem some na nova alocação. */
+export function labeledPoolsMissingFromAllocation(
+  existing: Array<{
+    inventoryPool?: string | null;
+    envioecomShipmentId?: number | null;
+    envioecomBarcode?: string | null;
+    envioecomLabelUrl?: string | null;
+    envioecomStatus?: string | null;
+  }>,
+  nextPools: Array<{ pool: string }>,
+): string[] {
+  const next = new Set(nextPools.map((row) => String(row.pool || "").trim()));
+  const missing: string[] = [];
+  for (const pkg of existing) {
+    const hasLabel = Boolean(
+      Number(pkg.envioecomShipmentId) > 0
+      || String(pkg.envioecomBarcode || "").trim()
+      || String(pkg.envioecomLabelUrl || "").trim()
+      || String(pkg.envioecomStatus || "").trim()
+    );
+    if (!hasLabel) continue;
+    const pool = String(pkg.inventoryPool || "").trim();
+    if (pool && !next.has(pool)) missing.push(pool);
+  }
+  return missing;
+}
+
 export function pickUnboundPackageId(
   packages: Array<{ id?: string | null; envioecomShipmentId?: number | null; envioecomBarcode?: string | null }>,
 ): string | null {

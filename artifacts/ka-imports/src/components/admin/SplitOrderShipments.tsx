@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Loader2, Split, Upload } from "lucide-react";
+import { Loader2, Pencil, Split, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EnvioEcomOrderActions, type EnvioEcomOrderFields, type EnvioEcomPackageFields } from "@/components/admin/EnvioEcomOrderActions";
@@ -36,6 +36,46 @@ function parseProducts(products: unknown): Array<{ id: string; name: string; qua
       };
     })
     .filter((item) => item.quantity > 0);
+}
+
+function emptyQty(products: Array<{ id: string; name: string; quantity: number }>): Record<string, Record<Pool, number>> {
+  const next: Record<string, Record<Pool, number>> = {};
+  for (const product of products) {
+    next[product.id || product.name] = { loja: product.quantity, motoboy: 0, minas: 0 };
+  }
+  return next;
+}
+
+function qtyFromPackages(
+  products: Array<{ id: string; name: string; quantity: number }>,
+  packages: EnvioEcomPackageFields[] | null | undefined,
+): Record<string, Record<Pool, number>> {
+  const next: Record<string, Record<Pool, number>> = {};
+  for (const product of products) {
+    next[product.id || product.name] = { loja: 0, motoboy: 0, minas: 0 };
+  }
+  for (const pkg of packages || []) {
+    const pool = String(pkg.inventoryPool || "").trim() as Pool;
+    if (pool !== "loja" && pool !== "motoboy" && pool !== "minas") continue;
+    for (const item of pkg.items || []) {
+      const product = products.find((row) => row.id && row.id === item.productId)
+        || products.find((row) => row.name === (item.productName || item.productId));
+      const key = product ? (product.id || product.name) : String(item.productId || item.productName || "").trim();
+      if (!key) continue;
+      if (!next[key]) next[key] = { loja: 0, motoboy: 0, minas: 0 };
+      next[key][pool] += Math.max(0, Math.trunc(Number(item.quantity || 0)));
+    }
+  }
+  return next;
+}
+
+function packageHasEnvioEcomBinding(pkg: EnvioEcomPackageFields): boolean {
+  return Boolean(
+    Number(pkg.envioecomShipmentId) > 0
+    || String(pkg.envioecomBarcode || "").trim()
+    || String(pkg.envioecomLabelUrl || "").trim()
+    || String(pkg.envioecomStatus || "").trim()
+  );
 }
 
 function resolveProductImage(
@@ -84,6 +124,7 @@ export function SplitOrderShipmentsButton({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const products = useMemo(() => parseProducts(order.products), [order.products]);
+  const split = isSplitOrder(order);
   const imageByProductId = useMemo(() => {
     const map: Record<string, string> = { ...(productImageById || {}) };
     for (const product of products) {
@@ -91,13 +132,12 @@ export function SplitOrderShipmentsButton({
     }
     return map;
   }, [productImageById, products]);
-  const [qty, setQty] = useState<Record<string, Record<Pool, number>>>(() => {
-    const next: Record<string, Record<Pool, number>> = {};
-    for (const product of products) {
-      next[product.id || product.name] = { loja: product.quantity, motoboy: 0, minas: 0 };
-    }
-    return next;
-  });
+  const [qty, setQty] = useState<Record<string, Record<Pool, number>>>(() => emptyQty(products));
+  const labeledPools = (order.packages || []).filter(packageHasEnvioEcomBinding);
+  const splitLocked = Boolean(
+    order.enviado
+    || (order.packages || []).some((pkg) => pkg.enviado || pkg.inventoryReserved)
+  );
 
   function setCell(key: string, pool: Pool, value: number, max: number) {
     const qtyValue = Math.max(0, Math.min(max, Math.trunc(Number(value) || 0)));
@@ -105,6 +145,11 @@ export function SplitOrderShipmentsButton({
       ...current,
       [key]: { ...current[key], [pool]: qtyValue },
     }));
+  }
+
+  function openEditor() {
+    setQty(split ? qtyFromPackages(products, order.packages) : emptyQty(products));
+    setOpen(true);
   }
 
   async function submit() {
@@ -119,6 +164,18 @@ export function SplitOrderShipmentsButton({
         .filter((item) => item.quantity > 0);
       if (items.length) packages.push({ pool, items });
     }
+    if (split && labeledPools.length) {
+      const names = labeledPools.map((pkg) => poolLabel(String(pkg.inventoryPool || ""))).join(", ");
+      const nextPools = new Set(packages.map((pkg) => pkg.pool));
+      const removing = labeledPools.filter((pkg) => !nextPools.has(String(pkg.inventoryPool || "") as Pool));
+      if (removing.length) {
+        toast.error(`${removing.map((pkg) => poolLabel(String(pkg.inventoryPool || ""))).join(", ")} já tem etiqueta. Desvincule antes de tirar essa origem.`);
+        return;
+      }
+      if (!window.confirm(`${names} já tem etiqueta EnvioEcom. Ela continua nesse pacote. Se os itens mudaram, desvincule e emita outra. Continuar?`)) {
+        return;
+      }
+    }
     setBusy(true);
     try {
       const res = await fetch(`${BASE}/api/admin/orders/${order.id}/shipments`, {
@@ -129,7 +186,7 @@ export function SplitOrderShipmentsButton({
       const data = await res.json() as { order?: EnvioEcomOrderFields; message?: string; error?: string };
       if (!res.ok) throw new Error(data.message || data.error || "Falha ao dividir envio.");
       if (data.order) onPatched(data.order);
-      toast.success("Envio dividido em pacotes.");
+      toast.success(split ? "Divisão atualizada." : "Envio dividido em pacotes.");
       setOpen(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Falha ao dividir envio.");
@@ -138,9 +195,92 @@ export function SplitOrderShipmentsButton({
     }
   }
 
-  if (isSplitOrder(order)) {
+  const modal = open ? (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setOpen(false)}>
+      <div className="bg-white rounded-[28px] max-w-xl w-full shadow-xl max-h-[88vh] overflow-auto p-5 sm:p-6" onClick={(event) => event.stopPropagation()}>
+        <h2 className="text-lg font-bold text-neutral-900">{split ? "Editar divisão" : "Dividir envio"}</h2>
+        <p className="text-sm text-neutral-500 mt-1">
+          Um pacote por origem. A soma das qtds precisa fechar o pedido. O mesmo SKU pode partir.
+        </p>
+        {labeledPools.length > 0 ? (
+          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mt-3">
+            {labeledPools.map((pkg) => poolLabel(String(pkg.inventoryPool || ""))).join(", ")} já tem etiqueta EnvioEcom.
+            Essa origem precisa continuar na divisão — ou Desvincular antes.
+          </p>
+        ) : null}
+        <div className="mt-4 overflow-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs uppercase tracking-wide text-neutral-400">
+                <th className="pb-2 pr-2">Item</th>
+                <th className="pb-2 px-1">Pedido</th>
+                <th className="pb-2 px-1">Fóz</th>
+                <th className="pb-2 px-1">Motoboy</th>
+                <th className="pb-2 px-1">Minas</th>
+              </tr>
+            </thead>
+            <tbody>
+              {products.map((product) => {
+                const key = product.id || product.name;
+                const lojaStock = product.id ? Number(inventoryByProduct?.[product.id] || 0) : 0;
+                const yury = product.id ? yuryByProduct?.[product.id] : undefined;
+                return (
+                  <tr key={key} className="border-t border-neutral-100">
+                    <td className="py-2 pr-2">
+                      <div className="flex items-start gap-2.5 min-w-[12rem]">
+                        <ProductThumb src={resolveProductImage(product, imageByProductId)} name={product.name} />
+                        <div className="min-w-0">
+                          <p className="font-medium text-neutral-900 leading-snug">{product.name}</p>
+                          <p className="text-[11px] text-neutral-400 mt-0.5">
+                            Fóz {lojaStock} · Motoboy {yury?.motoboy ?? "—"} · Minas {yury?.minas ?? "—"}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-2 px-1 font-semibold">{product.quantity}</td>
+                    {(["loja", "motoboy", "minas"] as const).map((pool) => (
+                      <td key={pool} className="py-2 px-1">
+                        <input
+                          type="number"
+                          min={0}
+                          max={product.quantity}
+                          className="w-16 border border-neutral-300 rounded-lg px-2 py-1"
+                          value={qty[key]?.[pool] ?? 0}
+                          onChange={(event) => setCell(key, pool, Number(event.target.value), product.quantity)}
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="flex justify-end gap-2 mt-4">
+          <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
+          <Button type="button" disabled={busy} onClick={() => void submit()}>
+            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : (split ? "Salvar divisão" : "Confirmar divisão")}
+          </Button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  if (split) {
     return (
       <div className="w-full space-y-3">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="gap-1.5 text-violet-700 border-violet-200 hover:bg-violet-50"
+          disabled={splitLocked}
+          title={splitLocked ? "Pacote já postado ou com estoque baixado." : undefined}
+          onClick={openEditor}
+        >
+          <Pencil className="w-3.5 h-3.5" />
+          Editar divisão
+        </Button>
         {order.packages!.map((pkg) => (
           <div key={pkg.id} className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-3 space-y-2">
             <p className="text-xs font-semibold text-emerald-900">
@@ -198,6 +338,7 @@ export function SplitOrderShipmentsButton({
             </div>
           </div>
         ))}
+        {modal}
       </div>
     );
   }
@@ -210,75 +351,12 @@ export function SplitOrderShipmentsButton({
         variant="outline"
         className="gap-1.5 text-violet-700 border-violet-200 hover:bg-violet-50"
         disabled={!!order.enviado}
-        onClick={() => setOpen(true)}
+        onClick={openEditor}
       >
         <Split className="w-3.5 h-3.5" />
         Dividir envio
       </Button>
-      {open && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setOpen(false)}>
-          <div className="bg-white rounded-[28px] max-w-xl w-full shadow-xl max-h-[88vh] overflow-auto p-5 sm:p-6" onClick={(event) => event.stopPropagation()}>
-            <h2 className="text-lg font-bold text-neutral-900">Dividir envio</h2>
-            <p className="text-sm text-neutral-500 mt-1">
-              Um pacote por origem. A soma das qtds precisa fechar o pedido. O mesmo SKU pode partir.
-            </p>
-            <div className="mt-4 overflow-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs uppercase tracking-wide text-neutral-400">
-                    <th className="pb-2 pr-2">Item</th>
-                    <th className="pb-2 px-1">Pedido</th>
-                    <th className="pb-2 px-1">Fóz</th>
-                    <th className="pb-2 px-1">Motoboy</th>
-                    <th className="pb-2 px-1">Minas</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {products.map((product) => {
-                    const key = product.id || product.name;
-                    const lojaStock = product.id ? Number(inventoryByProduct?.[product.id] || 0) : 0;
-                    const yury = product.id ? yuryByProduct?.[product.id] : undefined;
-                    return (
-                      <tr key={key} className="border-t border-neutral-100">
-                        <td className="py-2 pr-2">
-                          <div className="flex items-start gap-2.5 min-w-[12rem]">
-                            <ProductThumb src={resolveProductImage(product, imageByProductId)} name={product.name} />
-                            <div className="min-w-0">
-                              <p className="font-medium text-neutral-900 leading-snug">{product.name}</p>
-                              <p className="text-[11px] text-neutral-400 mt-0.5">
-                                Fóz {lojaStock} · Motoboy {yury?.motoboy ?? "—"} · Minas {yury?.minas ?? "—"}
-                              </p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="py-2 px-1 font-semibold">{product.quantity}</td>
-                        {(["loja", "motoboy", "minas"] as const).map((pool) => (
-                          <td key={pool} className="py-2 px-1">
-                            <input
-                              type="number"
-                              min={0}
-                              max={product.quantity}
-                              className="w-16 border border-neutral-300 rounded-lg px-2 py-1"
-                              value={qty[key]?.[pool] ?? 0}
-                              onChange={(event) => setCell(key, pool, Number(event.target.value), product.quantity)}
-                            />
-                          </td>
-                        ))}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <div className="flex justify-end gap-2 mt-4">
-              <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-              <Button type="button" disabled={busy} onClick={() => void submit()}>
-                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : "Confirmar divisão"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      {modal}
     </>
   );
 }

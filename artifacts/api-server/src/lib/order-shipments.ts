@@ -21,11 +21,13 @@ import {
   allPackagesLabelReady,
   allPackagesReserved,
   isSplitShipments,
+  labeledPoolsMissingFromAllocation,
   leastAdvancedShipmentStatus,
   mapOrderShipmentPackage,
   parseOrderShipmentItems,
   pickInheritPackageIndex,
   rollupParentLabelUrl,
+  shipmentPoolLabel,
   validateOrderShipmentAllocation,
   type OrderShipmentAllocationInput,
 } from "./order-shipments-logic";
@@ -269,19 +271,31 @@ export async function detachEnvioEcomPackage(
   return unlinkPackageEnvioEcomBinding(order, pkg);
 }
 
-function copyOrderShipmentBinding(order: typeof ordersTable.$inferSelect) {
+function copyEnvioEcomBinding(source: {
+  envioecomShipmentId?: number | null;
+  envioecomBarcode?: string | null;
+  envioecomTrackingKey?: string | null;
+  envioecomDeliveryMode?: string | null;
+  envioecomStatus?: string | null;
+  envioecomStatusUpdatedAt?: Date | null;
+  envioecomStatusHistory?: unknown;
+  envioecomLabelUrl?: string | null;
+  envioecomFreightCost?: string | number | null;
+  envioecomExternalOrderNumber?: string | null;
+  envioecomAccountId?: string | null;
+}) {
   return {
-    envioecomShipmentId: order.envioecomShipmentId,
-    envioecomBarcode: order.envioecomBarcode,
-    envioecomTrackingKey: order.envioecomTrackingKey,
-    envioecomDeliveryMode: order.envioecomDeliveryMode,
-    envioecomStatus: order.envioecomStatus,
-    envioecomStatusUpdatedAt: order.envioecomStatusUpdatedAt,
-    envioecomStatusHistory: order.envioecomStatusHistory,
-    envioecomLabelUrl: order.envioecomLabelUrl,
-    envioecomFreightCost: order.envioecomFreightCost,
-    envioecomExternalOrderNumber: order.envioecomExternalOrderNumber,
-    envioecomAccountId: order.envioecomAccountId,
+    envioecomShipmentId: source.envioecomShipmentId,
+    envioecomBarcode: source.envioecomBarcode,
+    envioecomTrackingKey: source.envioecomTrackingKey,
+    envioecomDeliveryMode: source.envioecomDeliveryMode,
+    envioecomStatus: source.envioecomStatus,
+    envioecomStatusUpdatedAt: source.envioecomStatusUpdatedAt,
+    envioecomStatusHistory: source.envioecomStatusHistory,
+    envioecomLabelUrl: source.envioecomLabelUrl,
+    envioecomFreightCost: source.envioecomFreightCost != null ? String(source.envioecomFreightCost) : null,
+    envioecomExternalOrderNumber: source.envioecomExternalOrderNumber,
+    envioecomAccountId: source.envioecomAccountId,
   };
 }
 
@@ -298,8 +312,19 @@ export async function allocateOrderShipments(input: {
   }
 
   const existing = await listOrderShipments(input.order.id);
-  if (existing.some((row) => row.enviado || shouldMarkEnviadoFromStatus(row.envioecomStatus))) {
-    throw new OrderShipmentError("SPLIT_LOCKED", "Já existe pacote postado neste pedido. Não dá para realocar.");
+  if (existing.some((row) => row.enviado || row.inventoryReserved || shouldMarkEnviadoFromStatus(row.envioecomStatus))) {
+    throw new OrderShipmentError(
+      "SPLIT_LOCKED",
+      "Já existe pacote postado ou com estoque baixado neste pedido. Não dá para realocar.",
+    );
+  }
+  const removedLabeled = labeledPoolsMissingFromAllocation(existing, validated.packages);
+  if (removedLabeled.length) {
+    const names = removedLabeled.map((pool) => shipmentPoolLabel(pool)).join(", ");
+    throw new OrderShipmentError(
+      "SPLIT_HAS_LABEL",
+      `Pacote ${names} já tem envio EnvioEcom. Desvincule ou cancele antes de remover essa origem.`,
+    );
   }
 
   const exited = parseKaInventoryExitedPools((input.order as { inventoryExitedPools?: unknown }).inventoryExitedPools);
@@ -329,6 +354,7 @@ export async function allocateOrderShipments(input: {
     || input.order.envioecomBarcode
     || input.order.envioecomExternalOrderNumber,
   );
+  const previousByPool = new Map(existing.map((row) => [row.inventoryPool, row] as const));
 
   if (existing.length > 0) {
     await db.delete(orderShipmentsTable).where(eq(orderShipmentsTable.orderId, input.order.id));
@@ -337,8 +363,9 @@ export async function allocateOrderShipments(input: {
   const now = new Date();
   const inserted: Array<typeof orderShipmentsTable.$inferSelect> = [];
   for (const [index, allocation] of validated.packages.entries()) {
-    const inherit = hasBoundShipment && index === inheritIndex;
-    const id = randomShipmentId();
+    const previous = previousByPool.get(allocation.pool);
+    const inheritParent = existing.length === 0 && hasBoundShipment && index === inheritIndex;
+    const id = previous?.id || randomShipmentId();
     await db.insert(orderShipmentsTable).values({
       id,
       orderId: input.order.id,
@@ -347,8 +374,8 @@ export async function allocateOrderShipments(input: {
       items: allocation.items,
       enviado: false,
       inventoryReserved: false,
-      ...(inherit ? copyOrderShipmentBinding(input.order) : {}),
-      createdAt: now,
+      ...(previous ? copyEnvioEcomBinding(previous) : inheritParent ? copyEnvioEcomBinding(input.order) : {}),
+      createdAt: previous?.createdAt || now,
       updatedAt: now,
     });
     const row = (await db.select().from(orderShipmentsTable).where(eq(orderShipmentsTable.id, id)).limit(1))[0];

@@ -8,6 +8,7 @@ import {
   bindEnvioEcomFieldsToPackage,
   buildPackageExternalOrderNumber,
   isSplitShipments,
+  labeledPoolsMissingFromAllocation,
   leastAdvancedShipmentStatus,
   packageHasOwnEnvioEcomRef,
   packageInventoryReferenceId,
@@ -152,4 +153,19 @@ test("pickUnboundPackageId escolhe o pacote sem envio proprio", () => {
     { id: "minas", envioecomBarcode: "8880" },
     { id: "motoboy", envioecomBarcode: "8881" },
   ]), null);
+});
+
+test("realocar split nao deixa remover origem com etiqueta EE", () => {
+  const existing = [
+    { inventoryPool: "motoboy", envioecomShipmentId: 88, envioecomBarcode: "888030944221801" },
+    { inventoryPool: "minas", envioecomShipmentId: null, envioecomBarcode: null },
+  ];
+  assert.deepEqual(
+    labeledPoolsMissingFromAllocation(existing, [{ pool: "minas" }, { pool: "loja" }]),
+    ["motoboy"],
+  );
+  assert.deepEqual(
+    labeledPoolsMissingFromAllocation(existing, [{ pool: "motoboy" }, { pool: "minas" }]),
+    [],
+  );
 });

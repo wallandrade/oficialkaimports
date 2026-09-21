@@ -3568,7 +3568,7 @@ router.post("/admin/orders/:id/shipments", requireAdminAuth, async (req, res) =>
     });
   } catch (err) {
     if (err instanceof OrderShipmentError || err instanceof OrderEnviadoError) {
-      const status = err.code === "ALREADY_SHIPPED" || err.code === "SPLIT_LOCKED" || err.code === "INVENTORY_MUST_REVERSE"
+      const status = err.code === "ALREADY_SHIPPED" || err.code === "SPLIT_LOCKED" || err.code === "INVENTORY_MUST_REVERSE" || err.code === "SPLIT_HAS_LABEL"
         ? 409
         : 400;
       res.status(status).json({ error: err.code, message: err.message });
