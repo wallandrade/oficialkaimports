@@ -481,7 +481,7 @@ export default function Home() {
                 placeholder="Buscar produto..."
                 value={nameFilter}
                 onChange={(e) => setNameFilter(e.target.value)}
-                className="ka-mobile-filter-input w-full h-11 pl-9 pr-10 rounded-2xl border border-input bg-white text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:border-primary"
+                className="ka-mobile-filter-input w-full h-11 pl-9 pr-10 rounded-2xl border border-input bg-white text-base shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20 focus-visible:border-primary"
               />
               {nameFilter && (
                 <button

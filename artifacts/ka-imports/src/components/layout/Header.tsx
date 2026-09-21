@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { flushSync } from "react-dom";
 import { Link, useLocation } from "wouter";
 import { ShoppingBag, Search, Menu, X, MessageCircle, Home, UserCircle2 } from "lucide-react";
 import { getCustomerToken } from "@/lib/customer-auth";
@@ -86,8 +87,7 @@ function SearchBar({
     <div ref={wrapperRef} className={`relative ${className}`}>
       <div className="relative group">
         <Search
-          className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground group-focus-within:text-primary transition-colors cursor-pointer z-10"
-          onClick={onSearch}
+          className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground group-focus-within:text-primary transition-colors pointer-events-none"
         />
         <input
           ref={inputRef}
@@ -97,7 +97,7 @@ function SearchBar({
           onFocus={() => { if (searchValue.trim()) setShowSuggestions(true); }}
           onKeyDown={handleKeyDown}
           placeholder="Buscar produtos..."
-          className="w-full h-11 pl-10 pr-8 rounded-full bg-muted border-transparent focus:bg-white focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none border-2"
+          className="w-full h-11 pl-10 pr-8 rounded-full bg-muted border-transparent focus:bg-white focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none border-2 text-base"
         />
         {searchValue && (
           <button
@@ -262,10 +262,10 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
     );
   }
 
-  // Open mobile search and auto-focus input
+  // Open mobile search and auto-focus input in the same tap (iOS keyboard)
   function openMobileSearch() {
-    setMobileSearchOpen(true);
-    setTimeout(() => mobileInputRef.current?.focus(), 80);
+    flushSync(() => setMobileSearchOpen(true));
+    mobileInputRef.current?.focus();
   }
 
   // Close dropdown when clicking outside
