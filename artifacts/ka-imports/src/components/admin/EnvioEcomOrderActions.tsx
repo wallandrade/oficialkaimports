@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Loader2, RefreshCw, Truck, FileText, Ban, ExternalLink, X, Link2 } from "lucide-react";
+import { Loader2, RefreshCw, Truck, FileText, Ban, ExternalLink, X, Link2, Unlink } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
@@ -233,6 +233,12 @@ export function EnvioEcomOrderActions({
   const labelBlocked = isLabelBlockedStatus(bound.envioecomStatus);
   const needsBind = isProvisionalBarcode(barcode) && !bound.envioecomShipmentId;
   const labelUrl = String(bound.envioecomLabelUrl || (!packageId ? bound.trackingLabelUrl : "") || "").trim();
+  const hasBinding = Boolean(
+    bound.envioecomShipmentId
+    || barcode
+    || labelUrl
+    || String(bound.envioecomStatus || "").trim()
+  );
   const orderDisplayId = Number.isFinite(Number(order.orderNumber)) && Number(order.orderNumber) > 0
     ? String(Math.trunc(Number(order.orderNumber)))
     : order.id;
@@ -488,6 +494,27 @@ export function EnvioEcomOrderActions({
     }
   }
 
+  async function unlinkShipment() {
+    const targetLabel = packageId ? "neste pacote" : "neste pedido";
+    if (!window.confirm(`Soltar a etiqueta ${targetLabel}? A EnvioEcom NÃO é cancelada.`)) return;
+    setBusy("unlink");
+    try {
+      const res = await fetch(`${BASE}/api/admin/envioecom/orders/${order.id}/unlink`, {
+        method: "POST",
+        headers: adminHeaders(),
+        body: JSON.stringify(withPackageId({})),
+      });
+      if (!res.ok) throw new Error(await readError(res));
+      const data = await res.json() as { order?: EnvioEcomOrderFields; message?: string };
+      await patchFromResponse(data);
+      toast.success(data.message || "Etiqueta solta. A EnvioEcom não foi cancelada.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Falha ao desvincular.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function cancelShipment() {
     if (!window.confirm("Cancelar este envio na EnvioEcom?")) return;
     setBusy("cancel");
@@ -538,7 +565,13 @@ export function EnvioEcomOrderActions({
           Sync EE
         </Button>
       )}
-      {(bound.envioecomShipmentId || barcode) && (
+      {hasBinding && (
+        <Button size="sm" variant="outline" className="gap-1.5 text-amber-700 border-amber-200 hover:bg-amber-50" disabled={!!busy} onClick={() => void unlinkShipment()}>
+          {busy === "unlink" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Unlink className="w-3.5 h-3.5" />}
+          Desvincular
+        </Button>
+      )}
+      {hasBinding && (
         <Button size="sm" variant="outline" className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50" disabled={!!busy} onClick={() => void cancelShipment()}>
           {busy === "cancel" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />}
           Cancelar EE

@@ -41,9 +41,10 @@ import {
 import { isLabelBlockedStatus, isProvisionalBarcode, isUsableLabelBarcode, classifyEnvioEcomTrackingGroup, isOpenEnvioEcomTrackingStatus, resolveStatusAfterLabelGenerated, trackingEventsNewestFirst, trackingHistoryMissingLocation } from "../lib/envioecom-status";
 import {
   buildNextExternalOrderNumber,
-  detachEnvioEcomShipment,
   digitsOnly,
   findOrderForEnvioEcomWebhook,
+  hasActiveEnvioEcomShipmentBinding,
+  hasEnvioEcomShipmentBinding,
   isDuplicateOrderIdError,
   parseCreatedShipment,
   parseShipmentDetails,
@@ -53,10 +54,10 @@ import {
   sanitizeDocument,
   sanitizeUf,
   shipmentEventMatchesOrder,
+  unlinkEnvioEcomBinding,
 } from "../lib/envioecom-order";
 import { bindEnvioEcomFieldsToPackage, buildPackageExternalOrderNumber, packageHasOwnEnvioEcomRef } from "../lib/order-shipments-logic";
 import {
-  detachEnvioEcomPackage,
   findPackageForEnvioEcomWebhook,
   isSplitShipments,
   listOrderShipments,
@@ -64,6 +65,7 @@ import {
   mappedPackagesForOrder,
   persistEnvioEcomPackage,
   OrderShipmentError,
+  unlinkPackageEnvioEcomBinding,
 } from "../lib/order-shipments";
 
 const router: IRouter = Router();
@@ -823,12 +825,20 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
     }
     let workingOrder = order;
     let workingPkg = target.pkg;
+    const boundForCreate = workingPkg ? orderBoundFromPackage(workingOrder, workingPkg) : workingOrder;
+    if (hasActiveEnvioEcomShipmentBinding(boundForCreate)) {
+      res.status(409).json({
+        error: "SHIPMENT_EXISTS",
+        message: "Já existe envio EnvioEcom. Desvincule ou cancele antes de criar outro.",
+      });
+      return;
+    }
     if (target.kind === "package" && workingPkg && isLabelBlockedStatus(workingPkg.envioecomStatus)) {
-      const detached = await detachEnvioEcomPackage(order, workingPkg, workingPkg.envioecomStatus);
+      const detached = await unlinkPackageEnvioEcomBinding(order, workingPkg);
       workingOrder = detached.order;
       workingPkg = detached.pkg;
     } else if (target.kind === "order" && isLabelBlockedStatus(order.envioecomStatus)) {
-      workingOrder = await detachEnvioEcomShipment(order, order.envioecomStatus);
+      workingOrder = await unlinkEnvioEcomBinding(order);
     }
     const packed = buildConsolidatedQuotePackage({ products: workingOrder.products, defaults: config.defaults });
     const labelItem = buildGenericShipmentItem({
@@ -862,17 +872,20 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
     };
     const orderIdSource = workingPkg
       ? {
-          orderNumber: workingOrder.orderNumber,
-          id: workingOrder.id,
           envioecomShipmentId: workingPkg.envioecomShipmentId,
-          envioecomExternalOrderNumber: workingPkg.envioecomExternalOrderNumber,
-          envioecomStatusHistory: workingPkg.envioecomStatusHistory,
+          envioecomBarcode: workingPkg.envioecomBarcode,
+          envioecomExternalOrderNumber: workingPkg.envioecomExternalOrderNumber || boundForCreate.envioecomExternalOrderNumber,
+          envioecomStatus: workingPkg.envioecomStatus || boundForCreate.envioecomStatus,
         }
-      : workingOrder;
+      : {
+          ...workingOrder,
+          envioecomExternalOrderNumber: workingOrder.envioecomExternalOrderNumber || boundForCreate.envioecomExternalOrderNumber,
+          envioecomStatus: workingOrder.envioecomStatus || boundForCreate.envioecomStatus,
+        };
     const pool = workingPkg ? (workingPkg.inventoryPool as "loja" | "motoboy" | "minas") : null;
     let externalOrderNumber = pool
       ? buildPackageExternalOrderNumber(workingOrder, pool, orderIdSource)
-      : buildNextExternalOrderNumber(workingOrder);
+      : buildNextExternalOrderNumber(orderIdSource);
     let created: Awaited<ReturnType<typeof scoped.client.create>> | undefined;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
@@ -886,14 +899,16 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
           externalOrderNumber = pool
             ? buildPackageExternalOrderNumber(workingOrder, pool, {
                 envioecomShipmentId: null,
-                envioecomExternalOrderNumber: null,
-                envioecomStatusHistory: [{ at: new Date().toISOString(), status: "retry" }],
+                envioecomBarcode: null,
+                envioecomExternalOrderNumber: externalOrderNumber,
+                envioecomStatus: null,
               })
             : buildNextExternalOrderNumber({
                 ...workingOrder,
                 envioecomShipmentId: null,
-                envioecomExternalOrderNumber: null,
-                envioecomStatusHistory: [{ at: new Date().toISOString(), status: "retry" }],
+                envioecomBarcode: null,
+                envioecomExternalOrderNumber: externalOrderNumber,
+                envioecomStatus: null,
               });
           continue;
         }
@@ -1202,13 +1217,7 @@ router.post("/admin/envioecom/orders/:id/cancel", requireAdminAuth, async (req, 
       || (target.pkg ? "" : bound.trackingCode)
       || "",
     ).trim();
-    const hasBinding = Boolean(
-      identifier
-      || bound.envioecomExternalOrderNumber
-      || bound.envioecomLabelUrl
-      || bound.envioecomStatus,
-    );
-    if (!hasBinding) {
+    if (!hasEnvioEcomShipmentBinding(bound)) {
       res.status(400).json({
         error: "NO_SHIPMENT",
         message: target.pkg
@@ -1241,8 +1250,8 @@ router.post("/admin/envioecom/orders/:id/cancel", requireAdminAuth, async (req, 
     }
     const cancelStatus = String(cancelResult.status || "").trim() || null;
     const persisted = target.pkg
-      ? (await detachEnvioEcomPackage(order, target.pkg, cancelStatus)).order
-      : await detachEnvioEcomShipment(order, cancelStatus);
+      ? (await unlinkPackageEnvioEcomBinding(order, target.pkg)).order
+      : await unlinkEnvioEcomBinding(order);
     await addOrderEvent({
       orderId: order.id,
       tenantId: admin.tenantId,
@@ -1262,6 +1271,53 @@ router.post("/admin/envioecom/orders/:id/cancel", requireAdminAuth, async (req, 
       message: String(cancelResult.message || "Cancelamento pedido na EnvioEcom. Pedido liberado para cotar de novo."),
       order: await mapEnvioEcomOrderWithPackages(persisted, { accountName: cancelAccountName }),
       accountId: cancelAccountId,
+    });
+  } catch (err) {
+    sendEnvioEcomError(res, err);
+  }
+});
+
+router.post("/admin/envioecom/orders/:id/unlink", requireAdminAuth, async (req, res) => {
+  try {
+    const admin = requireEnvioEcomAdmin(req, res);
+    if (!admin) return;
+    const order = await loadTenantOrder(String(req.params.id), admin.tenantId);
+    if (!order) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
+    const target = await resolveEnvioEcomTarget(order, readPackageId(req.body));
+    const bound = target.pkg ? orderBoundFromPackage(order, target.pkg) : order;
+    if (!hasEnvioEcomShipmentBinding(bound)) {
+      res.status(400).json({
+        error: "NO_SHIPMENT",
+        message: target.pkg
+          ? "Este pacote ainda não tem envio EnvioEcom para desvincular."
+          : "Este pedido ainda não tem envio EnvioEcom para desvincular.",
+      });
+      return;
+    }
+    const persisted = target.pkg
+      ? (await unlinkPackageEnvioEcomBinding(order, target.pkg)).order
+      : await unlinkEnvioEcomBinding(order);
+    await addOrderEvent({
+      orderId: order.id,
+      tenantId: admin.tenantId,
+      action: "ee_unlinked",
+      ...actorFromAdminRequest(req),
+      payload: {
+        barcode: bound.envioecomBarcode || bound.trackingCode || null,
+        shipmentId: bound.envioecomShipmentId ?? null,
+        packageId: target.pkg?.id || null,
+      },
+    });
+    res.json({
+      ok: true,
+      unlinked: true,
+      message: target.pkg
+        ? "Etiqueta solta neste pacote. A EnvioEcom não foi cancelada."
+        : "Etiqueta solta neste pedido. A EnvioEcom não foi cancelada.",
+      order: await mapEnvioEcomOrderWithPackages(persisted),
     });
   } catch (err) {
     sendEnvioEcomError(res, err);

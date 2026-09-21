@@ -50,18 +50,21 @@ test("split exige 2 origens e soma fecha o pedido", () => {
   if (!leftover.ok) assert.equal(leftover.error.code, "QTY_MISMATCH");
 });
 
-test("orderId do pacote usa pool e gira sufixo depois do historico", () => {
+test("orderId do pacote usa pool e gira sufixo depois de desvincular", () => {
   const order = { id: "abcdefghij1234", orderNumber: 2031 };
   assert.equal(buildPackageExternalOrderNumber(order, "minas"), "2031-abcdefgh-minas");
   assert.equal(buildPackageExternalOrderNumber(order, "motoboy"), "2031-abcdefgh-motoboy");
-  const retry = buildPackageExternalOrderNumber(order, "minas", {
-    envioecomStatusHistory: [{ at: "2026-09-04T12:00:00.000Z", status: "Cancelado" }],
-  }, "lxyz");
-  assert.equal(retry, "2031-abcdefgh-minas-lxyz");
   assert.equal(buildPackageExternalOrderNumber(order, "minas", {
     envioecomShipmentId: 99,
+    envioecomBarcode: "888030900000001",
     envioecomExternalOrderNumber: "2031-abcdefgh-minas",
   }), "2031-abcdefgh-minas");
+  const retry = buildPackageExternalOrderNumber(order, "minas", {
+    envioecomShipmentId: null,
+    envioecomBarcode: null,
+    envioecomExternalOrderNumber: "2031-abcdefgh-minas",
+  }, "lxyz");
+  assert.equal(retry, "2031-abcdefgh-minas-lxyz");
 });
 
 test("rollup: PDF no pai so quando todos tem URL; enviado e 48h sao AND", () => {

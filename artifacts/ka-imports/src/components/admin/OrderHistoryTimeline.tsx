@@ -28,6 +28,7 @@ const ACTION_LABELS: Record<string, string> = {
   ee_bound: "Vinculou envio EnvioEcom",
   ee_label: "Gerou etiqueta EnvioEcom",
   ee_cancelled: "Cancelou envio EnvioEcom",
+  ee_unlinked: "Desvinculou envio EnvioEcom",
   priority: "Alterou prioridade",
   searching: "Alterou procurando produto",
   waiting_stock: "Alterou aguardando estoque",

@@ -1,7 +1,6 @@
-import crypto from "crypto";
 import type { KaInventoryExitPool } from "./yury-inventory";
 import { parseKaInventoryExitPool } from "./yury-inventory";
-import { buildExternalOrderNumber } from "./envioecom-order-ref";
+import { buildExternalOrderNumber, nextEnvioEcomExternalOrderNumber } from "./envioecom-order-ref";
 import { hasEnvioEcomLabelReady, shouldMarkEnviadoFromStatus } from "./envioecom-status";
 
 export type OrderShipmentPool = KaInventoryExitPool;
@@ -151,26 +150,24 @@ export function validateOrderShipmentAllocation(
   return { ok: true, packages: allocated };
 }
 
-function historyHasEvents(history: unknown): boolean {
-  return Array.isArray(history) && history.length > 0;
-}
-
 export function buildPackageExternalOrderNumber(
   order: { orderNumber?: number | null; id: string },
   pool: OrderShipmentPool,
   current?: {
     envioecomShipmentId?: number | null;
+    envioecomBarcode?: string | null;
     envioecomExternalOrderNumber?: string | null;
-    envioecomStatusHistory?: unknown;
+    envioecomStatus?: string | null;
   },
   salt?: string,
 ): string {
-  const bound = String(current?.envioecomExternalOrderNumber || "").trim();
-  if (current?.envioecomShipmentId && bound) return bound;
-  const base = `${buildExternalOrderNumber(order)}-${pool}`;
-  if (!bound && !historyHasEvents(current?.envioecomStatusHistory)) return base;
-  const suffix = String(salt || crypto.randomBytes(3).toString("hex").slice(0, 4)).replace(/[^a-z0-9]/gi, "").slice(0, 8) || "n1";
-  return `${base}-${suffix}`;
+  return nextEnvioEcomExternalOrderNumber({
+    base: `${buildExternalOrderNumber(order)}-${pool}`,
+    shipmentId: current?.envioecomShipmentId,
+    barcode: current?.envioecomBarcode,
+    prev: current?.envioecomExternalOrderNumber,
+    status: current?.envioecomStatus,
+  }, salt);
 }
 
 export type ShipmentStatusLike = {

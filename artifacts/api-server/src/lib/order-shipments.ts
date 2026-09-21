@@ -118,6 +118,7 @@ export async function rollupOrderFromPackages(
   const labelUrl = rollupParentLabelUrl(rows);
   const status = leastAdvancedShipmentStatus(rows);
   const firstWithBarcode = rows.find((row) => String(row.envioecomBarcode || "").trim());
+  const firstWithId = rows.find((row) => Number(row.envioecomShipmentId) > 0);
   const trackingCode = labelUrl || firstWithBarcode
     ? (firstWithBarcode?.envioecomBarcode || order.trackingCode || null)
     : (order.trackingCode && rows.some((row) => row.envioecomBarcode === order.trackingCode)
@@ -130,6 +131,7 @@ export async function rollupOrderFromPackages(
     envioecomStatus: status,
     envioecomLabelUrl: labelUrl,
     trackingLabelUrl: labelUrl,
+    envioecomShipmentId: firstWithId?.envioecomShipmentId ?? null,
     updatedAt: now,
   };
   if (status) updates.envioecomStatusUpdatedAt = now;
@@ -138,6 +140,7 @@ export async function rollupOrderFromPackages(
     updates.trackingCode = firstWithBarcode.envioecomBarcode;
   } else if (!trackingCode) {
     updates.envioecomBarcode = null;
+    updates.trackingCode = null;
   }
   if (enviado && !order.enviado) {
     updates.enviado = true;
@@ -235,45 +238,35 @@ export async function persistEnvioEcomPackage(
   return { order: refreshedOrder, pkg: refreshedPkg };
 }
 
-export async function detachEnvioEcomPackage(
+/** Solta o vínculo local do pacote. Não chama a EnvioEcom. Guarda external_order_number. */
+export async function unlinkPackageEnvioEcomBinding(
   order: typeof ordersTable.$inferSelect,
   pkg: typeof orderShipmentsTable.$inferSelect,
-  status?: string | null,
 ): Promise<{ order: typeof ordersTable.$inferSelect; pkg: typeof orderShipmentsTable.$inferSelect }> {
   const now = new Date();
-  const requested = pickString(status) || pickString(pkg.envioecomStatus);
-  const nextStatus = isEnvioEcomCancelledStatus(requested) ? requested! : "Aguardando cancelamento";
-  const barcode = pickString(pkg.envioecomBarcode);
-  const history = mergeEnvioEcomHistory(
-    pkg.envioecomStatusHistory,
-    null,
-    {
-      at: now.toISOString(),
-      status: nextStatus,
-      description: [
-        pkg.envioecomShipmentId ? `shipment_id:${pkg.envioecomShipmentId}` : "",
-        pkg.envioecomExternalOrderNumber ? `orderId:${pkg.envioecomExternalOrderNumber}` : "",
-        "Envio desvinculado para permitir etiqueta nova",
-      ].filter(Boolean).join(" "),
-      barcode,
-    },
-  );
   await db.update(orderShipmentsTable).set({
     envioecomShipmentId: null,
     envioecomBarcode: null,
     envioecomTrackingKey: null,
-    envioecomExternalOrderNumber: null,
     envioecomLabelUrl: null,
     envioecomDeliveryMode: null,
     envioecomFreightCost: null,
-    envioecomStatus: nextStatus,
-    envioecomStatusUpdatedAt: now,
-    envioecomStatusHistory: history,
+    envioecomStatus: null,
+    envioecomStatusUpdatedAt: null,
+    envioecomStatusHistory: null,
     updatedAt: now,
   }).where(eq(orderShipmentsTable.id, pkg.id));
   const refreshedPkg = (await db.select().from(orderShipmentsTable).where(eq(orderShipmentsTable.id, pkg.id)).limit(1))[0] || pkg;
   const refreshedOrder = await rollupOrderFromPackages(order);
   return { order: refreshedOrder, pkg: refreshedPkg };
+}
+
+export async function detachEnvioEcomPackage(
+  order: typeof ordersTable.$inferSelect,
+  pkg: typeof orderShipmentsTable.$inferSelect,
+  _status?: string | null,
+): Promise<{ order: typeof ordersTable.$inferSelect; pkg: typeof orderShipmentsTable.$inferSelect }> {
+  return unlinkPackageEnvioEcomBinding(order, pkg);
 }
 
 function copyOrderShipmentBinding(order: typeof ordersTable.$inferSelect) {

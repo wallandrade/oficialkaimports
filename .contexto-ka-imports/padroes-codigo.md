@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-09-19
+> **Última atualização:** 2026-09-21
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-21 | Anti-padrão: misturar Desvincular com Cancelar EE, ou reatachar webhook pelo orderId antigo | Unlink só local; cancel chama a EE; matcher exige ID/barcode atuais | Token; `enviado`/estoque |
 | 2026-09-19 | Anti-padrão: cashback do completo sempre ligado (sem `checkout_insurance_cashback_enabled`) | Default off; loja fica com o seguro; checkout só fala de Receita | Estorno no sinistro; reduzido |
 | 2026-09-17 | Anti-padrão: mostrar Compra/Envios/Motoboy/Outros juntos em qualquer pill | Cópia filtrada pela aba ativa | Texto das cópias |
 | 2026-09-17 | Anti-padrão: pills de copiar lote no card do dashboard; Motoboy misturado em Pedido normal | Cópia embaixo das pills da aba Pedidos; 4ª pill Motoboy | Texto Yury das cópias; `is_aguardando_estoque` |
@@ -197,8 +198,8 @@ Código > memória > suposições.
 - Gravar OCR **Etiqueta/Rastreio** ou `PATCH .../tracking-code` só em `orders.trackingCode` quando o pedido está dividido; usar `packageId` + `persistEnvioEcomPackage`. Não devolver `mapOrder()` sem `packages[]` (some o split no card). Não toastar “vinculado” se `resolved === false`. Não preencher o código do Motoboy com o 8880 de Minas.
 - Trocar o SKU do cliente pelo **Editar pedido** (o PATCH puxa preço de catálogo e some o “X → Y”). Usar `POST /admin/orders/:id/replace-product` com `keep_price` ou `pass_difference`. Não trocar depois de `enviado`/baixa. Não esconder a troca do cliente.
 - Fazer o 2º volume virando reenvio, pedido filho (`parent_order_id`) ou duplicando o pedido. Split é `order_shipments` no **mesmo** pedido; reenvio de suporte continua outro domínio.
-- Esperar a EnvioEcom ir para **Cancelado** antes de cotar de novo, ou deixar `shipment_id`/8880/`orderId` no pedido enquanto está em Aguardando cancelamento (`DUPLICATE_ORDER`). Cancelar EE desvincula na hora; create usa orderId novo se já houve histórico. No split o orderId inclui o pool (`{n}-{8chars}-{pool}`).
-- Casar webhook EnvioEcom por prefixo `{n}-` do orderId, por `orderNumber` ou por UUID do pedido; só barcode/`external_order_number`/`shipment_id` **exatos** do envio atual. No split: casar o **pacote** primeiro (`findPackageForEnvioEcomWebhook`); não gravar o 2º envio em `orders.envioecom_*` com `persistEnvioEcomShipment`. Pedido solto não reatacha o 8880 velho.
+- Esperar a EnvioEcom ir para **Cancelado** antes de cotar de novo, ou criar outro envio sem **Desvincular** / **Cancelar EE** (409 `SHIPMENT_EXISTS` / `DUPLICATE_ORDER`). **Desvincular** só solta o vínculo no KA (o PDF na EE continua); **Cancelar EE** pede cancel na API e também solta aqui. Create gera orderId novo se estiver solto (`unlinked && prev`) ou status cancelado. No split o orderId inclui o pool (`{n}-{8chars}-{pool}`).
+- Casar webhook EnvioEcom por prefixo `{n}-` do orderId, por `orderNumber`, por UUID do pedido, **ou só pelo `external_order_number` antigo** depois de desvincular. Match exige barcode/`shipment_id` **exatos** do envio atual. No split: casar o **pacote** primeiro (`findPackageForEnvioEcomWebhook`); não gravar o 2º envio em `orders.envioecom_*` com `persistEnvioEcomShipment`. Pedido/pacote sem ID e sem barcode não reatacha o 8880 velho.
 - Baixar estoque do pedido inteiro (`orders.id` / `POST .../inventory-exit`) depois do split; usar `pkg:{id}` e os itens do JSON do pacote. 409 `ORDER_SPLIT_USE_PACKAGE`. Seletor único Loja/Motoboy/Minas some no card dividido.
 - Clicar **Etiqueta EE** para gerar PDF de envio cancelado/aguardando cancelamento; o botão só imprime o salvo do envio atual — senão cotar/criar outro.
 - Colocar o UUID do pedido (`orders.id`) na mensagem WhatsApp do checkout ou no card da Minha conta; usar `orderNumber`.

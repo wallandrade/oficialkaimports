@@ -192,33 +192,18 @@ export async function persistEnvioEcomShipment(order: typeof ordersTable.$inferS
 export {
   buildExternalOrderNumber,
   buildNextExternalOrderNumber,
+  hasActiveEnvioEcomShipmentBinding,
+  hasEnvioEcomShipmentBinding,
   isDuplicateOrderIdError,
+  nextEnvioEcomExternalOrderNumber,
   shipmentEventMatchesOrder,
 } from "./envioecom-order-ref";
 
-export async function detachEnvioEcomShipment(
+/** Solta o vínculo local. Não chama a EnvioEcom. Guarda external_order_number para o próximo create rotacionar. */
+export async function unlinkEnvioEcomBinding(
   order: typeof ordersTable.$inferSelect,
-  status?: string | null,
 ): Promise<typeof ordersTable.$inferSelect> {
   const now = new Date();
-  const requested = pickString(status) || pickString(order.envioecomStatus);
-  const nextStatus = isEnvioEcomCancelledStatus(requested) ? requested! : "Aguardando cancelamento";
-  const barcode = pickString(order.envioecomBarcode) || pickString(order.trackingCode);
-  const history = mergeEnvioEcomHistory(
-    order.envioecomStatusHistory,
-    null,
-    {
-      at: now.toISOString(),
-      status: nextStatus,
-      description: [
-        order.envioecomShipmentId ? `shipment_id:${order.envioecomShipmentId}` : "",
-        order.envioecomExternalOrderNumber ? `orderId:${order.envioecomExternalOrderNumber}` : "",
-        "Envio desvinculado para permitir etiqueta nova",
-      ].filter(Boolean).join(" "),
-      barcode,
-    },
-  );
-
   const eeBarcode = pickString(order.envioecomBarcode);
   const tracking = pickString(order.trackingCode);
   const eeLabel = pickString(order.envioecomLabelUrl);
@@ -228,15 +213,14 @@ export async function detachEnvioEcomShipment(
     envioecomShipmentId: null,
     envioecomBarcode: null,
     envioecomTrackingKey: null,
-    envioecomExternalOrderNumber: null,
     envioecomLabelUrl: null,
     envioecomDeliveryMode: null,
     envioecomFreightCost: null,
     trackingCode: !tracking || tracking === eeBarcode ? null : order.trackingCode,
     trackingLabelUrl: !trackingLabel || trackingLabel === eeLabel ? null : order.trackingLabelUrl,
-    envioecomStatus: nextStatus,
-    envioecomStatusUpdatedAt: now,
-    envioecomStatusHistory: history,
+    envioecomStatus: null,
+    envioecomStatusUpdatedAt: null,
+    envioecomStatusHistory: null,
     updatedAt: now,
   }).where(eq(ordersTable.id, order.id));
 
@@ -250,6 +234,13 @@ export async function detachEnvioEcomShipment(
 
   const refreshed = await db.select().from(ordersTable).where(eq(ordersTable.id, order.id)).limit(1);
   return refreshed[0] || order;
+}
+
+export async function detachEnvioEcomShipment(
+  order: typeof ordersTable.$inferSelect,
+  _status?: string | null,
+): Promise<typeof ordersTable.$inferSelect> {
+  return unlinkEnvioEcomBinding(order);
 }
 
 export async function findOrderForEnvioEcomWebhook(input: {
