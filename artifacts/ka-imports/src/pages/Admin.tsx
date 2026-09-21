@@ -1065,39 +1065,53 @@ function ProductSelect({ products, value, onChange, placeholder }: { products: B
   return (
     <div ref={containerRef} className="relative w-full">
       <div className="relative">
+        {selectedProduct ? (
+          <div className="absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none">
+            {selectedProduct.image ? (
+              <img src={selectedProduct.image} alt="" className="h-6 w-6 rounded object-cover border border-border" loading="lazy" />
+            ) : (
+              <div className="h-6 w-6 rounded bg-muted border border-border" />
+            )}
+          </div>
+        ) : null}
         <input
           ref={inputRef}
           type="text"
-          placeholder={selectedProduct ? selectedProduct.name : placeholder}
-          value={isOpen ? search : ""}
+          placeholder={placeholder}
+          value={isOpen ? search : (selectedProduct?.name ?? "")}
           onChange={(e) => {
             setSearch(e.target.value);
             setIsOpen(true);
           }}
           onFocus={() => setIsOpen(true)}
-          className="w-full border border-border rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className={`w-full h-9 border border-border rounded-lg py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 ${selectedProduct ? "pl-10 pr-8" : "px-3 pr-8"}`}
           autoComplete="off"
         />
         <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
       </div>
 
       {isOpen && filteredProducts.length > 0 && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-border rounded-lg shadow-lg z-40 max-h-64 overflow-y-auto">
+        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-border rounded-lg shadow-lg z-50 max-h-64 overflow-y-auto">
           {filteredProducts.map((p) => (
             <button
               key={p.id}
+              type="button"
               onClick={() => handleSelect(p.id)}
               className="w-full px-3 py-2 text-sm hover:bg-blue-100 cursor-pointer flex items-center gap-2 text-left border-b border-border last:border-b-0 transition-colors"
             >
-              {p.image && <img src={p.image} alt="" className="w-6 h-6 rounded object-cover flex-shrink-0" />}
-              <span>{p.name}</span>
+              {p.image ? (
+                <img src={p.image} alt="" className="w-8 h-8 rounded object-cover flex-shrink-0 border border-border" loading="lazy" />
+              ) : (
+                <div className="w-8 h-8 rounded bg-muted flex-shrink-0 border border-border" />
+              )}
+              <span className="truncate">{p.name}</span>
             </button>
           ))}
         </div>
       )}
 
       {isOpen && filteredProducts.length === 0 && search && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-border rounded-lg shadow-lg z-40 px-3 py-2 text-sm text-gray-500">
+        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-border rounded-lg shadow-lg z-50 px-3 py-2 text-sm text-gray-500">
           Nenhum produto encontrado
         </div>
       )}
@@ -7814,7 +7828,7 @@ export default function Admin() {
         ) : tab === "support" ? (
           <SupportTicketsPanel
             tickets={supportTickets}
-            productsCatalog={products.map((item) => ({ id: item.id, name: item.name }))}
+            productsCatalog={products.map((item) => ({ id: item.id, name: item.name, image: item.image }))}
             loading={supportLoading}
             onRefresh={fetchSupportTickets}
             onSetStatus={async (id, status) => {
@@ -12347,7 +12361,7 @@ function SupportTicketsPanel({
   onInsuranceRefund,
 }: {
   tickets: SupportTicketRecord[];
-  productsCatalog: Array<{ id: string; name: string }>;
+  productsCatalog: Array<{ id: string; name: string; image?: string | null }>;
   loading: boolean;
   onRefresh: () => void;
   onSetStatus: (id: string, status: "open" | "resolved") => void;
@@ -12356,7 +12370,7 @@ function SupportTicketsPanel({
   onInsuranceRefund: (id: string) => Promise<void>;
 }) {
   const [reenviarModalTicket, setReenviarModalTicket] = useState<SupportTicketRecord | null>(null);
-  const [reenviarItems, setReenviarItems] = useState<Array<{ id: string; name: string; quantity: number }>>([]);
+  const [reenviarItems, setReenviarItems] = useState<Array<{ id: string; name: string; quantity: number; image?: string | null }>>([]);
   const [reenviarSubmitting, setReenviarSubmitting] = useState(false);
   const [reenviarAddProductId, setReenviarAddProductId] = useState("");
   const [reenviarAddQty, setReenviarAddQty] = useState("1");
@@ -12375,11 +12389,16 @@ function SupportTicketsPanel({
 
   const fillReenviarModal = (ticket: SupportTicketRecord, force: boolean) => {
     const baseItems = (ticket.orderProducts || [])
-      .map((item) => ({
-        id: String(item.id || "").trim(),
-        name: String(item.name || "Produto").trim() || "Produto",
-        quantity: Math.max(1, Number(item.quantity) || 1),
-      }))
+      .map((item) => {
+        const id = String(item.id || "").trim();
+        const catalog = productsCatalog.find((product) => product.id === id);
+        return {
+          id,
+          name: String(item.name || catalog?.name || "Produto").trim() || "Produto",
+          quantity: Math.max(1, Number(item.quantity) || 1),
+          image: catalog?.image ?? null,
+        };
+      })
       .filter((item) => item.id);
 
     setReenviarForce(force);
@@ -12423,10 +12442,10 @@ function SupportTicketsPanel({
       const index = prev.findIndex((item) => item.id === productId);
       if (index >= 0) {
         const next = [...prev];
-        next[index] = { ...next[index], quantity: Math.max(1, next[index].quantity + quantity) };
+        next[index] = { ...next[index], quantity: Math.max(1, next[index].quantity + quantity), image: next[index].image || product.image };
         return next;
       }
-      return [...prev, { id: product.id, name: product.name, quantity }];
+      return [...prev, { id: product.id, name: product.name, quantity, image: product.image }];
     });
     setReenviarAddQty("1");
   };
@@ -12654,22 +12673,17 @@ function SupportTicketsPanel({
                 )}
               </div>
 
-              <div className="space-y-2 max-h-[45vh] overflow-auto pr-1">
-                <div className="rounded-xl border border-border bg-muted/10 p-3">
+              <div className="rounded-xl border border-border bg-muted/10 p-3">
                   <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Adicionar produto no reenvio</p>
                   <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end">
                     <div className="sm:col-span-7">
                       <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1 block">Produto</label>
-                      <select
+                      <ProductSelect
+                        products={productsCatalog}
                         value={reenviarAddProductId}
-                        onChange={(event) => setReenviarAddProductId(event.target.value)}
-                        className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm outline-none focus:border-primary"
-                      >
-                        <option value="">Selecione...</option>
-                        {productsCatalog.map((item) => (
-                          <option key={item.id} value={item.id}>{item.name}</option>
-                        ))}
-                      </select>
+                        onChange={setReenviarAddProductId}
+                        placeholder="Pesquise e selecione o produto"
+                      />
                     </div>
                     <div className="sm:col-span-3">
                       <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1 block">Quantidade</label>
@@ -12687,6 +12701,7 @@ function SupportTicketsPanel({
                   </div>
                 </div>
 
+                <div className="space-y-2 max-h-[40vh] overflow-auto pr-1">
                 {reenviarItems.length === 0 ? (
                   <div className="rounded-xl border border-dashed border-border p-3 text-sm text-muted-foreground">
                     Nenhum item carregado do pedido. Feche e revise o pedido original.
@@ -12697,15 +12712,21 @@ function SupportTicketsPanel({
                       <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end">
                         <div className="sm:col-span-6">
                           <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1 block">Produto</label>
-                          <input
-                            value={item.name}
-                            onChange={(event) => {
-                              const next = [...reenviarItems];
-                              next[index] = { ...next[index], name: event.target.value };
-                              setReenviarItems(next);
-                            }}
-                            className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm outline-none focus:border-primary"
-                          />
+                          <div className="flex items-center gap-2">
+                            <InventoryProductThumb
+                              name={item.name}
+                              image={item.image || productsCatalog.find((product) => product.id === item.id)?.image}
+                            />
+                            <input
+                              value={item.name}
+                              onChange={(event) => {
+                                const next = [...reenviarItems];
+                                next[index] = { ...next[index], name: event.target.value };
+                                setReenviarItems(next);
+                              }}
+                              className="w-full h-9 px-3 rounded-lg border border-border bg-white text-sm outline-none focus:border-primary"
+                            />
+                          </div>
                         </div>
                         <div className="sm:col-span-3">
                           <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1 block">Quantidade</label>
