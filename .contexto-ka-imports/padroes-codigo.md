@@ -9,7 +9,7 @@
 |------|--------|---------|-----------------|
 | 2026-09-21 | Anti-padrão: `<select>` no modal Reenvio do chamado (sem foto) | `ProductSelect` + `products[].image`; thumbnail na lista | Payload do `POST .../reenviar` |
 | 2026-09-21 | Anti-padrão: `readOnly` só no `onFocus` da busca (iOS não abre teclado) ou `focus()` da lupa com `setTimeout` | `OrdersSearchInput` destrava no toque; Header usa `flushSync` + lupa sem pointer | Autofill Chrome; filtro local |
-| 2026-09-21 | Anti-padrão: esconder o bloco de envios do CPF quando a lista vem vazia, ou esperar IntersectionObserver num `div` sem altura | Bloco sempre visível; fetch no mount; erro no card | Modal EE; GET da lista |
+| 2026-09-21 | Anti-padrão: abrir a lista de envios do CPF em todos os cards da fila | Linha fechada; expande no clique; fetch só ao abrir | Alerta no modal EE |
 | 2026-09-21 | Anti-padrão: apagar `order_shipments` na realocação sem copiar `envioecom_*` do mesmo pool, ou tirar origem com etiqueta | Preserva vínculo; 409 `SPLIT_HAS_LABEL` | Unlink / Cancelar EE |
 | 2026-09-21 | Anti-padrão: misturar Desvincular com Cancelar EE, ou reatachar webhook pelo orderId antigo | Unlink só local; cancel chama a EE; matcher exige ID/barcode atuais | Token; `enviado`/estoque |
 | 2026-09-19 | Anti-padrão: cashback do completo sempre ligado (sem `checkout_insurance_cashback_enabled`) | Default off; loja fica com o seguro; checkout só fala de Receita | Estorno no sinistro; reduzido |
@@ -186,7 +186,7 @@ Código > memória > suposições.
 - Cachear token EnvioEcom só por `tenantId` com N contas (login A vira B). Chave = `tenantId:accountId`.
 - Gravar extras EnvioEcom misturando a conta `env` no JSON; env = Railway, painel só cria extras. CEP origem é da conta, não um setting global de quote/create.
 - Cotar numa API EnvioEcom e criar a etiqueta em outra; o `accountId` do quote vai no create. 0 contas → Configurações; 1 → direto; 2+ → modal.
-- Tratar 409 `SHIPMENT_EXISTS` como proteção contra o **mesmo CPF** noutro pedido. Isso só trava o pedido/pacote atual. Histórico/alerta: `GET /admin/orders/:id/related-shipments` (BD local). Não encher `GET /admin/orders` com isso. Não listar a EnvioEcom por CPF no card. Não bloquear compra nova; reenvio (`parent_order_id`) e pacotes do próprio split não são duplicata. Não esconder o bloco do card se a lista vier vazia, nem depender de IntersectionObserver num placeholder sem altura — o fetch é no mount e o vazio/erro ficam visíveis.
+- Tratar 409 `SHIPMENT_EXISTS` como proteção contra o **mesmo CPF** noutro pedido. Isso só trava o pedido/pacote atual. Histórico/alerta: `GET /admin/orders/:id/related-shipments` (BD local). Não encher `GET /admin/orders` com isso. Não listar a EnvioEcom por CPF no card. Não bloquear compra nova; reenvio (`parent_order_id`) e pacotes do próprio split não são duplicata. No card a lista começa **fechada**; não abrir todos os históricos na fila.
 - Pedir ID EnvioEcom com `window.prompt`; usar o modal **Vincular EE** (ID 4–10 dígitos ou rastreio) e `POST .../sync`.
 - Enviar um produto × N linhas na cotação EnvioEcom (empilha altura → `QUOTE_ERROR`); usar 1 pacote **por create**. Split = N creates (um `packageId` cada), não `shipments: [a, b]` no mesmo POST.
 - Cotar EnvioEcom com caixa 10×15×20 e valor declarado = total do pedido; o simulador usa 2×12×17, 0,3 kg, R$ 5.

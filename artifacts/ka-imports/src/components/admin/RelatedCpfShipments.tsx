@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { formatDateOnlyBR } from "@/lib/utils";
 import {
   fetchRelatedCpfShipments,
@@ -93,12 +94,13 @@ export function RelatedCpfWarningBox({
 }
 
 export function RelatedCpfShipments({ orderId }: { orderId: string }) {
+  const [open, setOpen] = useState(false);
   const [related, setRelated] = useState<RelatedCpfShipmentsResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!orderId) return;
+    if (!open || !orderId) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -117,27 +119,41 @@ export function RelatedCpfShipments({ orderId }: { orderId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [orderId]);
+  }, [open, orderId]);
 
   const shipments = related?.shipments || [];
+  const countLabel = related
+    ? (shipments.length === 1 ? "1 envio" : `${shipments.length} envios`)
+    : null;
 
   return (
-    <div className="mt-2 rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-2">
-      <p className="text-[11px] font-bold uppercase tracking-wide text-indigo-900">
-        Últimos envios deste CPF
-      </p>
-      {loading ? (
-        <p className="text-xs text-indigo-800/80 mt-1">Carregando envios…</p>
-      ) : null}
-      {error ? (
-        <p className="text-xs text-red-700 mt-1">{error}</p>
-      ) : null}
-      {!loading && !error && shipments.length === 0 ? (
-        <p className="text-xs text-indigo-800/80 mt-1">Nenhum outro pedido pago neste CPF.</p>
-      ) : null}
-      {!loading && !error && shipments.length > 0 ? (
-        <div className="mt-1.5">
-          <RelatedCpfShipmentRows shipments={shipments} compact />
+    <div className="mt-2 rounded-xl border border-indigo-200 bg-indigo-50/70">
+      <button
+        type="button"
+        className="w-full flex items-center justify-between gap-2 px-3 py-1.5 text-left"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span className="text-[11px] font-bold uppercase tracking-wide text-indigo-900">
+          Últimos envios deste CPF
+          {countLabel ? <span className="font-semibold normal-case tracking-normal text-indigo-800/80"> · {countLabel}</span> : null}
+        </span>
+        <ChevronDown className={`w-3.5 h-3.5 text-indigo-800 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open ? (
+        <div className="px-3 pb-2">
+          {loading ? (
+            <p className="text-xs text-indigo-800/80">Carregando envios…</p>
+          ) : null}
+          {error ? (
+            <p className="text-xs text-red-700">{error}</p>
+          ) : null}
+          {!loading && !error && shipments.length === 0 ? (
+            <p className="text-xs text-indigo-800/80">Nenhum outro pedido pago neste CPF.</p>
+          ) : null}
+          {!loading && !error && shipments.length > 0 ? (
+            <RelatedCpfShipmentRows shipments={shipments} compact />
+          ) : null}
         </div>
       ) : null}
     </div>
