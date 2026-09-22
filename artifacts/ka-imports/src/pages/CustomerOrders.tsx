@@ -5,6 +5,7 @@ import { clearCustomerToken, fetchCustomerProfile, getCustomerAuthHeaders } from
 import { formatCurrency, formatDateBR, getActiveWhatsApp } from "@/lib/utils";
 import {
   collapseCustomerPackagesForOrder,
+  customerTransitBadgeLabel,
   formatCustomerPackageItems,
   getCustomerPackageSituation,
   getCustomerPartialHint,
@@ -12,6 +13,7 @@ import {
   getCustomerSplitSituation,
   isCustomerOrderDelivered,
   isCustomerSplitOrder,
+  isPackingBeforePostStatus,
   type CustomerPackageKind,
 } from "@/lib/customer-split-shipping";
 import { ShippingStatusTimeline } from "@/components/ShippingStatusTimeline";
@@ -228,36 +230,13 @@ function trackingHistoryMissingLocation(history?: TrackingEvent[] | null): boole
   return events.some((event) => !String(event.location || "").trim());
 }
 
-function isPackingBeforePostStatus(status?: string | null): boolean {
-  const normalized = normalizeTrackingText(status);
-  if (!normalized) return false;
-  if (normalized.includes("cancelad") || normalized.includes("aguardando pagamento")) return false;
-  if (["coletado", "em transito", "postado", "expedido", "saiu para entrega", "entregue"].some((marker) => normalized.includes(marker))) {
-    return false;
-  }
-  return [
-    "pronto para envio",
-    "etiqueta",
-    "processando envio",
-    "aguardando expedicao",
-    "aguardando coleta",
-    "dc-e",
-    "dce",
-    "envio criado",
-    "aguardando postagem",
-  ].some((marker) => normalized.includes(marker));
-}
-
 function toCustomerFriendlyShippingLabel(status?: string | null): string {
   const raw = String(status || "").trim();
   if (!raw) return raw;
   const normalized = normalizeTrackingText(raw);
   if (isPackingBeforePostStatus(raw)) return "Estamos embalando seu pedido";
   if (normalized.includes("aguardando pagamento")) return "Preparando envio";
-  if (normalized.includes("expedido")) return "Em trânsito";
-  if (normalized.includes("saiu para entrega") || normalized.includes("em rota")) return "Saiu para entrega";
-  if (normalized.includes("entregue")) return "Entregue";
-  return raw;
+  return customerTransitBadgeLabel(raw) || raw;
 }
 
 function customerShippingHint(status?: string | null): string | null {

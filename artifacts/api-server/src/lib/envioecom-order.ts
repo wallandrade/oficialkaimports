@@ -10,6 +10,7 @@ import {
   isProvisionalBarcode,
   isUsableLabelBarcode,
   mergeEnvioEcomHistory,
+  resolveEnvioEcomStoredStatus,
   shouldMarkCompletedFromStatus,
   shouldMarkEnviadoFromStatus,
   type EnvioEcomHistoryEvent,
@@ -101,23 +102,27 @@ function chooseBarcode(current: string | null | undefined, incoming: string | nu
 
 export async function persistEnvioEcomShipment(order: typeof ordersTable.$inferSelect, patch: EnvioEcomShipmentPatch): Promise<typeof ordersTable.$inferSelect> {
   const now = new Date();
-  const status = pickString(patch.status) || order.envioecomStatus;
-  if (isEnvioEcomCancelledStatus(status)) {
-    return detachEnvioEcomShipment(order, status);
+  const apiStatus = pickString(patch.status) || order.envioecomStatus || "";
+  if (isEnvioEcomCancelledStatus(apiStatus)) {
+    return detachEnvioEcomShipment(order, apiStatus);
   }
   const barcode = chooseBarcode(order.envioecomBarcode || order.trackingCode, patch.barcode);
   const history = mergeEnvioEcomHistory(
     order.envioecomStatusHistory,
     patch.history,
-    status
+    apiStatus
       ? {
           at: now.toISOString(),
-          status,
+          status: apiStatus,
           description: patch.description || null,
           barcode,
         }
       : null,
   );
+  const status = resolveEnvioEcomStoredStatus(apiStatus, history);
+  if (isEnvioEcomCancelledStatus(status)) {
+    return detachEnvioEcomShipment(order, status);
+  }
 
   const updates: Partial<typeof ordersTable.$inferInsert> = {
     updatedAt: now,

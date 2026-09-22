@@ -6,16 +6,20 @@ import { formatEnvioEcomDetails } from "./envioecom-client";
 import {
   appendStatusHistory,
   classifyEnvioEcomTrackingGroup,
+  envioecomTrackingRank,
   extractStatusHistoryFromShipment,
   hasEnvioEcomLabelReady,
+  historyEventTimeMs,
   isEnvioEcomCancelledStatus,
   isLabelBlockedStatus,
   isOpenEnvioEcomTrackingStatus,
   isProvisionalBarcode,
   mergeEnvioEcomHistory,
+  resolveEnvioEcomStoredStatus,
   resolveStatusAfterLabelGenerated,
   shouldMarkCompletedFromStatus,
   shouldMarkEnviadoFromStatus,
+  trackingEventsNewestFirst,
 } from "./envioecom-status";
 import { parseEnvioEcomLinkRef } from "./envioecom-link-ref";
 
@@ -125,6 +129,18 @@ test("etiqueta pronta nao marca enviado; coleta/postagem marca", () => {
   assert.equal(shouldMarkEnviadoFromStatus("Em trânsito"), true);
   assert.equal(shouldMarkEnviadoFromStatus("Expedido - POO -MG"), true);
   assert.equal(shouldMarkEnviadoFromStatus("Aguardando expedição"), false);
+  assert.equal(shouldMarkEnviadoFromStatus("Aguardando coleta"), false);
+  assert.equal(shouldMarkEnviadoFromStatus("Aguardando ser coletado"), false);
+  assert.equal(shouldMarkEnviadoFromStatus("Aguardando postagem"), false);
+  assert.equal(shouldMarkEnviadoFromStatus("Coleta Solicitada"), false);
+  assert.equal(shouldMarkEnviadoFromStatus("Coleta efetuada"), true);
+  assert.equal(shouldMarkEnviadoFromStatus("EM ROTA - CO SAMAMBAIA 01"), true);
+  assert.equal(shouldMarkEnviadoFromStatus("Transferência"), true);
+  assert.equal(shouldMarkEnviadoFromStatus("Não entrou"), true);
+  assert.equal(shouldMarkEnviadoFromStatus("Depositado"), true);
+  assert.equal(hasEnvioEcomLabelReady({ envioecomStatus: "Aguardando ser coletado" }), true);
+  assert.equal(hasEnvioEcomLabelReady({ envioecomStatus: "Aguardando postagem" }), true);
+  assert.equal(hasEnvioEcomLabelReady({ envioecomStatus: "Coleta Solicitada" }), false);
   assert.equal(shouldMarkCompletedFromStatus("Entregue"), true);
   assert.equal(shouldMarkCompletedFromStatus("Cancelado"), false);
 });
@@ -164,6 +180,7 @@ test("historico e idempotente no mesmo status+barcode", () => {
 test("board classifica status em grupos de rastreio", () => {
   assert.equal(classifyEnvioEcomTrackingGroup("Entregue"), "delivered");
   assert.equal(classifyEnvioEcomTrackingGroup("Em trânsito"), "in_transit");
+  assert.equal(classifyEnvioEcomTrackingGroup("EM ROTA - CO SAMAMBAIA 01"), "in_transit");
   assert.equal(classifyEnvioEcomTrackingGroup("Expedido - POO -MG"), "in_transit");
   assert.equal(classifyEnvioEcomTrackingGroup("DC-e emitida"), "awaiting");
   assert.equal(classifyEnvioEcomTrackingGroup("Etiqueta gerada"), "awaiting");
@@ -191,10 +208,11 @@ test("parser junta cidade e unidade no evento de rastreio", () => {
     ],
   });
   assert.equal(events.length, 2);
-  assert.equal(events[0].status, "Expedido - SN RAO");
+  assert.equal(events[0].status, "Coletado");
   assert.equal(events[0].location, "Ribeirão Preto - SN RAO");
-  assert.equal(events[0].description, null);
+  assert.equal(events[1].status, "Expedido - SN RAO");
   assert.equal(events[1].location, "Ribeirão Preto - SN RAO");
+  assert.equal(events[1].description, null);
 });
 
 test("parser le cidade em location.name e city_name", () => {
@@ -217,8 +235,11 @@ test("parser le cidade em location.name e city_name", () => {
       },
     ],
   });
-  assert.equal(events[0].location, "Mossoró - F MVF 02-RN");
-  assert.equal(events[1].location, "Fortaleza - CE FOR");
+  assert.equal(events[0].status, "Expedido - CE FOR");
+  assert.equal(events[0].location, "Fortaleza - CE FOR");
+  assert.equal(events[1].status, "Recebido - F MVF 02-RN");
+  assert.equal(events[1].location, "Mossoró - F MVF 02-RN");
+  assert.equal(events[2].status, "Saiu para Entrega");
   assert.equal(events[2].location, "Mossoró - F MVF 02-RN");
 });
 
@@ -253,6 +274,44 @@ test("historico com 2+ eventos substitui; 1 evento faz append", () => {
   ]);
   assert.equal(appended.length, 2);
   assert.equal(appended[1].location, "Ribeirão Preto - SN RAO");
+});
+
+test("data brasileira ordena o historico e o evento mais novo vira o status", () => {
+  assert.equal(historyEventTimeMs("22/09/2026 08:08:08") > historyEventTimeMs("22/09/2026 08:00:00"), true);
+  assert.equal(Number.isNaN(Date.parse("22/09/2026 08:08:08")), true);
+  assert.equal(historyEventTimeMs(1_700_000_000), 1_700_000_000_000);
+  assert.equal(historyEventTimeMs("2026-09-22T11:08:08.000Z"), Date.parse("2026-09-22T11:08:08.000Z"));
+
+  const events = extractStatusHistoryFromShipment({
+    status: "Envio criado",
+    status_history: [
+      { status: "EM ROTA - CO SAMAMBAIA 01", date: "22/09/2026 08:08:08" },
+      { status: "Envio criado", date: "22/09/2026 08:00:00" },
+    ],
+  });
+  assert.equal(events[0].status, "Envio criado");
+  assert.equal(events[1].status, "EM ROTA - CO SAMAMBAIA 01");
+  assert.equal(trackingEventsNewestFirst(events)[0].status, "EM ROTA - CO SAMAMBAIA 01");
+  assert.equal(resolveEnvioEcomStoredStatus("Envio criado", events), "EM ROTA - CO SAMAMBAIA 01");
+  assert.equal(resolveEnvioEcomStoredStatus("Pronto para envio", events), "EM ROTA - CO SAMAMBAIA 01");
+  assert.equal(
+    resolveEnvioEcomStoredStatus("Entregue", [
+      { at: "22/09/2026 08:08:08", status: "EM ROTA - CO SAMAMBAIA 01" },
+    ]),
+    "Entregue",
+  );
+  assert.equal(
+    resolveEnvioEcomStoredStatus("Envio criado", [
+      { at: "22/09/2026 08:00:00", status: "Envio criado" },
+      { at: "22/09/2026 08:00:00", status: "Coleta Solicitada" },
+    ]),
+    "Envio criado",
+  );
+  assert.equal(envioecomTrackingRank("Entregue"), 50);
+  assert.equal(envioecomTrackingRank("EM ROTA - CO SAMAMBAIA 01"), 40);
+  assert.equal(envioecomTrackingRank("Aguardando coleta"), 20);
+  assert.equal(envioecomTrackingRank("Envio criado"), 15);
+  assert.equal(envioecomTrackingRank("Coleta Solicitada"), 5);
 });
 
 test("nao grava nota sintetica de consulta de rastreio", () => {

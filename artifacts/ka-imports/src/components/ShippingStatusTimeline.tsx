@@ -1,4 +1,5 @@
 import { Check, Clock, Package } from "lucide-react";
+import { historyEventTimeMs } from "@/lib/envioecom-history-time";
 import { formatDateBR } from "@/lib/utils";
 
 export type ShippingTimelineEvent = {
@@ -38,8 +39,13 @@ function usefulDescription(event: ShippingTimelineEvent): string | null {
 }
 
 function eventTime(event: ShippingTimelineEvent): number {
-  const parsed = Date.parse(eventAt(event));
-  return Number.isFinite(parsed) ? parsed : 0;
+  return historyEventTimeMs(eventAt(event));
+}
+
+function formatEventAt(at: string): string {
+  const ms = historyEventTimeMs(at);
+  if (!ms) return at;
+  return formatDateBR(new Date(ms));
 }
 
 function newestFirst(events: ShippingTimelineEvent[]): ShippingTimelineEvent[] {
@@ -109,7 +115,7 @@ export function ShippingStatusTimeline({
                 {at ? (
                   <p className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-muted-foreground">
                     <Clock className="h-3 w-3" />
-                    {formatDateBR(at)}
+                    {formatEventAt(at)}
                   </p>
                 ) : null}
               </div>

@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-22 | Anti-padrão: gravar só o campo `status` da EnvioEcom ou ordenar `status_history` com `Date.parse` | Rank do evento mais novo + `historyEventTimeMs` (`dd/mm/aaaa`) | Timeline continua texto original; auditoria `order_events` separada |
 | 2026-09-22 | Anti-padrão: tratar **Expedido** como envio criado ou ignorar `enviado` do pacote no admin | `hasEnvioEcomLabelReady` conta os dois; split sai de Pendente/Outros | “Aguardando expedição” não marca enviado |
 | 2026-09-21 | Anti-padrão: `<select>` no modal Reenvio do chamado (sem foto) | `ProductSelect` + `products[].image`; thumbnail na lista | Payload do `POST .../reenviar` |
 | 2026-09-21 | Anti-padrão: `readOnly` só no `onFocus` da busca (iOS não abre teclado) ou `focus()` da lupa com `setTimeout` | `OrdersSearchInput` destrava no toque; Header usa `flushSync` + lupa sem pointer | Autofill Chrome; filtro local |
@@ -261,7 +262,7 @@ Código > memória > suposições.
 - Em `/suporte`, listar pedidos só com nome/`ShoppingBag`. `POST /support/orders-by-cpf` devolve `products[].image` (snapshot ou catálogo pelo id), igual à Minha conta.
 - Somar venda, custo ou comissão do filho de reenvio no dashboard / lote do vendedor, mostrar o total/lucro reais nesse card, ou gravar `sellerCommissionRateSnapshot` > 0 no create (mesmo com qtd extra). No card do filho, total e Lucro est. ficam R$ 0. Usar `isReshipmentChildOrder(observation, parentOrderId)`. Venda/custo/comissão ficam no pedido original.
 - Misturar carteira da loja (`customer_wallet_ledger`) com crédito de afiliado. Cashback só no status EnvioEcom **entregue**; “Marcar enviado” / Motoboy não creditam.
-- Fazer `.reverse()` cego no `status_history` da EnvioEcom na Minha conta (a API já vem newest-first); ordenar por `at` desc.
+- Fazer `.reverse()` cego no `status_history` da EnvioEcom, ou ordenar com `Date.parse` (falha em `22/09/2026 08:08:08`). Usar `historyEventTimeMs` (unix, ISO, `dd/mm/aaaa hh:mm:ss`), gravar do mais antigo para o mais novo e mostrar o mais novo em cima. Não gravar só o campo `status` da API: se o evento mais novo tiver rank ≥ (`envioecomTrackingRank`), ele é o `envioecomStatus`. A mesma lista de trânsito vale na Minha conta (`hasCustomerLeftOrigin`). “Aguardando ser coletado” não pode casar o marcador `coletado`.
 - Hashear senha de `customer_users` com SHA256 do admin, aceitar `PATCH` em id `guest:`, ou deixar seller-scoped resetar senha. Usar PBKDF2 (`hashPassword` do middleware de cliente), `hasGlobalAccess` e filtro de tenant.
 
 ## Idioma

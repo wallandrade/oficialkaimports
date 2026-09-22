@@ -32,12 +32,26 @@ const LABEL_READY_MARKERS = [
   "pronto para envio",
   "processando envio",
   "aguardando expedicao",
+  "aguardando ser coletado",
   "aguardando coleta",
+  "aguardando postagem",
   "dc-e emitida",
   "dce emitida",
 ];
 
+const STILL_AT_STORE_MARKERS = [
+  "aguardando ser coletado",
+  "aguardando coleta",
+  "aguardando postagem",
+  "coleta solicitada",
+];
+
 const COLLECTED_MARKERS = [
+  "em rota",
+  "transferencia",
+  "coleta efetuada",
+  "nao entrou",
+  "depositado",
   "coletado",
   "em transito",
   "postado",
@@ -54,8 +68,28 @@ function statusMatches(status: unknown, markers: string[]): boolean {
   return markers.some((marker) => normalized.includes(marker));
 }
 
+function isStillAtStoreStatus(status: unknown): boolean {
+  const normalized = normalizeStatus(status);
+  if (!normalized) return false;
+  return STILL_AT_STORE_MARKERS.some((marker) => normalized.includes(marker));
+}
+
 export function shouldMarkEnviadoFromStatus(status: unknown): boolean {
+  if (isStillAtStoreStatus(status)) return false;
   return statusMatches(status, COLLECTED_MARKERS);
+}
+
+/** Entregue 50, trânsito 40, etiqueta 20, envio criado 15, resto 5. */
+export function envioecomTrackingRank(status: unknown): number {
+  const normalized = normalizeStatus(status);
+  if (!normalized) return 5;
+  if (isEnvioEcomCancelledStatus(normalized) || normalized.includes("aguardando pagamento")) return 5;
+  if (normalized.includes("entregue") && !normalized.includes("devolucao") && !normalized.includes("devolvido")) return 50;
+  if (normalized.includes("coleta solicitada") && !shouldMarkEnviadoFromStatus(status)) return 5;
+  if (isStillAtStoreStatus(status) || statusMatches(status, LABEL_READY_MARKERS)) return 20;
+  if (shouldMarkEnviadoFromStatus(status)) return 40;
+  if (normalized.includes("envio criado")) return 15;
+  return 5;
 }
 
 export function isEnvioEcomCancelledStatus(status: unknown): boolean {
@@ -100,12 +134,11 @@ export function classifyEnvioEcomTrackingGroup(status: unknown): EnvioEcomTracki
   if (!normalized) return "other";
   if (isEnvioEcomCancelledStatus(status)) return "cancelled";
   if (normalized.includes("entregue")) return "delivered";
-  if (["coletado", "em transito", "postado", "expedido", "saiu para entrega"].some((marker) => normalized.includes(marker))) {
-    return "in_transit";
-  }
+  if (shouldMarkEnviadoFromStatus(status)) return "in_transit";
   if (
     LABEL_READY_MARKERS.some((marker) => normalized.includes(marker))
     || normalized.includes("envio criado")
+    || normalized.includes("coleta solicitada")
     || normalized.includes("aguardando")
   ) {
     return "awaiting";
@@ -263,7 +296,16 @@ export function normalizeHistoryEvent(raw: unknown): EnvioEcomHistoryEvent | nul
   if (isSyntheticTrackingNote(description)) description = null;
 
   return {
-    at: pickText(item.updated_at, item.created_at, item.date, item.at, item.timestamp) || new Date().toISOString(),
+    at: pickText(
+      item.updated_at,
+      item.created_at,
+      item.date,
+      item.data,
+      item.datetime,
+      item.data_hora,
+      item.at,
+      item.timestamp,
+    ) || new Date().toISOString(),
     status,
     location: location || null,
     description: description || null,
@@ -301,7 +343,53 @@ export function extractStatusHistoryFromShipment(payload: unknown): EnvioEcomHis
     const event = normalizeHistoryEvent(row);
     if (event) events.push(event);
   }
-  return events.slice(-30);
+  return sortHistoryOldestFirst(events).slice(-30);
+}
+
+/** Unix (s ou ms), ISO e dd/mm/aaaa hh:mm:ss. Date.parse não lê a data brasileira. */
+export function historyEventTimeMs(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    if (value <= 0) return 0;
+    return value < 1e12 ? Math.round(value * 1000) : Math.round(value);
+  }
+  const text = String(value ?? "").trim();
+  if (!text) return 0;
+  if (/^\d+$/.test(text)) {
+    const n = Number(text);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return n < 1e12 ? Math.round(n * 1000) : Math.round(n);
+  }
+  const br = text.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (br) {
+    const [, dd, mm, yyyy, hh = "00", mi = "00", ss = "00"] = br;
+    const parsed = Date.parse(`${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}-03:00`);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  const parsed = Date.parse(text);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export function sortHistoryOldestFirst(events: EnvioEcomHistoryEvent[]): EnvioEcomHistoryEvent[] {
+  return events
+    .map((event, index) => ({ event, index }))
+    .sort((a, b) => {
+      const delta = historyEventTimeMs(a.event.at) - historyEventTimeMs(b.event.at);
+      if (delta !== 0) return delta;
+      return a.index - b.index;
+    })
+    .map(({ event }) => event);
+}
+
+export function resolveEnvioEcomStoredStatus(
+  apiStatus: unknown,
+  history: EnvioEcomHistoryEvent[] | null | undefined,
+): string {
+  const api = String(apiStatus || "").trim();
+  const sorted = sortHistoryOldestFirst(history || []);
+  const newest = String(sorted[sorted.length - 1]?.status || "").trim();
+  if (!newest) return api;
+  if (envioecomTrackingRank(newest) >= envioecomTrackingRank(api)) return newest;
+  return api || newest;
 }
 
 export function mergeEnvioEcomHistory(
@@ -310,12 +398,14 @@ export function mergeEnvioEcomHistory(
   fallback?: EnvioEcomHistoryEvent | null,
   limit = 30,
 ): EnvioEcomHistoryEvent[] {
-  if (incoming && incoming.length >= 2) return incoming.slice(-limit);
-  if (incoming && incoming.length === 1) return appendStatusHistory(current, incoming[0], limit);
-  if (fallback && fallback.status && !isSyntheticTrackingNote(fallback.description)) {
-    return appendStatusHistory(current, fallback, limit);
-  }
-  return parseStoredHistory(current).slice(-limit);
+  const merged = incoming && incoming.length >= 2
+    ? incoming.slice()
+    : incoming && incoming.length === 1
+      ? appendStatusHistory(current, incoming[0], limit)
+      : fallback && fallback.status && !isSyntheticTrackingNote(fallback.description)
+        ? appendStatusHistory(current, fallback, limit)
+        : parseStoredHistory(current);
+  return sortHistoryOldestFirst(merged).slice(-limit);
 }
 
 function parseStoredHistory(current: unknown): EnvioEcomHistoryEvent[] {
@@ -360,7 +450,7 @@ export function trackingEventsNewestFirst(current: unknown, limit = 80): EnvioEc
   return chrono
     .map((event, index) => ({ event, index }))
     .sort((a, b) => {
-      const delta = (Date.parse(b.event.at) || 0) - (Date.parse(a.event.at) || 0);
+      const delta = historyEventTimeMs(b.event.at) - historyEventTimeMs(a.event.at);
       if (delta !== 0) return delta;
       return b.index - a.index;
     })

@@ -32,24 +32,69 @@ function normalizeTrackingText(value?: string | null): string {
     .toLowerCase();
 }
 
-function isPackingBeforePostStatus(status?: string | null): boolean {
+const STILL_AT_STORE_MARKERS = [
+  "aguardando ser coletado",
+  "aguardando coleta",
+  "aguardando postagem",
+  "coleta solicitada",
+];
+
+const LEFT_ORIGIN_MARKERS = [
+  "em rota",
+  "transferencia",
+  "coleta efetuada",
+  "nao entrou",
+  "depositado",
+  "coletado",
+  "em transito",
+  "postado",
+  "expedido",
+  "saiu para entrega",
+  "entregue",
+  "objeto entregue",
+];
+
+function isStillAtStoreStatus(normalized: string): boolean {
+  return STILL_AT_STORE_MARKERS.some((marker) => normalized.includes(marker));
+}
+
+export function hasCustomerLeftOrigin(status?: string | null): boolean {
+  const normalized = normalizeTrackingText(status);
+  if (!normalized || normalized.includes("cancelad") || normalized.includes("aguardando pagamento")) return false;
+  if (isStillAtStoreStatus(normalized)) return false;
+  return LEFT_ORIGIN_MARKERS.some((marker) => normalized.includes(marker));
+}
+
+export function isPackingBeforePostStatus(status?: string | null): boolean {
   const normalized = normalizeTrackingText(status);
   if (!normalized) return false;
   if (normalized.includes("cancelad") || normalized.includes("aguardando pagamento")) return false;
-  if (["coletado", "em transito", "postado", "expedido", "saiu para entrega", "entregue"].some((marker) => normalized.includes(marker))) {
-    return false;
-  }
+  if (hasCustomerLeftOrigin(status)) return false;
+  if (isStillAtStoreStatus(normalized)) return true;
   return [
     "pronto para envio",
     "etiqueta",
     "processando envio",
     "aguardando expedicao",
-    "aguardando coleta",
     "dc-e",
     "dce",
     "envio criado",
-    "aguardando postagem",
   ].some((marker) => normalized.includes(marker));
+}
+
+export function customerTransitBadgeLabel(status?: string | null): string | null {
+  const normalized = normalizeTrackingText(status);
+  if (!normalized || isPackingBeforePostStatus(status)) return null;
+  if (normalized.includes("entregue")) return "Entregue";
+  if (normalized.includes("saiu para entrega") || normalized.includes("em rota")) return "Saiu para entrega";
+  if (
+    normalized.includes("expedido")
+    || normalized.includes("transferencia")
+    || normalized.includes("coleta efetuada")
+    || normalized.includes("nao entrou")
+    || normalized.includes("depositado")
+  ) return "Em trânsito";
+  return null;
 }
 
 function toFriendlyShippingLabel(status?: string | null): string {
@@ -58,10 +103,7 @@ function toFriendlyShippingLabel(status?: string | null): string {
   const normalized = normalizeTrackingText(raw);
   if (isPackingBeforePostStatus(raw)) return "Estamos embalando esta parte";
   if (normalized.includes("aguardando pagamento")) return "Preparando envio";
-  if (normalized.includes("expedido")) return "Em trânsito";
-  if (normalized.includes("saiu para entrega") || normalized.includes("em rota")) return "Saiu para entrega";
-  if (normalized.includes("entregue")) return "Entregue";
-  return raw;
+  return customerTransitBadgeLabel(raw) || raw;
 }
 
 export function isCustomerPackageDelivered(status?: string | null): boolean {
@@ -71,17 +113,7 @@ export function isCustomerPackageDelivered(status?: string | null): boolean {
 
 export function isCustomerPackageShipped(pkg: CustomerSplitPackage): boolean {
   if (pkg.enviado) return true;
-  const normalized = normalizeTrackingText(pkg.envioecomStatus);
-  if (!normalized || normalized.includes("cancelad")) return false;
-  return [
-    "coletado",
-    "em transito",
-    "postado",
-    "expedido",
-    "saiu para entrega",
-    "entregue",
-    "objeto entregue",
-  ].some((marker) => normalized.includes(marker));
+  return hasCustomerLeftOrigin(pkg.envioecomStatus);
 }
 
 function packageHasCustomerTracking(pkg: CustomerSplitPackage): boolean {

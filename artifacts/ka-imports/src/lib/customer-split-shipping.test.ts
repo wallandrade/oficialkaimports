@@ -59,6 +59,29 @@ test("status Expedido e em transito, nao embalando", () => {
   assert.equal(shipped.label, "Em trânsito");
 });
 
+test("EM ROTA sai de embalando e vira saiu para entrega", () => {
+  const shipped = getCustomerPackageSituation({
+    id: "a",
+    envioecomStatus: "EM ROTA - CO SAMAMBAIA 01",
+    envioecomShipmentId: 1,
+  });
+  assert.equal(shipped.kind, "shipped");
+  assert.equal(shipped.label, "Saiu para entrega");
+  const waiting = getCustomerPackageSituation({
+    id: "b",
+    envioecomStatus: "Aguardando ser coletado",
+    envioecomShipmentId: 2,
+  });
+  assert.equal(waiting.kind, "packing");
+  assert.equal(waiting.label, "Estamos embalando esta parte");
+  const requested = getCustomerPackageSituation({
+    id: "c",
+    envioecomStatus: "Coleta Solicitada",
+    envioecomShipmentId: 3,
+  });
+  assert.equal(requested.kind, "packing");
+});
+
 test("aguardando coleta vira embalando", () => {
   const packing = getCustomerPackageSituation({
     id: "a",

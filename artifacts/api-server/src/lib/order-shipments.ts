@@ -12,6 +12,7 @@ import {
   isProvisionalBarcode,
   isUsableLabelBarcode,
   mergeEnvioEcomHistory,
+  resolveEnvioEcomStoredStatus,
   shouldMarkEnviadoFromStatus,
 } from "./envioecom-status";
 import { shipmentEventMatchesOrder } from "./envioecom-order-ref";
@@ -184,23 +185,27 @@ export async function persistEnvioEcomPackage(
   patch: EnvioEcomShipmentPatch,
 ): Promise<{ order: typeof ordersTable.$inferSelect; pkg: typeof orderShipmentsTable.$inferSelect }> {
   const now = new Date();
-  const status = pickString(patch.status) || pkg.envioecomStatus;
-  if (isEnvioEcomCancelledStatus(status)) {
-    return detachEnvioEcomPackage(order, pkg, status);
+  const apiStatus = pickString(patch.status) || pkg.envioecomStatus || "";
+  if (isEnvioEcomCancelledStatus(apiStatus)) {
+    return detachEnvioEcomPackage(order, pkg, apiStatus);
   }
   const barcode = chooseBarcode(pkg.envioecomBarcode, patch.barcode);
   const history = mergeEnvioEcomHistory(
     pkg.envioecomStatusHistory,
     patch.history,
-    status
+    apiStatus
       ? {
           at: now.toISOString(),
-          status,
+          status: apiStatus,
           description: patch.description || null,
           barcode,
         }
       : null,
   );
+  const status = resolveEnvioEcomStoredStatus(apiStatus, history);
+  if (isEnvioEcomCancelledStatus(status)) {
+    return detachEnvioEcomPackage(order, pkg, status);
+  }
   const updates: Partial<typeof orderShipmentsTable.$inferInsert> = { updatedAt: now };
   if (patch.shipmentId) updates.envioecomShipmentId = patch.shipmentId;
   if (barcode) updates.envioecomBarcode = barcode;
