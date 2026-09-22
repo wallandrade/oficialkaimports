@@ -232,7 +232,7 @@ function isPackingBeforePostStatus(status?: string | null): boolean {
   const normalized = normalizeTrackingText(status);
   if (!normalized) return false;
   if (normalized.includes("cancelad") || normalized.includes("aguardando pagamento")) return false;
-  if (["coletado", "em transito", "postado", "saiu para entrega", "entregue"].some((marker) => normalized.includes(marker))) {
+  if (["coletado", "em transito", "postado", "expedido", "saiu para entrega", "entregue"].some((marker) => normalized.includes(marker))) {
     return false;
   }
   return [
@@ -254,6 +254,7 @@ function toCustomerFriendlyShippingLabel(status?: string | null): string {
   const normalized = normalizeTrackingText(raw);
   if (isPackingBeforePostStatus(raw)) return "Estamos embalando seu pedido";
   if (normalized.includes("aguardando pagamento")) return "Preparando envio";
+  if (normalized.includes("expedido")) return "Em trânsito";
   if (normalized.includes("saiu para entrega") || normalized.includes("em rota")) return "Saiu para entrega";
   if (normalized.includes("entregue")) return "Entregue";
   return raw;

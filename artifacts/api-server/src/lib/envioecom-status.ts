@@ -41,6 +41,7 @@ const COLLECTED_MARKERS = [
   "coletado",
   "em transito",
   "postado",
+  "expedido",
   "saiu para entrega",
   "entregue",
   "objeto entregue",
@@ -99,7 +100,7 @@ export function classifyEnvioEcomTrackingGroup(status: unknown): EnvioEcomTracki
   if (!normalized) return "other";
   if (isEnvioEcomCancelledStatus(status)) return "cancelled";
   if (normalized.includes("entregue")) return "delivered";
-  if (["coletado", "em transito", "postado", "saiu para entrega"].some((marker) => normalized.includes(marker))) {
+  if (["coletado", "em transito", "postado", "expedido", "saiu para entrega"].some((marker) => normalized.includes(marker))) {
     return "in_transit";
   }
   if (

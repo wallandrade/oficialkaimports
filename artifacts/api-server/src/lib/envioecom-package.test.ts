@@ -123,6 +123,8 @@ test("etiqueta pronta nao marca enviado; coleta/postagem marca", () => {
   assert.equal(shouldMarkEnviadoFromStatus("Coletado"), true);
   assert.equal(shouldMarkEnviadoFromStatus("Postado"), true);
   assert.equal(shouldMarkEnviadoFromStatus("Em trânsito"), true);
+  assert.equal(shouldMarkEnviadoFromStatus("Expedido - POO -MG"), true);
+  assert.equal(shouldMarkEnviadoFromStatus("Aguardando expedição"), false);
   assert.equal(shouldMarkCompletedFromStatus("Entregue"), true);
   assert.equal(shouldMarkCompletedFromStatus("Cancelado"), false);
 });
@@ -137,6 +139,7 @@ test("etiqueta pronta libera fila mesmo sem status de transito", () => {
   assert.equal(hasEnvioEcomLabelReady({ envioecomStatus: "Etiqueta gerada" }), true);
   assert.equal(hasEnvioEcomLabelReady({ envioecomStatus: "Aguardando coleta" }), true);
   assert.equal(hasEnvioEcomLabelReady({ envioecomStatus: "DC-e emitida" }), true);
+  assert.equal(hasEnvioEcomLabelReady({ envioecomStatus: "Expedido - POO -MG" }), true);
   assert.equal(hasEnvioEcomLabelReady({
     envioecomLabelUrl: "https://cdn.example/label.pdf",
     envioecomStatus: "Cancelado",
@@ -161,6 +164,7 @@ test("historico e idempotente no mesmo status+barcode", () => {
 test("board classifica status em grupos de rastreio", () => {
   assert.equal(classifyEnvioEcomTrackingGroup("Entregue"), "delivered");
   assert.equal(classifyEnvioEcomTrackingGroup("Em trânsito"), "in_transit");
+  assert.equal(classifyEnvioEcomTrackingGroup("Expedido - POO -MG"), "in_transit");
   assert.equal(classifyEnvioEcomTrackingGroup("DC-e emitida"), "awaiting");
   assert.equal(classifyEnvioEcomTrackingGroup("Etiqueta gerada"), "awaiting");
   assert.equal(classifyEnvioEcomTrackingGroup("Pronto para envio"), "awaiting");

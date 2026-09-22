@@ -49,6 +49,16 @@ test("pacote com EnvioEcom ainda não coletado é embalando, não estoque", () =
   assert.equal(mixed, "Em preparação");
 });
 
+test("status Expedido e em transito, nao embalando", () => {
+  const shipped = getCustomerPackageSituation({
+    id: "a",
+    envioecomStatus: "Expedido - POO -MG",
+    envioecomBarcode: "888030934187457",
+  });
+  assert.equal(shipped.kind, "shipped");
+  assert.equal(shipped.label, "Em trânsito");
+});
+
 test("aguardando coleta vira embalando", () => {
   const packing = getCustomerPackageSituation({
     id: "a",

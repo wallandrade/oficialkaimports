@@ -83,7 +83,7 @@ function statusBadgeClass(status?: string | null, group?: TrackingGroup): string
   }
   if (
     group === "in_transit"
-    || ["coletado", "em transito", "postado", "saiu para entrega"].some((marker) => normalized.includes(marker))
+    || ["coletado", "em transito", "postado", "expedido", "saiu para entrega"].some((marker) => normalized.includes(marker))
   ) {
     return "bg-sky-100 text-sky-800 border-sky-200";
   }

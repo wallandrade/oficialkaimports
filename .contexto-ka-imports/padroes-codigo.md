@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-09-21
+> **Última atualização:** 2026-09-22
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-22 | Anti-padrão: tratar **Expedido** como envio criado ou ignorar `enviado` do pacote no admin | `hasEnvioEcomLabelReady` conta os dois; split sai de Pendente/Outros | “Aguardando expedição” não marca enviado |
 | 2026-09-21 | Anti-padrão: `<select>` no modal Reenvio do chamado (sem foto) | `ProductSelect` + `products[].image`; thumbnail na lista | Payload do `POST .../reenviar` |
 | 2026-09-21 | Anti-padrão: `readOnly` só no `onFocus` da busca (iOS não abre teclado) ou `focus()` da lupa com `setTimeout` | `OrdersSearchInput` destrava no toque; Header usa `flushSync` + lupa sem pointer | Autofill Chrome; filtro local |
 | 2026-09-21 | Anti-padrão: abrir a lista de envios do CPF em todos os cards da fila | Linha fechada; expande no clique; fetch só ao abrir | Alerta no modal EE |
@@ -253,6 +254,7 @@ Código > memória > suposições.
 - Mostrar status técnico EnvioEcom (“Pronto para envio”, “Etiqueta emitida”) na Minha conta; traduzir só na UI do cliente (`isPackingBeforePostStatus` / `toCustomerFriendlyShippingLabel`). Admin e banco ficam iguais.
 - No split, usar só o `enviado`/`envioecomStatus` do pedido pai na Minha conta, ou rotular o pacote como Fóz/Motoboy/Minas. Cliente vê **Envio 1 / Envio 2** + itens; pacote sem rastreio = **Aguardando estoque**; um saiu e o outro não = **Enviado parcialmente**.
 - Tratar só **Etiqueta emitida** (status interno do PDF) como pronta e ignorar **Etiqueta gerada** que a EnvioEcom devolve no create/sync/webhook — o card fica Pendente mesmo com rastreio. `hasEnvioEcomLabelReady` / `LABEL_READY_MARKERS` nos dois lados.
+- Tratar **Expedido** como “envio criado”, ou no admin ignorar `packages[].enviado` dentro de `hasEnvioEcomLabelReady`. O split fica Pendente e cai em Outros com um pacote já postado. `expedido` é trânsito; pacote `enviado` conta como etiqueta pronta. “Aguardando expedição” continua só etiqueta, sem `enviado`.
 - Calcular o seguro sobre `subtotal − cupom`, usar `computeShippingInsuranceAmount` no create, gravar o `insuranceAmount` do front, ou deixar `full` e `reduced` ao mesmo tempo. Base = subtotal dos produtos **sem** frete/cupom; `resolveCheckoutInsurance` no create e na edição. Plano desligado no Admin + create com esse plano = `none` (não troca de plano). `shipping-insurance.ts` é legado — não reativar no create.
 - Calcular cashback do completo só porque `%` cobrado > `%` da loja, ou mostrar “se chegar certo ganha R$ X” com a devolução desligada. Setting `checkout_insurance_cashback_enabled` (vazio = off). `%` especial continua só no preço cobrado. Reduced nunca devolve saldo.
 - Autorizar reenvio de suporte (filho/fila) sem `canReship` no pedido pago, ou só `disabled` no botão e deixar Postman/API livre. Abrir `extravio`/`apreensao` sem cobertura também 400. Exceção admin: `force: true` depois de alerta + Aprovar. “Marcar resolvido” com endereço **não** cria fila se o plano é `none`/sem cobertura. Não espalhar `if (temSeguro)` nas telas — usar o helper. Reenvio manual da aba Estoque / `POST /admin/orders/:id/reshipment` fica **de fora** desta trava.

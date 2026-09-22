@@ -90,6 +90,14 @@ test("rollup: PDF no pai so quando todos tem URL; enviado e 48h sao AND", () => 
     { envioecomStatus: "Coletado", enviado: true },
   ];
   assert.equal(allPackagesEnviado(posted), true);
+
+  const expedidoSplit = [
+    { envioecomLabelUrl: null, envioecomStatus: "Expedido - POO -MG", enviado: true },
+    { envioecomLabelUrl: "https://moto.pdf", envioecomStatus: "Pronto para envio", enviado: false },
+  ];
+  assert.equal(allPackagesLabelReady(expedidoSplit), true);
+  assert.equal(allPackagesEnviado(expedidoSplit), false);
+  assert.equal(leastAdvancedShipmentStatus(expedidoSplit), "Pronto para envio");
   assert.equal(allPackagesDelivered(posted), false);
   assert.equal(allPackagesDelivered([
     { envioecomStatus: "Entregue" },

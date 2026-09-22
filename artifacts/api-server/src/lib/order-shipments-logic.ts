@@ -192,9 +192,7 @@ function normalizeStatusRank(status: unknown): (typeof STATUS_RANK)[number] {
     .toLowerCase();
   if (!normalized || normalized.includes("cancelad") || normalized.includes("cancelamento")) return "none";
   if (normalized.includes("entregue")) return "delivered";
-  if (["coletado", "em transito", "postado", "saiu para entrega"].some((marker) => normalized.includes(marker))) {
-    return "collected";
-  }
+  if (shouldMarkEnviadoFromStatus(status)) return "collected";
   if (
     hasEnvioEcomLabelReady({ envioecomStatus: String(status || ""), envioecomLabelUrl: null })
     || normalized.includes("aguardando coleta")

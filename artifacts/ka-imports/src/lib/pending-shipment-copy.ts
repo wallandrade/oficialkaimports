@@ -50,6 +50,7 @@ const LABEL_READY_MARKERS = [
   "coletado",
   "em transito",
   "postado",
+  "expedido",
   "saiu para entrega",
   "entregue",
   "objeto entregue",
@@ -73,6 +74,7 @@ export function hasEnvioEcomLabelReady(order: LabelReadyInput): boolean {
   if (normalized.includes("cancelad") || normalized.includes("cancelamento") || normalized.includes("aguardando pagamento")) {
     return false;
   }
+  if (order.enviado) return true;
   if (String(order.envioecomLabelUrl || "").trim()) return true;
   if (!normalized) return false;
   return LABEL_READY_MARKERS.some((marker) => normalized.includes(marker));

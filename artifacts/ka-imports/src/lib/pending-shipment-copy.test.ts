@@ -47,6 +47,32 @@ test("copia 48h do split so lista o pacote que ainda falta etiqueta", () => {
   assert.equal(pendingShipmentResumoHeading(copy), "Resumo pedido (falta etiqueta — Fóz Guaçu)");
 });
 
+test("split com Expedido e Pronto para envio sai da fila", () => {
+  assert.equal(hasEnvioEcomLabelReady({
+    packages: [
+      { envioecomStatus: "Expedido - POO -MG", envioecomLabelUrl: null, enviado: true },
+      { envioecomStatus: "Pronto para envio", envioecomLabelUrl: "https://cdn.example/moto.pdf", enviado: false },
+    ],
+  }), true);
+  const copy = getPendingShipmentCopy({
+    products: order2124.products,
+    packages: [
+      { inventoryPool: "loja", envioecomStatus: "Expedido - POO -MG", enviado: true, items: order2124.packages[1].items },
+      { inventoryPool: "motoboy", envioecomStatus: "Pronto para envio", envioecomLabelUrl: "https://cdn.example/moto.pdf", items: order2124.packages[0].items },
+    ],
+  });
+  assert.deepEqual(copy.items, []);
+});
+
+test("pacote ja enviado conta como etiqueta pronta mesmo sem status reconhecido", () => {
+  assert.equal(hasEnvioEcomLabelReady({
+    packages: [
+      { envioecomStatus: null, envioecomLabelUrl: null, enviado: true },
+      { envioecomStatus: "Pronto para envio", envioecomLabelUrl: null, enviado: false },
+    ],
+  }), true);
+});
+
 test("pedido sem split continua com todos os itens", () => {
   const copy = getPendingShipmentCopy({
     products: order2124.products,
