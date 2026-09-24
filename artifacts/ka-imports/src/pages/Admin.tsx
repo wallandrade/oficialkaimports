@@ -12028,7 +12028,7 @@ export default function Admin() {
                       <div className="p-3 rounded-lg bg-muted/40 border border-border/50 text-sm space-y-1">
                         {lineDiscountTotal > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Produtos</span><span>{formatCurrency(gross)}</span></div>}
                         {lineDiscountTotal > 0 && <div className="flex justify-between text-green-700"><span>Desconto dos produtos</span><span>-{formatCurrency(lineDiscountTotal)}</span></div>}
-                        <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{formatCurrency(subtotal)}</span></div>}
+                        <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
                         <div className="flex justify-between"><span className="text-muted-foreground">Frete</span><span>{formatCurrency(editOrderModal.shippingCost)}</span></div>
                         {editOrderModal.includeInsurance && <div className="flex justify-between"><span className="text-muted-foreground">Seguro</span><span>{formatCurrency(insuranceAmount)}</span></div>}
                         {(editDiscount || 0) > 0 && <div className="flex justify-between text-green-700"><span>Cupom</span><span>-{formatCurrency(editDiscount)}</span></div>}
