@@ -2092,10 +2092,13 @@ function AdminLiveVisitorStats() {
 
   useEffect(() => {
     if (!getToken()) return;
+    let alive = true;
     const fetchLive = () => {
+      if (document.hidden) return;
       fetch(`${BASE}/api/admin/tracking/live`, { headers: authHeaders() })
         .then((r) => r.json())
         .then((data) => {
+          if (!alive) return;
           if (typeof data.catalog === "number" && typeof data.checkout === "number") {
             setLiveStats(data);
           }
@@ -2104,7 +2107,15 @@ function AdminLiveVisitorStats() {
     };
     fetchLive();
     const intv = window.setInterval(fetchLive, 5000);
-    return () => window.clearInterval(intv);
+    const onVisible = () => {
+      if (!document.hidden) fetchLive();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      alive = false;
+      window.clearInterval(intv);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, []);
 
   return (
@@ -2592,6 +2603,7 @@ export default function Admin() {
   const [clientErrorsLoading, setClientErrorsLoading] = useState(false);
   const sseRef = useRef<EventSource | null>(null);
   const sseReconnectTimerRef = useRef<number | null>(null);
+  const sseResumeOnVisibleRef = useRef<(() => void) | null>(null);
   const sseUnauthorizedRef = useRef(false);
   const sseCookieMismatchNotifiedRef = useRef(false);
   const ordersFetchAbortRef = useRef<AbortController | null>(null);
@@ -3144,11 +3156,18 @@ export default function Admin() {
   // -------------------------------------------------------------------------
   // Auth check
   // -------------------------------------------------------------------------
+  const clearSseVisibilityResume = useCallback(() => {
+    if (!sseResumeOnVisibleRef.current) return;
+    document.removeEventListener("visibilitychange", sseResumeOnVisibleRef.current);
+    sseResumeOnVisibleRef.current = null;
+  }, []);
+
   const handleUnauthorized = useCallback(() => {
     if (sseReconnectTimerRef.current !== null) {
       window.clearTimeout(sseReconnectTimerRef.current);
       sseReconnectTimerRef.current = null;
     }
+    clearSseVisibilityResume();
     sseRef.current?.close();
     sseUnauthorizedRef.current = true;
     sessionStorage.removeItem("adminToken");
@@ -3158,7 +3177,7 @@ export default function Admin() {
     localStorage.removeItem("adminTenantId");
     setAdminTenantId("tenant_loja1");
     setLocation("/admin/login");
-  }, [setLocation]);
+  }, [clearSseVisibilityResume, setLocation]);
 
   /** Abre pedido na aba Pedidos ampliando o filtro de data (API filtra por intervalo). */
   const goToOrder = useCallback((orderId: string, orderCreatedAt?: string | null) => {
@@ -5465,6 +5484,7 @@ export default function Admin() {
       window.clearTimeout(sseReconnectTimerRef.current);
       sseReconnectTimerRef.current = null;
     }
+    clearSseVisibilityResume();
     if (sseRef.current) sseRef.current.close();
     const token = getToken();
     if (!token) return;
@@ -5559,43 +5579,60 @@ export default function Admin() {
       if (sseReconnectTimerRef.current !== null) {
         window.clearTimeout(sseReconnectTimerRef.current);
       }
-      sseReconnectTimerRef.current = window.setTimeout(async () => {
-        sseReconnectTimerRef.current = null;
-        if (!getToken() || sseUnauthorizedRef.current) return;
+      clearSseVisibilityResume();
 
-        try {
-          const verifyRes = await fetch(`${BASE}/api/admin/verify`, {
-            credentials: "include",
-            cache: "no-store",
-          });
+      const scheduleReconnect = () => {
+        sseReconnectTimerRef.current = window.setTimeout(async () => {
+          sseReconnectTimerRef.current = null;
+          if (!getToken() || sseUnauthorizedRef.current) return;
 
-          if (verifyRes.status === 401 || verifyRes.status === 403) {
-            // SSE depends on cookie auth, while most admin requests still support bearer.
-            // If bearer is still valid, keep user logged in and just stop SSE reconnect loop.
-            const bearerVerifyRes = await fetch(`${BASE}/api/admin/verify`, {
-              headers: authHeaders(),
+          try {
+            const verifyRes = await fetch(`${BASE}/api/admin/verify`, {
               credentials: "include",
               cache: "no-store",
             });
 
-            if (bearerVerifyRes.ok) {
-              sseUnauthorizedRef.current = true;
-              sseCookieMismatchNotifiedRef.current = true;
-              console.warn("[SSE] Cookie auth expired; realtime updates paused until reload.");
+            if (verifyRes.status === 401 || verifyRes.status === 403) {
+              // SSE depends on cookie auth, while most admin requests still support bearer.
+              // If bearer is still valid, keep user logged in and just stop SSE reconnect loop.
+              const bearerVerifyRes = await fetch(`${BASE}/api/admin/verify`, {
+                headers: authHeaders(),
+                credentials: "include",
+                cache: "no-store",
+              });
+
+              if (bearerVerifyRes.ok) {
+                sseUnauthorizedRef.current = true;
+                sseCookieMismatchNotifiedRef.current = true;
+                console.warn("[SSE] Cookie auth expired; realtime updates paused until reload.");
+                return;
+              }
+
+              handleUnauthorized();
               return;
             }
-
-            handleUnauthorized();
-            return;
+          } catch {
+            // Network blip: keep trying to reconnect while token still exists.
           }
-        } catch {
-          // Network blip: keep trying to reconnect while token still exists.
-        }
 
-        if (getToken() && !sseUnauthorizedRef.current) connectSSE();
-      }, 1000);
+          if (getToken() && !sseUnauthorizedRef.current) connectSSE();
+        }, 1000);
+      };
+
+      if (document.hidden) {
+        const onVisible = () => {
+          if (document.hidden) return;
+          clearSseVisibilityResume();
+          scheduleReconnect();
+        };
+        sseResumeOnVisibleRef.current = onVisible;
+        document.addEventListener("visibilitychange", onVisible);
+        return;
+      }
+
+      scheduleReconnect();
     };
-  }, [fetchOrders, fetchCharges, fetchSellerData, fetchStatsData, fetchSupportTickets, fetchInventoryOverview, showPushNotification, handleUnauthorized]);
+  }, [clearSseVisibilityResume, fetchOrders, fetchCharges, fetchSellerData, fetchStatsData, fetchSupportTickets, fetchInventoryOverview, showPushNotification, handleUnauthorized]);
 
   // -------------------------------------------------------------------------
   // Mount
@@ -5645,6 +5682,7 @@ export default function Admin() {
         window.clearTimeout(sseReconnectTimerRef.current);
         sseReconnectTimerRef.current = null;
       }
+      clearSseVisibilityResume();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -5724,15 +5762,25 @@ export default function Admin() {
   // Uses silent=true so data updates without flashing the loading spinner.
   useEffect(() => {
     if (!authChecked) return;
-    const id = setInterval(() => {
-      if (!getToken()) return;
+    let lastRun = 0;
+    const refresh = () => {
+      if (document.hidden || !getToken()) return;
+      const now = Date.now();
+      if (now - lastRun < 4000) return;
+      lastRun = now;
       fetchOrders(true);
       fetchCharges(true);
       fetchStatsData();
       if (tab === "recurringCustomers") fetchRecurringCustomers();
-    }, 20000);
+    };
+    const id = window.setInterval(refresh, 20000);
+    const onVisible = () => {
+      if (!document.hidden) refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
       ordersFetchAbortRef.current?.abort();
     };
   }, [authChecked, tab, fetchOrders, fetchCharges, fetchStatsData, fetchRecurringCustomers]);
@@ -5770,6 +5818,7 @@ export default function Admin() {
       window.clearTimeout(sseReconnectTimerRef.current);
       sseReconnectTimerRef.current = null;
     }
+    clearSseVisibilityResume();
     sseUnauthorizedRef.current = true;
     sseRef.current?.close();
     setLocation("/admin/login");

@@ -1,12 +1,13 @@
 # Segurança e performance — KA Imports
 
-> **Última atualização:** 2026-09-12  
+> **Última atualização:** 2026-09-24  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-24 | Admin pausa poll/SSE com a aba oculta; `Admin` entra por `lazy()` | Voltar para a aba faz um refresh, não uma rajada; reload da aba descartada mostra o loader | Lista de pedidos, intervalo de 20s com a aba visível, webhook PIX |
 | 2026-09-12 | Reset de senha do cliente não loga o plaintext; sessões Bearer daquele user são apagadas neste processo | PATCH admin + `removeCustomerSessionsForUser` | Rate limit / CSP / CORS |
 | 2026-09-11 | Busca admin: `onChange` imediato no filho, sem debounce/`startTransition` no input | Nome/nº filtram a cada tecla; `Admin` isolado | CSP / CORS / rate limit; refresh silencioso ainda em transition |
 | 2026-09-11 | Busca admin isolada do monólito; poll de visitantes ao vivo num filho; refresh silencioso de pedidos em `startTransition` | Digitação e poll 5s não redesenham o `Admin` | CSP / CORS / rate limit; debounce 300ms |
@@ -45,7 +46,7 @@
 - Cache de hosts CORS de tenants (TTL env).
 - Produtos: caminhos de cache/fallback Sheets documentados em rotas/docs de catálogo — validar no arquivo antes de “otimizar”.
 - FE assets: headers long-cache em `/assets/*` no `vercel.json`; HTML `no-store`.
-- Admin Pedidos: busca em `AdminOrdersChargesSearchShell` (`onChange` imediato no filho; o `Admin` só recebe semente de `goToOrder`). Visitantes ao vivo em `AdminLiveVisitorStats` (poll 5s). Refresh silencioso de `GET /admin/orders` aplica `setOrders` via `startTransition`. Troca de `dateFrom`/`dateTo` não chama `fetchStatsData` (stats tem intervalo próprio). `GET /admin/orders` devolve lista sem `data:` de comprovante/etiqueta e sem `trackingLabelText`; `GET /admin/orders/:id` hidrata na abertura do comprovante.
+- Admin Pedidos: busca em `AdminOrdersChargesSearchShell` (`onChange` imediato no filho; o `Admin` só recebe semente de `goToOrder`). Visitantes ao vivo em `AdminLiveVisitorStats` (poll 5s, parado com `document.hidden`). Refresh silencioso de 20s (pedidos, cobranças, stats) também não roda com a aba oculta; ao voltar, um refresh só, com folga de 4s para não coincidir com o intervalo. SSE que cai com a aba oculta espera `visibilitychange` em vez de reconectar a cada 1s. `Admin` é `lazy()` em `App.tsx` (Suspense/`PageLoader`). Refresh silencioso de `GET /admin/orders` aplica `setOrders` via `startTransition`. Troca de `dateFrom`/`dateTo` não chama `fetchStatsData` (stats tem intervalo próprio). `GET /admin/orders` devolve lista sem `data:` de comprovante/etiqueta e sem `trackingLabelText`; `GET /admin/orders/:id` hidrata na abertura do comprovante.
 - Análise longa em `PERFORMANCE_OPTIMIZATION_ANALYSIS.md` — **não** ler por padrão; só se a tarefa for perf.
 
 ## Anti-padrões
@@ -54,6 +55,6 @@
 - Tirar `frame-src` do CSP do FE e voltar a iframe de comprovante em `data:` (quebra o PDF no Chrome).
 - Mandar comprovante/etiqueta em `data:` e OCR (`trackingLabelText`) em **toda** a lista `GET /admin/orders`; a lista é leve e o detalhe vem em `GET /admin/orders/:id`.
 - Reativar polling de gateway.
-- Guardar o poll de visitantes ao vivo (`/api/admin/tracking/live` a cada 5s) no estado do `Admin`; isso redesenha o monólito. Usar `AdminLiveVisitorStats`.
+- Guardar o poll de visitantes ao vivo (`/api/admin/tracking/live` a cada 5s) no estado do `Admin`; isso redesenha o monólito. Usar `AdminLiveVisitorStats`. Não deixar esse poll, o refresh de 20s nem o reconnect do SSE rodarem com a aba oculta — ao voltar, a rajada trava a pintura.
 - Envolver o `setSearch` da busca em `startTransition` ou debounce+estado local no input — a lista não filtra. O `onChange` atualiza o estado do filho na hora.
 - Logar tokens/senhas em claro (há redaction parcial em admin-auth). Reset de senha do cliente loga só `customerId` + admin.
