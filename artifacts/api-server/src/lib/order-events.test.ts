@@ -37,6 +37,12 @@ test("edit payload lista só o que mudou", () => {
     },
   );
   assert.deepEqual(payload.fields, ["nome", "endereço", "itens", "desconto", "total", "status"]);
+
+  const onlyLineDiscount = buildOrderEditPayload(
+    { products: [{ id: "p1", name: "Whey", quantity: 1, price: 100 }], discountAmount: 0, total: 100, status: "paid" },
+    { products: [{ id: "p1", name: "Whey", quantity: 1, price: 100, lineDiscount: 20 }], discountAmount: 0, total: 80, status: "paid" },
+  );
+  assert.deepEqual(onlyLineDiscount.fields, ["itens", "total"]);
   assert.match(String(payload.summary), /nome/);
   assert.match(String(payload.summary), /De paid para awaiting_payment/);
 });

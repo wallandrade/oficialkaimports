@@ -50,7 +50,7 @@ export function actionFromStatusChange(fromStatus: string, toStatus: string): st
   return "status_changed";
 }
 
-function compactProducts(raw: unknown): Array<{ id: string; name: string; quantity: number; price: number }> {
+function compactProducts(raw: unknown): Array<{ id: string; name: string; quantity: number; price: number; lineDiscount: number }> {
   if (!Array.isArray(raw)) return [];
   return raw.map((item) => {
     const row = item && typeof item === "object" ? item as Record<string, unknown> : {};
@@ -59,6 +59,7 @@ function compactProducts(raw: unknown): Array<{ id: string; name: string; quanti
       name: String(row.name || "").trim(),
       quantity: Number(row.quantity) || 0,
       price: Number(row.price) || 0,
+      lineDiscount: Math.max(0, Number(row.lineDiscount) || 0),
     };
   }).filter((item) => item.id || item.name);
 }

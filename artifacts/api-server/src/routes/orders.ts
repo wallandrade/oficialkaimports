@@ -59,10 +59,13 @@ import {
 } from "../lib/yury-inventory";
 import { cartProductIdsFromItems, isCartEligibleForMotoboy } from "../lib/motoboy-eligible-products";
 import {
+  cappedLineDiscount,
   insuranceLinesFromProducts,
   insuranceSnapshotColumns,
   loadCheckoutInsuranceSettings,
+  orderLineNet,
   resolveCheckoutInsurance,
+  roundMoney,
 } from "../lib/checkout-insurance";
 import { applyStoreCreditToOrder, creditWallet } from "../lib/customer-wallet";
 import { attachGuestOrdersForCustomer } from "../lib/customer-guest-orders";
@@ -2407,7 +2410,17 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
     const { products: newProducts, address, discountAmount, clientName, clientPhone, clientEmail, clientDocument } = req.body as {
-      products: Array<{ id: string; name: string; quantity: number; price: number }>;
+      products: Array<{
+        id: string;
+        name: string;
+        quantity: number;
+        price: number;
+        lineDiscount?: number;
+        costPrice?: number;
+        image?: string | null;
+        swappedFrom?: unknown;
+        swapMode?: string | null;
+      }>;
       discountAmount?: number;
       clientName?: string;
       clientPhone?: string;
@@ -2463,19 +2476,67 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
       editProductRows = new Map(rows.map((row) => [row.id, row]));
     }
 
-    // Resolve final products with correct tier prices
-    const resolvedProducts = newProducts.map((item) => {
+    const currentProductRows = (() => {
+      const raw = current[0].products;
+      const parsed = Array.isArray(raw)
+        ? raw
+        : typeof raw === "string"
+          ? (() => { try { const value = JSON.parse(raw); return Array.isArray(value) ? value : []; } catch { return []; } })()
+          : [];
+      return parsed.filter((item) => item && typeof item === "object") as Array<Record<string, unknown>>;
+    })();
+
+    // Price stays the catalog/tier price. Line discount is a separate reais amount.
+    const resolvedProducts = newProducts.map((item, index) => {
       const productId = String(item?.id || "").trim();
       const quantity = Number(item?.quantity) || 0;
       const catalogProduct = editProductRows.get(productId);
-      // If product exists in catalog, recalculate price with tiers; otherwise keep sent price (manual/bump items)
       const price = catalogProduct ? resolveUnitPriceForQuantity(catalogProduct, quantity) : Number(item?.price) || 0;
-      return { id: productId, name: String(item?.name || "Produto"), quantity, price };
+      const lineDiscount = roundMoney(cappedLineDiscount({ quantity, price, lineDiscount: item?.lineDiscount }));
+      const atIndex = currentProductRows[index];
+      const snapshot = atIndex && String(atIndex.id || "") === productId ? atIndex : undefined;
+      const sentCost = item?.costPrice != null ? Number(item.costPrice) : NaN;
+      const snapshotCost = snapshot?.costPrice != null ? Number(snapshot.costPrice) : NaN;
+      const catalogCost = catalogProduct ? Number(catalogProduct.costPrice || 0) : NaN;
+      const costPrice = Number.isFinite(sentCost) && sentCost > 0
+        ? sentCost
+        : Number.isFinite(snapshotCost) && snapshotCost > 0
+          ? snapshotCost
+          : Number.isFinite(catalogCost) && catalogCost > 0
+            ? catalogCost
+            : null;
+      const image = String(item?.image ?? snapshot?.image ?? "").trim();
+      const next: {
+        id: string;
+        name: string;
+        quantity: number;
+        price: number;
+        lineDiscount?: number;
+        costPrice?: number;
+        image?: string;
+        swappedFrom?: unknown;
+        swapMode?: string;
+      } = {
+        id: productId,
+        name: String(item?.name || snapshot?.name || "Produto"),
+        quantity,
+        price,
+      };
+      if (lineDiscount > 0) next.lineDiscount = lineDiscount;
+      if (costPrice != null) next.costPrice = costPrice;
+      if (image) next.image = image;
+      const swappedFrom = item?.swappedFrom && typeof item.swappedFrom === "object"
+        ? item.swappedFrom
+        : snapshot?.swappedFrom;
+      const swapMode = item?.swapMode === "keep_price" || item?.swapMode === "pass_difference"
+        ? item.swapMode
+        : snapshot?.swapMode;
+      if (swappedFrom && typeof swappedFrom === "object") next.swappedFrom = swappedFrom;
+      if (swapMode === "keep_price" || swapMode === "pass_difference") next.swapMode = swapMode;
+      return next;
     }).filter((item) => item.id && item.quantity > 0);
 
-    const computedSubtotal = resolvedProducts.reduce((sum, product) => {
-      return sum + product.quantity * product.price;
-    }, 0);
+    const computedSubtotal = roundMoney(resolvedProducts.reduce((sum, product) => sum + orderLineNet(product), 0));
     const computedShippingCost = Math.max(0, Number(current[0].shippingCost) || 0);
     const computedDiscountAmount = discountAmount !== undefined
       ? Math.max(0, Number(discountAmount) || 0)

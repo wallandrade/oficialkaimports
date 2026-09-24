@@ -87,8 +87,10 @@ export function lineCost(line: { quantity?: number; costPrice?: number | null })
   return roundMoney(Math.max(0, Number(line.quantity) || 0) * Math.max(0, Number(line.costPrice) || 0));
 }
 
-export function lineTotal(line: { quantity?: number; price?: number | null }): number {
-  return roundMoney(Math.max(0, Number(line.quantity) || 0) * Math.max(0, Number(line.price) || 0));
+export function lineTotal(line: { quantity?: number; price?: number | null; lineDiscount?: number | null }): number {
+  const gross = Math.max(0, Number(line.quantity) || 0) * Math.max(0, Number(line.price) || 0);
+  const discount = Math.min(gross, Math.max(0, Number(line.lineDiscount) || 0));
+  return roundMoney(gross - discount);
 }
 
 export function assertOrderCanSwapProduct(order: {

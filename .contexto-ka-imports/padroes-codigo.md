@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-09-23
+> **Última atualização:** 2026-09-24
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-24 | Anti-padrão: baixar o `price` do item para aplicar desconto de linha | `lineDiscount` em reais; preço de catálogo permanece | Cupom do pedido (`discountAmount`) |
 | 2026-09-23 | Anti-padrão: deixar o histórico de gestão aberto em todo card | Cabeçalho fechado; clique expande `OrderHistoryTimeline` | `order_events` e a timeline de rastreio |
 | 2026-09-22 | Anti-padrão: gravar só o campo `status` da EnvioEcom ou ordenar `status_history` com `Date.parse` | Rank do evento mais novo + `historyEventTimeMs` (`dd/mm/aaaa`) | Timeline continua texto original; auditoria `order_events` separada |
 | 2026-09-22 | Anti-padrão: tratar **Expedido** como envio criado ou ignorar `enviado` do pacote no admin | `hasEnvioEcomLabelReady` conta os dois; split sai de Pendente/Outros | “Aguardando expedição” não marca enviado |
@@ -257,7 +258,8 @@ Código > memória > suposições.
 - No split, usar só o `enviado`/`envioecomStatus` do pedido pai na Minha conta, ou rotular o pacote como Fóz/Motoboy/Minas. Cliente vê **Envio 1 / Envio 2** + itens; pacote sem rastreio = **Aguardando estoque**; um saiu e o outro não = **Enviado parcialmente**.
 - Tratar só **Etiqueta emitida** (status interno do PDF) como pronta e ignorar **Etiqueta gerada** que a EnvioEcom devolve no create/sync/webhook — o card fica Pendente mesmo com rastreio. `hasEnvioEcomLabelReady` / `LABEL_READY_MARKERS` nos dois lados.
 - Tratar **Expedido** como “envio criado”, ou no admin ignorar `packages[].enviado` dentro de `hasEnvioEcomLabelReady`. O split fica Pendente e cai em Outros com um pacote já postado. `expedido` é trânsito; pacote `enviado` conta como etiqueta pronta. “Aguardando expedição” continua só etiqueta, sem `enviado`.
-- Calcular o seguro sobre `subtotal − cupom`, usar `computeShippingInsuranceAmount` no create, gravar o `insuranceAmount` do front, ou deixar `full` e `reduced` ao mesmo tempo. Base = subtotal dos produtos **sem** frete/cupom; `resolveCheckoutInsurance` no create e na edição. Plano desligado no Admin + create com esse plano = `none` (não troca de plano). `shipping-insurance.ts` é legado — não reativar no create.
+- Calcular o seguro sobre `subtotal − cupom`, usar `computeShippingInsuranceAmount` no create, gravar o `insuranceAmount` do front, ou deixar `full` e `reduced` ao mesmo tempo. Base = subtotal dos produtos **sem** frete/cupom; `resolveCheckoutInsurance` no create e na edição. Plano desligado no Admin + create com esse plano = `none` (não troca de plano). `shipping-insurance.ts` é legado — não reativar no create. O subtotal da edição já é a soma dos líquidos (`lineDiscount`); não usar `price × quantity` cheio nessa base.
+- Baixar o `price` do item para “dar desconto”. O botão de quantidade e o PATCH recolocam o preço de catálogo/faixa e o desconto some. Gravar `lineDiscount` em reais, limitado ao valor cheio. Cupom do pedido continua em `discountAmount`.
 - Calcular cashback do completo só porque `%` cobrado > `%` da loja, ou mostrar “se chegar certo ganha R$ X” com a devolução desligada. Setting `checkout_insurance_cashback_enabled` (vazio = off). `%` especial continua só no preço cobrado. Reduced nunca devolve saldo.
 - Autorizar reenvio de suporte (filho/fila) sem `canReship` no pedido pago, ou só `disabled` no botão e deixar Postman/API livre. Abrir `extravio`/`apreensao` sem cobertura também 400. Exceção admin: `force: true` depois de alerta + Aprovar. “Marcar resolvido” com endereço **não** cria fila se o plano é `none`/sem cobertura. Não espalhar `if (temSeguro)` nas telas — usar o helper. Reenvio manual da aba Estoque / `POST /admin/orders/:id/reshipment` fica **de fora** desta trava.
 - Em `/suporte`, listar pedidos só com nome/`ShoppingBag`. `POST /support/orders-by-cpf` devolve `products[].image` (snapshot ou catálogo pelo id), igual à Minha conta.

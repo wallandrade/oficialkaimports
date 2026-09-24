@@ -3,7 +3,10 @@ import { test } from "node:test";
 
 import {
   canReship,
+  cappedLineDiscount,
   fullInsuranceMixedRateLabel,
+  insuranceLinesFromProducts,
+  orderLineNet,
   parseInsurancePlan,
   parseInsuranceSettingsFromMap,
   resolveCheckoutInsurance,
@@ -210,4 +213,29 @@ test("carrinho misto 10%/20% gera rótulo; reduzido não usa", () => {
     specialPercent: 20,
     specialProductIds: ["reta"],
   }), null);
+});
+
+test("desconto da linha limita ao valor cheio e o seguro usa o líquido", () => {
+  const reta = { id: "reta", quantity: 1, price: 1079, lineDiscount: 1000 };
+  const glow = { id: "glow", quantity: 1, price: 200 };
+  assert.equal(cappedLineDiscount(reta), 1000);
+  assert.equal(cappedLineDiscount({ ...reta, lineDiscount: 5000 }), 1079);
+  assert.equal(orderLineNet(reta), 79);
+  assert.equal(orderLineNet(glow), 200);
+  assert.deepEqual(insuranceLinesFromProducts([reta, glow]), [
+    { productId: "reta", lineTotal: 79 },
+    { productId: "glow", lineTotal: 200 },
+  ]);
+  const insured = resolveCheckoutInsurance({
+    includeInsurance: true,
+    insurancePlan: "reduced",
+    subtotal: 279,
+    shippingCost: 0,
+    discountAmount: 10,
+    lines: insuranceLinesFromProducts([reta, glow]),
+    settings: { ...settings54, reducedPercent: 10 },
+    honorToggles: false,
+  });
+  assert.equal(insured.insuranceAmount, 27.9);
+  assert.equal(insured.total, 296.9);
 });

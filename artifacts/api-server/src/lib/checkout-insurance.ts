@@ -58,6 +58,21 @@ export function roundMoney(value: number): number {
   return Math.round((Number(value) || 0) * 100) / 100;
 }
 
+export function orderLineGross(product: { quantity?: unknown; price?: unknown }): number {
+  return Math.max(0, Number(product.quantity) || 0) * Math.max(0, Number(product.price) || 0);
+}
+
+/** Desconto da linha em reais, nunca acima do valor cheio e nunca negativo. */
+export function cappedLineDiscount(product: { quantity?: unknown; price?: unknown; lineDiscount?: unknown }): number {
+  const gross = orderLineGross(product);
+  const raw = Math.max(0, Number(product.lineDiscount) || 0);
+  return Math.min(raw, gross);
+}
+
+export function orderLineNet(product: { quantity?: unknown; price?: unknown; lineDiscount?: unknown }): number {
+  return roundMoney(orderLineGross(product) - cappedLineDiscount(product));
+}
+
 function parseBoolSetting(raw: string | null | undefined, defaultValue: boolean): boolean {
   if (raw == null || String(raw).trim() === "") return defaultValue;
   const normalized = String(raw).trim().toLowerCase();
@@ -148,11 +163,11 @@ export async function loadCheckoutInsuranceSettings(
 }
 
 export function insuranceLinesFromProducts(
-  products: Array<{ id?: string; quantity?: number; price?: number }>,
+  products: Array<{ id?: string; quantity?: number; price?: number; lineDiscount?: number }>,
 ): InsuranceLine[] {
   return products.map((product) => ({
     productId: String(product.id || ""),
-    lineTotal: Math.max(0, Number(product.quantity) || 0) * Math.max(0, Number(product.price) || 0),
+    lineTotal: orderLineNet(product),
   }));
 }
 

@@ -129,7 +129,7 @@ function isoToSPDate(iso: string) {
   return iso ? iso.slice(0, 10) : "";
 }
 
-type OrderProductLite = { id: string; name: string; quantity: number; price: number; costPrice?: number; image?: string | null; swappedFrom?: { id?: string; name?: string; quantity?: number; price?: number } | null; swapMode?: string | null };
+type OrderProductLite = { id: string; name: string; quantity: number; price: number; lineDiscount?: number; costPrice?: number; image?: string | null; swappedFrom?: { id?: string; name?: string; quantity?: number; price?: number } | null; swapMode?: string | null };
 
 function resolveOrderItemUnitCost(
   item: { id?: string; costPrice?: number | null },
@@ -358,9 +358,12 @@ export function orderToFullText(order: any): string {
     ? products
         .map((p) => {
           const qty = Number(p?.quantity) || 0;
-          const unitPrice = Number(p?.price) || 0;
-          const lineTotal = qty * unitPrice;
-          return `- ${qty}x ${p?.name || "Produto"} (${formatCurrency(lineTotal)})`;
+          const gross = orderLineGross(p);
+          const discount = cappedLineDiscount(p);
+          const net = orderLineNet(p);
+          return discount > 0
+            ? `- ${qty}x ${p?.name || "Produto"} (${formatCurrency(gross)} - ${formatCurrency(discount)} = ${formatCurrency(net)})`
+            : `- ${qty}x ${p?.name || "Produto"} (${formatCurrency(net)})`;
         })
         .join("\n")
     : "- Sem itens";
@@ -376,11 +379,7 @@ export function orderToFullText(order: any): string {
     .filter(Boolean)
     .join(", ");
 
-  const subtotalFromItems = products.reduce((sum, p) => {
-    const qty = Number(p?.quantity) || 0;
-    const unitPrice = Number(p?.price) || 0;
-    return sum + (qty * unitPrice);
-  }, 0);
+  const subtotalFromItems = products.reduce((sum, p) => sum + orderLineNet(p), 0);
 
   const discountAmount = Math.max(0, Number(order?.discountAmount) || 0);
   const storedTotal = Number(order?.cardTotalActual ?? order?.total) || 0;
@@ -858,7 +857,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { AnimatePresence, motion } from "framer-motion";
 import { formatCurrency, formatDateOnlyBR } from "@/lib/utils";
-import { canReship, parseInsurancePlan, parseInsuranceSettingsFromMap, resolveCheckoutInsurance, type InsuranceProblem } from "@/lib/checkout-insurance";
+import { canReship, cappedLineDiscount, orderLineGross, orderLineNet, parseInsurancePlan, parseInsuranceSettingsFromMap, resolveCheckoutInsurance, type InsuranceProblem } from "@/lib/checkout-insurance";
 import { parseMotoboyDistanceEnabled } from "@/lib/motoboy-distance-config";
 import { AdminInsurancePanel } from "@/components/admin/AdminInsurancePanel";
 import { MotoboyDistanceCard } from "@/components/admin/MotoboyDistanceCard";
@@ -6074,7 +6073,17 @@ export default function Admin() {
   // Order editing
   const openEditOrder = async (order: AdminOrder) => {
     setEditOrderModal(order);
-    setEditItems(getOrderProducts(order.products).map((p) => ({ id: p.id, name: p.name, quantity: p.quantity, price: p.price, image: p.image })));
+    setEditItems(getOrderProducts(order.products).map((p) => ({
+      id: p.id,
+      name: p.name,
+      quantity: p.quantity,
+      price: p.price,
+      lineDiscount: Math.max(0, Number(p.lineDiscount) || 0),
+      image: p.image,
+      costPrice: p.costPrice,
+      swappedFrom: p.swappedFrom,
+      swapMode: p.swapMode,
+    })));
     setEditClientName(String(order.clientName || ""));
     setEditClientPhone(String(order.clientPhone || ""));
     setEditClientEmail(String(order.clientEmail || ""));
@@ -6308,7 +6317,7 @@ export default function Admin() {
         return;
       }
 
-      const subtotal = editItems.reduce((s, p) => s + p.price * p.quantity, 0);
+      const subtotal = editItems.reduce((s, p) => s + orderLineNet(p), 0);
       const shippingCost = editOrderModal.shippingCost;
       const discountAmount = editDiscount || 0;
       const insurance = resolveCheckoutInsurance({
@@ -6317,7 +6326,7 @@ export default function Admin() {
         subtotal,
         shippingCost,
         discountAmount,
-        lines: editItems.map((p) => ({ productId: p.id, lineTotal: p.price * p.quantity })),
+        lines: editItems.map((p) => ({ productId: p.id, lineTotal: orderLineNet(p) })),
         settings: parseInsuranceSettingsFromMap(settings),
         honorToggles: false,
       });
@@ -11769,10 +11778,16 @@ export default function Admin() {
                                   if (exists) {
                                     const newQty = exists.quantity + 1;
                                     const newPrice = resolveEditItemPrice(p, newQty);
-                                    setEditItems((prev) => prev.map((i) => i.id === p.id ? { ...i, quantity: newQty, price: newPrice, image: i.image || p.image } : i));
+                                    setEditItems((prev) => prev.map((i) => i.id === p.id ? {
+                                      ...i,
+                                      quantity: newQty,
+                                      price: newPrice,
+                                      lineDiscount: cappedLineDiscount({ ...i, quantity: newQty, price: newPrice }),
+                                      image: i.image || p.image,
+                                    } : i));
                                   } else {
                                     const newPrice = resolveEditItemPrice(p, 1);
-                                    setEditItems((prev) => [...prev, { id: p.id, name: p.name, quantity: 1, price: newPrice, image: p.image }]);
+                                    setEditItems((prev) => [...prev, { id: p.id, name: p.name, quantity: 1, price: newPrice, lineDiscount: 0, image: p.image }]);
                                   }
                                   setEditProductSearch("");
                                 }}>
@@ -11798,7 +11813,10 @@ export default function Admin() {
                       <p className="text-sm text-muted-foreground">Nenhum produto. Adicione acima.</p>
                     ) : (
                       <div className="space-y-2">
-                        {editItems.map((item, idx) => (
+                        {editItems.map((item, idx) => {
+                          const lineGross = orderLineGross(item);
+                          const lineDiscount = cappedLineDiscount(item);
+                          return (
                           <div key={idx} className="flex items-center gap-3 p-2.5 rounded-lg bg-muted/30 border border-border/50">
                             <InventoryProductThumb
                               name={item.name}
@@ -11806,7 +11824,28 @@ export default function Admin() {
                             />
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium truncate">{item.name}</p>
-                              <p className="text-xs text-muted-foreground">{formatCurrency(item.price)} × {item.quantity} = {formatCurrency(item.price * item.quantity)}</p>
+                              <p className="text-xs text-muted-foreground">{formatCurrency(item.price)} × {item.quantity} = {formatCurrency(lineGross)}</p>
+                              {lineDiscount > 0 && (
+                                <p className="text-xs text-green-700">Líquido {formatCurrency(orderLineNet(item))}</p>
+                              )}
+                              <label className="mt-1 block">
+                                <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Desconto</span>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step="0.01"
+                                  value={item.lineDiscount ? item.lineDiscount : ""}
+                                  placeholder="0"
+                                  onChange={(e) => {
+                                    const raw = Math.max(0, parseFloat(e.target.value) || 0);
+                                    setEditItems((prev) => prev.map((i, j) => j === idx ? {
+                                      ...i,
+                                      lineDiscount: cappedLineDiscount({ ...i, lineDiscount: raw }),
+                                    } : i));
+                                  }}
+                                  className="mt-0.5 h-8 w-full max-w-[140px] px-2 rounded-lg border border-border bg-background text-sm outline-none focus:border-primary"
+                                />
+                              </label>
                             </div>
                             <div className="flex items-center gap-1">
                               <button className="w-7 h-7 rounded-lg border border-border hover:bg-muted flex items-center justify-center text-base"
@@ -11815,7 +11854,12 @@ export default function Admin() {
                                   const newQty = item.quantity - 1;
                                   const catalog = editCatalog.find((c) => c.id === item.id);
                                   const newPrice = catalog ? resolveEditItemPrice(catalog, newQty) : item.price;
-                                  setEditItems((prev) => prev.map((i, j) => j === idx ? { ...i, quantity: newQty, price: newPrice } : i));
+                                  setEditItems((prev) => prev.map((i, j) => j === idx ? {
+                                    ...i,
+                                    quantity: newQty,
+                                    price: newPrice,
+                                    lineDiscount: cappedLineDiscount({ ...i, quantity: newQty, price: newPrice }),
+                                  } : i));
                                 }}>−</button>
                               <span className="w-6 text-center text-sm font-medium">{item.quantity}</span>
                               <button className="w-7 h-7 rounded-lg border border-border hover:bg-muted flex items-center justify-center text-base"
@@ -11823,13 +11867,19 @@ export default function Admin() {
                                   const newQty = item.quantity + 1;
                                   const catalog = editCatalog.find((c) => c.id === item.id);
                                   const newPrice = catalog ? resolveEditItemPrice(catalog, newQty) : item.price;
-                                  setEditItems((prev) => prev.map((i, j) => j === idx ? { ...i, quantity: newQty, price: newPrice } : i));
+                                  setEditItems((prev) => prev.map((i, j) => j === idx ? {
+                                    ...i,
+                                    quantity: newQty,
+                                    price: newPrice,
+                                    lineDiscount: cappedLineDiscount({ ...i, quantity: newQty, price: newPrice }),
+                                  } : i));
                                 }}>+</button>
                               <button className="w-7 h-7 ml-1 rounded-lg hover:bg-red-50 text-red-500 flex items-center justify-center"
                                 onClick={() => setEditItems((prev) => prev.filter((_, j) => j !== idx))}><X className="w-4 h-4" /></button>
                             </div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -11956,14 +12006,16 @@ export default function Admin() {
 
                   {/* Totals preview */}
                   {!editAsReshipment && editItems.length > 0 && (() => {
-                    const subtotal = editItems.reduce((s, p) => s + p.price * p.quantity, 0);
+                    const gross = editItems.reduce((s, p) => s + orderLineGross(p), 0);
+                    const subtotal = editItems.reduce((s, p) => s + orderLineNet(p), 0);
+                    const lineDiscountTotal = editItems.reduce((s, p) => s + cappedLineDiscount(p), 0);
                     const insurance = resolveCheckoutInsurance({
                       includeInsurance: editOrderModal.includeInsurance,
                       insurancePlan: (editOrderModal as { insurancePlan?: string | null }).insurancePlan,
                       subtotal,
                       shippingCost: editOrderModal.shippingCost,
                       discountAmount: editDiscount || 0,
-                      lines: editItems.map((p) => ({ productId: p.id, lineTotal: p.price * p.quantity })),
+                      lines: editItems.map((p) => ({ productId: p.id, lineTotal: orderLineNet(p) })),
                       settings: parseInsuranceSettingsFromMap(settings),
                       honorToggles: false,
                     });
@@ -11974,10 +12026,12 @@ export default function Admin() {
                     const diff = total - refValue;
                     return (
                       <div className="p-3 rounded-lg bg-muted/40 border border-border/50 text-sm space-y-1">
-                        <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
+                        {lineDiscountTotal > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Produtos</span><span>{formatCurrency(gross)}</span></div>}
+                        {lineDiscountTotal > 0 && <div className="flex justify-between text-green-700"><span>Desconto dos produtos</span><span>-{formatCurrency(lineDiscountTotal)}</span></div>}
+                        <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{formatCurrency(subtotal)}</span></div>}
                         <div className="flex justify-between"><span className="text-muted-foreground">Frete</span><span>{formatCurrency(editOrderModal.shippingCost)}</span></div>
                         {editOrderModal.includeInsurance && <div className="flex justify-between"><span className="text-muted-foreground">Seguro</span><span>{formatCurrency(insuranceAmount)}</span></div>}
-                        {(editDiscount || 0) > 0 && <div className="flex justify-between text-green-700"><span>Desconto</span><span>-{formatCurrency(editDiscount)}</span></div>}
+                        {(editDiscount || 0) > 0 && <div className="flex justify-between text-green-700"><span>Cupom</span><span>-{formatCurrency(editDiscount)}</span></div>}
                         <div className="flex justify-between font-bold border-t border-border/50 pt-1 mt-1"><span>Novo Total</span><span>{formatCurrency(total)}</span></div>
                         {hasPaidAmount && (
                           <div className="flex justify-between text-xs text-muted-foreground">
@@ -16279,7 +16333,8 @@ function OrdersPanel({
                     {orderProducts.map((p, i) => {
                       const imageSrc = resolveProductImage(p);
                       const qty = Number(p.quantity) || 0;
-                      const lineTotal = Number(p.price) * qty;
+                      const lineDiscount = cappedLineDiscount(p);
+                      const lineTotal = orderLineNet(p);
                       const unitCost = resolveOrderItemUnitCost(p, productCostById);
                       const lineProfit = lineTotal - (unitCost * qty);
                       const hasNegativeProfit = lineProfit < 0;
@@ -16325,6 +16380,9 @@ function OrdersPanel({
                         </div>
                         <div className="text-right shrink-0">
                           <span className="font-medium block">{formatCurrency(lineTotal)}</span>
+                          {lineDiscount > 0 && (
+                            <span className="block text-[11px] text-green-700">Desconto -{formatCurrency(lineDiscount)}</span>
+                          )}
                           <span className={`block text-xs font-medium ${hasNegativeProfit ? "text-red-600" : "text-emerald-700"}`}>
                             {hasNegativeProfit ? "Prejuízo" : "Lucro"}: {formatCurrency(lineProfit)}
                           </span>
