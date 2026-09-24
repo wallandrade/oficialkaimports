@@ -14,6 +14,7 @@ import Home from "@/pages/Home";
 import CategoryPage from "@/pages/CategoryPage";
 import OffersPage from "@/pages/OffersPage";
 import SellerPage from "@/pages/SellerPage";
+import Admin from "@/pages/Admin";
 
 // ---------------------------------------------------------------------------
 // React Error Boundary — prevents blank white page on uncaught render errors
@@ -101,7 +102,6 @@ class AppErrorBoundary extends Component<
   }
 }
 
-const Admin               = lazy(() => import("@/pages/Admin"));
 const Checkout            = lazy(() => import("@/pages/Checkout"));
 const PixPayment          = lazy(() => import("@/pages/PixPayment"));
 const Success             = lazy(() => import("@/pages/Success"));
