@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-09-22
+> **Última atualização:** 2026-09-23
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-23 | Anti-padrão: deixar o histórico de gestão aberto em todo card | Cabeçalho fechado; clique expande `OrderHistoryTimeline` | `order_events` e a timeline de rastreio |
 | 2026-09-22 | Anti-padrão: gravar só o campo `status` da EnvioEcom ou ordenar `status_history` com `Date.parse` | Rank do evento mais novo + `historyEventTimeMs` (`dd/mm/aaaa`) | Timeline continua texto original; auditoria `order_events` separada |
 | 2026-09-22 | Anti-padrão: tratar **Expedido** como envio criado ou ignorar `enviado` do pacote no admin | `hasEnvioEcomLabelReady` conta os dois; split sai de Pendente/Outros | “Aguardando expedição” não marca enviado |
 | 2026-09-21 | Anti-padrão: `<select>` no modal Reenvio do chamado (sem foto) | `ProductSelect` + `products[].image`; thumbnail na lista | Payload do `POST .../reenviar` |
@@ -215,7 +216,7 @@ Código > memória > suposições.
 - Copiar lote Motoboy/48h da filial sem o nome da loja; usar `site_name` no título (loja 1 fica sem sufixo).
 - Tratar status EnvioEcom como enum rígido (é texto livre).
 - Inventar histórico de rastreio EnvioEcom (ex. “Status atualizado ao consultar rastreio”); usar `status_history` da API, com `location` cidade/unidade, e não duplicar `description` igual ao status.
-- Usar a timeline de rastreio EnvioEcom ou `orders.updatedAt` como auditoria de quem editou o pedido; ações de gestão vão em `order_events` (quem/quando/`payload`). Pedidos antigos não têm backfill além do “Pedido criado” sintético.
+- Usar a timeline de rastreio EnvioEcom ou `orders.updatedAt` como auditoria de quem editou o pedido; ações de gestão vão em `order_events` (quem/quando/`payload`). Pedidos antigos não têm backfill além do “Pedido criado” sintético. Não deixar essa lista aberta em todo card: `OrderHistoryTimeline` começa fechado e só expande no clique.
 - No `fetchOrders` do admin, substituir a lista com um GET iniciado antes de gerar a etiqueta (apaga o PDF na tela). Abortar o request anterior e não limpar `envioecomLabelUrl` local.
 - Impersonar cliente sem `tenantId` na sessão (`/auth/me` 404 → tela de login) ou gravar o token só no `localStorage` da aba do admin.
 - Esconder “Editar Pedido” da filial com `isPrimary`; pedidos já são isolados por tenant — usar `hasGlobalAccess` (primary e admin de filial).

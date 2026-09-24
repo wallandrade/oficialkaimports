@@ -1,4 +1,4 @@
-import { Clock } from "lucide-react";
+import { ChevronDown, Clock } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { formatDateBR } from "@/lib/utils";
 
@@ -173,42 +173,60 @@ export function OrderHistoryTimeline({
     return () => { cancelled = true; };
   }, [orderId, refreshKey]);
 
+  const [open, setOpen] = useState(false);
   const items = mergeOrderHistoryEvents(liveEvents, { createdAt, clientName });
+  const countLabel = items.length === 1 ? "1 ação" : `${items.length} ações`;
+
   return (
-    <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
-      <div className="mb-3">
-        <p className="text-sm font-semibold text-foreground">Histórico do pedido</p>
-        <p className="text-[11px] text-muted-foreground">Tudo que foi feito neste pedido — mais recente em cima</p>
-      </div>
-      {items.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Nenhuma ação registrada ainda.</p>
-      ) : (
-        <ol className="space-y-0">
-          {items.map((event, index) => {
-            const title = ACTION_LABELS[event.action] || event.action;
-            const detail = payloadText(event);
-            const at = event.createdAt ? formatDateBR(event.createdAt) : "";
-            return (
-              <li key={event.id || `${event.action}-${event.createdAt}-${index}`} className="flex gap-3">
-                <div className="flex flex-col items-center">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-sky-600 text-white">
-                    <Clock className="h-3.5 w-3.5" />
-                  </span>
-                  {index < items.length - 1 ? <span className="w-px flex-1 min-h-4 bg-slate-200" /> : null}
-                </div>
-                <div className={index === items.length - 1 ? "pb-0.5" : "pb-4"}>
-                  <p className="text-sm font-semibold text-foreground">{title}</p>
-                  {detail ? <p className="text-xs text-muted-foreground">{detail}</p> : null}
-                  <p className="mt-0.5 text-[11px] text-slate-400">
-                    {actorLabel(event)}
-                    {at ? ` · ${at.replace(",", "")}` : ""}
-                  </p>
-                </div>
-              </li>
-            );
-          })}
-        </ol>
-      )}
+    <div className="mt-4 rounded-xl border border-slate-200 bg-white">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span className="text-sm font-semibold text-foreground">
+          Histórico do pedido
+          {items.length > 0 ? (
+            <span className="font-medium text-muted-foreground"> · {countLabel}</span>
+          ) : null}
+        </span>
+        <ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open ? (
+        <div className="px-4 pb-4">
+          <p className="mb-3 text-[11px] text-muted-foreground">Tudo que foi feito neste pedido — mais recente em cima</p>
+          {items.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nenhuma ação registrada ainda.</p>
+          ) : (
+            <ol className="space-y-0">
+              {items.map((event, index) => {
+                const title = ACTION_LABELS[event.action] || event.action;
+                const detail = payloadText(event);
+                const at = event.createdAt ? formatDateBR(event.createdAt) : "";
+                return (
+                  <li key={event.id || `${event.action}-${event.createdAt}-${index}`} className="flex gap-3">
+                    <div className="flex flex-col items-center">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-sky-600 text-white">
+                        <Clock className="h-3.5 w-3.5" />
+                      </span>
+                      {index < items.length - 1 ? <span className="w-px flex-1 min-h-4 bg-slate-200" /> : null}
+                    </div>
+                    <div className={index === items.length - 1 ? "pb-0.5" : "pb-4"}>
+                      <p className="text-sm font-semibold text-foreground">{title}</p>
+                      {detail ? <p className="text-xs text-muted-foreground">{detail}</p> : null}
+                      <p className="mt-0.5 text-[11px] text-slate-400">
+                        {actorLabel(event)}
+                        {at ? ` · ${at.replace(",", "")}` : ""}
+                      </p>
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
