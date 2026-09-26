@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-26 | Miniatura do catálogo ao lado do nome no admin | Produtos mais vendidos, cupom, prova social, order bump e fila “produtos voltando” | Pedidos, estoque, editar pedido e reenvio do chamado (já tinham foto); ranking continua nome/qtd/faturamento |
 | 2026-09-26 | Filho de reenvio no Total Pago entra só com acréscimo (`reshipment_covered_amount`) | Marcar pago não soma de novo o valor do original; sem acréscimo o filho vale R$ 0 e não conta como venda | Data e valor do pedido original; card continua R$ 0; comissão do filho continua 0; custo/taxa do filho fora do faturamento |
 | 2026-09-26 | Fim do período Motoboy à meia-noite aparece como 00, não 24 | Admin escolhe 00 no “às”; textos dizem 00:00; JSON continua `endHour: 24` | Faixas, ocupação e duração |
 | 2026-09-26 | Agenda Motoboy vira períodos da loja (`motoboy_slot_hours`) | Checkout escolhe faixa, 1 pedido por período; domingo fora; até 14 dias; depois das 18h só amanhã | Preço/cobertura; cópia do lote Yury continua sem agendamento; `interval_hours` da cobertura fica gravado e não monta a agenda |

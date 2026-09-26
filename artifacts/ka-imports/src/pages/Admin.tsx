@@ -1334,7 +1334,14 @@ function OrderBumpsPanel({ bumps, products, form, setForm, creating, toggling, d
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="font-bold text-sm text-orange-600">{b.title}</p>
-                    <p className="text-xs text-muted-foreground">{productName(b.productId)}</p>
+                    <p className="text-xs text-muted-foreground flex items-center gap-1.5 min-w-0">
+                      <InventoryProductThumb
+                        name={productName(b.productId)}
+                        image={products.find((p) => p.id === b.productId)?.image}
+                        size="h-6 w-6"
+                      />
+                      <span className="truncate">{productName(b.productId)}</span>
+                    </p>
                     {b.description && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{b.description}</p>}
                   </div>
                   <div className="flex gap-1.5 flex-shrink-0 items-center">
@@ -7181,7 +7188,7 @@ export default function Admin() {
   const statsTotalGenerated   = statsOrdersData.reduce((s, o) => s + dashboardSaleAmount(o), 0)
     + statsGeneratedCharges.reduce((s, c) => s + Number(c.amount), 0);
 
-  const statsTopProductsMap = new Map<string, { name: string; quantity: number; revenue: number }>();
+  const statsTopProductsMap = new Map<string, { name: string; quantity: number; revenue: number; image: string }>();
   for (const order of statsPaidOrders) {
     if (isDashboardReshipmentChild(order)) continue;
     for (const product of getOrderProducts(order.products)) {
@@ -7191,11 +7198,13 @@ export default function Admin() {
       const qty = Number(product.quantity) || 0;
       const unitPrice = Number(product.price) || 0;
       const lineRevenue = qty * unitPrice;
+      const image = catalogImageForItem(statsProductsData, product);
       if (current) {
         current.quantity += qty;
         current.revenue += lineRevenue;
+        if (!current.image && image) current.image = image;
       } else {
-        statsTopProductsMap.set(key, { name: product.name, quantity: qty, revenue: lineRevenue });
+        statsTopProductsMap.set(key, { name: product.name, quantity: qty, revenue: lineRevenue, image });
       }
     }
   }
@@ -7516,9 +7525,12 @@ export default function Admin() {
               <div className="space-y-2">
                 {statsTopProducts.map((product, idx) => (
                   <div key={`${product.name}-${idx}`} className="flex items-center justify-between rounded-lg bg-white/70 border border-indigo-100 px-3 py-2">
-                    <div className="min-w-0 pr-2">
-                      <p className="text-sm font-medium text-indigo-900 truncate">{idx + 1}. {product.name}</p>
-                      <p className="text-xs text-indigo-700/80">Faturamento: {formatCurrency(product.revenue)}</p>
+                    <div className="flex items-center gap-2 min-w-0 pr-2">
+                      <InventoryProductThumb name={product.name} image={product.image} size="h-8 w-8" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-indigo-900 truncate">{idx + 1}. {product.name}</p>
+                        <p className="text-xs text-indigo-700/80">Faturamento: {formatCurrency(product.revenue)}</p>
+                      </div>
                     </div>
                     <div className="text-xs font-semibold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded-full whitespace-nowrap">
                       {product.quantity} un
@@ -8992,7 +9004,8 @@ export default function Admin() {
                                         setSpFakeProductIds(next);
                                         saveSpSettings({ fakeProductIds: JSON.stringify(next) });
                                       }} />
-                                      {p.name}
+                                      <InventoryProductThumb name={p.name} image={p.image} size="h-6 w-6" />
+                                      <span className="truncate">{p.name}</span>
                                     </label>
                                   );
                                 })}
@@ -9042,7 +9055,8 @@ export default function Admin() {
                                       setSpFakeProductIds(next);
                                       saveSpSettings({ fakeProductIds: JSON.stringify(next) });
                                     }} />
-                                    {p.name}
+                                    <InventoryProductThumb name={p.name} image={p.image} size="h-6 w-6" />
+                                    <span className="truncate">{p.name}</span>
                                   </label>
                                 );
                               })}
@@ -9128,9 +9142,11 @@ export default function Admin() {
                         <div className="space-y-2 max-h-72 overflow-y-auto pr-0.5">
                           {spFakeEntries.map((entry) => (
                             <div key={entry.id} className="flex items-center gap-3 px-3 py-2.5 bg-muted/30 rounded-xl border border-border">
-                              <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                                <ShoppingBag className="w-3.5 h-3.5 text-primary" />
-                              </div>
+                              <InventoryProductThumb
+                                name={entry.productName}
+                                image={catalogImageForItem(products, { name: entry.productName })}
+                                size="h-8 w-8"
+                              />
                               <div className="flex-1 min-w-0">
                                 <p className="text-xs font-semibold truncate"><span className="text-primary">{entry.firstName}</span> · {entry.city}, {entry.state}</p>
                                 <p className="text-[11px] text-muted-foreground truncate">{entry.productName}</p>
@@ -12968,6 +12984,24 @@ function normalizeInventoryProductName(value: string): string {
     .trim();
 }
 
+function catalogImageForItem(
+  catalog: Array<{ id?: string | null; name?: string | null; image?: string | null }>,
+  item: { id?: string | null; name?: string | null; image?: string | null },
+): string {
+  const snapshot = String(item.image || "").trim();
+  if (snapshot) return snapshot;
+  const id = String(item.id || "").trim();
+  if (id) {
+    const byId = catalog.find((product) => String(product.id || "").trim() === id);
+    const fromId = String(byId?.image || "").trim();
+    if (fromId) return fromId;
+  }
+  const name = normalizeInventoryProductName(String(item.name || ""));
+  if (!name) return "";
+  const byName = catalog.find((product) => normalizeInventoryProductName(String(product.name || "")) === name);
+  return String(byName?.image || "").trim();
+}
+
 function findCatalogProductForYuryRow(
   products: Array<{ id: string; name: string; image?: string | null }>,
   row: { productId: string; productName: string },
@@ -13728,9 +13762,18 @@ function InventoryPanel({
                   {item.notes && (
                     <p className="text-xs text-red-700 mt-1">Pedido voltando: {item.notes}</p>
                   )}
-                  <p className="text-xs text-red-700 mt-1">
-                    {item.products.map((p) => `${p.quantity}x ${p.name}`).join(" · ")}
-                  </p>
+                  <div className="mt-2 space-y-1">
+                    {item.products.map((p, index) => (
+                      <div key={`${p.id}-${index}`} className="flex items-center gap-2 text-xs text-red-800">
+                        <InventoryProductThumb
+                          name={p.name}
+                          image={catalogImageForItem(products, p)}
+                          size="h-6 w-6"
+                        />
+                        <span className="truncate">{p.quantity}x {p.name}</span>
+                      </div>
+                    ))}
+                  </div>
                   <div className="mt-2 flex flex-wrap gap-2">
                     <Button
                       size="sm"
@@ -18960,6 +19003,7 @@ function CouponsPanel({
                             setCouponForm({ ...couponForm, eligibleProductIds: next });
                           }}
                         />
+                        <InventoryProductThumb name={p.name} image={p.image} size="h-6 w-6" />
                         <span className="truncate">{p.name}</span>
                       </label>
                     );
@@ -19023,11 +19067,22 @@ function CouponsPanel({
                     {c.maxUses && ` · Limite: ${c.usedCount}/${c.maxUses} usos`}
                     {!c.maxUses && ` · ${c.usedCount} uso${c.usedCount !== 1 ? "s" : ""}`}
                   </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {eligibleIds.length > 0
-                      ? `Válido somente para: ${eligibleIds.map(productNameById).join(", ")}`
-                      : "Válido para todos os produtos"}
-                  </p>
+                  {eligibleIds.length > 0 ? (
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {eligibleIds.map((id) => {
+                        const product = products.find((item) => item.id === id);
+                        const name = product?.name || productNameById(id);
+                        return (
+                          <span key={id} className="inline-flex items-center gap-1.5 max-w-full rounded-full border border-border bg-muted/40 px-1.5 py-0.5 text-xs text-muted-foreground">
+                            <InventoryProductThumb name={name} image={product?.image} size="h-5 w-5" />
+                            <span className="truncate">{name}</span>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground mt-1">Válido para todos os produtos</p>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">

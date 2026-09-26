@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-26 | Anti-padrão: listar produto no admin só pelo nome | `InventoryProductThumb` + foto do item ou do catálogo (id, senão nome) | Payload de cupom, bump e reenvio |
 | 2026-09-26 | Anti-padrão: gerar horário de Motoboy de hora em hora com `interval_hours` do bairro, da faixa ou do km | Períodos em `motoboy_slot_hours`; o servidor acha a faixa pelo `startHour` | Preço, cobertura e cópia do lote sem agendamento |
 | 2026-09-24 | Anti-padrão: baixar o `price` do item para aplicar desconto de linha | `lineDiscount` em reais; preço de catálogo permanece | Cupom do pedido (`discountAmount`) |
 | 2026-09-23 | Anti-padrão: deixar o histórico de gestão aberto em todo card | Cabeçalho fechado; clique expande `OrderHistoryTimeline` | `order_events` e a timeline de rastreio |
@@ -232,6 +233,7 @@ Código > memória > suposições.
 - Usar `<datalist>` nativo na busca de produto do estoque (não mostra foto); usar combobox com `products[].image` igual ao saldo.
 - Listar o catálogo no **Editar Pedido** só com nome e preço; usar foto (`editCatalog[].image`) no dropdown e em **Produtos no pedido**, como no estoque e em Trocar produto.
 - Usar `<select>` nativo em **Reenvio do chamado** (não mostra foto). Usar `ProductSelect` com `products[].image` e thumbnail na lista de itens, igual Estoque/Editar Pedido. O `POST .../reenviar` continua só id/nome/qtd.
+- Listar nome de produto no admin sem miniatura (ranking, cupom, prova social, order bump, fila de produto voltando). Usar `InventoryProductThumb`; foto do item, senão catálogo por id, senão por nome.
 - Miniatura no **Saldo atual por produto** só como `<img>` sem clique; usar zoom/lightbox para identificar a embalagem.
 - Listar saldo de estoque só por nome, misturando 0 un no topo; positivo primeiro, zeros no fim.
 - Debitar estoque no PATCH de reenvio fora de `reenvio_enviado`, ou não ter **Cancelar Reenvio** para quem não vai mais enviar (`reenvio_cancelado`). “Cancelar Reenvio Enviado” é só o undo do enviado.
