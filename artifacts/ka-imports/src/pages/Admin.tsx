@@ -7498,10 +7498,10 @@ export default function Admin() {
                   <div key={o.id} className="flex items-center justify-between rounded-lg bg-white/70 border border-amber-100 px-3 py-1.5">
                     <div className="min-w-0 pr-2">
                       <p className="text-sm font-medium text-amber-900 truncate">{o.clientName}</p>
-                      <p className="text-xs text-amber-700/80">#{o.id} · {formatDateBR(o.createdAt)}</p>
+                      <p className="text-xs text-amber-700/80">#{getOrderDisplayId(o)} · {formatDateBR(o.createdAt)}</p>
                     </div>
                     <span className="text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full whitespace-nowrap">
-                      {formatCurrency(dashboardSaleAmount(o))}
+                      {formatCurrency(Number(o.total) || 0)}
                     </span>
                   </div>
                 ))}
