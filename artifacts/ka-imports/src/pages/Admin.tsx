@@ -6829,6 +6829,9 @@ export default function Admin() {
     const isPendingNormalShipment = (o.status === "paid" || o.status === "completed") && !o.enviado && !hasEnvioEcomLabelReady(o as any);
     return isPendingNormalShipment || isActiveReshipment;
   });
+  const ordersParaEnviarPorAtraso = [...ordersParaEnviar].sort((a, b) => {
+    return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
+  });
   const ordersParaEnviarCopyBase = ordersParaEnviarDedupForCopy(ordersParaEnviar);
   const logisticsCopyGroups = (() => {
     const byPromisedHours = new Map<number, { promisedHours: number; orders: AdminOrder[] }>();
@@ -7493,21 +7496,51 @@ export default function Admin() {
                 <CheckCircle className="w-4 h-4 text-green-500" /> Todos os pedidos pagos já foram enviados!
               </p>
             ) : (
-              <div className="space-y-1.5 max-h-40 overflow-y-auto">
-                {ordersParaEnviar.slice(0, 5).map((o) => (
-                  <div key={o.id} className="flex items-center justify-between rounded-lg bg-white/70 border border-amber-100 px-3 py-1.5">
-                    <div className="min-w-0 pr-2">
-                      <p className="text-sm font-medium text-amber-900 truncate">{o.clientName}</p>
-                      <p className="text-xs text-amber-700/80">#{getOrderDisplayId(o)} · {formatDateBR(o.createdAt)}</p>
+              <div className="space-y-1.5 max-h-80 overflow-y-auto">
+                {ordersParaEnviarPorAtraso.slice(0, 5).map((o) => {
+                  const waitingDays = daysSince(o.createdAt);
+                  const lateToShip = waitingDays > 3;
+                  const lineProducts = getOrderProducts(o.products);
+                  const previewProducts = lineProducts.slice(0, 4);
+                  const hiddenProducts = Math.max(0, lineProducts.length - previewProducts.length);
+                  return (
+                    <div key={o.id} className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-1.5 ${lateToShip ? "bg-red-50 border-red-300" : "bg-white/70 border-amber-100"}`}>
+                      <div className="flex items-center gap-2 min-w-0 pr-2">
+                        <div className="flex items-center shrink-0">
+                          {previewProducts.map((product, index) => (
+                            <div key={`${product.id || product.name}-${index}`} className={index > 0 ? "-ml-2" : ""}>
+                              <InventoryProductThumb
+                                name={product.name}
+                                image={catalogImageForItem(products.length > 0 ? products : statsProductsData, product)}
+                                size="h-8 w-8"
+                              />
+                            </div>
+                          ))}
+                          {hiddenProducts > 0 && (
+                            <span className="ml-1 text-[10px] font-semibold text-amber-800">+{hiddenProducts}</span>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-amber-900 truncate">{o.clientName}</p>
+                          <p className="text-xs text-amber-700/80">#{getOrderDisplayId(o)} · {formatDateBR(o.createdAt)}</p>
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        {lateToShip && (
+                          <span className="text-[10px] font-bold text-red-700 bg-red-100 border border-red-200 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                            {waitingDays} dias sem enviar
+                          </span>
+                        )}
+                        <span className="text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full whitespace-nowrap">
+                          {formatCurrency(Number(o.total) || 0)}
+                        </span>
+                      </div>
                     </div>
-                    <span className="text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full whitespace-nowrap">
-                      {formatCurrency(Number(o.total) || 0)}
-                    </span>
-                  </div>
-                ))}
-                {ordersParaEnviar.length > 5 && (
+                  );
+                })}
+                {ordersParaEnviarPorAtraso.length > 5 && (
                   <p className="text-xs text-amber-700 font-semibold text-center mt-1">
-                    +{ordersParaEnviar.length - 5} pedidos a enviar
+                    +{ordersParaEnviarPorAtraso.length - 5} pedidos a enviar
                   </p>
                 )}
               </div>
