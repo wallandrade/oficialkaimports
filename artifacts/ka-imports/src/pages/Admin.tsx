@@ -861,6 +861,8 @@ import { canReship, cappedLineDiscount, orderLineGross, orderLineNet, parseInsur
 import { parseMotoboyDistanceEnabled } from "@/lib/motoboy-distance-config";
 import { AdminInsurancePanel } from "@/components/admin/AdminInsurancePanel";
 import { MotoboyDistanceCard } from "@/components/admin/MotoboyDistanceCard";
+import { MotoboySlotHoursCard } from "@/components/admin/MotoboySlotHoursCard";
+import { formatMotoboyHomePeriod, MOTOBOY_HOME_REMINDER } from "@/lib/motoboy-slot-hours";
 import { downloadFilialPurchasePdf, openFilialPurchasePdfInBrowser } from "@/lib/generateFilialPurchasePdf";
 import { generateChargePdf, generateOrderPdf } from "@/lib/generateOrderPdf";
 import { AdminLayout } from "@/components/layout/AdminLayout";
@@ -15895,13 +15897,14 @@ function OrdersPanel({
                     <div>
                       <p className={`text-xs font-semibold uppercase ${enviados[order.id] ? "text-slate-600" : "text-emerald-700"}`}>Entrega por motoboy</p>
                       <p className="font-bold text-foreground">
-                        {formatDateOnlyLocal(motoboySchedule.motoboyDeliveryDate)} às {motoboySchedule.motoboyDeliveryTime}
+                        {formatDateOnlyLocal(motoboySchedule.motoboyDeliveryDate)}{" "}
+                        {formatMotoboyHomePeriod(motoboySchedule.motoboyDeliveryTime, motoboySchedule.motoboyDeliveryDurationHours) || `às ${motoboySchedule.motoboyDeliveryTime}`}
                       </p>
+                      <p className={`text-xs ${enviados[order.id] ? "text-slate-600" : "text-emerald-800"}`}>{MOTOBOY_HOME_REMINDER}</p>
                     </div>
                   </div>
                   <span className="text-xs font-medium text-muted-foreground">
-                    Intervalo de {motoboySchedule.motoboyDeliveryDurationHours || 1}h
-                    {enviados[order.id] ? " · horário liberado" : " · horário reservado"}
+                    {enviados[order.id] ? "período liberado" : "período reservado"}
                   </span>
                 </div>
               )}
@@ -22038,6 +22041,12 @@ function FretePanel({
         onSave={onSaveSetting}
       />
 
+      <MotoboySlotHoursCard
+        settings={settings}
+        loading={settingsLoading}
+        onSave={onSaveSetting}
+      />
+
       {/* Add new frete */}
       <div className="bg-white rounded-2xl shadow-sm border border-border p-6">
         <h3 className="font-semibold text-base mb-4 flex items-center gap-2">
@@ -22251,6 +22260,7 @@ function FretePanel({
                 <option key={hours} value={hours}>{hours} hora{hours === "1" ? "" : "s"}</option>
               ))}
             </select>
+            <p className="text-[11px] text-muted-foreground mt-1">Não monta a agenda. Os períodos ficam no card Períodos do Motoboy.</p>
           </div>
           <div>
             <label className="block text-xs font-medium mb-1">Ordem de exibição</label>
@@ -22393,6 +22403,7 @@ function FretePanel({
               <option value="1">1 hora</option>
               <option value="2">2 horas</option>
             </select>
+            <p className="text-[11px] text-muted-foreground mt-1">Não monta a agenda. Os períodos ficam no card Períodos do Motoboy.</p>
           </div>
           <div>
             <label className="block text-xs font-medium mb-1">Ordem</label>

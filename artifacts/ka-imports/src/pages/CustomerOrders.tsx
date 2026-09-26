@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { clearCustomerToken, fetchCustomerProfile, getCustomerAuthHeaders } from "@/lib/customer-auth";
 import { formatCurrency, formatDateBR, getActiveWhatsApp } from "@/lib/utils";
+import { formatMotoboyHomePeriod, MOTOBOY_HOME_REMINDER } from "@/lib/motoboy-slot-hours";
 import {
   collapseCustomerPackagesForOrder,
   customerTransitBadgeLabel,
@@ -1014,8 +1015,9 @@ export default function CustomerOrders() {
                                 <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-100">
                                   <p className="text-sm font-semibold text-emerald-900 mb-1">Entrega por motoboy</p>
                                   <p className="text-sm text-emerald-800">
-                                    {formatMotoboyDate(order.motoboyDeliveryDate)} às {order.motoboyDeliveryTime || "-"}
-                                    {order.motoboyDeliveryDurationHours ? ` · intervalo de ${order.motoboyDeliveryDurationHours}h` : ""}
+                                    {formatMotoboyDate(order.motoboyDeliveryDate)}{" "}
+                                    {formatMotoboyHomePeriod(order.motoboyDeliveryTime, order.motoboyDeliveryDurationHours) || order.motoboyDeliveryTime || "-"}
+                                    . {MOTOBOY_HOME_REMINDER}
                                   </p>
                                 </div>
                               )}

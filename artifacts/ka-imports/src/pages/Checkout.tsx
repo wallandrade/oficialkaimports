@@ -29,6 +29,15 @@ import {
 } from "@/lib/checkout-insurance";
 import { CheckoutInsuranceOffer } from "@/components/checkout/CheckoutInsuranceOffer";
 import { coverageToShippingOption, fetchMotoboyCoverage } from "@/lib/motoboy-coverage";
+import {
+  formatMotoboyDayChip,
+  formatMotoboyHomePeriod,
+  getMotoboyCalendarBounds,
+  MOTOBOY_HOME_REMINDER,
+  motoboyDurationHours,
+  normalizeMotoboySlotOptions,
+  type MotoboySlotOption,
+} from "@/lib/motoboy-slot-hours";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const LANDER_GOLD_MIN_QTY = 5;
@@ -137,38 +146,6 @@ function formatCEP(value: string) {
   return `${d.slice(0, 5)}-${d.slice(5)}`;
 }
 
-function isSunday(date: string) {
-  const [year, month, day] = date.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, day)).getUTCDay() === 0;
-}
-
-function getSaoPauloNowParts() {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Sao_Paulo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(new Date());
-  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return {
-    date: `${value.year}-${value.month}-${value.day}`,
-    hour: Number(value.hour),
-  };
-}
-
-function addDaysYmd(date: string, days: number) {
-  const [year, month, day] = date.split("-").map(Number);
-  const next = new Date(Date.UTC(year, month - 1, day + days));
-  return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}-${String(next.getUTCDate()).padStart(2, "0")}`;
-}
-
-function getMotoboyCalendarMinDate() {
-  const now = getSaoPauloNowParts();
-  return now.hour >= 18 ? addDaysYmd(now.date, 1) : now.date;
-}
-
 function parseMotoboyEligibleProductIds(raw: unknown): string[] {
   if (raw == null || raw === "") return [];
   let parsed: unknown = raw;
@@ -226,8 +203,7 @@ export default function Checkout() {
   const [selectedShippingId, setSelectedShippingId] = useState<string | null>(null);
   const [motoboyDeliveryDate, setMotoboyDeliveryDate] = useState("");
   const [motoboyDeliveryTime, setMotoboyDeliveryTime] = useState("");
-  const [motoboyAvailableSlots, setMotoboyAvailableSlots] = useState<string[]>([]);
-  const [motoboyDurationHours, setMotoboyDurationHours] = useState(1);
+  const [motoboyAvailableSlots, setMotoboyAvailableSlots] = useState<MotoboySlotOption[]>([]);
   const [motoboySlotsLoading, setMotoboySlotsLoading] = useState(false);
   const [insurancePlan, setInsurancePlan] = useState<InsurancePlan>("none");
   const [showCardModal, setShowCardModal] = useState(false);
@@ -796,6 +772,10 @@ export default function Checkout() {
     ? selectedShipping?.motoboyAreaId || selectedShippingId!.slice("motoboy_".length)
     : "";
   const motoboyDeliveryAreaType = selectedShipping?.motoboyAreaType || "neighborhood";
+  const selectedMotoboySlot = motoboyAvailableSlots.find((slot) => slot.start === motoboyDeliveryTime) ?? null;
+  const motoboyDeliveryDurationHours = selectedMotoboySlot
+    ? motoboyDurationHours(selectedMotoboySlot.start, selectedMotoboySlot.end)
+    : null;
   const motoboySchedulePayload = isMotoboySelected
     ? { neighborhoodId: motoboyNeighborhoodId, deliveryAreaType: motoboyDeliveryAreaType, deliveryCep: cepDisplay, deliveryCity: cepCity, date: motoboyDeliveryDate, time: motoboyDeliveryTime }
     : undefined;
@@ -807,10 +787,10 @@ export default function Checkout() {
       setMotoboyAvailableSlots([]);
       return;
     }
-    const minDate = getMotoboyCalendarMinDate();
+    const { min, max, dates } = getMotoboyCalendarBounds();
     setMotoboyDeliveryDate((current) => {
-      if (!current || current < minDate) return minDate;
-      return current;
+      if (current && current >= min && current <= max && dates.includes(current)) return current;
+      return dates[0] || min;
     });
   }, [isMotoboySelected]);
 
@@ -829,10 +809,9 @@ export default function Checkout() {
       signal: controller.signal,
     })
       .then(async (response) => {
-        const result = await response.json() as { slots?: string[]; durationHours?: number; message?: string };
-        if (!response.ok) throw new Error(result.message || "Erro ao carregar horários.");
-        setMotoboyAvailableSlots(result.slots || []);
-        setMotoboyDurationHours(result.durationHours || 1);
+        const result = await response.json() as { slots?: unknown; message?: string };
+        if (!response.ok) throw new Error(result.message || "Erro ao carregar períodos.");
+        setMotoboyAvailableSlots(normalizeMotoboySlotOptions(result.slots));
       })
       .catch((error: Error) => {
         if (error.name === "AbortError") return;
@@ -848,7 +827,7 @@ export default function Checkout() {
 
   const validateMotoboySchedule = useCallback(() => {
     if (!isMotoboySelected || (motoboyDeliveryDate && motoboyDeliveryTime)) return true;
-    toast.error("Selecione a data e o horário da entrega por motoboy.");
+    toast.error("Selecione o dia e o período em que vai ter alguém em casa.");
     return false;
   }, [isMotoboySelected, motoboyDeliveryDate, motoboyDeliveryTime]);
   const shippingBaseCost = selectedShipping ? Number(selectedShipping.price) : 0;
@@ -1419,6 +1398,7 @@ export default function Checkout() {
             shippingType:    selectedShipping?.name ?? "Frete",
             motoboyDeliveryDate: isMotoboySelected ? motoboyDeliveryDate : undefined,
             motoboyDeliveryTime: isMotoboySelected ? motoboyDeliveryTime : undefined,
+            motoboyDeliveryDurationHours: isMotoboySelected ? motoboyDeliveryDurationHours : undefined,
             shippingCost,
             includeInsurance: insuranceSnapshot.includeInsurance,
           insurancePlan: insuranceSnapshot.plan === "none" ? undefined : insuranceSnapshot.plan,
@@ -1488,6 +1468,7 @@ export default function Checkout() {
           shippingType:    selectedShipping?.name ?? "Frete",
           motoboyDeliveryDate: isMotoboySelected ? motoboyDeliveryDate : undefined,
           motoboyDeliveryTime: isMotoboySelected ? motoboyDeliveryTime : undefined,
+          motoboyDeliveryDurationHours: isMotoboySelected ? motoboyDeliveryDurationHours : undefined,
           shippingCost,
           includeInsurance: insuranceSnapshot.includeInsurance,
           insurancePlan: insuranceSnapshot.plan === "none" ? undefined : insuranceSnapshot.plan,
@@ -1640,7 +1621,8 @@ export default function Checkout() {
           `📍 *Endereço:* ${data.street}, ${data.number}${data.complement ? ` – ${data.complement}` : ""}\n` +
           `🏘️ *Bairro:* ${data.neighborhood}\n` +
           `📮 *CEP:* ${data.cep}\n\n` +
-          `📅 *Agendamento:* ${motoboyDeliveryDate.split("-").reverse().join("/")} às ${motoboyDeliveryTime}\n\n` +
+          `📅 *Período:* ${motoboyDeliveryDate.split("-").reverse().join("/")} ${formatMotoboyHomePeriod(motoboyDeliveryTime, motoboyDeliveryDurationHours) || motoboyDeliveryTime}\n` +
+          `${MOTOBOY_HOME_REMINDER}\n\n` +
           `📦 *Itens:*\n${motoboyItemsText}\n\n` +
           `💰 *Produtos:* ${formatCurrency(subtotal)}\n` +
           `🏍️ *Motoboy:* ${formatCurrency(shippingCost)}\n` +
@@ -2365,50 +2347,55 @@ export default function Checkout() {
                     <div className="flex items-start gap-3">
                       <CalendarDays className="w-5 h-5 text-emerald-700 mt-0.5 shrink-0" />
                       <div>
-                        <p className="font-semibold text-emerald-950">Agende a entrega</p>
+                        <p className="font-semibold text-emerald-950">Quando você pode receber</p>
                         <p className="text-sm text-emerald-800 mt-0.5">
-                          Entregas a partir das 10h. Este bairro ocupa um intervalo de {motoboyDurationHours}h.
+                          Não tem horário marcado. Escolha o período em que vai ter alguém em casa — o motoboy entrega dentro desse intervalo.
                         </p>
                       </div>
                     </div>
 
                     <div>
-                      <label htmlFor="motoboy-delivery-date" className="text-sm font-medium text-foreground mb-1.5 block">
-                        Data da entrega
-                      </label>
-                      <Input
-                        id="motoboy-delivery-date"
-                        type="date"
-                        min={getMotoboyCalendarMinDate()}
-                        value={motoboyDeliveryDate}
-                        onChange={(event) => setMotoboyDeliveryDate(event.target.value)}
-                        className="bg-white"
-                      />
+                      <p className="text-sm font-medium text-foreground mb-2">Dia</p>
+                      <div className="flex gap-2 overflow-x-auto pb-1">
+                        {getMotoboyCalendarBounds().dates.map((date) => {
+                          const chip = formatMotoboyDayChip(date);
+                          const selected = motoboyDeliveryDate === date;
+                          return (
+                            <button
+                              key={date}
+                              type="button"
+                              onClick={() => setMotoboyDeliveryDate(date)}
+                              className={`shrink-0 min-w-[4.5rem] rounded-lg border px-2 py-1.5 text-center transition-colors ${selected ? "border-emerald-700 bg-emerald-700 text-white" : "border-emerald-200 bg-white text-emerald-900 hover:border-emerald-500"}`}
+                            >
+                              <span className="block text-[11px] uppercase tracking-wide">{chip.weekday}</span>
+                              <span className="block text-sm font-semibold">{chip.day}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
 
                     {motoboyDeliveryDate && (
                       <div>
-                        <p className="text-sm font-medium text-foreground mb-2">Horário disponível</p>
+                        <p className="text-sm font-medium text-foreground mb-2">Período com alguém em casa</p>
                         {motoboySlotsLoading ? (
                           <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
                             <Loader2 className="w-4 h-4 animate-spin" /> Consultando agenda...
                           </div>
                         ) : motoboyAvailableSlots.length === 0 ? (
                           <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
-                            {isSunday(motoboyDeliveryDate)
-                              ? "Não realizamos entregas por motoboy aos domingos. Selecione outro dia."
-                              : "Não há horários disponíveis nesta data. Selecione outro dia."}
+                            Não há períodos livres nesta data. Selecione outro dia.
                           </p>
                         ) : (
-                          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                          <div className="grid grid-cols-1 gap-2">
                             {motoboyAvailableSlots.map((slot) => (
                               <button
-                                key={slot}
+                                key={slot.start}
                                 type="button"
-                                onClick={() => setMotoboyDeliveryTime(slot)}
-                                className={`h-10 rounded-lg border text-sm font-semibold transition-colors ${motoboyDeliveryTime === slot ? "border-emerald-700 bg-emerald-700 text-white" : "border-emerald-200 bg-white text-emerald-900 hover:border-emerald-500"}`}
+                                onClick={() => setMotoboyDeliveryTime(slot.start)}
+                                className={`min-h-10 rounded-lg border px-3 py-2 text-left text-sm font-semibold transition-colors ${motoboyDeliveryTime === slot.start ? "border-emerald-700 bg-emerald-700 text-white" : "border-emerald-200 bg-white text-emerald-900 hover:border-emerald-500"}`}
                               >
-                                {slot}
+                                {slot.label}
                               </button>
                             ))}
                           </div>

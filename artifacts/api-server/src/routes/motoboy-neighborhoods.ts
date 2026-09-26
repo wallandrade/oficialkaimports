@@ -68,7 +68,7 @@ router.get("/motoboy-delivery/availability", async (req, res) => {
       return;
     }
     console.error("[MotoboyDelivery] availability error:", error);
-    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao consultar horários de entrega." });
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao consultar períodos de entrega." });
   }
 });
 

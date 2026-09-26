@@ -6,6 +6,7 @@ import { useCart } from "@/store/use-cart";
 import { MessageCircle, CheckCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import { fetchAndCacheSellerWhatsApp, makeWhatsAppLink, formatCurrency } from "@/lib/utils";
+import { formatMotoboyHomePeriod, MOTOBOY_HOME_REMINDER } from "@/lib/motoboy-slot-hours";
 
 interface OrderInfo {
   orderId?: string;
@@ -26,6 +27,7 @@ interface OrderInfo {
   shippingType?: string;
   motoboyDeliveryDate?: string;
   motoboyDeliveryTime?: string;
+  motoboyDeliveryDurationHours?: number | null;
   shippingCost?: number;
   includeInsurance?: boolean;
   insuranceAmount?: number;
@@ -81,7 +83,9 @@ function buildTrackingMessage(info: OrderInfo): string {
     if (isMotoboy && info.motoboyDeliveryDate) {
       const match = String(info.motoboyDeliveryDate).match(/^(\d{4})-(\d{2})-(\d{2})$/);
       const dateLabel = match ? `${match[3]}/${match[2]}/${match[1]}` : info.motoboyDeliveryDate;
-      lines.push(`  Agendamento: ${dateLabel} às ${info.motoboyDeliveryTime || "-"}`);
+      const period = formatMotoboyHomePeriod(info.motoboyDeliveryTime, info.motoboyDeliveryDurationHours);
+      lines.push(`  Período: ${dateLabel} ${period || info.motoboyDeliveryTime || "-"}`);
+      lines.push(`  ${MOTOBOY_HOME_REMINDER}`);
     }
   }
   if (info.includeInsurance && info.insuranceAmount) {
@@ -167,8 +171,10 @@ export default function Success() {
             <p className="text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-xl px-4 py-3 mb-6 text-sm">
               Entrega por motoboy: {(() => {
                 const match = String(orderInfo.motoboyDeliveryDate).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-                return match ? `${match[3]}/${match[2]}/${match[1]}` : orderInfo.motoboyDeliveryDate;
-              })()} às {orderInfo.motoboyDeliveryTime || "-"}
+                const dateLabel = match ? `${match[3]}/${match[2]}/${match[1]}` : orderInfo.motoboyDeliveryDate;
+                const period = formatMotoboyHomePeriod(orderInfo.motoboyDeliveryTime, orderInfo.motoboyDeliveryDurationHours);
+                return `${dateLabel} ${period || orderInfo.motoboyDeliveryTime || "-"}. ${MOTOBOY_HOME_REMINDER}`;
+              })()}
             </p>
           )}
 

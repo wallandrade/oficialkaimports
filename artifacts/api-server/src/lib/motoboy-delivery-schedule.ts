@@ -5,11 +5,23 @@ import {
   motoboyCepRangesTable,
   motoboyDeliveryReservationsTable,
   motoboyNeighborhoodsTable,
+  siteSettingsTable,
+  tenantSettingsTable,
 } from "@workspace/db";
-import { isMotoboyDistanceSlotId, MOTOBOY_DISTANCE_INTERVAL_HOURS, MOTOBOY_DISTANCE_SLOT_ID } from "./motoboy-distance";
-
-const FIRST_SLOT_HOUR = 10;
-const END_OF_DAY_HOUR = 20;
+import { isMotoboyDistanceSlotId, MOTOBOY_DISTANCE_SLOT_ID } from "./motoboy-distance";
+import {
+  addDaysYmd,
+  findPeriodByStartTime,
+  formatMotoboyHour,
+  intervalOverlapsPeriod,
+  isSundayYmd,
+  listAvailableSlotOptions,
+  MOTOBOY_SLOT_HORIZON_DAYS,
+  MOTOBOY_SLOT_HOURS_KEY,
+  occupiedIntervalsFromReservations,
+  resolveMotoboySlotPeriods,
+  type MotoboySlotPeriod,
+} from "./motoboy-slot-hours";
 
 type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -55,33 +67,33 @@ function getSaoPauloNow(): { date: string; hour: number } {
   };
 }
 
-function isSunday(date: string): boolean {
-  const [year, month, day] = date.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, day)).getUTCDay() === 0;
-}
-
-function parseSchedule(input: MotoboyScheduleInput): { neighborhoodId: string; deliveryAreaType: "neighborhood" | "cepRange"; date: string; hour: number; time: string } {
+function parseDeliveryTarget(input: MotoboyScheduleInput): {
+  neighborhoodId: string;
+  deliveryAreaType: "neighborhood" | "cepRange";
+  date: string;
+} {
   const neighborhoodId = String(input?.neighborhoodId || "").trim();
   const deliveryAreaType = input?.deliveryAreaType === "cepRange" ? "cepRange" : "neighborhood";
   const date = String(input?.date || "").trim();
-  const time = String(input?.time || "").trim();
-  const match = /^(\d{2}):00$/.exec(time);
-  const hour = match ? Number(match[1]) : Number.NaN;
 
-  if (!neighborhoodId || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isInteger(hour)) {
-    throw new MotoboyScheduleError("INVALID_MOTOBOY_SCHEDULE", "Selecione uma data e um horário válidos para o motoboy.");
+  if (!neighborhoodId || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    throw new MotoboyScheduleError("INVALID_MOTOBOY_SCHEDULE", "Selecione uma data e um período válidos para o motoboy.");
   }
   if (date < getSaoPauloNow().date) {
     throw new MotoboyScheduleError("INVALID_MOTOBOY_SCHEDULE", "A data de entrega não pode estar no passado.");
   }
 
-  return { neighborhoodId, deliveryAreaType, date, hour, time };
+  return { neighborhoodId, deliveryAreaType, date };
 }
 
-export function resolveMotoboyDurationHours(raw: unknown, fallback = 1): number {
-  const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 8) return fallback;
-  return parsed;
+function parseBookedTime(timeRaw: unknown): { hour: number; time: string } {
+  const time = String(timeRaw || "").trim();
+  const match = /^(\d{2}):00$/.exec(time);
+  const hour = match ? Number(match[1]) : Number.NaN;
+  if (!Number.isInteger(hour)) {
+    throw new MotoboyScheduleError("INVALID_MOTOBOY_SCHEDULE", "Selecione um período de entrega válido.");
+  }
+  return { hour, time: formatMotoboyHour(hour) };
 }
 
 function distanceDeliveryArea() {
@@ -89,8 +101,30 @@ function distanceDeliveryArea() {
     id: MOTOBOY_DISTANCE_SLOT_ID,
     name: "Motoboy por km",
     city: null as string | null,
-    durationHours: MOTOBOY_DISTANCE_INTERVAL_HOURS,
   };
+}
+
+async function getSettingValue(tenantId: string, key: string): Promise<string | null> {
+  const tenantRows = await db
+    .select({ value: tenantSettingsTable.value })
+    .from(tenantSettingsTable)
+    .where(and(eq(tenantSettingsTable.tenantId, tenantId), eq(tenantSettingsTable.key, key)))
+    .limit(1);
+
+  if (tenantRows[0]?.value != null) return tenantRows[0].value;
+
+  const legacyRows = await db
+    .select({ value: siteSettingsTable.value })
+    .from(siteSettingsTable)
+    .where(eq(siteSettingsTable.key, key))
+    .limit(1);
+
+  return legacyRows[0]?.value ?? null;
+}
+
+async function loadSlotPeriods(tenantId: string): Promise<MotoboySlotPeriod[]> {
+  const raw = await getSettingValue(tenantId, MOTOBOY_SLOT_HOURS_KEY);
+  return resolveMotoboySlotPeriods(raw);
 }
 
 async function resolveDeliveryArea(
@@ -107,7 +141,6 @@ async function resolveDeliveryArea(
         id: motoboyCepRangesTable.id,
         name: motoboyCepRangesTable.label,
         city: motoboyCepRangesTable.city,
-        durationHours: motoboyCepRangesTable.intervalHours,
       }).from(motoboyCepRangesTable).where(and(
         eq(motoboyCepRangesTable.id, neighborhoodId),
         eq(motoboyCepRangesTable.tenantId, tenantId),
@@ -117,7 +150,6 @@ async function resolveDeliveryArea(
         id: motoboyNeighborhoodsTable.id,
         name: motoboyNeighborhoodsTable.neighborhoodName,
         city: motoboyNeighborhoodsTable.city,
-        durationHours: motoboyNeighborhoodsTable.intervalHours,
       }).from(motoboyNeighborhoodsTable).where(and(
         eq(motoboyNeighborhoodsTable.id, neighborhoodId),
         eq(motoboyNeighborhoodsTable.tenantId, tenantId),
@@ -127,37 +159,41 @@ async function resolveDeliveryArea(
   return deliveryArea ?? null;
 }
 
+async function loadOccupiedIntervals(tenantId: string, date: string, tx?: DbTransaction) {
+  const queryDb = tx ?? db;
+  const reservations = await queryDb
+    .select({
+      orderId: motoboyDeliveryReservationsTable.orderId,
+      slotHour: motoboyDeliveryReservationsTable.slotHour,
+      startTime: motoboyDeliveryReservationsTable.startTime,
+      durationHours: motoboyDeliveryReservationsTable.durationHours,
+    })
+    .from(motoboyDeliveryReservationsTable)
+    .where(and(
+      eq(motoboyDeliveryReservationsTable.tenantId, tenantId),
+      eq(motoboyDeliveryReservationsTable.deliveryDate, date),
+    ));
+  return occupiedIntervalsFromReservations(reservations);
+}
+
 export async function getMotoboyAvailability(tenantId: string, input: MotoboyScheduleInput) {
-  const { neighborhoodId, deliveryAreaType, date } = parseSchedule({ ...input, time: input.time || "10:00" });
+  const { neighborhoodId, deliveryAreaType, date } = parseDeliveryTarget(input);
   const deliveryArea = await resolveDeliveryArea(tenantId, neighborhoodId, deliveryAreaType);
 
   if (!deliveryArea) {
     throw new MotoboyScheduleError("INVALID_MOTOBOY_SCHEDULE", "Área não disponível para entrega por motoboy.");
   }
 
-  const durationHours = resolveMotoboyDurationHours(deliveryArea.durationHours);
-  if (isSunday(date)) {
-    return { slots: [], durationHours, deliveryArea };
-  }
-  const reservations = await db
-    .select({ slotHour: motoboyDeliveryReservationsTable.slotHour })
-    .from(motoboyDeliveryReservationsTable)
-    .where(and(
-      eq(motoboyDeliveryReservationsTable.tenantId, tenantId),
-      eq(motoboyDeliveryReservationsTable.deliveryDate, date),
-    ));
-  const occupiedHours = new Set(reservations.map((reservation) => reservation.slotHour));
-  const slots: string[] = [];
-  const saoPauloNow = getSaoPauloNow();
+  const periods = await loadSlotPeriods(tenantId);
+  const slots = listAvailableSlotOptions({
+    periods,
+    date,
+    now: getSaoPauloNow(),
+    occupied: await loadOccupiedIntervals(tenantId, date),
+    isSunday: isSundayYmd(date),
+  });
 
-  for (let hour = FIRST_SLOT_HOUR; hour + durationHours <= END_OF_DAY_HOUR; hour += 1) {
-    if (date === saoPauloNow.date && hour <= saoPauloNow.hour) continue;
-    const isAvailable = Array.from({ length: durationHours }, (_, offset) => hour + offset)
-      .every((slotHour) => !occupiedHours.has(slotHour));
-    if (isAvailable) slots.push(`${String(hour).padStart(2, "0")}:00`);
-  }
-
-  return { slots, durationHours, deliveryArea };
+  return { slots };
 }
 
 export async function reserveMotoboySchedule(
@@ -166,7 +202,8 @@ export async function reserveMotoboySchedule(
   orderId: string,
   input: MotoboyScheduleInput,
 ) {
-  const { neighborhoodId, deliveryAreaType, date, hour, time } = parseSchedule(input);
+  const { neighborhoodId, deliveryAreaType, date } = parseDeliveryTarget(input);
+  const { time } = parseBookedTime(input.time);
   const deliveryCepDigits = String(input.deliveryCep || "").replace(/\D/g, "");
   const deliveryCep = deliveryCepDigits.length === 8 ? Number(deliveryCepDigits) : null;
   const deliveryCity = normalizeCity(input.deliveryCity);
@@ -183,7 +220,6 @@ export async function reserveMotoboySchedule(
           id: motoboyCepRangesTable.id,
           name: motoboyCepRangesTable.label,
           city: motoboyCepRangesTable.city,
-          durationHours: motoboyCepRangesTable.intervalHours,
         }).from(motoboyCepRangesTable).where(and(
           eq(motoboyCepRangesTable.id, neighborhoodId),
           eq(motoboyCepRangesTable.tenantId, tenantId),
@@ -195,7 +231,6 @@ export async function reserveMotoboySchedule(
           id: motoboyNeighborhoodsTable.id,
           name: motoboyNeighborhoodsTable.neighborhoodName,
           city: motoboyNeighborhoodsTable.city,
-          durationHours: motoboyNeighborhoodsTable.intervalHours,
         }).from(motoboyNeighborhoodsTable).where(and(
           eq(motoboyNeighborhoodsTable.id, neighborhoodId),
           eq(motoboyNeighborhoodsTable.tenantId, tenantId),
@@ -209,40 +244,49 @@ export async function reserveMotoboySchedule(
     throw new MotoboyScheduleError("INVALID_MOTOBOY_SCHEDULE", "A faixa de CEP não pertence à cidade informada.");
   }
 
-  const durationHours = resolveMotoboyDurationHours(deliveryArea.durationHours);
-  const saoPauloNow = getSaoPauloNow();
-  if (isSunday(date)) {
-    throw new MotoboyScheduleError("DELIVERY_SLOT_UNAVAILABLE", "Não realizamos entregas por motoboy aos domingos.");
-  }
-  if (hour < FIRST_SLOT_HOUR || hour + durationHours > END_OF_DAY_HOUR) {
-    throw new MotoboyScheduleError("INVALID_MOTOBOY_SCHEDULE", "O horário selecionado está fora do período de entregas.");
-  }
-  if (date === saoPauloNow.date && hour <= saoPauloNow.hour) {
-    throw new MotoboyScheduleError("DELIVERY_SLOT_UNAVAILABLE", "Esse horário já passou. Escolha outro horário.");
+  const periods = await loadSlotPeriods(tenantId);
+  const period = findPeriodByStartTime(periods, time);
+  if (!period) {
+    throw new MotoboyScheduleError("INVALID_MOTOBOY_SCHEDULE", "Esse período não está disponível.");
   }
 
+  const saoPauloNow = getSaoPauloNow();
+  if (isSundayYmd(date)) {
+    throw new MotoboyScheduleError("DELIVERY_SLOT_UNAVAILABLE", "Não realizamos entregas por motoboy aos domingos.");
+  }
+  if (date > addDaysYmd(saoPauloNow.date, MOTOBOY_SLOT_HORIZON_DAYS)) {
+    throw new MotoboyScheduleError("INVALID_MOTOBOY_SCHEDULE", "A entrega por motoboy pode ser marcada em até 14 dias.");
+  }
+  if (date === saoPauloNow.date && period.endHour <= saoPauloNow.hour) {
+    throw new MotoboyScheduleError("DELIVERY_SLOT_UNAVAILABLE", "Esse período já encerrou. Escolha outro período.");
+  }
+
+  const occupied = await loadOccupiedIntervals(tenantId, date, tx);
+  if (occupied.some((interval) => intervalOverlapsPeriod(period, interval))) {
+    throw new MotoboyScheduleError("DELIVERY_SLOT_UNAVAILABLE", "Esse período acabou de ser ocupado. Escolha outro período.");
+  }
+
+  const durationHours = period.endHour - period.startHour;
   try {
-    await tx.insert(motoboyDeliveryReservationsTable).values(
-      Array.from({ length: durationHours }, (_, offset) => ({
-        id: crypto.randomBytes(8).toString("hex"),
-        tenantId,
-        orderId,
-        neighborhoodId: isDistanceSlot ? MOTOBOY_DISTANCE_SLOT_ID : neighborhoodId,
-        neighborhoodName: deliveryArea.name,
-        city: deliveryArea.city,
-        deliveryDate: date,
-        slotHour: hour + offset,
-        startTime: time,
-        durationHours,
-      })),
-    );
+    await tx.insert(motoboyDeliveryReservationsTable).values({
+      id: crypto.randomBytes(8).toString("hex"),
+      tenantId,
+      orderId,
+      neighborhoodId: isDistanceSlot ? MOTOBOY_DISTANCE_SLOT_ID : neighborhoodId,
+      neighborhoodName: deliveryArea.name,
+      city: deliveryArea.city,
+      deliveryDate: date,
+      slotHour: period.startHour,
+      startTime: formatMotoboyHour(period.startHour),
+      durationHours,
+    });
   } catch (error) {
     const databaseError = error as { code?: string; cause?: { code?: string } };
     if (databaseError.code === "ER_DUP_ENTRY" || databaseError.cause?.code === "ER_DUP_ENTRY") {
-      throw new MotoboyScheduleError("DELIVERY_SLOT_UNAVAILABLE", "Esse horário acabou de ser ocupado. Escolha outro horário.");
+      throw new MotoboyScheduleError("DELIVERY_SLOT_UNAVAILABLE", "Esse período acabou de ser ocupado. Escolha outro período.");
     }
     throw error;
   }
 
-  return { date, time, durationHours };
+  return { date, time: formatMotoboyHour(period.startHour), durationHours };
 }

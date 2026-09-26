@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-09-24
+> **Última atualização:** 2026-09-26
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-26 | Anti-padrão: gerar horário de Motoboy de hora em hora com `interval_hours` do bairro, da faixa ou do km | Períodos em `motoboy_slot_hours`; o servidor acha a faixa pelo `startHour` | Preço, cobertura e cópia do lote sem agendamento |
 | 2026-09-24 | Anti-padrão: baixar o `price` do item para aplicar desconto de linha | `lineDiscount` em reais; preço de catálogo permanece | Cupom do pedido (`discountAmount`) |
 | 2026-09-23 | Anti-padrão: deixar o histórico de gestão aberto em todo card | Cabeçalho fechado; clique expande `OrderHistoryTimeline` | `order_events` e a timeline de rastreio |
 | 2026-09-22 | Anti-padrão: gravar só o campo `status` da EnvioEcom ou ordenar `status_history` com `Date.parse` | Rank do evento mais novo + `historyEventTimeMs` (`dd/mm/aaaa`) | Timeline continua texto original; auditoria `order_events` separada |

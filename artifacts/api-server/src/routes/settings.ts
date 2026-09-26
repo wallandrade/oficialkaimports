@@ -15,6 +15,7 @@ import {
   TENANT_SYNC_PRODUCTS_FROM_LOJA1_KEY,
   syncAllLoja1ProductsToTenant,
 } from "../lib/tenant-product-sync";
+import { MOTOBOY_SLOT_HOURS_KEY, serializeMotoboySlotHours, validateMotoboySlotHours } from "../lib/motoboy-slot-hours";
 
 const router: IRouter = Router();
 
@@ -60,6 +61,7 @@ const ALLOWED_KEYS = [
   "motoboy_distance_enabled",
   "motoboy_origin_cep",
   "motoboy_distance_config",
+  MOTOBOY_SLOT_HOURS_KEY,
 ];
 
 const IMAGE_SETTING_KEYS = new Set([
@@ -297,6 +299,14 @@ router.put("/admin/settings/:key", requireAdminAuth, async (req, res) => {
       }
     } else {
       let storedValue = value;
+      if (key === MOTOBOY_SLOT_HOURS_KEY) {
+        const parsed = validateMotoboySlotHours(value);
+        if (!parsed.ok) {
+          res.status(400).json({ error: "INVALID_INPUT", message: parsed.message });
+          return;
+        }
+        storedValue = serializeMotoboySlotHours(parsed.periods);
+      }
       if (IMAGE_SETTING_KEYS.has(key) && value.startsWith("data:image/")) {
         if (!isR2Configured()) {
           res.status(503).json({
