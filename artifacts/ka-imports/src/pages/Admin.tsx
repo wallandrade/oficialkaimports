@@ -7500,7 +7500,10 @@ export default function Admin() {
                 {ordersParaEnviarPorAtraso.map((o) => {
                   const waitingDays = daysSince(o.createdAt);
                   const lateToShip = waitingDays > 3;
-                  const lineProducts = getOrderProducts(o.products);
+                  const pendingShipment = getPendingShipmentCopy(o);
+                  const lineProducts = pendingShipment.isPartialSplit
+                    ? pendingShipment.items
+                    : getOrderProducts(o.products);
                   const previewProducts = lineProducts.slice(0, 4);
                   const hiddenProducts = Math.max(0, lineProducts.length - previewProducts.length);
                   return (
