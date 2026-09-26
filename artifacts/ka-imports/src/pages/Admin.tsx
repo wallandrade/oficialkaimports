@@ -2276,6 +2276,8 @@ export default function Admin() {
     };
   }>(null);
   const [financialSummaryLoading, setFinancialSummaryLoading] = React.useState(false);
+  const [shipQueuePhotoPreview, setShipQueuePhotoPreview] = useState<{ src: string; name: string } | null>(null);
+  const [shipQueuePhotoHover, setShipQueuePhotoHover] = useState<{ src: string; name: string; top: number; left: number } | null>(null);
   const [, setLocation] = useLocation();
   const [tab, setTab] = useState<TabType>("orders");
   const [orders, setOrders] = useState<AdminOrder[]>([]);
@@ -7510,15 +7512,41 @@ export default function Admin() {
                     <div key={o.id} className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-1.5 ${lateToShip ? "bg-red-50 border-red-300" : "bg-white/70 border-amber-100"}`}>
                       <div className="flex items-center gap-2 min-w-0 pr-2">
                         <div className="flex items-center shrink-0">
-                          {previewProducts.map((product, index) => (
-                            <div key={`${product.id || product.name}-${index}`} className={index > 0 ? "-ml-2" : ""}>
-                              <InventoryProductThumb
-                                name={product.name}
-                                image={catalogImageForItem(products.length > 0 ? products : statsProductsData, product)}
-                                size="h-8 w-8"
-                              />
-                            </div>
-                          ))}
+                          {previewProducts.map((product, index) => {
+                            const image = catalogImageForItem(products.length > 0 ? products : statsProductsData, product);
+                            return (
+                              <div
+                                key={`${product.id || product.name}-${index}`}
+                                className={`relative hover:z-20 ${index > 0 ? "-ml-2" : ""}`}
+                                onMouseEnter={(event) => {
+                                  if (!image) return;
+                                  const rect = event.currentTarget.getBoundingClientRect();
+                                  setShipQueuePhotoHover({
+                                    src: image,
+                                    name: product.name,
+                                    top: rect.top + rect.height / 2,
+                                    left: rect.right + 10,
+                                  });
+                                }}
+                                onMouseLeave={() => setShipQueuePhotoHover(null)}
+                              >
+                                <InventoryProductThumb
+                                  name={product.name}
+                                  image={image}
+                                  size="h-8 w-8"
+                                  onPreview={image ? () => {
+                                    setShipQueuePhotoHover(null);
+                                    setShipQueuePhotoPreview({ src: image, name: product.name });
+                                  } : undefined}
+                                />
+                                {image && (
+                                  <span className="pointer-events-none absolute -bottom-1 -right-1 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-amber-300 bg-white shadow-sm">
+                                    <Search className="h-2 w-2 text-amber-800" />
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
                           {hiddenProducts > 0 && (
                             <span className="ml-1 text-[10px] font-semibold text-amber-800">+{hiddenProducts}</span>
                           )}
@@ -7544,6 +7572,19 @@ export default function Admin() {
               </div>
             )}
           </div>
+          <InventoryImageLightbox preview={shipQueuePhotoPreview} onClose={() => setShipQueuePhotoPreview(null)} />
+          {shipQueuePhotoHover && !shipQueuePhotoPreview && (
+            <div
+              className="pointer-events-none fixed z-[110] -translate-y-1/2 rounded-xl border border-border bg-white p-1 shadow-2xl"
+              style={{ top: shipQueuePhotoHover.top, left: shipQueuePhotoHover.left }}
+            >
+              <img
+                src={shipQueuePhotoHover.src}
+                alt={`Zoom ${shipQueuePhotoHover.name}`}
+                className="h-32 w-32 rounded-lg object-cover"
+              />
+            </div>
+          )}
 
           <div className="mt-3 rounded-xl border p-4 bg-indigo-50 border-indigo-200">
             <div className="flex items-center justify-between mb-2">
