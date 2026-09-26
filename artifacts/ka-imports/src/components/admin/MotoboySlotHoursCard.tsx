@@ -17,6 +17,13 @@ type Props = {
   onSave: (key: string, value: string) => void | Promise<void>;
 };
 
+const CLOCK_HOURS = Array.from({ length: 24 }, (_, hour) => hour);
+const END_HOURS = [...CLOCK_HOURS.slice(1), 0];
+
+function hourOptionLabel(hour: number): string {
+  return String(hour).padStart(2, "0");
+}
+
 export function MotoboySlotHoursCard({ settings, loading, onSave }: Props) {
   const [periods, setPeriods] = useState<MotoboySlotPeriod[]>(() => resolveMotoboySlotPeriods(settings[MOTOBOY_SLOT_HOURS_KEY]));
   const [dirty, setDirty] = useState(false);
@@ -52,6 +59,7 @@ export function MotoboySlotHoursCard({ settings, loading, onSave }: Props) {
       <p className="text-xs text-muted-foreground mb-4">
         O cliente não marca uma hora. Ele escolhe um período em que alguém estará em casa, e o motoboy entrega dentro desse intervalo.
         Sem valor salvo, a loja usa um período só: 10:00 às 20:00. Vale para bairro, faixa de CEP e km.
+        No fim, 00 é meia-noite.
       </p>
 
       <div className="space-y-3 mb-4">
@@ -59,27 +67,32 @@ export function MotoboySlotHoursCard({ settings, loading, onSave }: Props) {
           <div key={index} className="flex flex-wrap items-end gap-2">
             <label className="text-sm">
               <span className="block text-xs font-medium mb-1">das</span>
-              <input
-                type="number"
-                min={0}
-                max={23}
-                step={1}
+              <select
+                aria-label={`Início do período ${index + 1}`}
                 value={period.startHour}
                 onChange={(event) => updatePeriod(index, { startHour: Number(event.target.value) })}
-                className="w-24 h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm"
-              />
+                className="w-24 h-10 px-3 rounded-xl border-2 border-border bg-white outline-none focus:border-primary text-sm"
+              >
+                {CLOCK_HOURS.map((hour) => (
+                  <option key={hour} value={hour}>{hourOptionLabel(hour)}</option>
+                ))}
+              </select>
             </label>
             <label className="text-sm">
               <span className="block text-xs font-medium mb-1">às</span>
-              <input
-                type="number"
-                min={1}
-                max={24}
-                step={1}
-                value={period.endHour}
-                onChange={(event) => updatePeriod(index, { endHour: Number(event.target.value) })}
-                className="w-24 h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm"
-              />
+              <select
+                aria-label={`Fim do período ${index + 1}`}
+                value={period.endHour === 24 ? 0 : period.endHour}
+                onChange={(event) => {
+                  const hour = Number(event.target.value);
+                  updatePeriod(index, { endHour: hour === 0 ? 24 : hour });
+                }}
+                className="w-24 h-10 px-3 rounded-xl border-2 border-border bg-white outline-none focus:border-primary text-sm"
+              >
+                {END_HOURS.map((hour) => (
+                  <option key={hour} value={hour}>{hourOptionLabel(hour)}</option>
+                ))}
+              </select>
             </label>
             <Button
               type="button"

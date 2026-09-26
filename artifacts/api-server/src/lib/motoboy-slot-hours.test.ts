@@ -144,6 +144,18 @@ test("a reserva procura o período pelo início, não pelo texto do botão", () 
   assert.equal(findPeriodByStartTime(periods, "08:30"), null);
 });
 
+test("meia-noite aparece como 00:00, não como 24:00", () => {
+  const slots = listAvailableSlotOptions({
+    periods: [{ startHour: 19, endHour: 24 }],
+    date: "2026-09-28",
+    now: { date: "2026-09-26", hour: 9 },
+    occupied: [],
+    isSunday: false,
+  });
+  assert.equal(slots[0]?.end, "00:00");
+  assert.equal(slots[0]?.label, "Entrega das 19:00 às 00:00");
+});
+
 test("o próximo período começa no fim do anterior e dura 3 horas, no máximo até 24", () => {
   assert.deepEqual(nextDraftPeriod([{ startHour: 8, endHour: 11 }]), { startHour: 11, endHour: 14 });
   assert.deepEqual(nextDraftPeriod([{ startHour: 19, endHour: 22 }]), { startHour: 22, endHour: 24 });

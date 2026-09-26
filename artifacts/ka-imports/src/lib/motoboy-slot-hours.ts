@@ -22,7 +22,8 @@ export type SlotHoursParseResult =
   | { ok: false; message: string };
 
 export function formatMotoboyHour(hour: number): string {
-  return `${String(hour).padStart(2, "0")}:00`;
+  const shown = hour === 24 ? 0 : hour;
+  return `${String(shown).padStart(2, "0")}:00`;
 }
 
 function periodsCross(left: MotoboySlotPeriod, right: MotoboySlotPeriod): boolean {
@@ -162,7 +163,7 @@ export function motoboyDurationHours(start: string, end: string): number | null 
   const endMatch = /^(\d{2}):00$/.exec(end);
   if (!startMatch || !endMatch) return null;
   const startHour = Number(startMatch[1]);
-  const endHour = Number(endMatch[1]);
+  const endHour = Number(endMatch[1]) === 0 ? 24 : Number(endMatch[1]);
   if (endHour <= startHour || endHour > 24) return null;
   return endHour - startHour;
 }
