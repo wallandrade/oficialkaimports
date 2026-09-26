@@ -7497,7 +7497,7 @@ export default function Admin() {
               </p>
             ) : (
               <div className="space-y-1.5 max-h-80 overflow-y-auto">
-                {ordersParaEnviarPorAtraso.slice(0, 5).map((o) => {
+                {ordersParaEnviarPorAtraso.map((o) => {
                   const waitingDays = daysSince(o.createdAt);
                   const lateToShip = waitingDays > 3;
                   const lineProducts = getOrderProducts(o.products);
@@ -7538,11 +7538,6 @@ export default function Admin() {
                     </div>
                   );
                 })}
-                {ordersParaEnviarPorAtraso.length > 5 && (
-                  <p className="text-xs text-amber-700 font-semibold text-center mt-1">
-                    +{ordersParaEnviarPorAtraso.length - 5} pedidos a enviar
-                  </p>
-                )}
               </div>
             )}
           </div>
