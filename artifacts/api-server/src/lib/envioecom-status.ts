@@ -120,6 +120,30 @@ export function hasEnvioEcomLabelReady(input: {
   return statusMatches(input.envioecomStatus, LABEL_READY_MARKERS) || shouldMarkEnviadoFromStatus(input.envioecomStatus);
 }
 
+export type EnvioEcomLabelTrackingInput = {
+  envioecomLabelUrl?: string | null;
+  envioecomStatus?: string | null;
+  envioecomBarcode?: string | null;
+  envioecomTrackingKey?: string | null;
+  trackingCode?: string | null;
+};
+
+/** Etiqueta pronta e rastreio utilizável (barcode real ou tracking key). Código provisório `EC…` não conta. */
+export function hasEnvioEcomLabelAndTracking(input: EnvioEcomLabelTrackingInput): boolean {
+  if (!hasEnvioEcomLabelReady(input)) return false;
+  if (isUsableLabelBarcode(input.envioecomBarcode) || isUsableLabelBarcode(input.trackingCode)) return true;
+  return Boolean(String(input.envioecomTrackingKey || "").trim());
+}
+
+/** Split (2+ pacotes): todos com etiqueta e rastreio. Sem divisão: os campos do pedido. */
+export function orderHasEnvioEcomLabelAndTracking(
+  order: EnvioEcomLabelTrackingInput,
+  packages: EnvioEcomLabelTrackingInput[],
+): boolean {
+  if (packages.length >= 2) return packages.every(hasEnvioEcomLabelAndTracking);
+  return hasEnvioEcomLabelAndTracking(order);
+}
+
 export function shouldMarkCompletedFromStatus(status: unknown): boolean {
   const normalized = normalizeStatus(status);
   if (!normalized) return false;

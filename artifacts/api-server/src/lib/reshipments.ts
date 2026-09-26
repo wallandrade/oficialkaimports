@@ -20,6 +20,7 @@ import {
   serializeKaInventoryExitedPools,
   type KaInventoryExitPool,
 } from "./yury-inventory";
+import { orderHasEnvioEcomLabelAndTracking } from "./envioecom-status";
 import { packageInventoryReferenceId, parseOrderShipmentItems } from "./order-shipments-logic";
 import { listYuryInventoryBalances } from "./yury-inventory-sync";
 import { debitYuryInventoryForKaOrder, YuryInventoryExitError } from "./yury-inventory-exit";
@@ -1320,4 +1321,93 @@ export async function getReshipmentByOrderIds(orderIds: string[], tenantId = DEF
       originalOrderCreatedAt: row.originalOrderCreatedAt?.toISOString() || null,
     },
   ]));
+}
+
+const OPEN_RESHIPMENT_STATUSES = ["reenvio_aguardando_estoque", "reenvio_pronto_para_envio"] as const;
+
+async function loadOrderEnvioEcomLabelTracking(orderIds: string[]) {
+  if (orderIds.length === 0) return new Map<string, { order: { envioecomLabelUrl: string | null; envioecomStatus: string | null; envioecomBarcode: string | null; envioecomTrackingKey: string | null; trackingCode: string | null }; packages: Array<{ envioecomLabelUrl: string | null; envioecomStatus: string | null; envioecomBarcode: string | null; envioecomTrackingKey: string | null }> }>();
+  const [orders, packages] = await Promise.all([
+    db
+      .select({
+        id: ordersTable.id,
+        envioecomLabelUrl: ordersTable.envioecomLabelUrl,
+        envioecomStatus: ordersTable.envioecomStatus,
+        envioecomBarcode: ordersTable.envioecomBarcode,
+        envioecomTrackingKey: ordersTable.envioecomTrackingKey,
+        trackingCode: ordersTable.trackingCode,
+      })
+      .from(ordersTable)
+      .where(inArray(ordersTable.id, orderIds)),
+    db
+      .select({
+        orderId: orderShipmentsTable.orderId,
+        envioecomLabelUrl: orderShipmentsTable.envioecomLabelUrl,
+        envioecomStatus: orderShipmentsTable.envioecomStatus,
+        envioecomBarcode: orderShipmentsTable.envioecomBarcode,
+        envioecomTrackingKey: orderShipmentsTable.envioecomTrackingKey,
+      })
+      .from(orderShipmentsTable)
+      .where(inArray(orderShipmentsTable.orderId, orderIds)),
+  ]);
+  const packagesByOrder = new Map<string, Array<{ envioecomLabelUrl: string | null; envioecomStatus: string | null; envioecomBarcode: string | null; envioecomTrackingKey: string | null }>>();
+  for (const pkg of packages) {
+    const list = packagesByOrder.get(pkg.orderId) || [];
+    list.push(pkg);
+    packagesByOrder.set(pkg.orderId, list);
+  }
+  return new Map(orders.map((order) => [order.id, { order, packages: packagesByOrder.get(order.id) || [] }]));
+}
+
+/** Marca reenvio aberto como enviado quando a etiqueta EnvioEcom já tem rastreio. Não baixa estoque. */
+export async function markOpenReshipmentSentIfLabeled(orderId: string): Promise<boolean> {
+  const id = String(orderId || "").trim();
+  if (!id) return false;
+  const rows = await db
+    .select({
+      id: reshipmentsTable.id,
+      tenantId: reshipmentsTable.tenantId,
+    })
+    .from(reshipmentsTable)
+    .where(and(
+      eq(reshipmentsTable.orderId, id),
+      inArray(reshipmentsTable.status, [...OPEN_RESHIPMENT_STATUSES]),
+    ));
+  if (rows.length === 0) return false;
+  const loaded = await loadOrderEnvioEcomLabelTracking([id]);
+  const current = loaded.get(id);
+  if (!current || !orderHasEnvioEcomLabelAndTracking(current.order, current.packages)) return false;
+  let marked = false;
+  for (const reshipment of rows) {
+    const updated = await setReshipmentStatus(reshipment.id, "reenvio_enviado", reshipment.tenantId || DEFAULT_TENANT_ID);
+    if (!updated) continue;
+    marked = true;
+    console.log(`[Reshipment] Etiqueta EnvioEcom marcou reenvio ${reshipment.id} do pedido ${id} como enviado`);
+  }
+  return marked;
+}
+
+/** Varre reenvios ainda abertos e marca os que já têm etiqueta e rastreio. Não baixa estoque. */
+export async function syncOpenReshipmentsSentFromEnvioEcom(): Promise<number> {
+  const rows = await db
+    .select({
+      id: reshipmentsTable.id,
+      orderId: reshipmentsTable.orderId,
+      tenantId: reshipmentsTable.tenantId,
+    })
+    .from(reshipmentsTable)
+    .where(inArray(reshipmentsTable.status, [...OPEN_RESHIPMENT_STATUSES]));
+  if (rows.length === 0) return 0;
+  const loaded = await loadOrderEnvioEcomLabelTracking(Array.from(new Set(rows.map((row) => row.orderId))));
+  let marked = 0;
+  for (const row of rows) {
+    const current = loaded.get(row.orderId);
+    if (!current || !orderHasEnvioEcomLabelAndTracking(current.order, current.packages)) continue;
+    const updated = await setReshipmentStatus(row.id, "reenvio_enviado", row.tenantId || DEFAULT_TENANT_ID);
+    if (updated) marked += 1;
+  }
+  if (marked > 0) {
+    console.log(`[Reshipment] Varredura marcou ${marked} reenvio(s) com etiqueta e rastreio EnvioEcom`);
+  }
+  return marked;
 }

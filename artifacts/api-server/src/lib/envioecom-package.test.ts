@@ -8,7 +8,9 @@ import {
   classifyEnvioEcomTrackingGroup,
   envioecomTrackingRank,
   extractStatusHistoryFromShipment,
+  hasEnvioEcomLabelAndTracking,
   hasEnvioEcomLabelReady,
+  orderHasEnvioEcomLabelAndTracking,
   historyEventTimeMs,
   isEnvioEcomCancelledStatus,
   isLabelBlockedStatus,
@@ -355,6 +357,39 @@ test("append preenche location vazia no mesmo status", () => {
   });
   assert.equal(second.length, 1);
   assert.equal(second[0].location, "Ribeirão Preto - SN RAO");
+});
+
+test("etiqueta com rastreio real marca; código EC ou pacote incompleto não", () => {
+  assert.equal(hasEnvioEcomLabelAndTracking({
+    envioecomLabelUrl: "https://cdn.example/label.pdf",
+    envioecomBarcode: "888030939485009",
+  }), true);
+  assert.equal(hasEnvioEcomLabelAndTracking({
+    envioecomStatus: "Etiqueta emitida",
+    envioecomTrackingKey: "129827000003707",
+  }), true);
+  assert.equal(hasEnvioEcomLabelAndTracking({
+    envioecomLabelUrl: "https://cdn.example/label.pdf",
+    envioecomBarcode: "EC12345",
+  }), false);
+  assert.equal(hasEnvioEcomLabelAndTracking({
+    envioecomBarcode: "888030939485009",
+    envioecomStatus: "Envio criado",
+  }), false);
+  assert.equal(orderHasEnvioEcomLabelAndTracking(
+    { envioecomBarcode: "111", envioecomStatus: "Etiqueta emitida" },
+    [
+      { envioecomLabelUrl: "https://cdn.example/a.pdf", envioecomBarcode: "129827000003707" },
+      { envioecomLabelUrl: "https://cdn.example/b.pdf", envioecomBarcode: "888030939485009" },
+    ],
+  ), true);
+  assert.equal(orderHasEnvioEcomLabelAndTracking(
+    { envioecomBarcode: "111", envioecomStatus: "Etiqueta emitida" },
+    [
+      { envioecomLabelUrl: "https://cdn.example/a.pdf", envioecomBarcode: "129827000003707" },
+      { envioecomStatus: "Envio criado" },
+    ],
+  ), false);
 });
 
 test("erro EnvioEcom junta message e details", () => {

@@ -17,6 +17,7 @@ import {
 } from "./envioecom-status";
 import { allocateOrderLogistics, completeOrderLogistics } from "./order-logistics";
 import { ensureOrderMarkedEnviado } from "./order-enviado";
+import { markOpenReshipmentSentIfLabeled } from "./reshipments";
 import { grantInsuranceCashbackIfEligible } from "./customer-wallet";
 
 export type EnvioEcomShipmentPatch = {
@@ -188,6 +189,11 @@ export async function persistEnvioEcomShipment(order: typeof ordersTable.$inferS
     } catch (err) {
       console.warn("[EnvioEcom] Falha ao marcar enviado:", err);
     }
+  }
+  try {
+    await markOpenReshipmentSentIfLabeled(order.id);
+  } catch (err) {
+    console.warn("[EnvioEcom] Falha ao marcar reenvio enviado pela etiqueta:", err);
   }
 
   const refreshed = await db.select().from(ordersTable).where(eq(ordersTable.id, order.id)).limit(1);
