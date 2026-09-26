@@ -3277,6 +3277,7 @@ function mapOrder(o: typeof ordersTable.$inferSelect, options?: { light?: boolea
     insuranceReshipCount: Number((o as { insuranceReshipCount?: unknown }).insuranceReshipCount || 0),
     insuranceCashbackGranted: Boolean((o as { insuranceCashbackGranted?: unknown }).insuranceCashbackGranted),
     parentOrderId:       (o as { parentOrderId?: string | null }).parentOrderId ?? null,
+    reshipmentCoveredAmount: o.reshipmentCoveredAmount != null ? Number(o.reshipmentCoveredAmount) : null,
     storeCreditUsed:     (o as { storeCreditUsed?: unknown }).storeCreditUsed != null ? Number((o as { storeCreditUsed?: unknown }).storeCreditUsed) : null,
     subtotal:            Number(o.subtotal),
     shippingCost:        Number(o.shippingCost),

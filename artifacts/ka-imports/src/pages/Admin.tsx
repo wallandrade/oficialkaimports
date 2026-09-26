@@ -40,6 +40,32 @@ function daysSince(date: string | Date | undefined | null): number {
   if (isNaN(d.getTime())) return 0;
   return Math.max(0, Math.floor((Date.now() - d.getTime()) / 86400000));
 }
+
+function isDashboardReshipmentChild(order: {
+  observation?: string | null;
+  parentOrderId?: string | null;
+}): boolean {
+  if (String(order.parentOrderId || "").trim()) return true;
+  return String(order.observation || "").toUpperCase().includes("REENVIO DO PEDIDO");
+}
+
+/** Total Pago: filho de reenvio só entra com o acréscimo acima do valor já pago no original. */
+function dashboardSaleAmount(order: {
+  observation?: string | null;
+  parentOrderId?: string | null;
+  total?: number | string | null;
+  reshipmentCoveredAmount?: number | string | null;
+}): number {
+  const total = Number(order.total ?? 0);
+  const safeTotal = Number.isFinite(total) ? total : 0;
+  if (!isDashboardReshipmentChild(order)) {
+    return Math.round(safeTotal * 100) / 100;
+  }
+  if (order.reshipmentCoveredAmount == null || order.reshipmentCoveredAmount === "") return 0;
+  const covered = Number(order.reshipmentCoveredAmount);
+  if (!Number.isFinite(covered)) return 0;
+  return Math.round(Math.max(0, safeTotal - covered) * 100) / 100;
+}
 // Funções utilitárias para recuperar dados do localStorage
 function getIsPrimary() {
   return localStorage.getItem("adminIsPrimary") === "true";
@@ -7102,14 +7128,14 @@ export default function Admin() {
   };
 
   // ── Dashboard stats — uses independently fetched data (own API call) ─────
-  const statsPaidOrders    = statsOrdersData.filter((o) => o.status === "paid" || o.status === "completed");
+  const statsPaidOrders    = statsOrdersData.filter((o) => (o.status === "paid" || o.status === "completed") && dashboardSaleAmount(o) > 0.009);
   const statsPixPaid       = statsPaidOrders.filter((o) => o.paymentMethod === "pix" || o.paymentMethod === "whatsapp_pix");
   const statsCardPaid      = statsPaidOrders.filter((o) => o.paymentMethod === "card_simulation");
   const statsLinkPaid      = statsChargesData.filter((c) => c.status === "paid");
-  const statsPendingCount  = statsOrdersData.filter((o) => o.status === "awaiting_payment" || o.status === "pending").length;
+  const statsPendingCount  = statsOrdersData.filter((o) => (o.status === "awaiting_payment" || o.status === "pending") && dashboardSaleAmount(o) > 0.009).length;
 
-  const statsPixRevenue      = statsPixPaid.reduce((s, o) => s + Number(o.total), 0);
-  const statsCardRevenue     = statsCardPaid.reduce((s, o) => s + Number(o.total), 0);
+  const statsPixRevenue      = statsPixPaid.reduce((s, o) => s + dashboardSaleAmount(o), 0);
+  const statsCardRevenue     = statsCardPaid.reduce((s, o) => s + dashboardSaleAmount(o), 0);
   const statsLinkRevenue     = statsLinkPaid.reduce((s, c) => s + Number(c.amount), 0);
   const statsTotalRevenue    = statsPixRevenue + statsCardRevenue + statsLinkRevenue;
   const statsTotalPaid       = statsPixPaid.length + statsCardPaid.length + statsLinkPaid.length;
@@ -7128,6 +7154,7 @@ export default function Admin() {
   };
 
   const statsOrderCommission = statsPaidOrders.reduce((sum, order) => {
+    if (isDashboardReshipmentChild(order)) return sum;
     const rate = getCommissionRate(order.sellerCode, order.sellerCommissionRateSnapshot);
     return sum + (Number(order.total) * rate) / 100;
   }, 0);
@@ -7139,6 +7166,7 @@ export default function Admin() {
 
   const productCostMap = new Map(statsProductsData.map((p) => [p.id, Number(p.costPrice || 0)] as const));
   const statsTotalCost = statsPaidOrders.reduce((sum, order) => {
+    if (isDashboardReshipmentChild(order)) return sum;
     const orderCost = getOrderProducts(order.products).reduce((lineSum, item) => {
       const qty = Number(item.quantity) || 0;
       const lineCost = resolveOrderItemUnitCost(item, productCostMap);
@@ -7148,13 +7176,14 @@ export default function Admin() {
   }, 0);
   const statsNetRevenue = statsTotalRevenue - statsTotalCost - statsTotalCommission;
 
-  const statsGeneratedOrders  = statsOrdersData;
+  const statsGeneratedOrders  = statsOrdersData.filter((o) => !isDashboardReshipmentChild(o) || dashboardSaleAmount(o) > 0.009);
   const statsGeneratedCharges = statsChargesData;
-  const statsTotalGenerated   = statsGeneratedOrders.reduce((s, o) => s + Number(o.total), 0)
+  const statsTotalGenerated   = statsOrdersData.reduce((s, o) => s + dashboardSaleAmount(o), 0)
     + statsGeneratedCharges.reduce((s, c) => s + Number(c.amount), 0);
 
   const statsTopProductsMap = new Map<string, { name: string; quantity: number; revenue: number }>();
   for (const order of statsPaidOrders) {
+    if (isDashboardReshipmentChild(order)) continue;
     for (const product of getOrderProducts(order.products)) {
       const key = String(product.name || "").trim().toLowerCase();
       if (!key) continue;
@@ -7463,7 +7492,7 @@ export default function Admin() {
                       <p className="text-xs text-amber-700/80">#{o.id} · {formatDateBR(o.createdAt)}</p>
                     </div>
                     <span className="text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full whitespace-nowrap">
-                      {formatCurrency(Number(o.total))}
+                      {formatCurrency(dashboardSaleAmount(o))}
                     </span>
                   </div>
                 ))}
@@ -17275,23 +17304,26 @@ function SellerAnalyticsCard({ seller, orders, charges }: { seller: SavedSellerI
     return d >= dateFrom && d <= dateTo;
   });
 
-  const paidOrders      = sellerOrders.filter((o) => o.status === "paid" || o.status === "completed");
+  const paidOrders      = sellerOrders.filter((o) => (o.status === "paid" || o.status === "completed") && dashboardSaleAmount(o) > 0.009);
   const pixPaid         = paidOrders.filter((o) => o.paymentMethod === "pix" || o.paymentMethod === "whatsapp_pix");
   const cardPaid        = paidOrders.filter((o) => o.paymentMethod === "card_simulation");
   const paidCharges     = sellerCharges.filter((c) => c.status === "paid");
-  const pending         = sellerOrders.filter((o) => o.status === "awaiting_payment" || o.status === "pending");
-  const generatedOrders = sellerOrders.filter((o) => o.status !== "cancelled");
+  const pending         = sellerOrders.filter((o) => (o.status === "awaiting_payment" || o.status === "pending") && dashboardSaleAmount(o) > 0.009);
+  const generatedOrders = sellerOrders.filter((o) => o.status !== "cancelled" && (!isDashboardReshipmentChild(o) || dashboardSaleAmount(o) > 0.009));
   const generatedCharges = sellerCharges.filter((c) => c.status !== "cancelled");
 
-  const pixRevenue      = pixPaid.reduce((s, o) => s + Number(o.total), 0);
-  const cardRevenue     = cardPaid.reduce((s, o) => s + Number(o.total), 0);
+  const pixRevenue      = pixPaid.reduce((s, o) => s + dashboardSaleAmount(o), 0);
+  const cardRevenue     = cardPaid.reduce((s, o) => s + dashboardSaleAmount(o), 0);
   const linkRevenue     = paidCharges.reduce((s, c) => s + Number(c.amount), 0);
   const totalRevenue    = pixRevenue + cardRevenue + linkRevenue;
   const totalPaid       = pixPaid.length + cardPaid.length + paidCharges.length;
   const commissionRate  = seller.hasCommission ? Number(seller.commissionRate || 0) : 0;
-  const commission      = totalRevenue * (commissionRate / 100);
+  const commissionBase  = pixPaid.reduce((s, o) => s + (isDashboardReshipmentChild(o) ? 0 : Number(o.total)), 0)
+    + cardPaid.reduce((s, o) => s + (isDashboardReshipmentChild(o) ? 0 : Number(o.total)), 0)
+    + linkRevenue;
+  const commission      = commissionBase * (commissionRate / 100);
 
-  const generatedRevenue = generatedOrders.reduce((s, o) => s + Number(o.total), 0)
+  const generatedRevenue = sellerOrders.filter((o) => o.status !== "cancelled").reduce((s, o) => s + dashboardSaleAmount(o), 0)
     + generatedCharges.reduce((s, c) => s + Number(c.amount), 0);
 
   return (

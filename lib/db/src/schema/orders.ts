@@ -39,6 +39,7 @@ export const ordersTable = mysqlTable("orders", {
   insuranceReshipCount: int("insurance_reship_count").notNull().default(0),
   insuranceCashbackGranted: boolean("insurance_cashback_granted").notNull().default(false),
   parentOrderId: varchar("parent_order_id", { length: 255 }),
+  reshipmentCoveredAmount: decimal("reshipment_covered_amount", { precision: 10, scale: 2 }),
   storeCreditUsed: decimal("store_credit_used", { precision: 10, scale: 2 }),
   subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
   shippingCost: decimal("shipping_cost", { precision: 10, scale: 2 }).notNull(),

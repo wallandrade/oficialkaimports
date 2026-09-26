@@ -3,6 +3,7 @@ import { db, filialPurchaseRequestsTable, marketingExpensesTable, ordersTable, p
 import { and, desc, eq, gt, gte, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { isReshipmentChildOrder } from "../lib/product-sold-qty";
+import { reshipmentDashboardAmount } from "../lib/reshipment-sale-amount";
 
 const router: IRouter = Router();
 const DEFAULT_TENANT_ID = "tenant_loja1";
@@ -331,7 +332,15 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
       .map(([channelName, channelTotal]) => ({ channel: channelName, total: channelTotal }))
       .sort((a, b) => b.total - a.total);
 
-    const totalPaid = saleOrders.reduce((sum, o) => sum + parseFloat(o.total || "0"), 0);
+    const reshipmentPaidIncrement = orders.reduce((sum, order) => {
+      if (!isReshipmentChildOrder(order.observation, order.parentOrderId)) return sum;
+      return sum + reshipmentDashboardAmount(order);
+    }, 0);
+    const reshipmentPaidCount = orders.filter((order) => (
+      isReshipmentChildOrder(order.observation, order.parentOrderId)
+      && reshipmentDashboardAmount(order) > 0.009
+    )).length;
+    const totalPaid = saleOrders.reduce((sum, o) => sum + parseFloat(o.total || "0"), 0) + reshipmentPaidIncrement;
     const realNetRevenue = totalPaid - totalCost - totalCommission - totalGatewayFees - totalWithdrawFees - totalMarketingExpenses;
 
     let affiliateRepasseNetProfit = 0;
@@ -402,7 +411,7 @@ router.get("/admin/financial-summary", requireAdminAuth, async (req, res) => {
         newRate,
       },
       fees,
-      ordersCount: saleOrders.length,
+      ordersCount: saleOrders.length + reshipmentPaidCount,
     });
   } catch (err) {
     console.error("[FinancialSummary] Error:", err);
