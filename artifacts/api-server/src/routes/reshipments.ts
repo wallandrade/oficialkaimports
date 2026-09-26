@@ -500,6 +500,7 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
 
       let debitSummary: Array<{ productId: string; productName: string; quantity: number }> = [];
       let restoredSummary: Array<{ productId: string; productName: string; quantity: number }> = [];
+      let skippedMissingProducts: string[] = [];
       let alreadySent = false;
       let alreadyDebited = false;
       if (status === "reenvio_pronto_para_envio" || status === "reenvio_enviado") {
@@ -539,12 +540,19 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
             res.status(403).json({ error: "INVALID_PASSWORD", message: reservation.message || "Senha inválida. Digite novamente." });
             return;
           }
-          res.status(400).json({
-            error: "INSUFFICIENT_STOCK",
-            message: reservation.message || `Estoque insuficiente para o reenvio: ${(reservation.missingProducts || []).join(", ")}.`,
-            missingProducts: reservation.missingProducts || [],
+          if (status !== "reenvio_enviado") {
+            res.status(400).json({
+              error: "INSUFFICIENT_STOCK",
+              message: reservation.message || `Estoque insuficiente para o reenvio: ${(reservation.missingProducts || []).join(", ")}.`,
+              missingProducts: reservation.missingProducts || [],
+            });
+            return;
+          }
+          skippedMissingProducts = reservation.missingProducts || [];
+          console.info("[ReshipmentSendDebit] support marked sent without stock", {
+            id,
+            missingProducts: skippedMissingProducts,
           });
-          return;
         }
         if (status === "reenvio_enviado" && "debitedProducts" in reservation) {
           debitSummary = reservation.debitedProducts || [];
@@ -579,6 +587,7 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
         requestedStatus: status,
         debitedProducts: debitSummary,
         restoredProducts: restoredSummary,
+        missingProducts: skippedMissingProducts,
         alreadySent,
         alreadyDebited,
       });
@@ -603,6 +612,7 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
 
       let debitSummary: Array<{ productId: string; productName: string; quantity: number }> = [];
       let restoredSummary: Array<{ productId: string; productName: string; quantity: number }> = [];
+      let skippedMissingProducts: string[] = [];
       let alreadySent = false;
       if (status === "reenvio_pronto_para_envio" || status === "reenvio_enviado") {
         if (status === "reenvio_pronto_para_envio" && skipStockValidation) {
@@ -625,12 +635,19 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
             res.status(400).json({ error: "INVALID_RESHIPMENT_PRODUCTS", message: "Reenvio sem produtos válidos para reservar estoque." });
             return;
           }
-          res.status(400).json({
-            error: "INSUFFICIENT_STOCK",
-            message: `Estoque insuficiente para o reenvio: ${(reservation.missingProducts || []).join(", ")}.`,
-            missingProducts: reservation.missingProducts || [],
+          if (status !== "reenvio_enviado") {
+            res.status(400).json({
+              error: "INSUFFICIENT_STOCK",
+              message: `Estoque insuficiente para o reenvio: ${(reservation.missingProducts || []).join(", ")}.`,
+              missingProducts: reservation.missingProducts || [],
+            });
+            return;
+          }
+          skippedMissingProducts = reservation.missingProducts || [];
+          console.info("[ReshipmentSendDebit] manual marked sent without stock", {
+            id,
+            missingProducts: skippedMissingProducts,
           });
-          return;
         }
         if (status === "reenvio_enviado" && "debitedProducts" in reservation) {
           debitSummary = reservation.debitedProducts || [];
@@ -664,6 +681,7 @@ router.patch("/admin/reshipments/:id/status", requireAdminAuth, async (req, res)
         requestedStatus: status,
         debitedProducts: debitSummary,
         restoredProducts: restoredSummary,
+        missingProducts: skippedMissingProducts,
         alreadySent,
       });
       return;

@@ -7781,6 +7781,8 @@ export default function Admin() {
                     toast.success(`Baixa de estoque aplicada (${summary}). Reenvio marcado como enviado.`);
                   } else if (data?.alreadyDebited) {
                     toast.success("Reenvio marcado como enviado. Estoque já estava baixado neste pedido.");
+                  } else if (Array.isArray(data?.missingProducts) && data.missingProducts.length > 0) {
+                    toast.success(`Reenvio marcado como enviado. Sem saldo para baixar: ${data.missingProducts.join(", ")}.`);
                   } else {
                     toast.success("Reenvio marcado como enviado.");
                   }
