@@ -180,6 +180,13 @@ test("mapeia productId Yury por id igual ou nome; agrupa quantidade", () => {
     [{ productId: "abc", productName: "Produto X" }],
   );
   assert.equal(missing.ok, false);
+  const dotted = mapKaItemsToYuryExitItems(
+    [{ productId: "ka-1", productName: "T.G Tirzepatida 15mg", quantity: 1 }],
+    [{ productId: "yury-1", productName: "TG Tirzepatida 15mg" }],
+  );
+  assert.equal(dotted.ok, true);
+  if (!dotted.ok) return;
+  assert.deepEqual(dotted.items, [{ productId: "yury-1", quantity: 1 }]);
 });
 
 test("HTTP exit: 201 nova baixa, 200 retry por pool, 400 sem saldo, 404 rota fora do ar", () => {

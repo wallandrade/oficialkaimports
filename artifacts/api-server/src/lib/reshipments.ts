@@ -5,6 +5,7 @@ import {
   inventoryBalancesTable,
   inventoryMovementsTable,
   manualReshipmentsTable,
+  orderShipmentsTable,
   ordersTable,
   productsTable,
   reshipmentsTable,
@@ -15,9 +16,11 @@ import {
   defaultKaInventoryExitPool,
   hasKaInventoryExit,
   mapKaItemsToYuryExitItems,
+  parseKaInventoryExitPool,
   serializeKaInventoryExitedPools,
   type KaInventoryExitPool,
 } from "./yury-inventory";
+import { packageInventoryReferenceId, parseOrderShipmentItems } from "./order-shipments-logic";
 import { listYuryInventoryBalances } from "./yury-inventory-sync";
 import { debitYuryInventoryForKaOrder, YuryInventoryExitError } from "./yury-inventory-exit";
 
@@ -164,6 +167,54 @@ async function persistOrderExitPool(order: LinkedOrderStock, pool: KaInventoryEx
     .where(eq(ordersTable.id, order.id));
 }
 
+type SplitPackageRow = {
+  id: string;
+  inventoryPool: string;
+  items: unknown;
+  inventoryReserved: boolean;
+};
+
+async function listSplitPackages(orderId: string): Promise<SplitPackageRow[]> {
+  const rows = await db
+    .select({
+      id: orderShipmentsTable.id,
+      inventoryPool: orderShipmentsTable.inventoryPool,
+      items: orderShipmentsTable.items,
+      inventoryReserved: orderShipmentsTable.inventoryReserved,
+    })
+    .from(orderShipmentsTable)
+    .where(eq(orderShipmentsTable.orderId, orderId));
+  return rows.length >= 2 ? rows : [];
+}
+
+function packageReshipmentItems(raw: unknown): ReshipmentProduct[] {
+  return parseOrderShipmentItems(raw)
+    .map((item) => ({
+      id: String(item.productId || "").trim(),
+      name: item.productName,
+      quantity: item.quantity,
+    }))
+    .filter((item) => item.quantity > 0);
+}
+
+async function missingStockForPool(
+  pool: KaInventoryExitPool,
+  items: ReshipmentProduct[],
+  tenantId: string,
+): Promise<string[]> {
+  if (items.length === 0) return [];
+  if (pool === "motoboy" || pool === "minas") {
+    return missingYuryStock(pool, items.filter((item) => item.id || item.name));
+  }
+  const withId = items.filter((item) => item.id);
+  const missingNames = items.filter((item) => !item.id).map((item) => item.name);
+  const stockByProduct = await getStockMap(withId.map((item) => item.id), tenantId);
+  return [
+    ...missingNames,
+    ...withId.filter((item) => (stockByProduct.get(item.id) || 0) < item.quantity).map((item) => item.name),
+  ];
+}
+
 async function missingYuryStock(
   pool: "motoboy" | "minas",
   items: ReshipmentProduct[],
@@ -182,6 +233,134 @@ async function missingYuryStock(
     if (qty < item.quantity) missing.push(row?.productName || item.productId);
   }
   return missing;
+}
+
+async function checkSplitReshipmentStock(orderId: string, tenantId: string): Promise<string[] | null> {
+  const packages = await listSplitPackages(orderId);
+  if (packages.length < 2) return null;
+  const missing: string[] = [];
+  for (const pkg of packages) {
+    if (pkg.inventoryReserved) continue;
+    const pool = parseKaInventoryExitPool(pkg.inventoryPool) || "loja";
+    const items = packageReshipmentItems(pkg.items);
+    missing.push(...await missingStockForPool(pool, items, tenantId));
+  }
+  return [...new Set(missing)];
+}
+
+async function debitSplitReshipmentPackages(params: {
+  orderId: string;
+  reshipmentId: string;
+  tenantId: string;
+  password?: string;
+}): Promise<{
+  handled: boolean;
+  ok: boolean;
+  alreadyDebited?: boolean;
+  passwordRequired?: boolean;
+  error?: string;
+  message?: string;
+  missingProducts: string[];
+  debitedProducts: Array<{ productId: string; productName: string; quantity: number }>;
+} | null> {
+  const packages = await listSplitPackages(params.orderId);
+  if (packages.length < 2) return null;
+
+  const pending = packages.filter((pkg) => !pkg.inventoryReserved);
+  if (pending.length === 0) {
+    return { handled: true, ok: true, alreadyDebited: true, missingProducts: [], debitedProducts: [] };
+  }
+
+  const missing: string[] = [];
+  const plan: Array<{ id: string; pool: KaInventoryExitPool; items: ReshipmentProduct[] }> = [];
+  for (const pkg of pending) {
+    const pool = parseKaInventoryExitPool(pkg.inventoryPool) || "loja";
+    const items = packageReshipmentItems(pkg.items);
+    if (items.length === 0) continue;
+    missing.push(...await missingStockForPool(pool, items, params.tenantId));
+    plan.push({ id: pkg.id, pool, items });
+  }
+  const uniqueMissing = [...new Set(missing)];
+  if (uniqueMissing.length > 0) {
+    return { handled: true, ok: false, missingProducts: uniqueMissing, debitedProducts: [] };
+  }
+
+  const debitedProducts: Array<{ productId: string; productName: string; quantity: number }> = [];
+  for (const step of plan) {
+    if (step.pool === "motoboy" || step.pool === "minas") {
+      try {
+        await debitYuryInventoryForKaOrder({
+          referenceId: packageInventoryReferenceId(step.id),
+          pool: step.pool,
+          items: step.items.map((item) => ({
+            productId: item.id || null,
+            productName: item.name,
+            quantity: item.quantity,
+          })),
+          password: params.password,
+        });
+      } catch (error) {
+        if (error instanceof YuryInventoryExitError) {
+          if (error.code === "PASSWORD_REQUIRED" || error.passwordRequired) {
+            return {
+              handled: true,
+              ok: false,
+              passwordRequired: true,
+              error: "PASSWORD_REQUIRED",
+              message: error.message,
+              missingProducts: [],
+              debitedProducts,
+            };
+          }
+          if (error.code === "INVALID_PASSWORD") {
+            return {
+              handled: true,
+              ok: false,
+              error: "INVALID_PASSWORD",
+              message: error.message,
+              missingProducts: [],
+              debitedProducts,
+            };
+          }
+          const names = error.code === "INSUFFICIENT_STOCK"
+            ? await missingYuryStock(step.pool, step.items)
+            : step.items.map((item) => item.name);
+          return {
+            handled: true,
+            ok: false,
+            error: error.code,
+            message: error.message,
+            missingProducts: names.length > 0 ? names : step.items.map((item) => item.name),
+            debitedProducts,
+          };
+        }
+        throw error;
+      }
+    } else {
+      for (const item of step.items) {
+        if (!item.id) continue;
+        await registerInventoryEntry({
+          tenantId: params.tenantId,
+          productId: item.id,
+          quantity: -item.quantity,
+          reason: `Saída por envio do reenvio ${params.reshipmentId}`,
+          referenceId: params.reshipmentId,
+        });
+      }
+    }
+    await db.update(orderShipmentsTable)
+      .set({ inventoryReserved: true, updatedAt: new Date() })
+      .where(eq(orderShipmentsTable.id, step.id));
+    for (const item of step.items) {
+      debitedProducts.push({
+        productId: item.id,
+        productName: item.name,
+        quantity: item.quantity,
+      });
+    }
+  }
+
+  return { handled: true, ok: true, missingProducts: [], debitedProducts };
 }
 
 async function changeBalance(productId: string, delta: number, tenantId = DEFAULT_TENANT_ID): Promise<void> {
@@ -269,6 +448,13 @@ export async function ensureReshipmentReservation(params: {
         inventoryExitedPools: (rows[0] as { inventoryExitedPools?: unknown }).inventoryExitedPools,
       }
     : null;
+  if (linkedOrder) {
+    const splitMissing = await checkSplitReshipmentStock(linkedOrder.id, tenantId);
+    if (splitMissing) {
+      if (splitMissing.length > 0) return { ok: false, missingProducts: splitMissing };
+      return { ok: true, missingProducts: [] };
+    }
+  }
   if (linkedOrder && hasKaInventoryExit(linkedOrder.inventoryExitedPools)) {
     return { ok: true, missingProducts: [] };
   }
@@ -385,6 +571,25 @@ export async function ensureReshipmentSendDebit(params: {
         inventoryExitedPools: (rows[0] as { inventoryExitedPools?: unknown }).inventoryExitedPools,
       }
     : null;
+  if (linkedOrder) {
+    const splitDebit = await debitSplitReshipmentPackages({
+      orderId: linkedOrder.id,
+      reshipmentId: params.id,
+      tenantId,
+      password: params.password,
+    });
+    if (splitDebit) {
+      return {
+        ok: splitDebit.ok,
+        alreadyDebited: splitDebit.alreadyDebited,
+        passwordRequired: splitDebit.passwordRequired,
+        error: splitDebit.error,
+        message: splitDebit.message,
+        missingProducts: splitDebit.missingProducts,
+        debitedProducts: splitDebit.debitedProducts,
+      };
+    }
+  }
   if (linkedOrder && hasKaInventoryExit(linkedOrder.inventoryExitedPools)) {
     return { ok: true, alreadyDebited: true, missingProducts: [], debitedProducts: [] };
   }
