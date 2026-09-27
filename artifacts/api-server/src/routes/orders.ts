@@ -1722,29 +1722,30 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
     const adminScope = ensureSellerScopeOnOrderQuery(req, res);
     if (!adminScope) return;
 
-    const { dateFrom, dateTo, status, paymentMethod, sellerCode, whatsappGroup, pinReshipments } = req.query as Record<string, string>;
+    const { dateFrom, dateTo, status, paymentMethod, sellerCode, whatsappGroup, pinReshipments, shipQueue } = req.query as Record<string, string>;
     const shouldPinReshipments = pinReshipments !== "0";
+    const isShipQueue = shipQueue === "1";
 
     // São Paulo = UTC-3: midnight SP = 03:00 UTC; end-of-day SP 23:59:59 = next day 02:59:59 UTC
     const SP_OFFSET_MS = 3 * 60 * 60 * 1000;
     const dateConditions = [];
     const nonDateConditions = [];
-    if (dateFrom) {
+    if (!isShipQueue && dateFrom) {
       const from = new Date(dateFrom + "T00:00:00.000Z");
       from.setTime(from.getTime() + SP_OFFSET_MS);
       dateConditions.push(gte(ordersTable.createdAt, from));
     }
-    if (dateTo) {
+    if (!isShipQueue && dateTo) {
       const to = new Date(dateTo + "T23:59:59.999Z");
       to.setTime(to.getTime() + SP_OFFSET_MS);
       dateConditions.push(lte(ordersTable.createdAt, to));
     }
-    if (status && status !== "all") {
+    if (!isShipQueue && status && status !== "all") {
       if (status === "paid") nonDateConditions.push(inArray(ordersTable.status, ["paid", "completed"]));
       else nonDateConditions.push(eq(ordersTable.status, status));
     }
-    if (paymentMethod && paymentMethod !== "all") nonDateConditions.push(eq(ordersTable.paymentMethod, paymentMethod));
-    if (whatsappGroup && whatsappGroup !== "all") nonDateConditions.push(eq(ordersTable.whatsappGroup, whatsappGroup));
+    if (!isShipQueue && paymentMethod && paymentMethod !== "all") nonDateConditions.push(eq(ordersTable.paymentMethod, paymentMethod));
+    if (!isShipQueue && whatsappGroup && whatsappGroup !== "all") nonDateConditions.push(eq(ordersTable.whatsappGroup, whatsappGroup));
     nonDateConditions.push(buildOrderTenantWhere(adminScope.tenantId));
     if (!adminScope.hasGlobalAccess) {
       if (sellerCode && sellerCode !== "all" && sellerCode !== adminScope.sellerCode) {
@@ -1757,6 +1758,21 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
     }
 
     const conditions = [...dateConditions, ...nonDateConditions];
+    if (isShipQueue) {
+      const activeReshipments = await db
+        .select({ orderId: reshipmentsTable.orderId })
+        .from(reshipmentsTable)
+        .where(inArray(reshipmentsTable.status, ["reenvio_aguardando_estoque", "reenvio_pronto_para_envio"]));
+      const activeOrderIds = Array.from(new Set(activeReshipments.map((row) => row.orderId).filter(Boolean)));
+      const pendingShipment = and(
+        inArray(ordersTable.status, ["paid", "completed"]),
+        eq(ordersTable.enviado, false),
+      );
+      const shipQueueMatch = activeOrderIds.length > 0
+        ? or(pendingShipment, inArray(ordersTable.id, activeOrderIds))
+        : pendingShipment;
+      if (shipQueueMatch) conditions.push(shipQueueMatch);
+    }
 
     const baseOrders = await db
       .select()
@@ -1765,8 +1781,9 @@ router.get("/admin/orders", requireAdminAuth, async (req, res) => {
       .orderBy(desc(ordersTable.createdAt));
 
     // Keep active reshipments visible in Orders even if the order is outside the current date range.
+    // shipQueue=1 already ignores createdAt and includes those reenvios.
     let orders = baseOrders;
-    if (shouldPinReshipments && dateConditions.length > 0) {
+    if (!isShipQueue && shouldPinReshipments && dateConditions.length > 0) {
       const activeReshipments = await db
         .select({ orderId: reshipmentsTable.orderId })
         .from(reshipmentsTable)

@@ -234,6 +234,17 @@ function isClosedReshipmentStatus(status?: string | null): boolean {
   return ["reenvio_enviado", "reenvio_resolvido_sem_entrada", "reenvio_cancelado"].includes(String(status || ""));
 }
 
+function mergeOrderPatch<T extends { packages?: unknown[] | null }>(current: T, incoming: T): T {
+  const incomingPackages = Array.isArray(incoming.packages) ? incoming.packages : null;
+  const previousPackages = Array.isArray(current.packages) ? current.packages : [];
+  const keepPackages = (!incomingPackages || incomingPackages.length === 0) && previousPackages.length >= 2;
+  return {
+    ...current,
+    ...incoming,
+    packages: keepPackages ? previousPackages : (incomingPackages ?? previousPackages),
+  };
+}
+
 function isPaymentProofPdf(url: string): boolean {
   const value = String(url || "").trim().toLowerCase();
   if (!value) return false;
@@ -2281,6 +2292,8 @@ export default function Admin() {
   const [, setLocation] = useLocation();
   const [tab, setTab] = useState<TabType>("orders");
   const [orders, setOrders] = useState<AdminOrder[]>([]);
+  const [shipQueueOrders, setShipQueueOrders] = useState<AdminOrder[]>([]);
+  const [shipQueueReady, setShipQueueReady] = useState(false);
   const [charges, setCharges] = useState<CustomCharge[]>([]);
   const [sellerAllOrders, setSellerAllOrders] = useState<AdminOrder[]>([]);
   const [sellerAllCharges, setSellerAllCharges] = useState<CustomCharge[]>([]);
@@ -2645,6 +2658,8 @@ export default function Admin() {
   const sseCookieMismatchNotifiedRef = useRef(false);
   const ordersFetchAbortRef = useRef<AbortController | null>(null);
   const ordersFetchSeqRef = useRef(0);
+  const shipQueueFetchAbortRef = useRef<AbortController | null>(null);
+  const shipQueueFetchSeqRef = useRef(0);
   const swRef  = useRef<ServiceWorkerRegistration | null>(null);
   const canManageTenants = isPrimary && adminTenantId === "tenant_loja1";
   const canManageProductsTab = isPrimary || adminTenantId !== "tenant_loja1";
@@ -3239,7 +3254,39 @@ export default function Admin() {
   // -------------------------------------------------------------------------
   // Fetch helpers
   // -------------------------------------------------------------------------
+  const fetchShipQueue = useCallback(async (_silent?: boolean) => {
+    shipQueueFetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    shipQueueFetchAbortRef.current = controller;
+    const seq = ++shipQueueFetchSeqRef.current;
+    try {
+      const res = await fetch(`${BASE}/api/admin/orders?shipQueue=1`, {
+        headers: authHeaders(),
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      if (seq !== shipQueueFetchSeqRef.current) return;
+      if (res.status === 401) { handleUnauthorized(); return; }
+      const data = await res.json() as { orders: AdminOrder[] };
+      if (seq !== shipQueueFetchSeqRef.current) return;
+      const incoming = data.orders || [];
+      const applyIncoming = () => {
+        setShipQueueOrders((prev) => {
+          const prevById = new Map(prev.map((order) => [order.id, order]));
+          return incoming.map((order) => preserveEnvioEcomLabelFields(order, prevById.get(order.id)));
+        });
+        setShipQueueReady(true);
+      };
+      if (_silent) startTransition(applyIncoming);
+      else applyIncoming();
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      if (err instanceof Error && err.name === "AbortError") return;
+    }
+  }, [handleUnauthorized]);
+
   const fetchOrders = useCallback(async (_silent?: boolean) => {
+    void fetchShipQueue(_silent);
     ordersFetchAbortRef.current?.abort();
     const controller = new AbortController();
     ordersFetchAbortRef.current = controller;
@@ -3274,7 +3321,7 @@ export default function Admin() {
       if (err instanceof Error && err.name === "AbortError") return;
       /* silent — don't show toast for background refreshes */
     }
-  }, [dateFrom, dateTo, statusFilter, methodFilter, sellerFilter, groupFilter, handleUnauthorized]);
+  }, [dateFrom, dateTo, statusFilter, methodFilter, sellerFilter, groupFilter, handleUnauthorized, fetchShipQueue]);
 
   const hydrateOrder = useCallback(async (id: string): Promise<AdminOrder | null> => {
     const orderId = String(id || "").trim();
@@ -5819,6 +5866,7 @@ export default function Admin() {
       window.clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
       ordersFetchAbortRef.current?.abort();
+      shipQueueFetchAbortRef.current?.abort();
     };
   }, [authChecked, tab, fetchOrders, fetchCharges, fetchStatsData, fetchRecurringCustomers]);
 
@@ -5881,6 +5929,7 @@ export default function Admin() {
       }
       toast.success("Status atualizado!");
       setOrders((prev) => prev.map((o) => o.id === id ? { ...o, status, ...cardActuals } : o));
+      setShipQueueOrders((prev) => prev.map((o) => o.id === id ? { ...o, status, ...cardActuals } : o));
       if (status === "completed") setProofModal(id);
       return true;
     } catch {
@@ -6826,15 +6875,18 @@ export default function Admin() {
     });
   };
 
-  const ordersParaEnviar = orders.filter((o) => {
+  const isOrderWaitingShipment = (o: AdminOrder) => {
     const isActiveReshipment = isActiveReshipmentOrder(o);
     const isPendingNormalShipment = (o.status === "paid" || o.status === "completed") && !o.enviado && !hasEnvioEcomLabelReady(o as any);
     return isPendingNormalShipment || isActiveReshipment;
-  });
-  const ordersParaEnviarPorAtraso = [...ordersParaEnviar].sort((a, b) => {
+  };
+  const ordersParaEnviar = orders.filter(isOrderWaitingShipment);
+  const ordersParaEnviarCopyBase = ordersParaEnviarDedupForCopy(ordersParaEnviar);
+  const shipQueueParaEnviar = shipQueueOrders.filter(isOrderWaitingShipment);
+  const shipQueueParaEnviarPorAtraso = [...shipQueueParaEnviar].sort((a, b) => {
     return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
   });
-  const ordersParaEnviarCopyBase = ordersParaEnviarDedupForCopy(ordersParaEnviar);
+  const shipQueueParaEnviarCount = ordersParaEnviarDedupForCopy(shipQueueParaEnviar).length;
   const logisticsCopyGroups = (() => {
     const byPromisedHours = new Map<number, { promisedHours: number; orders: AdminOrder[] }>();
     const otherOrders: AdminOrder[] = [];
@@ -7490,16 +7542,18 @@ export default function Admin() {
                 <Truck className="w-4 h-4" /> Pedidos para Enviar
               </p>
               <span className="text-[10px] bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-bold">
-                {ordersParaEnviarCopyBase.length}
+                {shipQueueReady ? shipQueueParaEnviarCount : "…"}
               </span>
             </div>
-            {ordersParaEnviar.length === 0 ? (
+            {!shipQueueReady ? (
+              <p className="text-sm text-amber-700/80">Carregando pedidos para enviar...</p>
+            ) : shipQueueParaEnviar.length === 0 ? (
               <p className="text-sm text-amber-700/80 flex items-center gap-1.5">
                 <CheckCircle className="w-4 h-4 text-green-500" /> Todos os pedidos pagos já foram enviados!
               </p>
             ) : (
               <div className="space-y-1.5 max-h-80 overflow-y-auto">
-                {ordersParaEnviarPorAtraso.map((o) => {
+                {shipQueueParaEnviarPorAtraso.map((o) => {
                   const waitingDays = daysSince(o.createdAt);
                   const lateToShip = waitingDays > 3;
                   const pendingShipment = getPendingShipmentCopy(o);
@@ -7509,7 +7563,14 @@ export default function Admin() {
                   const previewProducts = lineProducts.slice(0, 4);
                   const hiddenProducts = Math.max(0, lineProducts.length - previewProducts.length);
                   return (
-                    <div key={o.id} className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-1.5 ${lateToShip ? "bg-red-50 border-red-300" : "bg-white/70 border-amber-100"}`}>
+                    <div
+                      key={o.id}
+                      className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-1.5 ${lateToShip ? "bg-red-50 border-red-300" : "bg-white/70 border-amber-100"}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        goToOrder(o.id, o.createdAt);
+                      }}
+                    >
                       <div className="flex items-center gap-2 min-w-0 pr-2">
                         <div className="flex items-center shrink-0">
                           {previewProducts.map((product, index) => {
@@ -7747,24 +7808,14 @@ export default function Admin() {
             onEditOrder={openEditOrder}
             onOpenKycModal={openKycModal}
             onSetOrderEnviado={(id, enviado) => {
-              setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, enviado, isPrioridade: enviado ? false : o.isPrioridade } : o)));
+              const patch = (o: AdminOrder) => (o.id === id ? { ...o, enviado, isPrioridade: enviado ? false : o.isPrioridade } : o);
+              setOrders((prev) => prev.map(patch));
+              setShipQueueOrders((prev) => prev.map(patch));
             }}
             onSetOrderPatched={(order) => {
-              setOrders((prev) => prev.map((o) => {
-                if (o.id !== order.id) return o;
-                const incomingPackages = Array.isArray((order as { packages?: unknown[] }).packages)
-                  ? (order as { packages: unknown[] }).packages
-                  : null;
-                const previousPackages = Array.isArray((o as { packages?: unknown[] }).packages)
-                  ? (o as { packages: unknown[] }).packages
-                  : [];
-                const keepPackages = (!incomingPackages || incomingPackages.length === 0) && previousPackages.length >= 2;
-                return {
-                  ...o,
-                  ...order,
-                  packages: keepPackages ? previousPackages : (incomingPackages ?? previousPackages),
-                } as AdminOrder;
-              }));
+              const patch = (prev: AdminOrder[]) => prev.map((o) => (o.id === order.id ? mergeOrderPatch(o, order) : o));
+              setOrders(patch);
+              setShipQueueOrders(patch);
             }}
             canManageEnvioEcom={canManageShippingTab}
             ordersCopyToolbar={(tab) => (
@@ -7853,6 +7904,7 @@ export default function Admin() {
             }}
             onRemoveOrder={(id) => {
               setOrders((prev) => prev.filter((o) => o.id !== id));
+              setShipQueueOrders((prev) => prev.filter((o) => o.id !== id));
             }}
           />
             )}
