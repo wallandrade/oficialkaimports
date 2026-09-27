@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { clearCustomerToken, fetchCustomerProfile, getCustomerAuthHeaders } from "@/lib/customer-auth";
-import { formatCurrency, formatDateBR, getActiveWhatsApp } from "@/lib/utils";
+import { formatCurrency, formatDateBR, formatDateOnlyBR, getActiveWhatsApp } from "@/lib/utils";
 import { formatMotoboyHomePeriod, MOTOBOY_HOME_REMINDER } from "@/lib/motoboy-slot-hours";
 import {
   collapseCustomerPackagesForOrder,
@@ -113,6 +113,34 @@ type AffiliateDashboardResponse = {
     facebookPixelId: string;
   };
 };
+
+type AffiliateBuyer = {
+  email: string;
+  name: string;
+  phone: string;
+  orderCount: number;
+  totalSpent: number;
+  commissionTotal: number;
+  orders: Array<{
+    id: string;
+    orderNumber: number | null;
+    createdAt: string | null;
+    status: string;
+    total: number;
+    commissionAmount: number;
+  }>;
+};
+
+function affiliateOrderStatusLabel(status: string): string {
+  if (status === "paid") return "Pago";
+  if (status === "completed") return "Concluído";
+  return status || "—";
+}
+
+function affiliateOrderLabel(order: AffiliateBuyer["orders"][number]): string {
+  if (order.orderNumber) return `#${order.orderNumber}`;
+  return "Pedido";
+}
 
 function isMotoboyShippingType(value: unknown): boolean {
   return String(value || "")
@@ -315,6 +343,7 @@ export default function CustomerOrders() {
   const [activeSection, setActiveSection] = useState<AccountSection>("orders");
   const [affiliateLoading, setAffiliateLoading] = useState(true);
   const [affiliateData, setAffiliateData] = useState<AffiliateDashboardResponse | null>(null);
+  const [affiliateBuyers, setAffiliateBuyers] = useState<AffiliateBuyer[]>([]);
   const [walletAvailable, setWalletAvailable] = useState(0);
   const [walletEntries, setWalletEntries] = useState<WalletEntry[]>([]);
   const [pixelIdInput, setPixelIdInput] = useState("");
@@ -344,11 +373,14 @@ export default function CustomerOrders() {
       }
 
       try {
-        const [ordersRes, affiliateRes, walletRes] = await Promise.all([
+        const [ordersRes, affiliateRes, buyersRes, walletRes] = await Promise.all([
           fetch(`${BASE}/api/me/orders`, {
             headers: getCustomerAuthHeaders(),
           }),
           fetch(`${BASE}/api/me/affiliate/dashboard`, {
+            headers: getCustomerAuthHeaders(),
+          }),
+          fetch(`${BASE}/api/me/affiliate/buyers`, {
             headers: getCustomerAuthHeaders(),
           }),
           fetch(`${BASE}/api/me/wallet`, {
@@ -356,7 +388,7 @@ export default function CustomerOrders() {
           }),
         ]);
 
-        if (ordersRes.status === 401 || affiliateRes.status === 401 || walletRes.status === 401) {
+        if (ordersRes.status === 401 || affiliateRes.status === 401 || buyersRes.status === 401 || walletRes.status === 401) {
           clearCustomerToken();
           if (active) setLocation("/login");
           return;
@@ -369,6 +401,10 @@ export default function CustomerOrders() {
         const ordersData = (await ordersRes.json()) as { orders?: CustomerOrder[] };
         const affiliatePayload = affiliateRes.ok
           ? ((await affiliateRes.json()) as AffiliateDashboardResponse)
+          : null;
+
+        const buyersPayload = buyersRes.ok
+          ? ((await buyersRes.json()) as { buyers?: AffiliateBuyer[] })
           : null;
 
         const walletPayload = walletRes.ok
@@ -405,6 +441,7 @@ export default function CustomerOrders() {
         setWalletAvailable(Number(walletPayload?.availableCredit || 0));
         setWalletEntries(Array.isArray(walletPayload?.entries) ? walletPayload.entries : []);
         setAffiliateData(normalizedAffiliatePayload);
+        setAffiliateBuyers(Array.isArray(buyersPayload?.buyers) ? buyersPayload.buyers : []);
         setPixelIdInput(normalizedAffiliatePayload?.affiliate?.facebookPixelId || "");
       } catch {
         toast.error("Não foi possível carregar seus pedidos.");
@@ -1144,6 +1181,44 @@ export default function CustomerOrders() {
                           <p className="text-sm text-muted-foreground">Indicações inativas</p>
                           <p className="text-3xl font-bold mt-1">{affiliateSummary.referralsInactive}</p>
                         </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-border p-5 bg-white space-y-3">
+                        <h3 className="text-xl font-semibold">Compras pelo seu link</h3>
+                        <p className="text-sm text-muted-foreground">Quem pagou usando o seu código. Indicação sem compra fica só no contador de inativas.</p>
+                        {affiliateBuyers.length === 0 ? (
+                          <p className="text-sm text-muted-foreground">Nenhuma compra pelo seu link ainda.</p>
+                        ) : (
+                          <div className="space-y-3">
+                            {affiliateBuyers.map((buyer) => (
+                              <div key={`${buyer.email}-${buyer.orders[0]?.id || buyer.name}`} className="rounded-xl border border-border bg-slate-50/60 p-3">
+                                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                                  <div>
+                                    <p className="font-semibold text-foreground">{buyer.name}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {buyer.phone || "Sem telefone"}
+                                      {buyer.email ? ` · ${buyer.email}` : ""}
+                                    </p>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground">
+                                    {buyer.orderCount} pedido{buyer.orderCount === 1 ? "" : "s"} · {formatCurrency(buyer.totalSpent)} · comissão {formatCurrency(buyer.commissionTotal)}
+                                  </p>
+                                </div>
+                                <div className="mt-2 space-y-1">
+                                  {buyer.orders.map((order) => (
+                                    <div key={order.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                                      <span className="font-semibold text-foreground">{affiliateOrderLabel(order)}</span>
+                                      <span>{order.createdAt ? formatDateOnlyBR(order.createdAt) : "—"}</span>
+                                      <span>{affiliateOrderStatusLabel(order.status)}</span>
+                                      <span>{formatCurrency(order.total)}</span>
+                                      <span>comissão {formatCurrency(order.commissionAmount)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
 
                       <div className="rounded-2xl border border-border p-5 bg-white space-y-3">

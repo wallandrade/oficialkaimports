@@ -176,6 +176,106 @@ function availableCredit(released: number, used: number): number {
   return roundMoney(available);
 }
 
+type AffiliateBuyer = {
+  email: string;
+  name: string;
+  phone: string;
+  orderCount: number;
+  totalSpent: number;
+  commissionTotal: number;
+  orders: Array<{
+    id: string;
+    orderNumber: number | null;
+    createdAt: string | null;
+    status: string;
+    total: number;
+    commissionAmount: number;
+  }>;
+};
+
+async function listAffiliateBuyers(tenantId: string, affiliateUserId: string): Promise<AffiliateBuyer[]> {
+  const orderRows = await db
+    .select({
+      id: ordersTable.id,
+      orderNumber: ordersTable.orderNumber,
+      createdAt: ordersTable.createdAt,
+      status: ordersTable.status,
+      total: ordersTable.total,
+      clientName: ordersTable.clientName,
+      clientEmail: ordersTable.clientEmail,
+      clientPhone: ordersTable.clientPhone,
+    })
+    .from(ordersTable)
+    .where(and(
+      buildTenantWhere(tenantId, ordersTable.tenantId),
+      eq(ordersTable.affiliateUserId, affiliateUserId),
+      inArray(ordersTable.status, ["paid", "completed"]),
+      or(isNull(ordersTable.userId), ne(ordersTable.userId, affiliateUserId)),
+    ))
+    .orderBy(desc(ordersTable.createdAt));
+
+  const orderIds = orderRows.map((row) => row.id);
+  const commissionRows = orderIds.length === 0
+    ? []
+    : await db
+      .select({
+        orderId: affiliateCommissionsTable.orderId,
+        commissionAmount: affiliateCommissionsTable.commissionAmount,
+      })
+      .from(affiliateCommissionsTable)
+      .where(and(
+        buildTenantWhere(tenantId, affiliateCommissionsTable.tenantId),
+        eq(affiliateCommissionsTable.affiliateUserId, affiliateUserId),
+        inArray(affiliateCommissionsTable.orderId, orderIds),
+      ));
+
+  const commissionByOrder = new Map(commissionRows.map((row) => [row.orderId, roundMoney(row.commissionAmount)]));
+  const buyers = new Map<string, Omit<AffiliateBuyer, "orderCount" | "totalSpent" | "commissionTotal">>();
+
+  for (const order of orderRows) {
+    const email = String(order.clientEmail || "").trim().toLowerCase();
+    const key = email || `order:${order.id}`;
+    const current = buyers.get(key) || {
+      email,
+      name: String(order.clientName || "Cliente"),
+      phone: String(order.clientPhone || ""),
+      orders: [],
+    };
+    current.orders.push({
+      id: order.id,
+      orderNumber: order.orderNumber ?? null,
+      createdAt: order.createdAt ? new Date(order.createdAt).toISOString() : null,
+      status: String(order.status || ""),
+      total: roundMoney(order.total),
+      commissionAmount: commissionByOrder.get(order.id) || 0,
+    });
+    buyers.set(key, current);
+  }
+
+  return Array.from(buyers.values()).map((buyer) => ({
+    ...buyer,
+    orderCount: buyer.orders.length,
+    totalSpent: roundMoney(buyer.orders.reduce((sum, order) => sum + order.total, 0)),
+    commissionTotal: roundMoney(buyer.orders.reduce((sum, order) => sum + order.commissionAmount, 0)),
+  }));
+}
+
+router.get("/me/affiliate/buyers", requireCustomerAuth, async (req, res) => {
+  try {
+    const session = getCustomerSession(req);
+    if (!session) {
+      res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
+      return;
+    }
+
+    const buyers = await listAffiliateBuyers(session.tenantId || DEFAULT_TENANT_ID, session.userId);
+    res.json({ buyers });
+  } catch (err) {
+    console.error("[Affiliate] buyers error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao carregar compras do link." });
+  }
+});
+
 function requireGlobalAdmin(req: Request, res: Response): AdminScope | null {
   const scope = getAdminScope(req);
   if (!scope) {
@@ -300,88 +400,7 @@ router.get("/admin/affiliates/:userId", requireAdminAuth, async (req, res) => {
       return;
     }
 
-    const orderRows = await db
-      .select({
-        id: ordersTable.id,
-        orderNumber: ordersTable.orderNumber,
-        createdAt: ordersTable.createdAt,
-        status: ordersTable.status,
-        total: ordersTable.total,
-        clientName: ordersTable.clientName,
-        clientEmail: ordersTable.clientEmail,
-        clientPhone: ordersTable.clientPhone,
-      })
-      .from(ordersTable)
-      .where(and(
-        buildTenantWhere(tenantId, ordersTable.tenantId),
-        eq(ordersTable.affiliateUserId, userId),
-        inArray(ordersTable.status, ["paid", "completed"]),
-        or(isNull(ordersTable.userId), ne(ordersTable.userId, userId)),
-      ))
-      .orderBy(desc(ordersTable.createdAt));
-
-    const orderIds = orderRows.map((row) => row.id);
-    const commissionRows = orderIds.length === 0
-      ? []
-      : await db
-        .select({
-          orderId: affiliateCommissionsTable.orderId,
-          commissionAmount: affiliateCommissionsTable.commissionAmount,
-        })
-        .from(affiliateCommissionsTable)
-        .where(and(
-          buildTenantWhere(tenantId, affiliateCommissionsTable.tenantId),
-          eq(affiliateCommissionsTable.affiliateUserId, userId),
-          inArray(affiliateCommissionsTable.orderId, orderIds),
-        ));
-
-    const commissionByOrder = new Map(commissionRows.map((row) => [row.orderId, roundMoney(row.commissionAmount)]));
-
-    const buyers = new Map<string, {
-      email: string;
-      name: string;
-      phone: string;
-      orders: Array<{
-        id: string;
-        orderNumber: number | null;
-        createdAt: string | null;
-        status: string;
-        total: number;
-        commissionAmount: number;
-      }>;
-    }>();
-
-    for (const order of orderRows) {
-      const email = String(order.clientEmail || "").trim().toLowerCase();
-      const key = email || `order:${order.id}`;
-      const current = buyers.get(key) || {
-        email,
-        name: String(order.clientName || "Cliente"),
-        phone: String(order.clientPhone || ""),
-        orders: [],
-      };
-      current.orders.push({
-        id: order.id,
-        orderNumber: order.orderNumber ?? null,
-        createdAt: order.createdAt ? new Date(order.createdAt).toISOString() : null,
-        status: String(order.status || ""),
-        total: roundMoney(order.total),
-        commissionAmount: commissionByOrder.get(order.id) || 0,
-      });
-      buyers.set(key, current);
-    }
-
-    res.json({
-      buyers: Array.from(buyers.values()).map((buyer) => ({
-        email: buyer.email,
-        name: buyer.name,
-        phone: buyer.phone,
-        orderCount: buyer.orders.length,
-        totalSpent: roundMoney(buyer.orders.reduce((sum, order) => sum + order.total, 0)),
-        commissionTotal: roundMoney(buyer.orders.reduce((sum, order) => sum + order.commissionAmount, 0)),
-        orders: buyer.orders,
-      })),
-    });
+    res.json({ buyers: await listAffiliateBuyers(tenantId, userId) });
   } catch (err) {
     console.error("[Affiliate] admin detail error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao carregar indicações." });
