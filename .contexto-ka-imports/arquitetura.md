@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-09-26
+> **Última atualização:** 2026-09-27
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-27 | `GET /api/shipping/delivery-estimate` público, sem token de checkout | Setting `envioecom_checkout_carrier_priority` só no GET/PUT admin | `GET /api/settings` e fila de postagem |
 | 2026-09-26 | Setting `motoboy_slot_hours`; `GET /api/motoboy-delivery/availability` devolve `{ start, end, label }` | Reserva grava 1 linha (`slot_hour` = início, `duration_hours` = fim − início) | Tabela `motoboy_delivery_reservations`; apaga a linha ao enviar/cancelar/expirar |
 | 2026-09-21 | Modal Reenvio do chamado usa `ProductSelect` com foto do catálogo | Dropdown e itens com thumbnail | Payload `POST .../reenviar` |
 | 2026-09-21 | Busca admin destrava `readOnly` no toque; Header mobile foca com `flushSync` | Teclado virtual abre no 1º toque | Autofill Chrome; filtro da lista |

@@ -910,6 +910,7 @@ import { ReplaceOrderProductButton } from "@/components/admin/ReplaceOrderProduc
 import { OrderHistoryTimeline } from "@/components/admin/OrderHistoryTimeline";
 import { EnvioEcomTrackingBoard } from "@/components/admin/EnvioEcomTrackingBoard";
 import { EnvioEcomSettingsCard } from "@/components/admin/EnvioEcomSettingsCard";
+import { CheckoutCarrierPriorityCard } from "@/components/admin/CheckoutCarrierPriorityCard";
 import AdminBankStatementPanel from "@/pages/AdminBankStatementPanel";
 import AdminBankDepositsPanel from "@/pages/AdminBankDepositsPanel";
 import { buildCustomerImpersonationUrl } from "@/lib/customer-auth";
@@ -5147,8 +5148,13 @@ export default function Admin() {
       const res = await fetch(`${BASE}/api/admin/settings/${key}`, {
         method: "PUT", headers: authHeaders(), body: JSON.stringify({ value }),
       });
-      if (!res.ok) { toast.error("Erro ao salvar configuração."); return; }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({} as { message?: string }));
+        toast.error(data.message || "Erro ao salvar configuração.");
+        return;
+      }
       const secretSettingKeys = new Set(["gateway_appcnpay_public_key", "gateway_appcnpay_secret_key"]);
+      const adminOnlySettingKeys = new Set(["envioecom_checkout_carrier_priority"]);
       setSettings((p) => ({
         ...p,
         [key]: secretSettingKeys.has(key) && value && !value.startsWith("*")
@@ -5156,7 +5162,7 @@ export default function Admin() {
           : value,
       }));
 
-      if (!secretSettingKeys.has(key)) {
+      if (!secretSettingKeys.has(key) && !adminOnlySettingKeys.has(key)) {
         try {
           const cached = JSON.parse(localStorage.getItem("siteSettings") || "{}") as Record<string, string>;
           const next = { ...cached, [key]: value };
@@ -5177,6 +5183,11 @@ export default function Admin() {
     try {
       await fetch(`${BASE}/api/admin/settings/${key}`, { method: "DELETE", headers: authHeaders() });
       setSettings((p) => { const n = { ...p }; delete n[key]; return n; });
+
+      if (key === "envioecom_checkout_carrier_priority") {
+        toast.success("Configuração removida.");
+        return;
+      }
 
       try {
         const cached = JSON.parse(localStorage.getItem("siteSettings") || "{}") as Record<string, string>;
@@ -11652,6 +11663,11 @@ export default function Admin() {
         ) : tab === "configuracoes" ? (
           <div className="space-y-6">
             <EnvioEcomSettingsCard />
+            <CheckoutCarrierPriorityCard
+              value={settings.envioecom_checkout_carrier_priority}
+              saving={!!settingsLoading.envioecom_checkout_carrier_priority}
+              onSave={saveSetting}
+            />
             <div className="rounded-xl border bg-gradient-to-br from-rose-50 to-orange-50/60 border-rose-200 p-5">
               <div className="flex flex-wrap items-start justify-between gap-2 mb-4">
                 <div>

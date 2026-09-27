@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-27 | Prazo do checkout: 30 cotações EnvioEcom reais por IP a cada 10 min; cache não conta; chave fora de `PUBLIC_KEYS` | Acima do limite, HTTP 429; CEP inválido e erro da API continuam HTTP 200 vazio | Token de checkout; rate limit global de escrita |
 | 2026-09-27 | Primary da loja 1 vê e-mail/senha EnvioEcom de cada loja em `stores` | Nome da filial + login gravado nela | Filial não lista as outras; conta `env` sem senha |
 | 2026-09-27 | `GET /admin/envioecom/accounts` devolve usuário e senha da loja/extras | Admin com `hasGlobalAccess` vê o login no card | Senha da conta `env` não sai; status/config mascarados; token mascarado |
 | 2026-09-24 | `Admin` volta a ser import estático | `lazy()` quebrava `/admin` com `reading 'default'` no error boundary | Pausa de poll/SSE com a aba oculta |
@@ -35,6 +36,7 @@
 - Password gates no FE (site/pagamento).
 - Isolamento tenant/seller (ver `auth-permissoes.md` + smoke scripts).
 - Credenciais APPCNPay da loja: GET `/api/admin/settings` mascara `gateway_appcnpay_*`; PUT com valor já mascarado não sobrescreve; FE não persiste essas keys em `siteSettings`.
+- Prazo da transportadora no checkout: `envioecom_checkout_carrier_priority` entra em `ALLOWED_KEYS` e não em `PUBLIC_KEYS`. O admin não grava essa chave em `siteSettings`. `GET /api/shipping/delivery-estimate` não exige token de checkout. Limite próprio: 30 cotações reais à EnvioEcom por IP a cada 10 min (cache em memória não conta); acima disso HTTP 429.
 - Senha de baixa Motoboy/Minas da Yury: o admin digita no card; o KA só encaminha no unlock/`exit` (Bearer/`X-Api-Key` iguais ao snapshot). Não há setting, env nem `localStorage` dessa senha.
 - Login EnvioEcom da loja: só `GET /admin/envioecom/accounts` (`hasGlobalAccess`) devolve e-mail e senha das contas `tenant` e extras. Primary da loja 1 recebe também `stores` (nome de cada loja + esses logins). Filial não recebe `stores`. Conta `env` (Railway) não devolve senha e não entra em `stores`. Status, config e respostas de POST/PUT seguem mascarados, sem senha. Token permanece mascarado.
 - **CSP do FE** (`index.html` + `vercel.json`): `default-src 'self'`; `object-src 'none'`; `frame-ancestors 'none'`; `frame-src 'self' blob: data: https:` (comprovante PDF no admin usa iframe + blob). `img-src` já permite `data:`/`blob:`/`https:`.

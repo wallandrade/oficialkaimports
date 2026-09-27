@@ -200,6 +200,7 @@ export default function Checkout() {
   const [motoboyShippingOption, setMotoboyShippingOption] = useState<ShippingOption | null>(null);
   const [shippingLoading, setShippingLoading] = useState(true);
   const [logisticsForecast, setLogisticsForecast] = useState<LogisticsForecast | null>(null);
+  const [carrierDeliveryDays, setCarrierDeliveryDays] = useState<number | null>(null);
   const [selectedShippingId, setSelectedShippingId] = useState<string | null>(null);
   const [motoboyDeliveryDate, setMotoboyDeliveryDate] = useState("");
   const [motoboyDeliveryTime, setMotoboyDeliveryTime] = useState("");
@@ -768,6 +769,39 @@ export default function Checkout() {
   );
   const selectedShipping = availableShippingOptions.find((o) => o.id === selectedShippingId) ?? null;
   const isMotoboySelected = Boolean(selectedShippingId?.startsWith("motoboy_"));
+  const cepDigits = cepDisplay.replace(/\D/g, "");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    if (cepDigits.length !== 8 || isMotoboySelected) {
+      setCarrierDeliveryDays(null);
+      return () => controller.abort();
+    }
+
+    setCarrierDeliveryDays(null);
+    const timer = window.setTimeout(() => {
+      fetch(`${BASE}/api/shipping/delivery-estimate?cep=${cepDigits}`, {
+        signal: controller.signal,
+        cache: "no-store",
+      })
+        .then(async (response) => {
+          if (!response.ok) return null;
+          return response.json() as Promise<{ deliveryTimeDays?: number | null }>;
+        })
+        .then((data) => {
+          const days = Number(data?.deliveryTimeDays);
+          setCarrierDeliveryDays(Number.isFinite(days) && days >= 1 ? Math.trunc(days) : null);
+        })
+        .catch((error: Error) => {
+          if (error.name !== "AbortError") setCarrierDeliveryDays(null);
+        });
+    }, 400);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [cepDigits, isMotoboySelected]);
   const motoboyNeighborhoodId = isMotoboySelected
     ? selectedShipping?.motoboyAreaId || selectedShippingId!.slice("motoboy_".length)
     : "";
@@ -2322,9 +2356,15 @@ export default function Checkout() {
                               </span>
                             )}
                           </p>
-                          {opt.description && (
+                          {opt.id.startsWith("motoboy_") ? (
+                            opt.description && (
+                              <p className="text-sm text-muted-foreground mt-1">{opt.description}</p>
+                            )
+                          ) : carrierDeliveryDays != null ? (
+                            <p className="text-sm text-muted-foreground mt-1">{carrierDeliveryDays} dia(s) úteis</p>
+                          ) : opt.description ? (
                             <p className="text-sm text-muted-foreground mt-1">{opt.description}</p>
-                          )}
+                          ) : null}
                           <p className="font-semibold text-primary mt-2">
                             {isMotoboyDistanceOption(opt)
                               ? formatCurrency(Number(opt.price))
