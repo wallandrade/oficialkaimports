@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-27 | Rodízio de vendedor no create do checkout (`seller-round-robin.ts`) | Sem `sellerCode`, PIX e `POST /api/orders` gravam o próximo slug e a comissão; cursor `seller_round_robin_cursor` por tenant | Link com slug; `custom_charges`; reenvio em `support.ts` |
 | 2026-09-27 | `/frete` chama `GET /api/motoboy-coverage/lookup` depois do ViaCEP | Card Motoboy só quando o CEP atende; `consult` vira aviso de 200 km | Agenda e whitelist do checkout |
 | 2026-09-27 | Página pública `/frete` (`FreightLookup`) | Consulta CEP: preço de `shipping_options` + prazo do `delivery-estimate` | Checkout e rota `/:seller` |
 | 2026-09-27 | `GET /api/shipping/delivery-estimate` público, sem token de checkout | Setting `envioecom_checkout_carrier_priority` só no GET/PUT admin | `GET /api/settings` e fila de postagem |
@@ -123,7 +124,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 
 - Admin: sessão DB + cookie; ver `auth-permissoes.md`.
 - Customer: Bearer token em Map in-memory no processo (`middlewares/customer-auth.ts`). Admin pode redefinir senha (`PATCH /admin/customers/:id/password`) e `removeCustomerSessionsForUser` limpa os tokens daquele `userId` neste processo.
-- Checkout: token de segurança (`checkout-security.ts` + `/api/security/checkout-token` no app).
+- Checkout: token de segurança (`checkout-security.ts` + `/api/security/checkout-token` no app). Sem `sellerCode`, `assignNextOrganicSeller` (`lib/seller-round-robin.ts`) escolhe o próximo slug na mesma transação do pedido.
 
 ## Storage / mídia
 

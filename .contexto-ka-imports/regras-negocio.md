@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-27 | Compra sem código de vendedor entra no rodízio da loja | `sellerCode` e snapshot de comissão vão para o próximo slug de `sellers`; cursor em `tenant_settings` (`seller_round_robin_cursor`) | Link `/:seller` continua exclusivo; cobrança custom e filho de reenvio não entram; WhatsApp da vitrine segue o slug da sessão |
 | 2026-09-27 | Página `/frete` também mostra Motoboy quando o CEP atende | Mesmo lookup do checkout (ViaCEP + cobertura); preço da área; acima de 200 km só o aviso | Agenda, whitelist de SKU e checkout |
 | 2026-09-27 | Página `/frete` consulta valor e prazo sem abrir o checkout | CEP de 8 dígitos mostra o preço de `shipping_options` e os dias da EnvioEcom; Motoboy de fora | Checkout, fila de postagem e preço da cotação EnvioEcom |
 | 2026-09-27 | Checkout troca a descrição do frete padrão pelo prazo da EnvioEcom (`GET /api/shipping/delivery-estimate`) | Fila `envioecom_checkout_carrier_priority` só no admin; preço e nome do frete iguais; Motoboy de fora | Aviso “Postagem em até X horas”; conta Minas; create/etiqueta |
@@ -192,7 +193,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 
 ## Vendedores vs afiliados
 
-- **Seller**: slug em `sellers`, link `/:seller`, comissão (`commissionRate`, snapshot no pedido).
+- **Seller**: slug em `sellers`, link `/:seller`, comissão (`commissionRate`, snapshot no pedido). Checkout sem código (`POST /api/checkout/pix` e `POST /api/orders`) atribui o próximo vendedor da loja, em ordem de slug, um pedido por vez. O cursor fica em `tenant_settings.seller_round_robin_cursor`, travado na mesma transação do pedido. Sem vendedor cadastrado, o pedido continua com `sellerCode` nulo. Quem já tem slug na sessão (link do vendedor) não entra no rodízio. Cobrança custom e filho de reenvio não usam essa fila. O WhatsApp da loja no navegador não muda: o número do vendedor só aparece quando o slug já estava na sessão.
 - **Afiliado**: `affiliates` + crédito/comissões; short link `/r/:code` no FE.
 - Não tratar seller e afiliado como a mesma entidade.
 

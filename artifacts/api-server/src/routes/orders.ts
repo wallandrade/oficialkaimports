@@ -77,6 +77,7 @@ import {
   listOrderEvents,
   listOrderEventsByOrderIds,
 } from "../lib/order-events";
+import { assignNextOrganicSeller } from "../lib/seller-round-robin";
 import {
   isObservationVisibleToCustomer,
   observationForCustomerApi,
@@ -1244,20 +1245,22 @@ router.post("/orders", async (req, res) => {
       ? affiliate.userId
       : null;
 
+    const explicitSellerCode = String(sellerCode || "").trim().toLowerCase();
     let sellerCommissionRateSnapshot = 0;
-    if (sellerCode) {
-      const slug = String(sellerCode).toLowerCase();
+    if (explicitSellerCode) {
       const [seller] = await db
         .select({
           hasCommission: sellersTable.hasCommission,
           commissionRate: sellersTable.commissionRate,
         })
         .from(sellersTable)
-        .where(and(eq(sellersTable.tenantId, tenantId), eq(sellersTable.slug, slug)));
+        .where(and(eq(sellersTable.tenantId, tenantId), eq(sellersTable.slug, explicitSellerCode)));
       if (seller?.hasCommission) {
         sellerCommissionRateSnapshot = Number(seller.commissionRate ?? 0);
       }
     }
+    let resolvedSellerCode: string | null = explicitSellerCode || null;
+    let resolvedCommissionRate = sellerCommissionRateSnapshot;
 
     if (!client || !products || !shippingType) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Campos obrigatórios ausentes." });
@@ -1458,6 +1461,13 @@ router.post("/orders", async (req, res) => {
 
     let assignedOrderNumber = 0;
     await db.transaction(async (tx) => {
+      if (!resolvedSellerCode) {
+        const organicSeller = await assignNextOrganicSeller(tx, tenantId);
+        if (organicSeller) {
+          resolvedSellerCode = organicSeller.slug;
+          resolvedCommissionRate = organicSeller.commissionRate;
+        }
+      }
       assignedOrderNumber = await reserveNextOrderNumber(tx, tenantId);
       const motoboySchedule = isMotoboyShippingType(shippingType)
         ? await reserveMotoboySchedule(tx, tenantId, id, req.body?.motoboySchedule || {})
@@ -1495,8 +1505,8 @@ router.post("/orders", async (req, res) => {
         status:            method === "card_simulation" ? "awaiting_payment" : "pending",
         paymentMethod:     method,
         cardInstallments:  cardInstallments ? Number(cardInstallments) : null,
-        sellerCode:        sellerCode ? String(sellerCode) : null,
-        sellerCommissionRateSnapshot: String(sellerCommissionRateSnapshot),
+        sellerCode:        resolvedSellerCode,
+        sellerCommissionRateSnapshot: String(resolvedCommissionRate),
         couponCode:        normalizedCouponCode,
         discountAmount:    computedDiscountAmount > 0 ? String(computedDiscountAmount) : null,
       });
@@ -1547,7 +1557,7 @@ router.post("/orders", async (req, res) => {
         clientName: client.name,
         total: computedTotal,
         paymentMethod: method,
-        sellerCode: sellerCode || null,
+        sellerCode: resolvedSellerCode,
         tenantId,
         createdAt: new Date().toISOString(),
       },
@@ -1557,7 +1567,7 @@ router.post("/orders", async (req, res) => {
       clientName: client.name,
       total: computedTotal,
       paymentMethod: method,
-      sellerCode: sellerCode || null,
+      sellerCode: resolvedSellerCode,
       createdAt: new Date().toISOString(),
     }, { tenantId });
 
@@ -1603,7 +1613,7 @@ router.post("/orders", async (req, res) => {
       total: Math.max(0, computedTotal - storeCreditUsed),
       status:        method === "card_simulation" ? "awaiting_payment" : "pending",
       paymentMethod: method,
-      sellerCode:    sellerCode || null,
+      sellerCode:    resolvedSellerCode,
       affiliateCode: affiliateUserId ? normalizedAffiliateCode : null,
       guestAccessToken,
       isGuestOrder: !customerSession,

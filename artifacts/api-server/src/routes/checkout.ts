@@ -31,6 +31,7 @@ import {
 } from "../lib/checkout-insurance";
 import { applyStoreCreditToOrder } from "../lib/customer-wallet";
 import { addOrderEvent } from "../lib/order-events";
+import { assignNextOrganicSeller } from "../lib/seller-round-robin";
 
 const router: IRouter = Router();
 
@@ -299,20 +300,22 @@ router.post("/checkout/pix", async (req, res) => {
       ? affiliate.userId
       : null;
 
+    const explicitSellerCode = String(sellerCode || "").trim().toLowerCase();
     let sellerCommissionRateSnapshot = 0;
-    if (sellerCode) {
-      const slug = String(sellerCode).toLowerCase();
+    if (explicitSellerCode) {
       const [seller] = await db
         .select({
           hasCommission: sellersTable.hasCommission,
           commissionRate: sellersTable.commissionRate,
         })
         .from(sellersTable)
-        .where(and(eq(sellersTable.tenantId, tenantId), eq(sellersTable.slug, slug)));
+        .where(and(eq(sellersTable.tenantId, tenantId), eq(sellersTable.slug, explicitSellerCode)));
       if (seller?.hasCommission) {
         sellerCommissionRateSnapshot = Number(seller.commissionRate ?? 0);
       }
     }
+    let resolvedSellerCode: string | null = explicitSellerCode || null;
+    let resolvedCommissionRate = sellerCommissionRateSnapshot;
 
     // ── Validate client fields ────────────────────────────────────────────
     if (!client?.name || !client?.email || !client?.phone || !client?.document) {
@@ -487,6 +490,13 @@ router.post("/checkout/pix", async (req, res) => {
 
     let assignedOrderNumber = 0;
     await db.transaction(async (tx) => {
+      if (!resolvedSellerCode) {
+        const organicSeller = await assignNextOrganicSeller(tx, tenantId);
+        if (organicSeller) {
+          resolvedSellerCode = organicSeller.slug;
+          resolvedCommissionRate = organicSeller.commissionRate;
+        }
+      }
       assignedOrderNumber = await reserveNextOrderNumber(tx, tenantId);
       const reservedMotoboySchedule = isMotoboyShippingType(shippingType)
         ? await reserveMotoboySchedule(tx, tenantId, orderId, motoboySchedule || {})
@@ -523,8 +533,8 @@ router.post("/checkout/pix", async (req, res) => {
         total:               String(amount),
         status:              "pending",
         paymentMethod:       "pix",
-        sellerCode:          sellerCode ? String(sellerCode) : null,
-        sellerCommissionRateSnapshot: String(sellerCommissionRateSnapshot),
+        sellerCode:          resolvedSellerCode,
+        sellerCommissionRateSnapshot: String(resolvedCommissionRate),
         couponCode:          normalizedCouponCode,
         discountAmount:      computedDiscountAmount > 0 ? String(computedDiscountAmount) : null,
       });
@@ -586,7 +596,7 @@ router.post("/checkout/pix", async (req, res) => {
       });
     }
 
-    console.log(`[CHECKOUT/PIX:${requestId}] Order created: ${orderId} (sellerCode=${sellerCode || "none"})`);
+    console.log(`[CHECKOUT/PIX:${requestId}] Order created: ${orderId} (sellerCode=${resolvedSellerCode || "none"})`);
 
     // Geo lookup — fire and forget, não bloqueia a resposta
     lookupIpGeo(purchaseIp).then((geo) => {
@@ -604,7 +614,7 @@ router.post("/checkout/pix", async (req, res) => {
         clientName:    client.name,
         total:         amount,
         paymentMethod: "pix",
-        sellerCode:    sellerCode || null,
+        sellerCode:    resolvedSellerCode,
         tenantId,
         createdAt:     new Date().toISOString(),
       },
@@ -614,7 +624,7 @@ router.post("/checkout/pix", async (req, res) => {
       clientName: client.name,
       total: amount,
       paymentMethod: "pix",
-      sellerCode: sellerCode || null,
+      sellerCode: resolvedSellerCode,
       createdAt: new Date().toISOString(),
     }, { tenantId });
 
