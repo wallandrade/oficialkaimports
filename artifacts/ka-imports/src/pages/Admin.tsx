@@ -897,6 +897,7 @@ import { formatCurrency, formatDateOnlyBR } from "@/lib/utils";
 import { canReship, cappedLineDiscount, orderLineGross, orderLineNet, parseInsurancePlan, parseInsuranceSettingsFromMap, resolveCheckoutInsurance, type InsuranceProblem } from "@/lib/checkout-insurance";
 import { parseMotoboyDistanceEnabled } from "@/lib/motoboy-distance-config";
 import { AdminInsurancePanel } from "@/components/admin/AdminInsurancePanel";
+import { AdminAffiliatesPanel } from "@/components/admin/AdminAffiliatesPanel";
 import { MotoboyDistanceCard } from "@/components/admin/MotoboyDistanceCard";
 import { MotoboySlotHoursCard } from "@/components/admin/MotoboySlotHoursCard";
 import { formatMotoboyHomePeriod, MOTOBOY_HOME_REMINDER } from "@/lib/motoboy-slot-hours";
@@ -1397,7 +1398,7 @@ function OrderBumpsPanel({ bumps, products, form, setForm, creating, toggling, d
   );
 }
 
-type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "checkout" | "seguro" | "socialProof" | "raffles" | "lojas" | "supplierPurchases" | "envioecom" | "extrato" | "depositos";
+type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "affiliates" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "checkout" | "seguro" | "socialProof" | "raffles" | "lojas" | "supplierPurchases" | "envioecom" | "extrato" | "depositos";
 type LojasSubTab = "criar" | "pedidos" | "cadastradas";
 type FilialScopeSubTab = "pedidos" | "produtos" | "estoque";
 
@@ -2669,6 +2670,7 @@ export default function Admin() {
   const canManageSellerLinks = isPrimary || adminTenantId !== "tenant_loja1";
   const canManageRafflesTab = isPrimary || adminTenantId !== "tenant_loja1";
   const canManageInsuranceTab = isPrimary || adminTenantId !== "tenant_loja1";
+  const canManageAffiliatesTab = isPrimary || adminTenantId !== "tenant_loja1";
   const canEditOrders = isPrimary || adminTenantId !== "tenant_loja1";
   const canViewSupplierPurchasesTab = adminTenantId !== "tenant_loja1";
   const filialTenantOptions = tenants.filter((tenant) => tenant.id !== "tenant_loja1");
@@ -5888,10 +5890,10 @@ export default function Admin() {
   }, [tab, authChecked, fetchUsers, fetchCustomers, fetchRecurringCustomers]);
 
   useEffect(() => {
-    if ((tab === "products" && !canManageProductsTab) || (tab === "raffles" && !canManageRafflesTab) || (tab === "seguro" && !canManageInsuranceTab) || (!isPrimary && PRIMARY_ONLY_TABS.has(tab)) || (tab === "lojas" && !canManageTenants) || (tab === "supplierPurchases" && !canViewSupplierPurchasesTab) || (tab === "envioecom" && !canManageShippingTab)) {
+    if ((tab === "products" && !canManageProductsTab) || (tab === "raffles" && !canManageRafflesTab) || (tab === "seguro" && !canManageInsuranceTab) || (tab === "affiliates" && !canManageAffiliatesTab) || (!isPrimary && PRIMARY_ONLY_TABS.has(tab)) || (tab === "lojas" && !canManageTenants) || (tab === "supplierPurchases" && !canViewSupplierPurchasesTab) || (tab === "envioecom" && !canManageShippingTab)) {
       setTab("orders");
     }
-  }, [isPrimary, tab, canManageTenants, canManageProductsTab, canManageRafflesTab, canManageInsuranceTab, canViewSupplierPurchasesTab, canManageShippingTab]);
+  }, [isPrimary, tab, canManageTenants, canManageProductsTab, canManageRafflesTab, canManageInsuranceTab, canManageAffiliatesTab, canViewSupplierPurchasesTab, canManageShippingTab]);
 
   useEffect(() => {
     if (!authChecked || tab !== "supplierPurchases") return;
@@ -7752,6 +7754,9 @@ export default function Admin() {
             { key: "sellers", label: "Vendedores", icon: "Tag" },
             { key: "commissions", label: "Comissão", icon: "DollarSign", count: commissionPendingOrders.length || undefined },
             { key: "customers", label: "Clientes", icon: "UserPlus", count: customerUsers.length || undefined },
+            ...(canManageAffiliatesTab ? [
+              { key: "affiliates" as TabType, label: "Afiliados", icon: "Users" },
+            ] : []),
             { key: "recurringCustomers", label: "Clientes recorrentes", icon: "RefreshCw", count: recurringCustomers.length || undefined },
             { key: "charges", label: "Links Pagamento", icon: "LinkIcon", count: charges.length },
             { key: "kyc", label: "KYC", icon: "ShieldCheck", count: kycList.length > 0 ? kycList.filter((k) => k.status === "submitted").length : undefined },
@@ -8082,6 +8087,8 @@ export default function Admin() {
             canManageSellerLinks={canManageSellerLinks}
             currentUsername={currentUsername}
           />
+        ) : tab === "affiliates" && canManageAffiliatesTab ? (
+          <AdminAffiliatesPanel onOpenOrder={goToOrder} />
         ) : tab === "customers" ? (
           <CustomersPanel
             customers={customerUsers}
