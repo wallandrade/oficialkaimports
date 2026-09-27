@@ -1,14 +1,17 @@
 import { randomUUID } from "node:crypto";
-import { db, tenantSettingsTable } from "@workspace/db";
-import { and, eq } from "drizzle-orm";
+import { db, tenantSettingsTable, tenantsTable } from "@workspace/db";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import {
+  ENVIOECOM_DEFAULT_TENANT_ID,
   ENVIOECOM_ENV_ACCOUNT_ID,
   ENVIOECOM_TENANT_ACCOUNT_ID,
   assembleEnvioEcomAccounts,
   extraAccountToAuth,
   isEnvioEcomAccountConfigured,
   parseEnvioEcomExtrasJson,
+  toEnvioEcomStoreLogin,
   type EnvioEcomAccountAuth,
+  type EnvioEcomStoreLogin,
   type ExtraAccountRow,
 } from "./envioecom-accounts-core";
 import {
@@ -28,10 +31,12 @@ export {
   parseEnvioEcomExtrasJson,
   pickWriteEnvioEcomAccount,
   toAdminEnvioEcomAccount,
+  toEnvioEcomStoreLogin,
   toPublicEnvioEcomAccount,
   type EnvioEcomAccountAdminView,
   type EnvioEcomAccountAuth,
   type EnvioEcomAccountPublic,
+  type EnvioEcomStoreLogin,
 } from "./envioecom-accounts-core";
 
 function digitsOnly(value: unknown): string {
@@ -41,6 +46,57 @@ function digitsOnly(value: unknown): string {
 export async function listEnvioEcomAccounts(tenantId: string): Promise<EnvioEcomAccountAuth[]> {
   const settings = await getTenantSettingsMap(tenantId);
   return assembleEnvioEcomAccounts({ tenantId, settings });
+}
+
+const STORE_LOGIN_KEYS = [
+  ENVIOECOM_SETTING_KEYS.token,
+  ENVIOECOM_SETTING_KEYS.email,
+  ENVIOECOM_SETTING_KEYS.password,
+  ENVIOECOM_SETTING_KEYS.originCep,
+  ENVIOECOM_SETTING_KEYS.accounts,
+] as const;
+
+/** Primary da loja 1: nome de cada loja + login EnvioEcom gravado nela. Sem a conta do servidor. */
+export async function listEnvioEcomLoginsByStore(): Promise<EnvioEcomStoreLogin[]> {
+  const tenants = await db
+    .select({ id: tenantsTable.id, name: tenantsTable.name })
+    .from(tenantsTable)
+    .orderBy(asc(tenantsTable.name));
+
+  const rows = await db
+    .select({
+      tenantId: tenantSettingsTable.tenantId,
+      key: tenantSettingsTable.key,
+      value: tenantSettingsTable.value,
+    })
+    .from(tenantSettingsTable)
+    .where(inArray(tenantSettingsTable.key, [...STORE_LOGIN_KEYS]));
+
+  const settingsByTenant = new Map<string, Record<string, string>>();
+  for (const row of rows) {
+    const rawId = String(row.tenantId || "").trim();
+    const tenantId = rawId || ENVIOECOM_DEFAULT_TENANT_ID;
+    const bag = settingsByTenant.get(tenantId) || {};
+    if (!rawId && bag[row.key]) continue;
+    bag[row.key] = String(row.value ?? "");
+    settingsByTenant.set(tenantId, bag);
+  }
+
+  const listed = tenants.some((tenant) => tenant.id === ENVIOECOM_DEFAULT_TENANT_ID)
+    ? tenants
+    : [{ id: ENVIOECOM_DEFAULT_TENANT_ID, name: "Loja 1" }, ...tenants];
+
+  const loja1First = [...listed].sort((a, b) => {
+    if (a.id === ENVIOECOM_DEFAULT_TENANT_ID) return -1;
+    if (b.id === ENVIOECOM_DEFAULT_TENANT_ID) return 1;
+    return String(a.name || "").localeCompare(String(b.name || ""), "pt-BR");
+  });
+
+  return loja1First.map((tenant) => toEnvioEcomStoreLogin({
+    tenantId: tenant.id,
+    tenantName: tenant.name,
+    settings: settingsByTenant.get(tenant.id) || {},
+  }));
 }
 
 export async function getEnvioEcomAccount(tenantId: string, accountId: string): Promise<EnvioEcomAccountAuth | null> {

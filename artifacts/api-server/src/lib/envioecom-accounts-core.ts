@@ -100,6 +100,31 @@ export function toPublicEnvioEcomAccount(account: EnvioEcomAccountAuth): EnvioEc
   };
 }
 
+export type EnvioEcomStoreLogin = {
+  tenantId: string;
+  tenantName: string;
+  accounts: EnvioEcomAccountAdminView[];
+};
+
+/** Contas da loja e extras, sem a conta `env` do servidor. */
+export function toEnvioEcomStoreLogin(input: {
+  tenantId: string;
+  tenantName: string;
+  settings: Record<string, string>;
+}): EnvioEcomStoreLogin {
+  const accounts = assembleEnvioEcomAccounts({
+    tenantId: input.tenantId,
+    settings: input.settings,
+  })
+    .filter((account) => !account.fromEnv)
+    .map(toAdminEnvioEcomAccount);
+  return {
+    tenantId: input.tenantId,
+    tenantName: String(input.tenantName || "").trim() || input.tenantId,
+    accounts,
+  };
+}
+
 export function toAdminEnvioEcomAccount(account: EnvioEcomAccountAuth): EnvioEcomAccountAdminView {
   const pub = toPublicEnvioEcomAccount(account);
   if (account.fromEnv) {

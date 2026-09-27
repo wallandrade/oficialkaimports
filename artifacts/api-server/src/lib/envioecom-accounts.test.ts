@@ -9,6 +9,7 @@ import {
   parseEnvioEcomExtrasJson,
   pickWriteEnvioEcomAccount,
   toAdminEnvioEcomAccount,
+  toEnvioEcomStoreLogin,
   toPublicEnvioEcomAccount,
 } from "./envioecom-accounts-core";
 
@@ -39,6 +40,28 @@ test("painel devolve usuário e senha da conta da loja; conta do servidor não",
   assert.equal(env.email, null);
   assert.equal(env.password, null);
   assert.equal(env.emailMasked, "sp••••@mail.com");
+});
+
+test("login da loja traz nome, e-mail e senha e deixa a conta do servidor de fora", () => {
+  const store = toEnvioEcomStoreLogin({
+    tenantId: "tenant_minas",
+    tenantName: "Minas",
+    settings: {
+      envioecom_email: "minas@mail.com",
+      envioecom_password: "senha-minas",
+      envioecom_origin_cep: "30000000",
+      envioecom_accounts: JSON.stringify([
+        { id: "extra-1", name: "Conta 2", token: "tok-54d1", originCep: "30000000" },
+      ]),
+    },
+  });
+  assert.equal(store.tenantName, "Minas");
+  assert.equal(store.accounts[0]?.id, "tenant");
+  assert.equal(store.accounts[0]?.email, "minas@mail.com");
+  assert.equal(store.accounts[0]?.password, "senha-minas");
+  assert.equal(store.accounts[1]?.email, null);
+  assert.equal(store.accounts[1]?.password, null);
+  assert.equal(store.accounts.some((account) => account.id === "env"), false);
 });
 
 test("GET status/config mascara e-mail e nunca devolve senha", () => {

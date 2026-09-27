@@ -24,6 +24,12 @@ type Account = {
   originCep: string;
 };
 
+type StoreLogin = {
+  tenantId: string;
+  tenantName: string;
+  accounts: Account[];
+};
+
 type Defaults = { weightKg: number; lengthCm: number; heightCm: number; widthCm: number };
 
 type AccountForm = {
@@ -42,6 +48,7 @@ export function EnvioEcomSettingsCard() {
   const [registering, setRegistering] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [stores, setStores] = useState<StoreLogin[]>([]);
   const [webhookUrl, setWebhookUrl] = useState<string | null>(null);
   const [suggestedUrl, setSuggestedUrl] = useState("");
   const [defaults, setDefaults] = useState({
@@ -64,9 +71,10 @@ export function EnvioEcomSettingsCard() {
         fetch(`${BASE}/api/admin/envioecom/webhook`, { headers: adminHeaders() }),
       ]);
       if (accountsRes.ok) {
-        const data = await accountsRes.json() as { accounts?: Account[] };
+        const data = await accountsRes.json() as { accounts?: Account[]; stores?: StoreLogin[] };
         const list = data.accounts || [];
         setAccounts(list);
+        setStores(data.stores || []);
         setForms((current) => {
           const next: Record<string, AccountForm> = {};
           for (const account of list) {
@@ -243,6 +251,32 @@ export function EnvioEcomSettingsCard() {
         <p className="text-xs mt-1">{accounts.length ? `${accounts.length} conta(s)` : "Nenhuma conta configurada"}</p>
       </div>
 
+      {stores.length > 0 ? (
+        <div className="space-y-3">
+          <div>
+            <p className="text-sm font-semibold text-neutral-900">Login de cada loja</p>
+            <p className="text-xs text-neutral-600">Nome da loja e o e-mail e a senha da EnvioEcom gravados nela. A conta do servidor não entra nesta lista.</p>
+          </div>
+          {stores.map((store) => (
+            <div key={store.tenantId} className="rounded-xl border border-emerald-200 bg-white p-4 space-y-3">
+              <p className="text-sm font-semibold text-neutral-900">{store.tenantName}</p>
+              {store.accounts.length === 0 ? (
+                <p className="text-sm text-neutral-500">Sem login EnvioEcom nesta loja.</p>
+              ) : store.accounts.map((account) => (
+                <div key={account.id} className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">{account.name}</p>
+                  <p><span className="font-semibold">Usuário:</span> <span className="font-mono break-all">{account.email || "não cadastrado"}</span></p>
+                  <p><span className="font-semibold">Senha:</span> <span className="font-mono break-all">{account.password || "não cadastrada"}</span></p>
+                  {!account.email && !account.password && account.tokenMasked ? (
+                    <p className="text-xs text-neutral-500">Salva só com token {account.tokenMasked}. E-mail e senha não foram gravados.</p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
       <div className="space-y-3">
         {accounts.map((account) => {
           const form = forms[account.id] || { ...EMPTY_FORM, name: account.name, originCep: account.originCep };
@@ -268,6 +302,9 @@ export function EnvioEcomSettingsCard() {
                   <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Login EnvioEcom</p>
                   <p><span className="font-semibold">Usuário:</span> <span className="font-mono break-all">{account.email || "não cadastrado"}</span></p>
                   <p><span className="font-semibold">Senha:</span> <span className="font-mono break-all">{account.password || "não cadastrada"}</span></p>
+                  {!account.email && !account.password && account.tokenMasked ? (
+                    <p className="text-xs text-neutral-500">Esta conta foi salva só com token. E-mail e senha não foram gravados aqui.</p>
+                  ) : null}
                 </div>
               ) : null}
               {account.fromEnv ? (

@@ -24,6 +24,7 @@ import {
   hasAnyEnvioEcomAccount,
   isEnvioEcomAccountConfigured,
   listEnvioEcomAccounts,
+  listEnvioEcomLoginsByStore,
   orderEnvioEcomAccountsForFallback,
   pickWriteEnvioEcomAccount,
   toAdminEnvioEcomAccount,
@@ -82,7 +83,7 @@ function canManageEnvioEcom(scope: ReturnType<typeof getAdminScope>): boolean {
   return !!scope?.hasGlobalAccess;
 }
 
-function requireEnvioEcomAdmin(req: Request, res: Response): { tenantId: string } | null {
+function requireEnvioEcomAdmin(req: Request, res: Response): { tenantId: string; isPrimary: boolean } | null {
   const scope = getAdminScope(req);
   if (!scope) {
     res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
@@ -92,7 +93,7 @@ function requireEnvioEcomAdmin(req: Request, res: Response): { tenantId: string 
     res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para gerenciar EnvioEcom." });
     return null;
   }
-  return { tenantId: scope.tenantId || DEFAULT_TENANT_ID };
+  return { tenantId: scope.tenantId || DEFAULT_TENANT_ID, isPrimary: !!scope.isPrimary };
 }
 
 function sendEnvioEcomError(res: Response, err: unknown) {
@@ -533,7 +534,10 @@ router.get("/admin/envioecom/accounts", requireAdminAuth, async (req, res) => {
     const admin = requireEnvioEcomAdmin(req, res);
     if (!admin) return;
     const accounts = (await listEnvioEcomAccounts(admin.tenantId)).map(toAdminEnvioEcomAccount);
-    res.json({ accounts, configured: accounts.some((account) => account.configured) });
+    const stores = admin.isPrimary && admin.tenantId === DEFAULT_TENANT_ID
+      ? await listEnvioEcomLoginsByStore()
+      : [];
+    res.json({ accounts, stores, configured: accounts.some((account) => account.configured) });
   } catch (err) {
     sendEnvioEcomError(res, err);
   }
