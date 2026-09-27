@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-27 | Página `/frete` usa o mesmo limite da cotação de prazo | 30 consultas reais por IP a cada 10 min; HTTP 429 na tela | Token de checkout; chave da fila fora de `PUBLIC_KEYS` |
 | 2026-09-27 | Prazo do checkout: 30 cotações EnvioEcom reais por IP a cada 10 min; cache não conta; chave fora de `PUBLIC_KEYS` | Acima do limite, HTTP 429; CEP inválido e erro da API continuam HTTP 200 vazio | Token de checkout; rate limit global de escrita |
 | 2026-09-27 | Primary da loja 1 vê e-mail/senha EnvioEcom de cada loja em `stores` | Nome da filial + login gravado nela | Filial não lista as outras; conta `env` sem senha |
 | 2026-09-27 | `GET /admin/envioecom/accounts` devolve usuário e senha da loja/extras | Admin com `hasGlobalAccess` vê o login no card | Senha da conta `env` não sai; status/config mascarados; token mascarado |

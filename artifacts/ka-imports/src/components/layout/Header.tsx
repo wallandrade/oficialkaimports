@@ -180,6 +180,7 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
     "rifas",
     "grupo2",
     "minha-conta",
+    "frete",
   ]);
   const sellerSlug = rootSegment && !reservedRootSegments.has(rootSegment) ? rootSegment : "";
   const sellerHomeHref = sellerSlug ? `/${encodeURIComponent(sellerSlug)}` : "/";
