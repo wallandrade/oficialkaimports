@@ -7191,6 +7191,36 @@ export default function Admin() {
     }
   };
 
+  const copyShipQueueTxt = async (event?: React.MouseEvent<HTMLButtonElement>) => {
+    event?.preventDefault();
+    event?.stopPropagation();
+    if (!shipQueueReady) return;
+    if (shipQueueParaEnviarPorAtraso.length === 0) {
+      toast.info("Nenhum pedido faltando enviar.");
+      return;
+    }
+    const blocks = shipQueueParaEnviarPorAtraso.map((order) => {
+      const pending = getPendingShipmentCopy(order);
+      if (isMotoboyShippingOrder(order) && !pending.isPartialSplit) return motoboyOrderBlock(order);
+      return logisticsOrderBlock(order);
+    });
+    const text = [
+      copyStoreLabel ? `Loja: ${copyStoreLabel}` : null,
+      `PEDIDOS PARA ENVIAR: ${shipQueueParaEnviarPorAtraso.length}`,
+      "",
+      blocks.join("\n\n"),
+    ].filter((line) => line != null).join("\n");
+    try {
+      const mode = await copyText(text);
+      const count = shipQueueParaEnviarPorAtraso.length;
+      toast.success(mode === "manual"
+        ? "Texto aberto para copia manual."
+        : `${count} pedido${count !== 1 ? "s" : ""} para enviar copiado${count !== 1 ? "s" : ""}.`);
+    } catch {
+      toast.error("Nao foi possivel copiar os pedidos para enviar.");
+    }
+  };
+
   // ── Dashboard stats — uses independently fetched data (own API call) ─────
   const statsPaidOrders    = statsOrdersData.filter((o) => (o.status === "paid" || o.status === "completed") && dashboardSaleAmount(o) > 0.009);
   const statsPixPaid       = statsPaidOrders.filter((o) => o.paymentMethod === "pix" || o.paymentMethod === "whatsapp_pix");
@@ -7537,13 +7567,25 @@ export default function Admin() {
             onClick={() => setTab("orders")}
             title="Ver pedidos para enviar"
           >
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between gap-2 mb-2">
               <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide flex items-center gap-1.5">
                 <Truck className="w-4 h-4" /> Pedidos para Enviar
               </p>
-              <span className="text-[10px] bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-bold">
-                {shipQueueReady ? shipQueueParaEnviarCount : "…"}
-              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 h-7 px-2 rounded-lg border border-amber-300 bg-white text-[11px] font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+                  disabled={!shipQueueReady}
+                  title="Copiar só os pedidos que ainda faltam enviar"
+                  onClick={(event) => { void copyShipQueueTxt(event); }}
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  Copiar TXT
+                </button>
+                <span className="text-[10px] bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-bold">
+                  {shipQueueReady ? shipQueueParaEnviarCount : "…"}
+                </span>
+              </div>
             </div>
             {!shipQueueReady ? (
               <p className="text-sm text-amber-700/80">Carregando pedidos para enviar...</p>
