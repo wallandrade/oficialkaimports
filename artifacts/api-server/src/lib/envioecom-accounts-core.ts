@@ -34,6 +34,12 @@ export type EnvioEcomAccountPublic = {
   updatedAt?: string;
 };
 
+/** Conta da loja/extra no painel: usuário e senha em claro. Conta `env` continua sem senha. */
+export type EnvioEcomAccountAdminView = EnvioEcomAccountPublic & {
+  email: string | null;
+  password: string | null;
+};
+
 export type ExtraAccountRow = {
   id: string;
   name: string;
@@ -91,6 +97,18 @@ export function toPublicEnvioEcomAccount(account: EnvioEcomAccountAuth): EnvioEc
     originCep: account.originCep,
     createdAt: account.createdAt,
     updatedAt: account.updatedAt,
+  };
+}
+
+export function toAdminEnvioEcomAccount(account: EnvioEcomAccountAuth): EnvioEcomAccountAdminView {
+  const pub = toPublicEnvioEcomAccount(account);
+  if (account.fromEnv) {
+    return { ...pub, email: null, password: null };
+  }
+  return {
+    ...pub,
+    email: String(account.email || "").trim() || null,
+    password: String(account.password || "").trim() || null,
   };
 }
 

@@ -27,7 +27,9 @@ export {
   orderEnvioEcomAccountsForFallback,
   parseEnvioEcomExtrasJson,
   pickWriteEnvioEcomAccount,
+  toAdminEnvioEcomAccount,
   toPublicEnvioEcomAccount,
+  type EnvioEcomAccountAdminView,
   type EnvioEcomAccountAuth,
   type EnvioEcomAccountPublic,
 } from "./envioecom-accounts-core";

@@ -1,12 +1,13 @@
 # Segurança e performance — KA Imports
 
-> **Última atualização:** 2026-09-24  
+> **Última atualização:** 2026-09-27  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-27 | `GET /admin/envioecom/accounts` devolve usuário e senha da loja/extras | Admin com `hasGlobalAccess` vê o login no card | Senha da conta `env` não sai; status/config mascarados; token mascarado |
 | 2026-09-24 | `Admin` volta a ser import estático | `lazy()` quebrava `/admin` com `reading 'default'` no error boundary | Pausa de poll/SSE com a aba oculta |
 | 2026-09-24 | Admin pausa poll/SSE com a aba oculta | Voltar para a aba faz um refresh, não uma rajada | Lista de pedidos, intervalo de 20s com a aba visível, webhook PIX |
 | 2026-09-12 | Reset de senha do cliente não loga o plaintext; sessões Bearer daquele user são apagadas neste processo | PATCH admin + `removeCustomerSessionsForUser` | Rate limit / CSP / CORS |
@@ -34,6 +35,7 @@
 - Isolamento tenant/seller (ver `auth-permissoes.md` + smoke scripts).
 - Credenciais APPCNPay da loja: GET `/api/admin/settings` mascara `gateway_appcnpay_*`; PUT com valor já mascarado não sobrescreve; FE não persiste essas keys em `siteSettings`.
 - Senha de baixa Motoboy/Minas da Yury: o admin digita no card; o KA só encaminha no unlock/`exit` (Bearer/`X-Api-Key` iguais ao snapshot). Não há setting, env nem `localStorage` dessa senha.
+- Login EnvioEcom da loja: só `GET /admin/envioecom/accounts` (`hasGlobalAccess`) devolve e-mail e senha das contas `tenant` e extras. Conta `env` (Railway) não devolve senha. Status, config e respostas de POST/PUT seguem mascarados, sem senha. Token permanece mascarado.
 - **CSP do FE** (`index.html` + `vercel.json`): `default-src 'self'`; `object-src 'none'`; `frame-ancestors 'none'`; `frame-src 'self' blob: data: https:` (comprovante PDF no admin usa iframe + blob). `img-src` já permite `data:`/`blob:`/`https:`.
 
 ## Ops / health

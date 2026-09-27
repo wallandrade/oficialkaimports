@@ -26,6 +26,7 @@ import {
   listEnvioEcomAccounts,
   orderEnvioEcomAccountsForFallback,
   pickWriteEnvioEcomAccount,
+  toAdminEnvioEcomAccount,
   toPublicEnvioEcomAccount,
   updateEnvioEcomAccount,
   type EnvioEcomAccountAuth,
@@ -531,7 +532,7 @@ router.get("/admin/envioecom/accounts", requireAdminAuth, async (req, res) => {
   try {
     const admin = requireEnvioEcomAdmin(req, res);
     if (!admin) return;
-    const accounts = (await listEnvioEcomAccounts(admin.tenantId)).map(toPublicEnvioEcomAccount);
+    const accounts = (await listEnvioEcomAccounts(admin.tenantId)).map(toAdminEnvioEcomAccount);
     res.json({ accounts, configured: accounts.some((account) => account.configured) });
   } catch (err) {
     sendEnvioEcomError(res, err);

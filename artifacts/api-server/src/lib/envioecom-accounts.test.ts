@@ -8,10 +8,40 @@ import {
   orderEnvioEcomAccountsForFallback,
   parseEnvioEcomExtrasJson,
   pickWriteEnvioEcomAccount,
+  toAdminEnvioEcomAccount,
   toPublicEnvioEcomAccount,
 } from "./envioecom-accounts-core";
 
-test("GET mascara e-mail e nunca devolve senha", () => {
+test("painel devolve usuário e senha da conta da loja; conta do servidor não", () => {
+  const store = toAdminEnvioEcomAccount({
+    accountId: "tenant",
+    name: "Conta da loja",
+    token: "perm-token-1234",
+    email: "loja@mail.com",
+    password: "senha-loja",
+    originCep: "01310100",
+    fromEnv: false,
+  });
+  assert.equal(store.email, "loja@mail.com");
+  assert.equal(store.password, "senha-loja");
+  assert.equal(store.tokenMasked?.endsWith("1234"), true);
+  assert.equal("token" in store, false);
+
+  const env = toAdminEnvioEcomAccount({
+    accountId: "env",
+    name: "São Paulo",
+    token: "env-token",
+    email: "sp@mail.com",
+    password: "senha-servidor",
+    originCep: "01310100",
+    fromEnv: true,
+  });
+  assert.equal(env.email, null);
+  assert.equal(env.password, null);
+  assert.equal(env.emailMasked, "sp••••@mail.com");
+});
+
+test("GET status/config mascara e-mail e nunca devolve senha", () => {
   const publicAccount = toPublicEnvioEcomAccount({
     accountId: "abc",
     name: "Conta 2",

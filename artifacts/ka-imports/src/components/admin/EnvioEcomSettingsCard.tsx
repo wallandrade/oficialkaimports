@@ -19,6 +19,8 @@ type Account = {
   configured: boolean;
   tokenMasked: string | null;
   emailMasked: string | null;
+  email: string | null;
+  password: string | null;
   originCep: string;
 };
 
@@ -252,7 +254,7 @@ export function EnvioEcomSettingsCard() {
                   <p className="text-xs text-neutral-500">
                     {account.fromEnv ? "São Paulo · só leitura" : account.id === "tenant" ? "Conta da loja" : "Conta extra"}
                     {account.tokenMasked ? ` · token ${account.tokenMasked}` : ""}
-                    {account.emailMasked ? ` · ${account.emailMasked}` : ""}
+                    {account.fromEnv && account.emailMasked ? ` · ${account.emailMasked}` : ""}
                   </p>
                 </div>
                 {!account.fromEnv && account.id !== "tenant" ? (
@@ -261,6 +263,13 @@ export function EnvioEcomSettingsCard() {
                   </Button>
                 ) : null}
               </div>
+              {!account.fromEnv ? (
+                <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Login EnvioEcom</p>
+                  <p><span className="font-semibold">Usuário:</span> <span className="font-mono break-all">{account.email || "não cadastrado"}</span></p>
+                  <p><span className="font-semibold">Senha:</span> <span className="font-mono break-all">{account.password || "não cadastrada"}</span></p>
+                </div>
+              ) : null}
               {account.fromEnv ? (
                 <p className="text-sm text-neutral-600">CEP origem: {account.originCep || "não informado no servidor"}</p>
               ) : (
