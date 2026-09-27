@@ -128,6 +128,7 @@ type AffiliateBuyer = {
     status: string;
     total: number;
     commissionAmount: number;
+    excludedSellerCode?: string | null;
   }>;
 };
 
@@ -1211,7 +1212,11 @@ export default function CustomerOrders() {
                                       <span>{order.createdAt ? formatDateOnlyBR(order.createdAt) : "—"}</span>
                                       <span>{affiliateOrderStatusLabel(order.status)}</span>
                                       <span>{formatCurrency(order.total)}</span>
-                                      <span>comissão {formatCurrency(order.commissionAmount)}</span>
+                                      {order.excludedSellerCode ? (
+                                        <span className="font-semibold text-amber-800">Venda não contabilizada · cliente do vendedor {order.excludedSellerCode} do site</span>
+                                      ) : (
+                                        <span>comissão {formatCurrency(order.commissionAmount)}</span>
+                                      )}
                                     </div>
                                   ))}
                                 </div>

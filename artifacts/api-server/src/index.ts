@@ -1,6 +1,7 @@
 import app from "./app";
 import { startReconciliationJob } from "./reconciliation";
 import { ensureRuntimeSchema } from "./runtime-schema";
+import { revokeSellerCustomerAffiliateCommissions } from "./lib/affiliates";
 import { startRaffleExpiryJob } from "./raffle-expiry";
 import { reconcilePendingOrderLogistics } from "./lib/order-logistics";
 import { startYuryMotoboyCoverageSyncJob } from "./lib/motoboy-yury-sync-job";
@@ -34,6 +35,11 @@ process.on("uncaughtException", (err) => {
 
 async function bootstrap(): Promise<void> {
   await ensureRuntimeSchema();
+  try {
+    await revokeSellerCustomerAffiliateCommissions();
+  } catch (err) {
+    console.error("[Affiliate] falha ao recalcular comissões de cliente de vendedor:", err);
+  }
 
   app.listen(port, "0.0.0.0", () => {
     console.log(`Server listening on port ${port}`);

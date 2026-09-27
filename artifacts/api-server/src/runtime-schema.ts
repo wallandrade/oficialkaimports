@@ -262,6 +262,10 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
       sql: "ALTER TABLE orders ADD COLUMN seller_commission_paid_at TIMESTAMP NULL",
     },
     {
+      name: "seller_source",
+      sql: "ALTER TABLE orders ADD COLUMN seller_source VARCHAR(16) NULL",
+    },
+    {
       name: "whatsapp_group",
       sql: "ALTER TABLE orders ADD COLUMN whatsapp_group VARCHAR(64) NULL",
     },

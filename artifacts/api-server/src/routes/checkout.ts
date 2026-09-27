@@ -316,6 +316,7 @@ router.post("/checkout/pix", async (req, res) => {
     }
     let resolvedSellerCode: string | null = explicitSellerCode || null;
     let resolvedCommissionRate = sellerCommissionRateSnapshot;
+    let sellerSource: "link" | "organic" | null = explicitSellerCode ? "link" : null;
 
     // ── Validate client fields ────────────────────────────────────────────
     if (!client?.name || !client?.email || !client?.phone || !client?.document) {
@@ -495,6 +496,7 @@ router.post("/checkout/pix", async (req, res) => {
         if (organicSeller) {
           resolvedSellerCode = organicSeller.slug;
           resolvedCommissionRate = organicSeller.commissionRate;
+          sellerSource = "organic";
         }
       }
       assignedOrderNumber = await reserveNextOrderNumber(tx, tenantId);
@@ -534,6 +536,7 @@ router.post("/checkout/pix", async (req, res) => {
         status:              "pending",
         paymentMethod:       "pix",
         sellerCode:          resolvedSellerCode,
+        sellerSource,
         sellerCommissionRateSnapshot: String(resolvedCommissionRate),
         couponCode:          normalizedCouponCode,
         discountAmount:      computedDiscountAmount > 0 ? String(computedDiscountAmount) : null,

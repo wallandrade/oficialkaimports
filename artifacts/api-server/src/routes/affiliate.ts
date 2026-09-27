@@ -10,7 +10,7 @@ import {
 } from "@workspace/db";
 import { and, desc, eq, inArray, isNull, ne, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { getCustomerSession, requireCustomerAuth } from "../middlewares/customer-auth";
-import { getAffiliateAvailableCreditByUserId, getOrCreateAffiliateByUserId } from "../lib/affiliates";
+import { getAffiliateAvailableCreditByUserId, getOrCreateAffiliateByUserId, priorSellerLinkCodesByOrderId } from "../lib/affiliates";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-context";
 import { getAdminScope, requireAdminAuth, type AdminScope } from "./admin-auth";
 
@@ -190,6 +190,7 @@ type AffiliateBuyer = {
     status: string;
     total: number;
     commissionAmount: number;
+    excludedSellerCode: string | null;
   }>;
 };
 
@@ -204,6 +205,9 @@ async function listAffiliateBuyers(tenantId: string, affiliateUserId: string): P
       clientName: ordersTable.clientName,
       clientEmail: ordersTable.clientEmail,
       clientPhone: ordersTable.clientPhone,
+      clientDocument: ordersTable.clientDocument,
+      userId: ordersTable.userId,
+      tenantId: ordersTable.tenantId,
     })
     .from(ordersTable)
     .where(and(
@@ -230,6 +234,14 @@ async function listAffiliateBuyers(tenantId: string, affiliateUserId: string): P
       ));
 
   const commissionByOrder = new Map(commissionRows.map((row) => [row.orderId, roundMoney(row.commissionAmount)]));
+  const excludedByOrder = await priorSellerLinkCodesByOrderId(orderRows.map((order) => ({
+    id: order.id,
+    createdAt: order.createdAt,
+    tenantId: order.tenantId || tenantId,
+    userId: order.userId,
+    clientEmail: order.clientEmail,
+    clientDocument: order.clientDocument,
+  })));
   const buyers = new Map<string, Omit<AffiliateBuyer, "orderCount" | "totalSpent" | "commissionTotal">>();
 
   for (const order of orderRows) {
@@ -241,13 +253,15 @@ async function listAffiliateBuyers(tenantId: string, affiliateUserId: string): P
       phone: String(order.clientPhone || ""),
       orders: [],
     };
+    const excludedSellerCode = excludedByOrder.get(order.id) || null;
     current.orders.push({
       id: order.id,
       orderNumber: order.orderNumber ?? null,
       createdAt: order.createdAt ? new Date(order.createdAt).toISOString() : null,
       status: String(order.status || ""),
       total: roundMoney(order.total),
-      commissionAmount: commissionByOrder.get(order.id) || 0,
+      commissionAmount: excludedSellerCode ? 0 : (commissionByOrder.get(order.id) || 0),
+      excludedSellerCode,
     });
     buyers.set(key, current);
   }

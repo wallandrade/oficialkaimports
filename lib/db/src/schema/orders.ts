@@ -52,6 +52,7 @@ export const ordersTable = mysqlTable("orders", {
   proofUrls: mediumtext("proof_urls"),
   transactionId: varchar("transaction_id", { length: 255 }),
   sellerCode: varchar("seller_code", { length: 255 }),
+  sellerSource: varchar("seller_source", { length: 16 }),
   whatsappGroup: varchar("whatsapp_group", { length: 64 }),
   sellerCommissionRateSnapshot: decimal("seller_commission_rate_snapshot", { precision: 5, scale: 2 }),
   couponCode: varchar("coupon_code", { length: 255 }),

@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-27 | Comissão de afiliado não conta cliente que já comprou com vendedor da loja | Vale link e rodízio. A venda continua na lista, com comissão R$ 0 e o texto do vendedor. O saldo já creditado é recalculado na subida da API. O que já foi gasto no checkout não volta | Pedido do próprio afiliado; carteira do seguro |
 | 2026-09-27 | Minha conta → Afiliação lista quem comprou pelo link | `GET /api/me/affiliate/buyers`: nome, telefone, e-mail, valor e comissão de cada pedido pago | Admin continua igual; indicação sem compra segue só no contador; pedido do próprio afiliado não entra |
 | 2026-09-27 | Aba **Afiliados** no admin | Lista quem já teve comissão liberada (liberado, usado, disponível). Clique mostra compradores e pedidos pagos pelo link | Seller, carteira do seguro, taxa de 1% e checkout; seller-scoped não vê a aba |
 | 2026-09-27 | Compra sem código de vendedor entra no rodízio da loja | `sellerCode` e snapshot de comissão vão para o próximo slug de `sellers`; cursor em `tenant_settings` (`seller_round_robin_cursor`) | Link `/:seller` continua exclusivo; cobrança custom e filho de reenvio não entram; WhatsApp da vitrine segue o slug da sessão |
@@ -196,7 +197,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 ## Vendedores vs afiliados
 
 - **Seller**: slug em `sellers`, link `/:seller`, comissão (`commissionRate`, snapshot no pedido). Checkout sem código (`POST /api/checkout/pix` e `POST /api/orders`) atribui o próximo vendedor da loja, em ordem de slug, um pedido por vez. O cursor fica em `tenant_settings.seller_round_robin_cursor`, travado na mesma transação do pedido. Sem vendedor cadastrado, o pedido continua com `sellerCode` nulo. Quem já tem slug na sessão (link do vendedor) não entra no rodízio. Cobrança custom e filho de reenvio não usam essa fila. O WhatsApp da loja no navegador não muda: o número do vendedor só aparece quando o slug já estava na sessão.
-- **Afiliado**: `affiliates` + crédito/comissões; short link `/r/:code` no FE. Aba **Afiliados** do admin lista o saldo e as compras do link (ver Admin). Na Minha conta, **Afiliação** também lista essas compras (`GET /api/me/affiliate/buyers`), só do cliente logado.
+- **Afiliado**: `affiliates` + crédito/comissões; short link `/r/:code` no FE. Aba **Afiliados** do admin lista o saldo e as compras do link (ver Admin). Na Minha conta, **Afiliação** também lista essas compras (`GET /api/me/affiliate/buyers`), só do cliente logado. Cliente que já pagou antes com um vendedor da loja (link ou rodízio) aparece na lista, mas a comissão fica R$ 0: **Venda não contabilizada · cliente do vendedor X do site**. Na subida da API essas comissões já creditadas são apagadas; uso de saldo já feito no checkout permanece.
 - Não tratar seller e afiliado como a mesma entidade.
 
 ## Admin

@@ -1261,6 +1261,7 @@ router.post("/orders", async (req, res) => {
     }
     let resolvedSellerCode: string | null = explicitSellerCode || null;
     let resolvedCommissionRate = sellerCommissionRateSnapshot;
+    let sellerSource: "link" | "organic" | null = explicitSellerCode ? "link" : null;
 
     if (!client || !products || !shippingType) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Campos obrigatórios ausentes." });
@@ -1466,6 +1467,7 @@ router.post("/orders", async (req, res) => {
         if (organicSeller) {
           resolvedSellerCode = organicSeller.slug;
           resolvedCommissionRate = organicSeller.commissionRate;
+          sellerSource = "organic";
         }
       }
       assignedOrderNumber = await reserveNextOrderNumber(tx, tenantId);
@@ -1506,6 +1508,7 @@ router.post("/orders", async (req, res) => {
         paymentMethod:     method,
         cardInstallments:  cardInstallments ? Number(cardInstallments) : null,
         sellerCode:        resolvedSellerCode,
+        sellerSource,
         sellerCommissionRateSnapshot: String(resolvedCommissionRate),
         couponCode:        normalizedCouponCode,
         discountAmount:    computedDiscountAmount > 0 ? String(computedDiscountAmount) : null,

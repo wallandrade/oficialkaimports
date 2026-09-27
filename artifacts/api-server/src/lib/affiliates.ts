@@ -7,10 +7,16 @@ import {
   db,
   ordersTable,
 } from "@workspace/db";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
+
+import { DEFAULT_TENANT_ID } from "./tenant-context";
+import {
+  priorSellerLinkCode,
+  type AffiliateBuyerIdentity,
+  type SellerLinkOrder,
+} from "./affiliate-seller-customer";
 
 const COMMISSION_RATE = 0.01;
-const DEFAULT_TENANT_ID = "tenant_loja1";
 
 function randomId(): string {
   return crypto.randomBytes(8).toString("hex");
@@ -22,6 +28,89 @@ function generateCode(): string {
 
 export function normalizeAffiliateCode(input: unknown): string {
   return String(input || "").trim().toUpperCase();
+}
+
+function ordersTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(eq(ordersTable.tenantId, tenantId), isNull(ordersTable.tenantId), eq(ordersTable.tenantId, ""));
+  }
+  return eq(ordersTable.tenantId, tenantId);
+}
+
+export async function priorSellerLinkCodesByOrderId(orders: AffiliateBuyerIdentity[]): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  if (orders.length === 0) return result;
+
+  const emails = Array.from(new Set(orders.map((order) => String(order.clientEmail || "").trim().toLowerCase()).filter(Boolean)));
+  const userIds = Array.from(new Set(orders.map((order) => String(order.userId || "").trim()).filter(Boolean)));
+  const documents = Array.from(new Set(orders.map((order) => String(order.clientDocument || "").replace(/\D/g, "")).filter((value) => value.length === 11 || value.length === 14)));
+  const identityFilters: SQL[] = [];
+  if (emails.length > 0) {
+    identityFilters.push(sql`lower(trim(${ordersTable.clientEmail})) IN (${sql.join(emails.map((email) => sql`${email}`), sql`, `)})`);
+  }
+  if (userIds.length > 0) {
+    identityFilters.push(inArray(ordersTable.userId, userIds));
+  }
+  if (documents.length > 0) {
+    identityFilters.push(sql`REPLACE(REPLACE(REPLACE(REPLACE(${ordersTable.clientDocument}, '.', ''), '-', ''), '/', ''), ' ', '') IN (${sql.join(documents.map((document) => sql`${document}`), sql`, `)})`);
+  }
+  if (identityFilters.length === 0) return result;
+
+  const tenantIds = Array.from(new Set(orders.map((order) => String(order.tenantId || "").trim() || DEFAULT_TENANT_ID)));
+  const rows = await db
+    .select({
+      id: ordersTable.id,
+      createdAt: ordersTable.createdAt,
+      tenantId: ordersTable.tenantId,
+      userId: ordersTable.userId,
+      clientEmail: ordersTable.clientEmail,
+      clientDocument: ordersTable.clientDocument,
+      sellerCode: ordersTable.sellerCode,
+      sellerSource: ordersTable.sellerSource,
+    })
+    .from(ordersTable)
+    .where(and(
+      tenantIds.length === 1 ? ordersTenantWhere(tenantIds[0]) : undefined,
+      inArray(ordersTable.status, ["paid", "completed"]),
+      sql`TRIM(COALESCE(${ordersTable.sellerCode}, '')) <> ''`,
+      or(...identityFilters),
+    ));
+
+  const candidates = rows as SellerLinkOrder[];
+  for (const order of orders) {
+    const code = priorSellerLinkCode(order, candidates);
+    if (code) result.set(order.id, code);
+  }
+  return result;
+}
+
+export async function revokeSellerCustomerAffiliateCommissions(): Promise<number> {
+  const commissionOrders = await db
+    .select({
+      commissionId: affiliateCommissionsTable.id,
+      id: ordersTable.id,
+      createdAt: ordersTable.createdAt,
+      tenantId: ordersTable.tenantId,
+      userId: ordersTable.userId,
+      clientEmail: ordersTable.clientEmail,
+      clientDocument: ordersTable.clientDocument,
+    })
+    .from(affiliateCommissionsTable)
+    .innerJoin(ordersTable, eq(affiliateCommissionsTable.orderId, ordersTable.id));
+
+  const blocked = await priorSellerLinkCodesByOrderId(commissionOrders);
+  const dropIds = commissionOrders
+    .filter((row) => blocked.has(row.id))
+    .map((row) => row.commissionId);
+  if (dropIds.length === 0) return 0;
+
+  for (let index = 0; index < dropIds.length; index += 200) {
+    const chunk = dropIds.slice(index, index + 200);
+    await db.delete(affiliateCommissionsTable).where(inArray(affiliateCommissionsTable.id, chunk));
+  }
+
+  console.log(`[Affiliate] ${dropIds.length} comissão(ões) de cliente de vendedor deixaram de contar.`);
+  return dropIds.length;
 }
 
 export async function getOrCreateAffiliateByUserId(userId: string, tenantId = DEFAULT_TENANT_ID) {
@@ -160,6 +249,8 @@ export async function ensureOrderCommission(orderId: string): Promise<boolean> {
       products: ordersTable.products,
       userId: ordersTable.userId,
       clientEmail: ordersTable.clientEmail,
+      clientDocument: ordersTable.clientDocument,
+      createdAt: ordersTable.createdAt,
       affiliateUserId: ordersTable.affiliateUserId,
     })
     .from(ordersTable)
@@ -194,6 +285,19 @@ export async function ensureOrderCommission(orderId: string): Promise<boolean> {
   }
 
   if (products.length === 0) {
+    return false;
+  }
+
+  const priorSeller = await priorSellerLinkCodesByOrderId([{
+    id: order.id,
+    createdAt: order.createdAt,
+    tenantId,
+    userId: order.userId,
+    clientEmail: order.clientEmail,
+    clientDocument: order.clientDocument,
+  }]);
+  if (priorSeller.has(order.id)) {
+    await db.delete(affiliateCommissionsTable).where(eq(affiliateCommissionsTable.orderId, order.id));
     return false;
   }
 
