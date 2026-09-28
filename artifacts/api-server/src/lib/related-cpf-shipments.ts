@@ -11,6 +11,7 @@ export type RelatedCpfProduct = {
   productId: string | null;
   productName: string;
   quantity: number;
+  image: string | null;
 };
 
 export type RelatedCpfWarningLevel = "none" | "recent" | "same_product";
@@ -98,6 +99,67 @@ export function prettyRelatedAccountName(
   if (id === ENVIOECOM_ENV_ACCOUNT_ID) return "São Paulo";
   if (id === ENVIOECOM_TENANT_ACCOUNT_ID) return "Conta da loja";
   return id;
+}
+
+function rawProductRows(raw: unknown): Array<Record<string, unknown>> {
+  const parsed = Array.isArray(raw)
+    ? raw
+    : typeof raw === "string"
+      ? (() => {
+          try {
+            const value = JSON.parse(raw);
+            return Array.isArray(value) ? value : [];
+          } catch {
+            return [];
+          }
+        })()
+      : [];
+  return parsed.filter((item) => item && typeof item === "object") as Array<Record<string, unknown>>;
+}
+
+function relatedProductsFromRaw(raw: unknown): RelatedCpfProduct[] {
+  const images = new Map<string, string>();
+  for (const row of rawProductRows(raw)) {
+    const image = String(row.image || "").trim();
+    if (!image) continue;
+    const productId = String(row.productId || row.id || "").trim();
+    const name = String(row.productName || row.name || "").trim().toLowerCase();
+    const key = productId ? `id:${productId}` : name ? `name:${name}` : "";
+    if (key && !images.has(key)) images.set(key, image);
+  }
+  return parseOrderShipmentItems(raw).map((item) => {
+    const key = item.productId ? `id:${item.productId}` : `name:${item.productName.toLowerCase()}`;
+    return {
+      productId: item.productId,
+      productName: item.productName,
+      quantity: item.quantity,
+      image: images.get(key) || null,
+    };
+  });
+}
+
+export function applyRelatedCpfCatalogImages(
+  result: RelatedCpfShipmentsResult,
+  imageByProductId: ReadonlyMap<string, string> | Record<string, string>,
+): RelatedCpfShipmentsResult {
+  const lookup = (productId: string | null): string => {
+    const id = String(productId || "").trim();
+    if (!id) return "";
+    const image = imageByProductId instanceof Map
+      ? imageByProductId.get(id)
+      : imageByProductId[id];
+    return String(image || "").trim();
+  };
+  return {
+    ...result,
+    shipments: result.shipments.map((shipment) => ({
+      ...shipment,
+      products: shipment.products.map((product) => ({
+        ...product,
+        image: String(product.image || "").trim() || lookup(product.productId) || null,
+      })),
+    })),
+  };
 }
 
 export function relatedProductKeys(products: unknown): Set<string> {
@@ -239,7 +301,7 @@ export function collectRelatedCpfShipments(opts: {
       enviado: Boolean(sibling.enviado),
       shippedAt: toIso(sibling.envioecomStatusUpdatedAt, createdAt),
       accountId: String(sibling.envioecomAccountId || "").trim() || null,
-      products: parseOrderShipmentItems(sibling.products),
+      products: relatedProductsFromRaw(sibling.products),
       labelUrl: null as string | null,
       trackingCode: sibling.trackingCode,
     };
@@ -251,7 +313,7 @@ export function collectRelatedCpfShipments(opts: {
           enviado: Boolean(pkg.enviado),
           shippedAt: toIso(pkg.envioecomStatusUpdatedAt, createdAt),
           accountId: String(pkg.envioecomAccountId || "").trim() || null,
-          products: parseOrderShipmentItems(pkg.items?.length ? pkg.items : sibling.products),
+          products: relatedProductsFromRaw(pkg.items?.length ? pkg.items : sibling.products),
           labelUrl: pkg.envioecomLabelUrl,
           trackingCode: null as string | null,
         }))

@@ -4,6 +4,7 @@ export type RelatedCpfProduct = {
   productId: string | null;
   productName: string;
   quantity: number;
+  image?: string | null;
 };
 
 export type RelatedCpfWarningLevel = "none" | "recent" | "same_product";

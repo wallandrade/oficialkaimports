@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-09-27
+> **Última atualização:** 2026-09-28
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-28 | `related-shipments` hidrata `products[].image` pelo catálogo da loja | Alerta e lista do CPF mostram a miniatura | `GET /admin/orders` da fila; quote/create EE |
 | 2026-09-27 | Rodízio de vendedor no create do checkout (`seller-round-robin.ts`) | Sem `sellerCode`, PIX e `POST /api/orders` gravam o próximo slug e a comissão; cursor `seller_round_robin_cursor` por tenant | Link com slug; `custom_charges`; reenvio em `support.ts` |
 | 2026-09-27 | `/frete` chama `GET /api/motoboy-coverage/lookup` depois do ViaCEP | Card Motoboy só quando o CEP atende; `consult` vira aviso de 200 km | Agenda e whitelist do checkout |
 | 2026-09-27 | Página pública `/frete` (`FreightLookup`) | Consulta CEP: preço de `shipping_options` + prazo do `delivery-estimate` | Checkout e rota `/:seller` |
@@ -105,7 +106,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 - Webhook cobertura Motoboy: `POST /api/webhooks/yury/motoboy-coverage` (body cru + HMAC) **antes** de `express.json()`.
 - Webhook estoque Yury: `POST /api/webhooks/yury/inventory` (mesmo HMAC; grava `balances`, não o delta).
 - Baixa no pedido: `POST /api/admin/orders/:id/inventory-exit` (Fóz local ou Yury Motoboy/Minas) a partir do card (1:1); após split a baixa é por pacote (`debitPackageInventory`, `referenceId = pkg:{id}`). `ensureOrderMarkedEnviado` no split debita cada pacote. `GET/POST /admin/orders/:id/shipments` aloca/lista `packages[]`. Motoboy/Minas: `GET /admin/yury-inventory/exit-status` proxy do `GET /api/integrations/inventory/exit-status`; senha no body da baixa (unlock + `password` no `exit`).
-- EnvioEcom: `artifacts/api-server/src/routes/envioecom.ts` + webhook em `webhooks.ts`. Contas em `lib/envioecom-accounts.ts` (env + tenant + JSON `envioecom_accounts`). Client cacheia token por `tenantId:accountId`. Coluna `orders.envioecom_account_id`. Split: `packageId` em quote/create/labels/sync/cancel/unlink/bind e no `PATCH /admin/orders/:id/tracking-code`; persistência em `order_shipments` + rollup no pai (`lib/order-shipments.ts`). Pedido sem linhas = colunas `envioecom_*` do pedido. `GET /admin/orders/:id/related-shipments` (auth do pedido; busca CPF em toda a loja) usa `related-cpf-shipments.ts` + `order_shipments`; **não** chama a EnvioEcom.
+- EnvioEcom: `artifacts/api-server/src/routes/envioecom.ts` + webhook em `webhooks.ts`. Contas em `lib/envioecom-accounts.ts` (env + tenant + JSON `envioecom_accounts`). Client cacheia token por `tenantId:accountId`. Coluna `orders.envioecom_account_id`. Split: `packageId` em quote/create/labels/sync/cancel/unlink/bind e no `PATCH /admin/orders/:id/tracking-code`; persistência em `order_shipments` + rollup no pai (`lib/order-shipments.ts`). Pedido sem linhas = colunas `envioecom_*` do pedido. `GET /admin/orders/:id/related-shipments` (auth do pedido; busca CPF em toda a loja) usa `related-cpf-shipments.ts` + `order_shipments`; **não** chama a EnvioEcom. Cada produto traz `image` (snapshot do JSON ou `products.image`).
 - APPCNPay: `gateway.ts` + `lib/pix-gateway-credentials.ts`. Par por tenant (`gateway_appcnpay_public_key` / `_secret_key`); fallback env. Webhook PIX resolve tenant pelo `transactionId`.
 - Extrato OFX: `artifacts/api-server/src/routes/bank-statement.ts` (`analyze`/`apply`/`clear`/`bank-deposits`) + `order_bank_deposits`. Painéis FE: `AdminBankStatementPanel.tsx` (sessão) e `AdminBankDepositsPanel.tsx` (histórico + Desfazer por FITID).
 - Lista admin: `GET /admin/orders` em modo leve (sem `data:`/OCR); `GET /admin/orders/:id` devolve mídia completa. `mapOrder` inclui `packages[]` (vazio = 1:1). Histórico de gestão: `order_events` + `history` na lista/`GET :id` + `GET /admin/orders/:id/events`. `mapOrder` no admin inclui `observation` + `observationVisibleToCustomer`; rotas de cliente/guest passam `{ forCustomer: true }` (`order-observation-visibility.ts`). PATCH observação: `/admin/orders/:id/observation`.

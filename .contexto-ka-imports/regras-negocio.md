@@ -1,12 +1,13 @@
 # Regras de negócio — KA Imports
 
-> **Última atualização:** 2026-09-27
+> **Última atualização:** 2026-09-28
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-28 | Alerta de envio do mesmo CPF mostra foto e nome | Miniatura no modal EnvioEcom e em **Últimos envios deste CPF** | Texto do alerta; não bloqueia a cotação |
 | 2026-09-27 | Comissão de afiliado não conta cliente que já comprou com vendedor da loja | Vale link e rodízio. A venda continua na lista, com comissão R$ 0 e o texto do vendedor. O saldo já creditado é recalculado na subida da API. O que já foi gasto no checkout não volta | Pedido do próprio afiliado; carteira do seguro |
 | 2026-09-27 | Minha conta → Afiliação lista quem comprou pelo link | `GET /api/me/affiliate/buyers`: nome, telefone, e-mail, valor e comissão de cada pedido pago | Admin continua igual; indicação sem compra segue só no contador; pedido do próprio afiliado não entra |
 | 2026-09-27 | Aba **Afiliados** no admin | Lista quem já teve comissão liberada (liberado, usado, disponível). Clique mostra compradores e pedidos pagos pelo link | Seller, carteira do seguro, taxa de 1% e checkout; seller-scoped não vê a aba |

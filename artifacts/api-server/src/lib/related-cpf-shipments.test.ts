@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  applyRelatedCpfCatalogImages,
   collectRelatedCpfShipments,
   emptyRelatedCpfShipmentsResult,
   hasUsableRelatedEnvioEcomShipment,
@@ -230,6 +231,39 @@ test("enviado sem barcode entra na lista e não alerta", () => {
   });
   assert.equal(result.shipments.length, 1);
   assert.equal(result.warningLevel, "none");
+});
+
+test("foto do pedido fica no item e o catálogo preenche quem não tem", () => {
+  const result = collectRelatedCpfShipments({
+    currentOrderId: "order-b",
+    currentProducts: [{ id: "sku-z", name: "Outro", quantity: 1 }],
+    now,
+    siblings: [
+      {
+        id: "order-a",
+        orderNumber: 1952,
+        createdAt: "2026-09-18T12:00:00.000Z",
+        envioecomBarcode: "AM123456BR",
+        envioecomStatus: "Entregue",
+        envioecomStatusUpdatedAt: "2026-09-18T12:00:00.000Z",
+        products: [
+          { id: "sku-a", name: "Tirzec 60mg MD", quantity: 2, image: "https://cdn.example/tirzec.jpg" },
+          { id: "sku-b", name: "Tirzepatida TNL 150mg", quantity: 1 },
+        ],
+      },
+    ],
+  });
+  const snapshot = result.shipments[0].products;
+  assert.equal(snapshot.find((item) => item.productId === "sku-a")?.image, "https://cdn.example/tirzec.jpg");
+  assert.equal(snapshot.find((item) => item.productId === "sku-b")?.image, null);
+
+  const filled = applyRelatedCpfCatalogImages(result, new Map([
+    ["sku-a", "https://cdn.example/catalog-a.jpg"],
+    ["sku-b", "https://cdn.example/catalog-b.jpg"],
+  ]));
+  const products = filled.shipments[0].products;
+  assert.equal(products.find((item) => item.productId === "sku-a")?.image, "https://cdn.example/tirzec.jpg");
+  assert.equal(products.find((item) => item.productId === "sku-b")?.image, "https://cdn.example/catalog-b.jpg");
 });
 
 test("resultado vazio tem warning none", () => {

@@ -9,11 +9,39 @@ import {
   type RelatedCpfWarningLevel,
 } from "@/lib/related-cpf-shipments";
 
-function productLine(shipment: RelatedCpfShipment): string {
-  return shipment.products
-    .slice(0, 3)
-    .map((item) => `${item.quantity}× ${item.productName}`)
-    .join(" · ");
+function ProductLines({ shipment }: { shipment: RelatedCpfShipment }) {
+  const products = shipment.products.slice(0, 3);
+  const extra = shipment.products.length - products.length;
+  if (products.length === 0) return null;
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-2">
+      {products.map((item, index) => {
+        const image = String(item.image || "").trim();
+        return (
+          <div
+            key={`${item.productId || item.productName}-${index}`}
+            className="flex min-w-0 items-center gap-1.5"
+            title={`${item.quantity}× ${item.productName}`}
+          >
+            <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-md border border-neutral-200 bg-white">
+              {image ? (
+                <img src={image} alt={item.productName} className="h-full w-full object-cover" loading="lazy" />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-[10px] font-semibold text-neutral-400">
+                  {(item.productName || "?").slice(0, 1).toUpperCase()}
+                </div>
+              )}
+              <span className="absolute bottom-0 right-0 min-w-4 bg-neutral-900/85 px-0.5 text-center text-[9px] font-semibold leading-tight text-white">
+                {item.quantity}×
+              </span>
+            </div>
+            <span className="max-w-[9rem] text-[11px] leading-snug text-neutral-600 line-clamp-2">{item.productName}</span>
+          </div>
+        );
+      })}
+      {extra > 0 ? <span className="text-[11px] text-neutral-500">+{extra}</span> : null}
+    </div>
+  );
 }
 
 export function RelatedCpfShipmentRows({
@@ -45,7 +73,7 @@ export function RelatedCpfShipmentRows({
             {shipment.sameProduct ? " · mesmo produto" : ""}
             {shipment.isReshipRelated ? " · reenvio" : ""}
           </p>
-          {productLine(shipment) ? <p className="text-neutral-500">{productLine(shipment)}</p> : null}
+          <ProductLines shipment={shipment} />
         </li>
       ))}
     </ul>
@@ -86,7 +114,7 @@ export function RelatedCpfWarningBox({
             ? `Há envio nos últimos ${related.recentDays} dias. Confira se não é o mesmo cliente/pedido.`
             : "Histórico local da EnvioEcom neste CPF."}
       </p>
-      <div className="mt-2">
+      <div className="mt-2 max-h-72 overflow-y-auto pr-1">
         <RelatedCpfShipmentRows shipments={related.shipments} compact />
       </div>
     </div>

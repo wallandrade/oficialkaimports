@@ -85,6 +85,7 @@ import {
 import { listEnvioEcomAccounts } from "../lib/envioecom-accounts";
 import {
   RELATED_CPF_SHIPMENT_SCAN_LIMIT,
+  applyRelatedCpfCatalogImages,
   collectRelatedCpfShipments,
   emptyRelatedCpfShipmentsResult,
   parseRelatedCpfDigits,
@@ -2023,7 +2024,24 @@ router.get("/admin/orders/:id/related-shipments", requireAdminAuth, async (req, 
         packages: packagesByOrderId.get(row.id) || [],
       })),
     });
-    res.json({ ...result, cpf });
+    const productIds = [...new Set(
+      result.shipments.flatMap((shipment) => shipment.products.map((item) => String(item.productId || "").trim()).filter(Boolean)),
+    )];
+    const imageByProductId = new Map<string, string>();
+    if (productIds.length > 0) {
+      const productTenantWhere = adminScope.tenantId === DEFAULT_TENANT_ID
+        ? or(eq(productsTable.tenantId, adminScope.tenantId), isNull(productsTable.tenantId), eq(productsTable.tenantId, ""))
+        : eq(productsTable.tenantId, adminScope.tenantId);
+      const productRows = await db
+        .select({ id: productsTable.id, image: productsTable.image })
+        .from(productsTable)
+        .where(and(productTenantWhere, inArray(productsTable.id, productIds)));
+      for (const row of productRows) {
+        const image = String(row.image || "").trim();
+        if (image) imageByProductId.set(row.id, image);
+      }
+    }
+    res.json({ ...applyRelatedCpfCatalogImages(result, imageByProductId), cpf });
   } catch (err) {
     console.error("Admin related shipments error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao buscar envios deste CPF." });

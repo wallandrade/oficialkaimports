@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-09-26
+> **Última atualização:** 2026-09-28
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-28 | Histórico do CPF no admin mostra foto e nome | `products[].image` no related-shipments; miniatura na lista | Não entra no GET da fila de pedidos |
 | 2026-09-26 | Anti-padrão: listar produto no admin só pelo nome | `InventoryProductThumb` + foto do item ou do catálogo (id, senão nome) | Payload de cupom, bump e reenvio |
 | 2026-09-26 | Anti-padrão: gerar horário de Motoboy de hora em hora com `interval_hours` do bairro, da faixa ou do km | Períodos em `motoboy_slot_hours`; o servidor acha a faixa pelo `startHour` | Preço, cobertura e cópia do lote sem agendamento |
 | 2026-09-24 | Anti-padrão: baixar o `price` do item para aplicar desconto de linha | `lineDiscount` em reais; preço de catálogo permanece | Cupom do pedido (`discountAmount`) |
@@ -192,7 +193,7 @@ Código > memória > suposições.
 - Cachear token EnvioEcom só por `tenantId` com N contas (login A vira B). Chave = `tenantId:accountId`.
 - Gravar extras EnvioEcom misturando a conta `env` no JSON; env = Railway, painel só cria extras. CEP origem é da conta, não um setting global de quote/create.
 - Cotar numa API EnvioEcom e criar a etiqueta em outra; o `accountId` do quote vai no create. 0 contas → Configurações; 1 → direto; 2+ → modal.
-- Tratar 409 `SHIPMENT_EXISTS` como proteção contra o **mesmo CPF** noutro pedido. Isso só trava o pedido/pacote atual. Histórico/alerta: `GET /admin/orders/:id/related-shipments` (BD local). Não encher `GET /admin/orders` com isso. Não listar a EnvioEcom por CPF no card. Não bloquear compra nova; reenvio (`parent_order_id`) e pacotes do próprio split não são duplicata. No card a lista começa **fechada**; não abrir todos os históricos na fila.
+- Tratar 409 `SHIPMENT_EXISTS` como proteção contra o **mesmo CPF** noutro pedido. Isso só trava o pedido/pacote atual. Histórico/alerta: `GET /admin/orders/:id/related-shipments` (BD local). Não encher `GET /admin/orders` com isso. Não listar a EnvioEcom por CPF no card. Não bloquear compra nova; reenvio (`parent_order_id`) e pacotes do próprio split não são duplicata. No card a lista começa **fechada**; não abrir todos os históricos na fila. Cada item mostra miniatura e nome (foto do JSON do pedido, senão `products.image`).
 - Pedir ID EnvioEcom com `window.prompt`; usar o modal **Vincular EE** (ID 4–10 dígitos ou rastreio) e `POST .../sync`.
 - Enviar um produto × N linhas na cotação EnvioEcom (empilha altura → `QUOTE_ERROR`); usar 1 pacote **por create**. Split = N creates (um `packageId` cada), não `shipments: [a, b]` no mesmo POST.
 - Cotar EnvioEcom com caixa 10×15×20 e valor declarado = total do pedido; o simulador usa 2×12×17, 0,3 kg, R$ 5.

@@ -1,12 +1,13 @@
 # Integrações externas — KA Imports
 
-> **Última atualização:** 2026-09-27
+> **Última atualização:** 2026-09-28
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-28 | `GET /admin/orders/:id/related-shipments` devolve `products[].image` | Foto do JSON do pedido; se faltar, `products.image` da loja | Não chama a EnvioEcom; lista de pedidos igual |
 | 2026-09-27 | Página `/frete` reusa `GET /api/shipping/delivery-estimate` | Mesmo limite de 30 cotações reais por IP; a tela mostra o preço de `shipping_options` | Token de checkout; chave da fila continua fora de `PUBLIC_KEYS` |
 | 2026-09-27 | `GET /api/shipping/delivery-estimate` cota a conta São Paulo (`env`) com a fila do admin | Checkout mostra só os dias; preço EnvioEcom ignorado; cache 10 min; 30 cotações reais/IP | Create, etiqueta, webhook, conta Minas e frete `shipping_options` |
 | 2026-09-27 | Primary da loja 1: `GET /admin/envioecom/accounts` inclui `stores` (nome da loja + e-mail/senha EE da conta da loja e extras) | Card Configurações lista o login de cada filial | Conta `env` fora dessa lista; filial não vê as outras lojas; token mascarado |
