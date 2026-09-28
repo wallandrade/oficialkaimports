@@ -198,7 +198,10 @@ export function EnvioEcomSettingsCard() {
   }
 
   async function removeAccount(id: string) {
-    if (!window.confirm("Apagar esta conta EnvioEcom?")) return;
+    const message = id === "tenant"
+      ? "Apagar a credencial da Conta da loja? Token, e-mail e senha são removidos. A conta São Paulo do servidor não muda."
+      : "Apagar esta conta EnvioEcom?";
+    if (!window.confirm(message)) return;
     setSavingId(id);
     try {
       const res = await fetch(`${BASE}/api/admin/envioecom/accounts/${encodeURIComponent(id)}`, {
@@ -291,7 +294,7 @@ export function EnvioEcomSettingsCard() {
                     {account.fromEnv && account.emailMasked ? ` · ${account.emailMasked}` : ""}
                   </p>
                 </div>
-                {!account.fromEnv && account.id !== "tenant" ? (
+                {!account.fromEnv ? (
                   <Button size="sm" variant="outline" className="text-red-600 border-red-200" disabled={savingId === account.id} onClick={() => void removeAccount(account.id)}>
                     <Trash2 className="w-3.5 h-3.5 mr-1" /> Apagar
                   </Button>
