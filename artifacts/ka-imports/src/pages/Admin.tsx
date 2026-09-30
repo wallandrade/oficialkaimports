@@ -912,6 +912,7 @@ import { OrderHistoryTimeline } from "@/components/admin/OrderHistoryTimeline";
 import { EnvioEcomTrackingBoard } from "@/components/admin/EnvioEcomTrackingBoard";
 import { EnvioEcomSettingsCard } from "@/components/admin/EnvioEcomSettingsCard";
 import { CheckoutCarrierPriorityCard } from "@/components/admin/CheckoutCarrierPriorityCard";
+import { ShippingQueueDeadlineCard } from "@/components/admin/ShippingQueueDeadlineCard";
 import AdminBankStatementPanel from "@/pages/AdminBankStatementPanel";
 import AdminBankDepositsPanel from "@/pages/AdminBankDepositsPanel";
 import { buildCustomerImpersonationUrl } from "@/lib/customer-auth";
@@ -5144,7 +5145,7 @@ export default function Admin() {
     }
   }, [handleUnauthorized]);
 
-  const saveSetting = useCallback(async (key: string, value: string) => {
+  const saveSetting = useCallback(async (key: string, value: string, options?: { quiet?: boolean }) => {
     setSettingsLoading((p) => ({ ...p, [key]: true }));
     try {
       const res = await fetch(`${BASE}/api/admin/settings/${key}`, {
@@ -5153,10 +5154,14 @@ export default function Admin() {
       if (!res.ok) {
         const data = await res.json().catch(() => ({} as { message?: string }));
         toast.error(data.message || "Erro ao salvar configuração.");
-        return;
+        return false;
       }
       const secretSettingKeys = new Set(["gateway_appcnpay_public_key", "gateway_appcnpay_secret_key"]);
-      const adminOnlySettingKeys = new Set(["envioecom_checkout_carrier_priority"]);
+      const adminOnlySettingKeys = new Set([
+        "envioecom_checkout_carrier_priority",
+        "shipping_queue_manual_enabled",
+        "shipping_queue_manual_hours",
+      ]);
       setSettings((p) => ({
         ...p,
         [key]: secretSettingKeys.has(key) && value && !value.startsWith("*")
@@ -5175,8 +5180,12 @@ export default function Admin() {
         }
       }
 
-      toast.success("Configuração salva!");
-    } catch { toast.error("Erro ao salvar configuração."); }
+      if (!options?.quiet) toast.success("Configuração salva!");
+      return true;
+    } catch {
+      toast.error("Erro ao salvar configuração.");
+      return false;
+    }
     finally { setSettingsLoading((p) => ({ ...p, [key]: false })); }
   }, []);
 
@@ -5186,7 +5195,11 @@ export default function Admin() {
       await fetch(`${BASE}/api/admin/settings/${key}`, { method: "DELETE", headers: authHeaders() });
       setSettings((p) => { const n = { ...p }; delete n[key]; return n; });
 
-      if (key === "envioecom_checkout_carrier_priority") {
+      if (
+        key === "envioecom_checkout_carrier_priority"
+        || key === "shipping_queue_manual_enabled"
+        || key === "shipping_queue_manual_hours"
+      ) {
         toast.success("Configuração removida.");
         return;
       }
@@ -11673,6 +11686,12 @@ export default function Admin() {
             <CheckoutCarrierPriorityCard
               value={settings.envioecom_checkout_carrier_priority}
               saving={!!settingsLoading.envioecom_checkout_carrier_priority}
+              onSave={saveSetting}
+            />
+            <ShippingQueueDeadlineCard
+              enabledValue={settings.shipping_queue_manual_enabled}
+              hoursValue={settings.shipping_queue_manual_hours}
+              saving={!!settingsLoading.shipping_queue_manual_enabled || !!settingsLoading.shipping_queue_manual_hours}
               onSave={saveSetting}
             />
             <div className="rounded-xl border bg-gradient-to-br from-rose-50 to-orange-50/60 border-rose-200 p-5">

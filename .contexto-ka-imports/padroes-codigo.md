@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-09-28
+> **Última atualização:** 2026-09-30
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-30 | Anti-padrão: aplicar o prazo manual dentro de `findForecast` / `allocateOrderLogistics` | `resolveCheckoutDeadlineHours` só na resposta do forecast | `promised_hours` gravado e as cópias 48/72/96h |
 | 2026-09-28 | Histórico do CPF no admin mostra foto e nome | `products[].image` no related-shipments; miniatura na lista | Não entra no GET da fila de pedidos |
 | 2026-09-26 | Anti-padrão: listar produto no admin só pelo nome | `InventoryProductThumb` + foto do item ou do catálogo (id, senão nome) | Payload de cupom, bump e reenvio |
 | 2026-09-26 | Anti-padrão: gerar horário de Motoboy de hora em hora com `interval_hours` do bairro, da faixa ou do km | Períodos em `motoboy_slot_hours`; o servidor acha a faixa pelo `startHour` | Preço, cobertura e cópia do lote sem agendamento |
@@ -165,6 +166,7 @@ Código > memória > suposições.
 
 ## Anti-padrões (não reintroduzir)
 
+- Aplicar `shipping_queue_manual_hours` em `findForecast` ou `allocateOrderLogistics`. O número manual só substitui `promisedHours` em `GET /api/shipping-logistics/forecast`. A vaga, as cópias e o card usam o prazo da fila.
 - Assumir PostgreSQL / Prisma / Next / Nest.
 - Polling de status no gateway APPCNPay (bloqueado; usar webhook + BD local).
 - Usar só `GATEWAY_IDENTIFIER`/`GATEWAY_SECRET` para PIX da filial, ou misturar pública da loja com secret do env. Par completo em `tenant_settings` ou fallback env.

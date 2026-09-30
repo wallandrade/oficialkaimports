@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-09-28
+> **Última atualização:** 2026-09-30
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-09-30 | `resolveCheckoutDeadlineHours` só no `GET /api/shipping-logistics/forecast` | Settings `shipping_queue_manual_*` em `ALLOWED_KEYS`, fora de `PUBLIC_KEYS`. Card `ShippingQueueDeadlineCard` | `findForecast` / `allocateOrderLogistics`; `GET /api/settings` |
 | 2026-09-28 | `related-shipments` hidrata `products[].image` pelo catálogo da loja | Alerta e lista do CPF mostram a miniatura | `GET /admin/orders` da fila; quote/create EE |
 | 2026-09-27 | Rodízio de vendedor no create do checkout (`seller-round-robin.ts`) | Sem `sellerCode`, PIX e `POST /api/orders` gravam o próximo slug e a comissão; cursor `seller_round_robin_cursor` por tenant | Link com slug; `custom_charges`; reenvio em `support.ts` |
 | 2026-09-27 | `/frete` chama `GET /api/motoboy-coverage/lookup` depois do ViaCEP | Card Motoboy só quando o CEP atende; `consult` vira aviso de 200 km | Agenda e whitelist do checkout |
@@ -102,6 +103,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 - Entry: `artifacts/api-server/src/index.ts` → `app.ts` → `routes/index.ts`.
 - Health: `GET /healthz`.
 - Jobs no boot: reconciliação (expiração 24h), raffle expiry, reconcile logistics, pull de cobertura Motoboy Yury (15 min, se token), pull de estoque Motoboy/Minas Yury (3 min, se token).
+- Aviso de postagem: `GET /api/shipping-logistics/forecast` (público, por tenant). `promisedHours` pode ser o manual (`shipping-queue-deadline.ts`); `availableSlots` sai de `getOrderLogisticsForecast`. A gravação da vaga não lê essas settings.
 - Checkout Motoboy: `GET /api/motoboy-coverage/lookup` (público, por tenant). Geocode BrasilAPI só no servidor (`motoboy-geocode.ts`). Km de rua em `motoboy-route.ts` (`resolveMotoboyDistanceKm`). Settings de km em `ALLOWED_KEYS`, fora de `PUBLIC_KEYS`.
 - Webhook cobertura Motoboy: `POST /api/webhooks/yury/motoboy-coverage` (body cru + HMAC) **antes** de `express.json()`.
 - Webhook estoque Yury: `POST /api/webhooks/yury/inventory` (mesmo HMAC; grava `balances`, não o delta).

@@ -21,6 +21,12 @@ import {
   parseCheckoutCarrierPriority,
   serializeCheckoutCarrierPriority,
 } from "../lib/checkout-carrier-priority";
+import {
+  isManualShippingDeadlineEnabled,
+  normalizeShippingQueueManualHours,
+  SHIPPING_QUEUE_MANUAL_ENABLED_KEY,
+  SHIPPING_QUEUE_MANUAL_HOURS_KEY,
+} from "../lib/shipping-queue-deadline";
 
 const router: IRouter = Router();
 
@@ -68,6 +74,8 @@ const ALLOWED_KEYS = [
   "motoboy_distance_config",
   MOTOBOY_SLOT_HOURS_KEY,
   CHECKOUT_CARRIER_PRIORITY_KEY,
+  SHIPPING_QUEUE_MANUAL_ENABLED_KEY,
+  SHIPPING_QUEUE_MANUAL_HOURS_KEY,
 ];
 
 const IMAGE_SETTING_KEYS = new Set([
@@ -320,6 +328,17 @@ router.put("/admin/settings/:key", requireAdminAuth, async (req, res) => {
           return;
         }
         storedValue = serializeCheckoutCarrierPriority(parsed.carriers);
+      }
+      if (key === SHIPPING_QUEUE_MANUAL_HOURS_KEY) {
+        const parsed = normalizeShippingQueueManualHours(value);
+        if (!parsed.ok) {
+          res.status(400).json({ error: "INVALID_INPUT", message: parsed.message });
+          return;
+        }
+        storedValue = parsed.value;
+      }
+      if (key === SHIPPING_QUEUE_MANUAL_ENABLED_KEY) {
+        storedValue = isManualShippingDeadlineEnabled(value) ? "1" : "0";
       }
       if (IMAGE_SETTING_KEYS.has(key) && value.startsWith("data:image/")) {
         if (!isR2Configured()) {
