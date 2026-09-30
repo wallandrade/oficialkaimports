@@ -50,6 +50,7 @@ import {
   pickPackageForProductSwap,
   type ProductSwapMode,
 } from "../lib/order-product-swap";
+import { applyVariantToOrderItem, orderLineDisplayImage, parseVariantGroups } from "../lib/product-variants";
 import {
   parseKaInventoryExitPool,
   parseKaInventoryExitedPools,
@@ -452,24 +453,6 @@ type OrderProductInput = {
   selectedVariants?: Array<{ groupName?: string; option?: string }>;
   variantLabel?: string;
 };
-
-function normalizeOrderItemVariants(raw: unknown): Array<{ groupName: string; option: string }> {
-  if (!Array.isArray(raw)) return [];
-
-  return raw
-    .map((item) => {
-      const value = item as Record<string, unknown>;
-      const groupName = String(value.groupName ?? "").trim();
-      const option = String(value.option ?? "").trim();
-      if (!groupName || !option) return null;
-      return { groupName, option };
-    })
-    .filter((item): item is { groupName: string; option: string } => Boolean(item));
-}
-
-function buildVariantLabel(variants: Array<{ groupName: string; option: string }>): string {
-  return variants.map((item) => `${item.groupName}: ${item.option}`).join(" / ");
-}
 
 type TrackingParseResult = {
   rawText: string;
@@ -1321,6 +1304,25 @@ router.post("/orders", async (req, res) => {
       productRows = new Map(rows.map((row) => [row.id, row]));
     }
 
+    for (const item of productItems) {
+      if (item.isBump === true) continue;
+      const productId = String(item.id || "").trim();
+      const current = productRows.get(productId);
+      if (!current) continue;
+      const applied = applyVariantToOrderItem({
+        groups: parseVariantGroups(current.variantGroups),
+        isBump: false,
+        selectedRaw: item.selectedVariants,
+        variantLabel: item.variantLabel,
+        rawName: String(item.name || current.name || "Produto"),
+        productImage: current.image ?? null,
+      });
+      if (!applied.ok) {
+        res.status(400).json({ error: "INVALID_VARIANT", message: applied.message });
+        return;
+      }
+    }
+
     const unavailableProducts: string[] = [];
     const priceChanges: Array<{ id: string; name: string; sentPrice: number; currentPrice: number }> = [];
     const orderProducts = productItems
@@ -1338,12 +1340,15 @@ router.post("/orders", async (req, res) => {
         const sentUnitPrice = Number(item.price) || 0;
         const isBump = item.isBump === true;
         const serverUnitPrice = isBump ? sentUnitPrice : resolveUnitPriceForQuantity(current, quantity);
-        const selectedVariants = normalizeOrderItemVariants(item.selectedVariants);
-        const variantLabel = String(item.variantLabel || "").trim() || buildVariantLabel(selectedVariants);
-        const rawName = String(item.name || current.name || "Produto");
-        const productName = variantLabel && !rawName.includes(variantLabel)
-          ? `${rawName} - ${variantLabel}`
-          : rawName;
+        const applied = applyVariantToOrderItem({
+          groups: parseVariantGroups(current.variantGroups),
+          isBump,
+          selectedRaw: item.selectedVariants,
+          variantLabel: item.variantLabel,
+          rawName: String(item.name || current.name || "Produto"),
+          productImage: current.image ?? null,
+        });
+        if (!applied.ok) return null;
 
         if (!isBump && Math.abs(sentUnitPrice - serverUnitPrice) > 0.001) {
           priceChanges.push({
@@ -1356,12 +1361,17 @@ router.post("/orders", async (req, res) => {
 
         return {
           id: productId,
-          name: productName,
+          name: applied.name,
           quantity,
           price: serverUnitPrice,
           costPrice: Number(current.costPrice || 0),
-          selectedVariants: selectedVariants.length > 0 ? selectedVariants : undefined,
-          variantLabel: variantLabel || undefined,
+          ...(applied.selectedVariants && applied.selectedVariants.length > 0
+            ? {
+                selectedVariants: applied.selectedVariants,
+                variantLabel: applied.variantLabel,
+                image: applied.image,
+              }
+            : {}),
         };
       })
       .filter((item): item is {
@@ -1370,6 +1380,7 @@ router.post("/orders", async (req, res) => {
         quantity: number;
         price: number;
         costPrice: number;
+        image?: string | null;
         selectedVariants?: Array<{ groupName: string; option: string }>;
         variantLabel?: string;
       } => Boolean(item));
@@ -2581,6 +2592,15 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
         : snapshot?.swapMode;
       if (swappedFrom && typeof swappedFrom === "object") next.swappedFrom = swappedFrom;
       if (swapMode === "keep_price" || swapMode === "pass_difference") next.swapMode = swapMode;
+      const rawItem = item as Record<string, unknown>;
+      const selectedVariants = rawItem.selectedVariants ?? snapshot?.selectedVariants;
+      const variantLabel = rawItem.variantLabel ?? snapshot?.variantLabel;
+      if (Array.isArray(selectedVariants) && selectedVariants.length > 0) {
+        (next as { selectedVariants?: unknown }).selectedVariants = selectedVariants;
+      }
+      if (typeof variantLabel === "string" && variantLabel.trim()) {
+        (next as { variantLabel?: string }).variantLabel = variantLabel.trim();
+      }
       return next;
     }).filter((item) => item.id && item.quantity > 0);
 
@@ -3429,7 +3449,7 @@ async function enrichCustomerOrderViews(mapped: MappedOrder[], tenantId: string)
     parentOrderNumber: order.parentOrderId ? (parentNumberById.get(order.parentOrderId) ?? null) : null,
     products: (order.products || []).map((item) => ({
       ...item,
-      image: imageByProductId.get(String(item.id || "").trim()) || null,
+      image: orderLineDisplayImage(item as { image?: unknown; selectedVariants?: unknown }, imageByProductId.get(String(item.id || "").trim()) || null),
     })),
   }));
 }

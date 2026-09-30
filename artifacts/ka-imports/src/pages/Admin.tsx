@@ -1,4 +1,11 @@
 import { getPendingShipmentCopy, pendingShipmentResumoHeading } from "@/lib/pending-shipment-copy";
+import {
+  emptyVariantGroupDraft,
+  parseVariantGroupDrafts,
+  prepareVariantGroupsForSave,
+  type VariantGroupDraft,
+  type VariantImageMode,
+} from "@/lib/product-variants";
 
 // Utilitário para formatar datas no padrão brasileiro (dd/MM/yyyy)
 function formatDateBR(date: string | Date | undefined | null): string {
@@ -8443,10 +8450,19 @@ export default function Admin() {
             onSave={async () => {
               setProductSaving(true);
               try {
+                const preparedVariants = prepareVariantGroupsForSave((productForm as { variantGroups?: unknown }).variantGroups);
+                if (!preparedVariants.ok) {
+                  toast.error(preparedVariants.message);
+                  return;
+                }
                 const isEdit = Boolean(productForm._editing && productForm.id);
                 const url    = isEdit ? `${BASE}/api/admin/products/${productForm.id}` : `${BASE}/api/admin/products`;
                 const method = isEdit ? "PATCH" : "POST";
-                const res = await fetch(url, { method, headers: authHeaders(), body: JSON.stringify(productForm) });
+                const res = await fetch(url, {
+                  method,
+                  headers: authHeaders(),
+                  body: JSON.stringify({ ...productForm, variantGroups: preparedVariants.groups }),
+                });
                 if (!res.ok) {
                   const err = await res.json() as { message?: string };
                   toast.error(err.message || "Erro ao salvar produto.");
@@ -19416,10 +19432,7 @@ function ProductsPanel({
     label?: string | null;
   };
 
-  type ProductVariantGroup = {
-    name: string;
-    options: string[];
-  };
+  type ProductVariantGroup = VariantGroupDraft;
 
   const normalizeBulkDiscountTiers = (raw: unknown): BulkDiscountTier[] => {
     if (!Array.isArray(raw)) return [];
@@ -19471,24 +19484,14 @@ function ProductsPanel({
     return tier ? Number(tier.unitPrice) : null;
   };
 
-  const normalizeVariantGroups = (raw: unknown): ProductVariantGroup[] => {
-    if (!Array.isArray(raw)) return [];
+  const [variantUploadKey, setVariantUploadKey] = useState<string | null>(null);
+  const currentVariantGroups: ProductVariantGroup[] = Array.isArray((productForm as { variantGroups?: unknown }).variantGroups)
+    ? (productForm as { variantGroups: ProductVariantGroup[] }).variantGroups
+    : [];
 
-    return raw
-      .map((group) => {
-        const item = group as Record<string, unknown>;
-        const name = String(item.name ?? "").trim();
-        const options = Array.isArray(item.options)
-          ? item.options.map((option) => String(option ?? "").trim()).filter(Boolean)
-          : [];
-
-        if (!name || options.length === 0) return null;
-        return { name, options };
-      })
-      .filter((group): group is ProductVariantGroup => Boolean(group));
+  const setVariantGroups = (next: ProductVariantGroup[]) => {
+    setProductForm({ ...(productForm as any), variantGroups: next } as any);
   };
-
-  const currentVariantGroups = normalizeVariantGroups((productForm as any).variantGroups);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const backupFileRef = useRef<HTMLInputElement>(null);
@@ -19810,6 +19813,66 @@ function ProductsPanel({
     reader.readAsDataURL(file);
   };
 
+  const uploadVariantOptionImage = (groupIndex: number, optionIndex: number, file: File) => {
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("Imagem muito grande. Máximo 10MB.");
+      return;
+    }
+    const uploadKey = `${groupIndex}-${optionIndex}`;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const src = ev.target?.result as string;
+      if (!src) return;
+      const img = new Image();
+      img.onload = async () => {
+        const MAX = 800;
+        const scale = img.width > MAX ? MAX / img.width : 1;
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          toast.error("Não foi possível ler a imagem.");
+          return;
+        }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const compressedImage = canvas.toDataURL("image/jpeg", 0.82);
+        try {
+          setVariantUploadKey(uploadKey);
+          const res = await fetch(`${BASE}/api/admin/products/upload-image`, {
+            method: "POST",
+            headers: authHeaders(),
+            body: JSON.stringify({ imageData: compressedImage, productId: productForm.id ?? null }),
+          });
+          const data = await res.json().catch(() => ({})) as { message?: string; missing?: string[]; imageUrl?: string };
+          if (!res.ok || !data?.imageUrl) {
+            const missingText = Array.isArray(data?.missing) && data.missing.length > 0
+              ? ` Faltando: ${data.missing.join(", ")}.`
+              : "";
+            throw new Error((data?.message || "Falha ao enviar imagem para o Cloudflare R2.") + missingText);
+          }
+          const next = currentVariantGroups.map((group, index) => index === groupIndex
+            ? {
+                ...group,
+                options: group.options.map((option, optionIdx) => optionIdx === optionIndex
+                  ? { ...option, image: data.imageUrl ?? null }
+                  : option),
+              }
+            : group);
+          setVariantGroups(next);
+          toast.success("Imagem enviada para o R2.");
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Falha ao enviar imagem para o Cloudflare R2.";
+          toast.error(message);
+        } finally {
+          setVariantUploadKey(null);
+        }
+      };
+      img.src = src;
+    };
+    reader.readAsDataURL(file);
+  };
+
   const openCreate = () => {
     setProductForm({ unit: "unidade", isActive: true, isSoldOut: false, isLaunch: false, sortOrder: 0, costPrice: 0, bulkDiscountEnabled: false, bulkDiscountTiers: [], variantGroups: [] } as any);
     setNewCategoryInput("");
@@ -19818,7 +19881,7 @@ function ProductsPanel({
   };
 
   const openEdit = (p: AdminProduct) => {
-    setProductForm({ ...(p as any), bulkDiscountTiers: normalizeBulkDiscountTiers((p as any).bulkDiscountTiers), variantGroups: normalizeVariantGroups((p as any).variantGroups), _editing: true } as any);
+    setProductForm({ ...(p as any), bulkDiscountTiers: normalizeBulkDiscountTiers((p as any).bulkDiscountTiers), variantGroups: parseVariantGroupDrafts((p as any).variantGroups), _editing: true } as any);
     setNewCategoryInput("");
     setNewBrandInput("");
     setProductFormOpen(true);
@@ -20341,15 +20404,12 @@ function ProductsPanel({
                     <div className="flex items-center justify-between gap-3">
                       <div>
                         <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Variantes do Produto</label>
-                        <p className="text-xs text-muted-foreground mt-1">Exemplo: Cor, Numeração, Tamanho.</p>
+                        <p className="text-xs text-muted-foreground mt-1">O cliente escolhe pelo nome e pela foto. Preço e estoque continuam os do produto.</p>
                       </div>
                       <Button
                         type="button"
                         variant="outline"
-                        onClick={() => {
-                          const next = [...currentVariantGroups, { name: "", options: [] }];
-                          setProductForm({ ...(productForm as any), variantGroups: next } as any);
-                        }}
+                        onClick={() => setVariantGroups([...currentVariantGroups, emptyVariantGroupDraft()])}
                       >
                         <Plus className="w-4 h-4 mr-1" />Adicionar variante
                       </Button>
@@ -20360,52 +20420,153 @@ function ProductsPanel({
                     ) : (
                       <div className="space-y-3">
                         {currentVariantGroups.map((group, groupIndex) => (
-                          <div key={`${group.name}-${groupIndex}`} className="rounded-xl border border-border bg-white p-3 space-y-2">
+                          <div key={`variant-group-${groupIndex}`} className="rounded-xl border border-border bg-white p-3 space-y-3">
                             <div className="grid grid-cols-1 sm:grid-cols-6 gap-2">
-                              <div className="sm:col-span-2">
+                              <div className="sm:col-span-3">
                                 <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1 block">Nome da variante</label>
                                 <input
                                   value={group.name}
                                   onChange={(event) => {
-                                    const next = currentVariantGroups.map((item, index) => index === groupIndex
+                                    setVariantGroups(currentVariantGroups.map((item, index) => index === groupIndex
                                       ? { ...item, name: event.target.value }
-                                      : item);
-                                    setProductForm({ ...(productForm as any), variantGroups: next } as any);
+                                      : item));
                                   }}
-                                  placeholder="Ex: Cor"
+                                  placeholder="Ex: Escolha seu kit"
                                   className={inp2}
                                 />
                               </div>
-                              <div className="sm:col-span-4">
-                                <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1 block">Opções (separadas por vírgula)</label>
+                              <div className="sm:col-span-1">
+                                <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1 block">Máximo</label>
                                 <input
-                                  value={group.options.join(", ")}
+                                  type="number"
+                                  min={1}
+                                  max={99}
+                                  value={group.maxSelect}
                                   onChange={(event) => {
-                                    const options = event.target.value
-                                      .split(",")
-                                      .map((value) => value.trim())
-                                      .filter(Boolean);
-                                    const next = currentVariantGroups.map((item, index) => index === groupIndex
-                                      ? { ...item, options }
-                                      : item);
-                                    setProductForm({ ...(productForm as any), variantGroups: next } as any);
+                                    const parsed = Number(event.target.value);
+                                    const maxSelect = Number.isInteger(parsed) && parsed >= 1 && parsed <= 99 ? parsed : group.maxSelect;
+                                    setVariantGroups(currentVariantGroups.map((item, index) => index === groupIndex
+                                      ? { ...item, maxSelect }
+                                      : item));
                                   }}
-                                  placeholder="Ex: Preta, Branca, Azul"
                                   className={inp2}
                                 />
                               </div>
+                              <div className="sm:col-span-2">
+                                <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1 block">Foto ao selecionar</label>
+                                <select
+                                  value={group.imageMode}
+                                  onChange={(event) => {
+                                    const imageMode = event.target.value as VariantImageMode;
+                                    setVariantGroups(currentVariantGroups.map((item, index) => index === groupIndex
+                                      ? { ...item, imageMode }
+                                      : item));
+                                  }}
+                                  className={inp2}
+                                >
+                                  <option value="swap">Trocar pela opção</option>
+                                  <option value="fixed">Foto do produto</option>
+                                  <option value="all">Mostrar as selecionadas</option>
+                                </select>
+                              </div>
+                            </div>
+                            <div className="space-y-2">
+                              {group.options.map((option, optionIndex) => {
+                                const uploadKey = `${groupIndex}-${optionIndex}`;
+                                return (
+                                  <div key={`variant-option-${groupIndex}-${optionIndex}`} className="flex items-center gap-2">
+                                    <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-border bg-muted">
+                                      {option.image ? (
+                                        <img src={option.image} alt="" className="h-full w-full object-cover" />
+                                      ) : (
+                                        <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+                                          <ImageOff className="h-4 w-4" />
+                                        </div>
+                                      )}
+                                    </div>
+                                    <input
+                                      value={option.label}
+                                      onChange={(event) => {
+                                        setVariantGroups(currentVariantGroups.map((item, index) => index === groupIndex
+                                          ? {
+                                              ...item,
+                                              options: item.options.map((current, currentIndex) => currentIndex === optionIndex
+                                                ? { ...current, label: event.target.value }
+                                                : current),
+                                            }
+                                          : item));
+                                      }}
+                                      placeholder="Nome da opção"
+                                      className={inp2}
+                                    />
+                                    <label className="inline-flex h-10 cursor-pointer items-center rounded-lg border border-border px-2 text-xs font-semibold text-muted-foreground hover:border-primary">
+                                      <input
+                                        type="file"
+                                        accept="image/*"
+                                        className="hidden"
+                                        disabled={variantUploadKey === uploadKey}
+                                        onChange={(event) => {
+                                          const file = event.target.files?.[0];
+                                          event.target.value = "";
+                                          if (file) uploadVariantOptionImage(groupIndex, optionIndex, file);
+                                        }}
+                                      />
+                                      {variantUploadKey === uploadKey ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                                    </label>
+                                    {option.image && (
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="h-10 px-2"
+                                        onClick={() => {
+                                          setVariantGroups(currentVariantGroups.map((item, index) => index === groupIndex
+                                            ? {
+                                                ...item,
+                                                options: item.options.map((current, currentIndex) => currentIndex === optionIndex
+                                                  ? { ...current, image: null }
+                                                  : current),
+                                              }
+                                            : item));
+                                        }}
+                                      >
+                                        <X className="h-4 w-4" />
+                                      </Button>
+                                    )}
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      className="h-10 border-red-200 px-2 text-red-700 hover:bg-red-50"
+                                      onClick={() => {
+                                        setVariantGroups(currentVariantGroups.map((item, index) => index === groupIndex
+                                          ? { ...item, options: item.options.filter((_, currentIndex) => currentIndex !== optionIndex) }
+                                          : item));
+                                      }}
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                );
+                              })}
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => {
+                                  setVariantGroups(currentVariantGroups.map((item, index) => index === groupIndex
+                                    ? { ...item, options: [...item.options, { label: "", image: null }] }
+                                    : item));
+                                }}
+                              >
+                                <Plus className="h-4 w-4 mr-1" />Adicionar opção
+                              </Button>
                             </div>
                             <div className="flex justify-end">
                               <Button
                                 type="button"
                                 variant="outline"
                                 className="border-red-200 text-red-700 hover:bg-red-50"
-                                onClick={() => {
-                                  const next = currentVariantGroups.filter((_, index) => index !== groupIndex);
-                                  setProductForm({ ...(productForm as any), variantGroups: next } as any);
-                                }}
+                                onClick={() => setVariantGroups(currentVariantGroups.filter((_, index) => index !== groupIndex))}
                               >
-                                <Trash2 className="w-4 h-4 mr-1" />Remover
+                                <Trash2 className="w-4 h-4 mr-1" />Remover grupo
                               </Button>
                             </div>
                           </div>

@@ -12,6 +12,11 @@ import {
   patchOrderItemsWithProductCost,
 } from "../lib/order-item-cost";
 import { loadCatalogSoldQty } from "../lib/product-sold-qty-load";
+import {
+  parseVariantGroups,
+  prepareVariantGroupsForSave,
+  type VariantGroup,
+} from "../lib/product-variants";
 
 const router: IRouter = Router();
 
@@ -22,10 +27,7 @@ type BulkDiscountTierInput = {
   label?: string | null;
 };
 
-type ProductVariantGroupInput = {
-  name: string;
-  options: string[];
-};
+type ProductVariantGroupInput = VariantGroup;
 
 type ProductBackupEntry = {
   id: string;
@@ -123,31 +125,6 @@ function validateBulkDiscountTiers(tiers: BulkDiscountTierInput[]): { ok: true }
   return { ok: true };
 }
 
-function parseVariantGroups(raw: unknown): ProductVariantGroupInput[] {
-  if (!raw) return [];
-
-  try {
-    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
-    if (!Array.isArray(parsed)) return [];
-
-    return parsed
-      .map((group) => {
-        const item = group as Record<string, unknown>;
-        const name = String(item.name ?? "").trim();
-        const optionsRaw = Array.isArray(item.options) ? item.options : [];
-        const options = optionsRaw
-          .map((option) => String(option ?? "").trim())
-          .filter(Boolean)
-          .filter((option, index, array) => array.indexOf(option) === index);
-
-        if (!name || options.length === 0) return null;
-        return { name, options };
-      })
-      .filter((group): group is ProductVariantGroupInput => Boolean(group));
-  } catch {
-    return [];
-  }
-}
 
 function parseSavedBrands(raw: unknown): string[] {
   if (!raw) return [];
@@ -235,6 +212,10 @@ function normalizeBackupProduct(raw: unknown, index: number): ProductBackupEntry
   if (!validation.ok) {
     throw new Error(`Produto ${id}: ${validation.message}`);
   }
+  const variantGroupsResult = prepareVariantGroupsForSave(item.variantGroups);
+  if (!variantGroupsResult.ok) {
+    throw new Error(`Produto ${id}: ${variantGroupsResult.message}`);
+  }
 
   return {
     id,
@@ -249,7 +230,7 @@ function normalizeBackupProduct(raw: unknown, index: number): ProductBackupEntry
     promoEndsAt: item.promoEndsAt ? toIsoStringOrNow(item.promoEndsAt) : null,
     bulkDiscountEnabled: item.bulkDiscountEnabled === true,
     bulkDiscountTiers,
-    variantGroups: parseVariantGroups(item.variantGroups),
+    variantGroups: variantGroupsResult.groups,
     image: item.image == null ? null : String(item.image).trim() || null,
     isActive: item.isActive !== false,
     isSoldOut: item.isSoldOut === true,
@@ -688,7 +669,12 @@ router.post("/admin/products", requireAdminAuth, async (req, res) => {
       res.status(400).json({ error: "INVALID_INPUT", message: validation.message });
       return;
     }
-    const normalizedVariantGroups = parseVariantGroups(variantGroups);
+    const preparedVariantGroups = prepareVariantGroupsForSave(variantGroups);
+    if (!preparedVariantGroups.ok) {
+      res.status(400).json({ error: "INVALID_INPUT", message: preparedVariantGroups.message });
+      return;
+    }
+    const normalizedVariantGroups = preparedVariantGroups.groups;
 
     const id = crypto.randomBytes(8).toString("hex");
     await db.insert(productsTable).values({
@@ -770,7 +756,12 @@ router.patch("/admin/products/:id", requireAdminAuth, async (req, res) => {
       updates.bulkDiscountTiers = normalizedTiers.length > 0 ? JSON.stringify(normalizedTiers) : null;
     }
     if (variantGroups !== undefined) {
-      const normalizedVariantGroups = parseVariantGroups(variantGroups);
+      const preparedVariantGroups = prepareVariantGroupsForSave(variantGroups);
+      if (!preparedVariantGroups.ok) {
+        res.status(400).json({ error: "INVALID_INPUT", message: preparedVariantGroups.message });
+        return;
+      }
+      const normalizedVariantGroups = preparedVariantGroups.groups;
       updates.variantGroups = normalizedVariantGroups.length > 0 ? JSON.stringify(normalizedVariantGroups) : null;
     }
     if (image      !== undefined) updates.image       = image || null;

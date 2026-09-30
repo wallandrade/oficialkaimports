@@ -1,22 +1,23 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { CartItem, Product } from "@workspace/api-client-react";
+import {
+  buildCartLineId,
+  buildVariantLabel,
+  catalogIdFromLineId,
+  migrateCartLine,
+  orderSelectedVariants,
+  parseVariantGroups,
+  resolveVariantLineImage,
+  variantSelectionMessage,
+  type SelectedVariant,
+} from "@/lib/product-variants";
 
 type BulkDiscountTier = {
   minQty: number;
   maxQty: number | null;
   unitPrice: number;
   label?: string | null;
-};
-
-type ProductVariantGroup = {
-  name: string;
-  options: string[];
-};
-
-type SelectedVariant = {
-  groupName: string;
-  option: string;
 };
 
 type ProductAvailability = Product & {
@@ -33,6 +34,7 @@ export function isProductUnavailable(product: Product): boolean {
 }
 
 type CartItemExtended = CartItem & {
+  productId?: string;
   image?: string;
   baseUnitPrice: number;
   regularPrice: number;
@@ -45,43 +47,6 @@ type CartItemExtended = CartItem & {
   bumpOfferId?: string;
   bumpProductId?: string;
 };
-
-function parseVariantGroups(raw: unknown): ProductVariantGroup[] {
-  if (!Array.isArray(raw)) return [];
-
-  return raw
-    .map((group) => {
-      const item = group as Record<string, unknown>;
-      const name = String(item.name ?? "").trim();
-      const options = Array.isArray(item.options)
-        ? item.options.map((option) => String(option ?? "").trim()).filter(Boolean)
-        : [];
-
-      if (!name || options.length === 0) return null;
-      return { name, options };
-    })
-    .filter((group): group is ProductVariantGroup => Boolean(group));
-}
-
-function normalizeSelectedVariants(
-  groups: ProductVariantGroup[],
-  raw: Array<{ groupName?: string; option?: string }> | undefined,
-): SelectedVariant[] {
-  if (!Array.isArray(raw) || groups.length === 0) return [];
-
-  return groups
-    .map((group) => {
-      const picked = raw.find((item) => String(item.groupName || "").trim() === group.name);
-      const option = String(picked?.option || "").trim();
-      if (!option || !group.options.includes(option)) return null;
-      return { groupName: group.name, option };
-    })
-    .filter((item): item is SelectedVariant => Boolean(item));
-}
-
-function buildVariantLabel(selectedVariants: SelectedVariant[]): string {
-  return selectedVariants.map((item) => `${item.groupName}: ${item.option}`).join(" / ");
-}
 
 function getBaseUnitPrice(product: Product): number {
   const bulkEnabled = (product as Product & { bulkDiscountEnabled?: boolean }).bulkDiscountEnabled === true;
@@ -195,19 +160,21 @@ export const useCart = create<CartState>()(
 
           const addQuantity = Math.max(1, Number(options?.quantity ?? 1) || 1);
           const variantGroups = parseVariantGroups((product as Product & { variantGroups?: unknown }).variantGroups);
-          const selectedVariants = normalizeSelectedVariants(variantGroups, options?.selectedVariants);
-          if (variantGroups.length > 0 && selectedVariants.length !== variantGroups.length) {
+          const selectedVariants = orderSelectedVariants(variantGroups, options?.selectedVariants);
+          if (variantGroups.length > 0 && variantSelectionMessage(variantGroups, selectedVariants)) {
             return state;
           }
           const variantLabel = buildVariantLabel(selectedVariants);
           const displayName = variantLabel ? `${product.name} - ${variantLabel}` : product.name;
+          const lineId = buildCartLineId(product.id, selectedVariants);
+          const lineImage = resolveVariantLineImage(variantGroups, selectedVariants, product.image ?? null) || undefined;
           const bulkDiscountEnabled = (product as Product & { bulkDiscountEnabled?: boolean }).bulkDiscountEnabled === true;
           const bulkDiscountTiers = bulkDiscountEnabled
             ? parseBulkDiscountTiers((product as Product & { bulkDiscountTiers?: unknown }).bulkDiscountTiers)
             : [];
           const baseUnitPrice = getBaseUnitPrice(product);
 
-          const existingItem = state.items.find((item) => item.id === product.id);
+          const existingItem = state.items.find((item) => item.id === lineId && item.isBump !== true);
           const regularPrice = product.price;
 
           if (existingItem) {
@@ -216,12 +183,14 @@ export const useCart = create<CartState>()(
             const nextPrice = options?.unitPrice ?? getTierUnitPrice(baseUnitPrice, nextQuantity, tiersForPrice);
             return {
               items: state.items.map((item) =>
-                item.id === product.id
+                item.id === lineId
                   ? {
                     ...item,
+                    productId: product.id,
                     name: displayName,
                     quantity: nextQuantity,
                     price: nextPrice,
+                    image: lineImage,
                     baseUnitPrice,
                     bulkDiscountEnabled,
                     bulkDiscountTiers: tiersForPrice,
@@ -240,13 +209,14 @@ export const useCart = create<CartState>()(
             items: [
               ...state.items,
               {
-                id: product.id,
+                id: lineId,
+                productId: product.id,
                 name: displayName,
                 price: initialPrice,
                 baseUnitPrice,
                 regularPrice,
                 quantity: addQuantity,
-                image: product.image,
+                image: lineImage,
                 bulkDiscountEnabled,
                 bulkDiscountTiers,
                 selectedVariants,
@@ -259,13 +229,15 @@ export const useCart = create<CartState>()(
       },
 
       removeItem: (itemId) => {
-        set((state) => ({
-          items: state.items.filter(
-            (item) =>
-              item.id !== itemId &&
-              item.bumpForProductId !== itemId
-          ),
-        }));
+        set((state) => {
+          const target = state.items.find((item) => item.id === itemId);
+          const nextItems = state.items.filter((item) => item.id !== itemId);
+          if (!target || target.isBump === true) return { items: nextItems };
+          const productId = target.productId || catalogIdFromLineId(target.id);
+          const stillThere = nextItems.some((item) => item.isBump !== true && (item.productId || catalogIdFromLineId(item.id)) === productId);
+          if (stillThere) return { items: nextItems };
+          return { items: nextItems.filter((item) => item.bumpForProductId !== productId) };
+        });
       },
 
       updateQuantity: (itemId, quantity) => {
@@ -302,6 +274,14 @@ export const useCart = create<CartState>()(
     {
       name: "ka-imports-cart",
       partialize: (state) => ({ items: state.items }),
+      merge: (persisted, current) => {
+        const saved = persisted as { items?: CartItemExtended[] } | undefined;
+        return {
+          ...current,
+          ...saved,
+          items: (saved?.items ?? []).map((item) => migrateCartLine(item)),
+        };
+      },
     }
   )
 );

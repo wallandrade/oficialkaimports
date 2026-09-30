@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useLiveTracking } from "@/hooks/useLiveTracking";
 import { isProductUnavailable, useCart } from "@/store/use-cart";
+import { buildVariantLabel, cartCatalogProductId, parseVariantGroups, readSelectedVariants } from "@/lib/product-variants";
 import { getStoredReferralCode } from "@/lib/affiliate";
 import { getCheckoutSecurityHeaders } from "@/lib/checkout-security";
 import { getCustomerAuthHeaders, getCustomerToken } from "@/lib/customer-auth";
@@ -119,6 +120,10 @@ function pluralizeUnit(unit: string, qty: number): string {
   return map[unit] ?? unit + "s";
 }
 
+function checkoutCatalogId(item: { id: string; productId?: string; isBump?: boolean; bumpProductId?: string }): string {
+  return cartCatalogProductId(item);
+}
+
 function normalizeSelectedVariants(raw: unknown): Array<{ groupName: string; option: string }> {
   if (!Array.isArray(raw)) return [];
 
@@ -136,8 +141,7 @@ function normalizeSelectedVariants(raw: unknown): Array<{ groupName: string; opt
 function resolveVariantLabel(item: Record<string, unknown>): string {
   const explicit = String(item.variantLabel ?? "").trim();
   if (explicit) return explicit;
-  const selected = normalizeSelectedVariants(item.selectedVariants);
-  return selected.map((variant) => `${variant.groupName}: ${variant.option}`).join(" / ");
+  return buildVariantLabel(readSelectedVariants(item.selectedVariants));
 }
 
 function formatCEP(value: string) {
@@ -307,7 +311,7 @@ export default function Checkout() {
 
       const byId = new Map((data.products ?? []).map((product) => [product.id, product]));
       const unavailable = nonBumpItems.filter((item) => {
-        const product = byId.get(item.id);
+        const product = byId.get(checkoutCatalogId(item as { id: string; productId?: string }));
         return !product || isProductUnavailable(product as Parameters<typeof isProductUnavailable>[0]);
       });
 
@@ -351,10 +355,13 @@ export default function Checkout() {
         const isBump = (item as { isBump?: boolean }).isBump === true;
         if (isBump) continue;
 
-        const product = byId.get(item.id);
+        const product = byId.get(checkoutCatalogId(item as { id: string; productId?: string }));
         if (!product || isProductUnavailable(product as Parameters<typeof isProductUnavailable>[0])) continue;
 
-        addItem(product as Parameters<typeof addItem>[0], { quantity: item.quantity });
+        addItem(product as Parameters<typeof addItem>[0], {
+          quantity: item.quantity,
+          selectedVariants: (item as { selectedVariants?: Array<{ groupName?: string; option?: string }> }).selectedVariants,
+        });
       }
 
       setAppliedCoupon(null);
@@ -379,7 +386,7 @@ export default function Checkout() {
     const productIds = new Set(
       items
         .filter((i) => !(i as { isBump?: boolean }).isBump)
-        .map((i) => i.id)
+        .map((i) => checkoutCatalogId(i as { id: string; productId?: string; isBump?: boolean }))
     );
     fetch(`${BASE}/api/order-bumps`)
       .then((r) => r.json())
@@ -392,7 +399,7 @@ export default function Checkout() {
   const checkoutOffers = useMemo(() => {
     return checkoutBumps
       .map((bump) => {
-        const triggerItem = items.find((item) => item.id === bump.productId);
+        const triggerItem = items.find((item) => checkoutCatalogId(item as { id: string; productId?: string; isBump?: boolean }) === bump.productId);
         if (!triggerItem) return null;
 
         const offerProduct = productCatalogById.get(bump.offerProductId || bump.productId) ?? null;
@@ -417,7 +424,7 @@ export default function Checkout() {
     if (checkoutBumps.length === 0) return;
     for (const bump of checkoutBumps) {
       if (bump.discountType !== "quantity_tiers" || !bump.tiers?.length) continue;
-      const cartItem = items.find((i) => i.id === bump.productId);
+      const cartItem = items.find((i) => !(i as { isBump?: boolean }).isBump && checkoutCatalogId(i as { id: string; productId?: string }) === bump.productId);
       if (!cartItem) continue;
       const bumpCartId = `bump_${bump.id}`;
       const bumpItem = items.find((i) => i.id === bumpCartId);
@@ -425,7 +432,7 @@ export default function Checkout() {
 
       const regularPrice = (cartItem as { regularPrice?: number }).regularPrice ?? cartItem.price;
       const offerProduct = productCatalogById.get(bump.offerProductId || bump.productId) ?? {
-        id: cartItem.id,
+        id: checkoutCatalogId(cartItem as { id: string; productId?: string }),
         name: cartItem.name,
         price: regularPrice,
         image: (cartItem as { image?: string }).image ?? undefined,
@@ -439,7 +446,7 @@ export default function Checkout() {
         if (!bestTier || bestTier.qty <= 1) continue;
         const baseExtra = bestTier.qty - 1;
         updateQuantity(cartItem.id, 1);
-        addBumpItem(bump.id, cartItem.id, bumpProduct, bestTier.price / baseExtra, baseExtra);
+        addBumpItem(bump.id, checkoutCatalogId(cartItem as { id: string; productId?: string }), bumpProduct, bestTier.price / baseExtra, baseExtra);
         toast.success(`Desconto progressivo aplicado! (${bestTier.qty} ${bump.unit || "unidades"})`);
       } else if (cartQty > 1) {
         // Caso 2: bump já aplicado mas item principal qty > 1 (usuário aumentou fora do checkout)
@@ -450,7 +457,7 @@ export default function Checkout() {
         if (bestTier && bestTier.qty > 1) {
           updateQuantity(cartItem.id, 1);
           const baseExtra = bestTier.qty - 1;
-          addBumpItem(bump.id, cartItem.id, bumpProduct, bestTier.price / baseExtra, baseExtra);
+          addBumpItem(bump.id, checkoutCatalogId(cartItem as { id: string; productId?: string }), bumpProduct, bestTier.price / baseExtra, baseExtra);
           toast.success(`Desconto atualizado! (${bestTier.qty} ${bump.unit || "unidades"})`);
         } else {
           // Abaixo do menor tier — mantém a nova qty sem bump
@@ -550,8 +557,9 @@ export default function Checkout() {
 
   // Smart quantity increase — respects order bump tiers
   const handleQtyIncrease = useCallback((item: (typeof items)[0]) => {
+    const catalogId = checkoutCatalogId(item as { id: string; productId?: string });
     const bump = checkoutBumps.find(
-      (b) => b.productId === item.id && b.discountType === "quantity_tiers" && b.tiers?.length
+      (b) => b.productId === catalogId && b.discountType === "quantity_tiers" && b.tiers?.length
     );
     if (!bump) { updateQuantity(item.id, item.quantity + 1); return; }
 
@@ -567,12 +575,12 @@ export default function Checkout() {
       const baseExtra = bestTier.qty - 1;
       const regularPrice = (item as { regularPrice?: number }).regularPrice ?? item.price;
       const offerProduct = productCatalogById.get(bump.offerProductId || bump.productId) ?? {
-        id: item.id,
+        id: catalogId,
         name: item.name,
         price: regularPrice,
         image: (item as { image?: string }).image ?? undefined,
       };
-      addBumpItem(bump.id, item.id, { id: offerProduct.id, name: offerProduct.name, price: offerProduct.price, image: offerProduct.image ?? undefined }, bestTier.price / baseExtra, baseExtra);
+      addBumpItem(bump.id, catalogId, { id: offerProduct.id, name: offerProduct.name, price: offerProduct.price, image: offerProduct.image ?? undefined }, bestTier.price / baseExtra, baseExtra);
       toast.success(`${bestTier.qty} ${bump.unit || "unidades"} — desconto aplicado!`);
     } else {
       updateQuantity(item.id, newTotal);
@@ -581,8 +589,9 @@ export default function Checkout() {
 
   // Smart quantity decrease — respects order bump tiers
   const handleQtyDecrease = useCallback((item: (typeof items)[0]) => {
+    const catalogId = checkoutCatalogId(item as { id: string; productId?: string });
     const bump = checkoutBumps.find(
-      (b) => b.productId === item.id && b.discountType === "quantity_tiers" && b.tiers?.length
+      (b) => b.productId === catalogId && b.discountType === "quantity_tiers" && b.tiers?.length
     );
     const bumpCartId = bump ? `bump_${bump.id}` : null;
     const bumpItem = bumpCartId ? items.find((i) => i.id === bumpCartId) : null;
@@ -600,12 +609,12 @@ export default function Checkout() {
       const baseExtra = bestTier.qty - 1;
       const regularPrice = (item as { regularPrice?: number }).regularPrice ?? item.price;
       const offerProduct = productCatalogById.get(bump.offerProductId || bump.productId) ?? {
-        id: item.id,
+        id: catalogId,
         name: item.name,
         price: regularPrice,
         image: (item as { image?: string }).image ?? undefined,
       };
-      addBumpItem(bump.id, item.id, { id: offerProduct.id, name: offerProduct.name, price: offerProduct.price, image: offerProduct.image ?? undefined }, bestTier.price / baseExtra, baseExtra);
+      addBumpItem(bump.id, catalogId, { id: offerProduct.id, name: offerProduct.name, price: offerProduct.price, image: offerProduct.image ?? undefined }, bestTier.price / baseExtra, baseExtra);
       toast.success(`${bestTier.qty} ${bump.unit || "unidades"} — desconto aplicado!`);
     } else {
       updateQuantity(item.id, newTotal);
@@ -614,7 +623,7 @@ export default function Checkout() {
 
   // Visible total qty for a non-bump item (main + bump extras)
   const visibleQty = useCallback((item: (typeof items)[0]) => {
-    const bump = checkoutBumps.find((b) => b.productId === item.id && b.discountType === "quantity_tiers");
+    const bump = checkoutBumps.find((b) => b.productId === checkoutCatalogId(item as { id: string; productId?: string }) && b.discountType === "quantity_tiers");
     if (!bump) return item.quantity;
     const bumpItem = items.find((i) => i.id === `bump_${bump.id}`);
     return bumpItem ? 1 + (bumpItem.quantity ?? 0) : item.quantity;
@@ -690,6 +699,11 @@ export default function Checkout() {
       .then((data: { products?: Array<{ id: string; name: string; price: number; promoPrice?: number | null; promoEndsAt?: string | null; image?: string | null; unit?: string; category?: string; description?: string; isActive?: boolean; isSoldOut?: boolean; stock?: number }> }) => {
         const found = data.products?.find((p) => p.id === pendingId);
         if (found && !isProductUnavailable(found as Parameters<typeof isProductUnavailable>[0])) {
+          if (parseVariantGroups((found as { variantGroups?: unknown }).variantGroups).length > 0) {
+            const seller = (sessionStorage.getItem("sellerCode") || localStorage.getItem("sellerCode") || "").trim().toLowerCase();
+            setLocation(seller ? `/${encodeURIComponent(seller)}/produto/${found.id}` : `/produto/${found.id}`);
+            return;
+          }
           addItem(found as Parameters<typeof addItem>[0]);
           return;
         }
@@ -706,7 +720,7 @@ export default function Checkout() {
     [items]
   );
   const isLanderGoldItem = useCallback((item: (typeof items)[number]) => {
-    const category = (productCategoryById.get(item.id) ?? "").trim().toLowerCase();
+    const category = (productCategoryById.get(checkoutCatalogId(item as { id: string; productId?: string })) ?? "").trim().toLowerCase();
     if (isLanderGoldCategory(category)) return true;
     return isLanderGoldCategory(String(item.name ?? ""));
   }, [productCategoryById]);
@@ -729,7 +743,7 @@ export default function Checkout() {
 
   const couponProductsPayload = useMemo(
     () => items.map((item) => ({
-      id: (item as { bumpProductId?: string }).bumpProductId ?? item.id,
+      id: checkoutCatalogId(item as { id: string; productId?: string; isBump?: boolean; bumpProductId?: string }),
       quantity: item.quantity,
       price: item.price,
       regularPrice: (item as { regularPrice?: number }).regularPrice ?? item.price,
@@ -757,7 +771,7 @@ export default function Checkout() {
     ), 0);
   }, [appliedCoupon, couponProductsPayload]);
   const cartProductIds = useMemo(
-    () => Array.from(new Set(items.map((item) => String((item as { bumpProductId?: string }).bumpProductId ?? item.id ?? "").trim()).filter(Boolean))),
+    () => Array.from(new Set(items.map((item) => String(checkoutCatalogId(item as { id: string; productId?: string; isBump?: boolean; bumpProductId?: string }) ?? "").trim()).filter(Boolean))),
     [items],
   );
   const isCartMotoboyEligible = motoboyEligibleProductIds.length === 0
@@ -890,7 +904,7 @@ export default function Checkout() {
       : Math.min(appliedCoupon.discountValue, eligibleProductSubtotal)
     : 0;
   const insuranceLines = insuranceLinesFromProducts(items.map((item) => ({
-    id: (item as { bumpProductId?: string }).bumpProductId ?? item.id,
+    id: checkoutCatalogId(item as { id: string; productId?: string; isBump?: boolean; bumpProductId?: string }),
     quantity: item.quantity,
     price: item.price,
   })));
@@ -934,7 +948,7 @@ export default function Checkout() {
     shippingCost,
     discountAmount: cardDiscountAmount,
     lines: insuranceLinesFromProducts(items.map((item) => ({
-      id: (item as { bumpProductId?: string }).bumpProductId ?? item.id,
+      id: checkoutCatalogId(item as { id: string; productId?: string; isBump?: boolean; bumpProductId?: string }),
       quantity: item.quantity,
       price: (item as { regularPrice?: number }).regularPrice ?? item.price,
     }))),
@@ -1335,7 +1349,7 @@ export default function Checkout() {
       };
 
       const productsPayload = items.map((item) => ({
-        id: (item as { bumpProductId?: string }).bumpProductId ?? item.id,
+        id: checkoutCatalogId(item as { id: string; productId?: string; isBump?: boolean; bumpProductId?: string }),
         name: item.name,
         quantity: item.quantity,
         price: item.price,
@@ -1582,7 +1596,7 @@ export default function Checkout() {
     if (!cartAvailable) return;
 
     const productsPayload = items.map((item) => ({
-      id: (item as { bumpProductId?: string }).bumpProductId ?? item.id,
+      id: checkoutCatalogId(item as { id: string; productId?: string; isBump?: boolean; bumpProductId?: string }),
       name: item.name,
       quantity: item.quantity,
       price: item.price,
@@ -1733,7 +1747,7 @@ export default function Checkout() {
     // Card uses regular (non-promo) prices
     const cardTotal = cardNetTotal + cardFee;
     const cardProductsPayload = items.map((i) => ({
-      id: (i as { bumpProductId?: string }).bumpProductId ?? i.id,
+      id: checkoutCatalogId(i as { id: string; productId?: string; isBump?: boolean; bumpProductId?: string }),
       name: i.name,
       quantity: i.quantity,
       price: (i as { regularPrice?: number }).regularPrice ?? i.price,
@@ -2129,7 +2143,7 @@ export default function Checkout() {
                           qty = extraQty;
                         }
                       }
-                      addBumpItem(bump.id, cartItem.id, bumpProduct, price, qty);
+                      addBumpItem(bump.id, checkoutCatalogId(cartItem), bumpProduct, price, qty);
                       toast.success("Oferta adicionada!");
                     }
 
@@ -2218,7 +2232,7 @@ export default function Checkout() {
                                       if (alreadyApplied) return;
                                       // Always restructure: set main item to qty 1, add bump for extras
                                       if (cartQty > 1) updateQuantity(cartItem.id, 1);
-                                      addBumpItem(bump.id, cartItem.id, bumpProduct, pricePerExtraUnit, baseExtra);
+                                      addBumpItem(bump.id, checkoutCatalogId(cartItem), bumpProduct, pricePerExtraUnit, baseExtra);
                                       toast.success("Oferta adicionada!");
                                     }}
                                     className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 transition-all text-left ${
@@ -2505,10 +2519,14 @@ export default function Checkout() {
 
               <div className="space-y-4 mb-6 max-h-72 overflow-y-auto pr-2">
                 {items.filter((item) => !(item as { isBump?: boolean }).isBump).map((item) => {
-                  const bumpItems = items.filter(
-                    (i) => !!(i as { isBump?: boolean }).isBump &&
-                      (i as { bumpForProductId?: string }).bumpForProductId === item.id
-                  ) as Array<{ quantity: number; price: number; id: string; name: string; image?: string }>;
+                  const catalogId = checkoutCatalogId(item as { id: string; productId?: string });
+                  const firstLine = items.find((entry) => !(entry as { isBump?: boolean }).isBump && checkoutCatalogId(entry as { id: string; productId?: string }) === catalogId);
+                  const bumpItems = firstLine?.id === item.id
+                    ? items.filter(
+                      (i) => !!(i as { isBump?: boolean }).isBump &&
+                        (i as { bumpForProductId?: string }).bumpForProductId === catalogId
+                    ) as Array<{ quantity: number; price: number; id: string; name: string; image?: string }>
+                    : [];
                   const mainTotal = item.price * item.quantity;
                   return (
                     <div key={item.id} className="space-y-2 rounded-xl p-2">

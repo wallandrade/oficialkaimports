@@ -32,6 +32,7 @@ import {
 import { applyStoreCreditToOrder } from "../lib/customer-wallet";
 import { addOrderEvent } from "../lib/order-events";
 import { assignNextOrganicSeller } from "../lib/seller-round-robin";
+import { applyVariantToOrderItem, parseVariantGroups } from "../lib/product-variants";
 
 const router: IRouter = Router();
 
@@ -51,23 +52,6 @@ type CheckoutProductInput = {
   variantLabel?: string;
 };
 
-function normalizeOrderItemVariants(raw: unknown): Array<{ groupName: string; option: string }> {
-  if (!Array.isArray(raw)) return [];
-
-  return raw
-    .map((item) => {
-      const value = item as Record<string, unknown>;
-      const groupName = String(value.groupName ?? "").trim();
-      const option = String(value.option ?? "").trim();
-      if (!groupName || !option) return null;
-      return { groupName, option };
-    })
-    .filter((item): item is { groupName: string; option: string } => Boolean(item));
-}
-
-function buildVariantLabel(variants: Array<{ groupName: string; option: string }>): string {
-  return variants.map((item) => `${item.groupName}: ${item.option}`).join(" / ");
-}
 
 function parseBulkDiscountTiers(raw: unknown): BulkDiscountTierInput[] {
   if (!raw) return [];
@@ -344,6 +328,25 @@ router.post("/checkout/pix", async (req, res) => {
       productRows = new Map(rows.map((row) => [row.id, row]));
     }
 
+    for (const item of productItems) {
+      if (item.isBump === true) continue;
+      const productId = String(item.id || "").trim();
+      const current = productRows.get(productId);
+      if (!current) continue;
+      const applied = applyVariantToOrderItem({
+        groups: parseVariantGroups(current.variantGroups),
+        isBump: false,
+        selectedRaw: item.selectedVariants,
+        variantLabel: item.variantLabel,
+        rawName: String(item.name || current.name || "Produto"),
+        productImage: current.image ?? null,
+      });
+      if (!applied.ok) {
+        res.status(400).json({ error: "INVALID_VARIANT", message: applied.message });
+        return;
+      }
+    }
+
     const unavailableProducts: string[] = [];
     const priceChanges: Array<{ id: string; name: string; sentPrice: number; currentPrice: number }> = [];
     const orderProducts = productItems
@@ -361,12 +364,15 @@ router.post("/checkout/pix", async (req, res) => {
         const sentUnitPrice = Number(item.price) || 0;
         const isBump = item.isBump === true;
         const serverUnitPrice = isBump ? sentUnitPrice : resolveUnitPriceForQuantity(current, quantity);
-        const selectedVariants = normalizeOrderItemVariants(item.selectedVariants);
-        const variantLabel = String(item.variantLabel || "").trim() || buildVariantLabel(selectedVariants);
-        const rawName = String(item.name || current.name || "Produto");
-        const productName = variantLabel && !rawName.includes(variantLabel)
-          ? `${rawName} - ${variantLabel}`
-          : rawName;
+        const applied = applyVariantToOrderItem({
+          groups: parseVariantGroups(current.variantGroups),
+          isBump,
+          selectedRaw: item.selectedVariants,
+          variantLabel: item.variantLabel,
+          rawName: String(item.name || current.name || "Produto"),
+          productImage: current.image ?? null,
+        });
+        if (!applied.ok) return null;
 
         if (!isBump && Math.abs(sentUnitPrice - serverUnitPrice) > 0.001) {
           priceChanges.push({
@@ -379,12 +385,17 @@ router.post("/checkout/pix", async (req, res) => {
 
         return {
           id: productId,
-          name: productName,
+          name: applied.name,
           quantity,
           price: serverUnitPrice,
           costPrice: Number(current.costPrice || 0),
-          selectedVariants: selectedVariants.length > 0 ? selectedVariants : undefined,
-          variantLabel: variantLabel || undefined,
+          ...(applied.selectedVariants && applied.selectedVariants.length > 0
+            ? {
+                selectedVariants: applied.selectedVariants,
+                variantLabel: applied.variantLabel,
+                image: applied.image,
+              }
+            : {}),
         };
       })
       .filter((item): item is {
@@ -393,6 +404,7 @@ router.post("/checkout/pix", async (req, res) => {
         quantity: number;
         price: number;
         costPrice: number;
+        image?: string | null;
         selectedVariants?: Array<{ groupName: string; option: string }>;
         variantLabel?: string;
       } => Boolean(item));

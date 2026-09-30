@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import type { Product } from "@workspace/api-client-react";
 import { Link, useLocation } from "wouter";
 import { isProductUnavailable, useCart } from "@/store/use-cart";
+import { parseVariantGroups } from "@/lib/product-variants";
 
 interface ProductCardProps {
   product: Product;
@@ -45,16 +46,7 @@ function getTierForQuantity(quantity: number, tiers: BulkDiscountTier[]): BulkDi
 }
 
 function hasVariantGroups(product: Product): boolean {
-  const raw = (product as Product & { variantGroups?: unknown }).variantGroups;
-  if (!Array.isArray(raw)) return false;
-  return raw.some((group) => {
-    const item = group as Record<string, unknown>;
-    const name = String(item.name ?? "").trim();
-    const options = Array.isArray(item.options)
-      ? item.options.map((option) => String(option ?? "").trim()).filter(Boolean)
-      : [];
-    return Boolean(name) && options.length > 0;
-  });
+  return parseVariantGroups((product as Product & { variantGroups?: unknown }).variantGroups).length > 0;
 }
 
 export function ProductCard({ product, sellerSlug, priority = false, topSellerRank = null }: ProductCardProps) {

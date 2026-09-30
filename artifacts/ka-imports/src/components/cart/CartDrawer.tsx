@@ -1,6 +1,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Plus, Minus, ShoppingBag, ArrowRight } from "lucide-react";
 import { useCart } from "@/store/use-cart";
+import { cartCatalogProductId } from "@/lib/product-variants";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
 import { Link, useLocation } from "wouter";
@@ -97,10 +98,17 @@ export function CartDrawer() {
               ) : (
                 <div className="ka-cart-item-list space-y-6">
                   {items.filter((item) => !(item as { isBump?: boolean }).isBump).map((item) => {
-                    const bumpItem = items.find(
-                      (i) => !!(i as { isBump?: boolean }).isBump &&
-                        (i as { bumpForProductId?: string }).bumpForProductId === item.id
-                    ) as ({ quantity: number; price: number } | undefined);
+                    const catalogId = cartCatalogProductId(item as { id: string; productId?: string; isBump?: boolean });
+                    const firstLine = items.find((entry) => {
+                      const candidate = entry as { id: string; productId?: string; isBump?: boolean };
+                      return candidate.isBump !== true && cartCatalogProductId(candidate) === catalogId;
+                    });
+                    const bumpItem = firstLine?.id === item.id
+                      ? items.find(
+                        (i) => !!(i as { isBump?: boolean }).isBump &&
+                          (i as { bumpForProductId?: string }).bumpForProductId === catalogId
+                      ) as ({ quantity: number; price: number } | undefined)
+                      : undefined;
                     const totalQty = bumpItem ? item.quantity + bumpItem.quantity : item.quantity;
                     return (
                     <motion.div 
@@ -122,7 +130,7 @@ export function CartDrawer() {
                         <div className="flex justify-between items-start gap-2">
                           <div className="flex-1">
                             <h4 className="font-semibold text-foreground leading-tight line-clamp-2">{item.name}</h4>
-                            {Boolean((item as { variantLabel?: string }).variantLabel) && (
+                            {Boolean((item as { variantLabel?: string }).variantLabel) && !String(item.name || "").includes(String((item as { variantLabel?: string }).variantLabel)) && (
                               <p className="text-[11px] text-muted-foreground mt-0.5">{(item as { variantLabel?: string }).variantLabel}</p>
                             )}
                             {bumpItem && (

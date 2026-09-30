@@ -5,6 +5,15 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { isProductUnavailable, useCart } from "@/store/use-cart";
 import { fetchAndCacheSellerWhatsApp, formatCurrency, setSellerContext } from "@/lib/utils";
+import {
+  allModeImageUrls,
+  orderSelectedVariants,
+  parseVariantGroups,
+  resolveVariantLineImage,
+  variantSelectionMessage,
+  type SelectedVariant,
+  type VariantGroup,
+} from "@/lib/product-variants";
 import { ArrowLeft, Loader2, ShoppingCart } from "lucide-react";
 import { toast } from "sonner";
 
@@ -15,15 +24,7 @@ type BulkDiscountTier = {
   label?: string | null;
 };
 
-type ProductVariantGroup = {
-  name: string;
-  options: string[];
-};
-
-type SelectedVariant = {
-  groupName: string;
-  option: string;
-};
+const PRODUCT_IMAGE_FALLBACK = "https://placehold.co/800x800/1a2b4a/ffffff?text=KA+Imports";
 
 function parseBulkDiscountTiers(raw: unknown): BulkDiscountTier[] {
   if (!Array.isArray(raw)) return [];
@@ -48,25 +49,33 @@ function parseBulkDiscountTiers(raw: unknown): BulkDiscountTier[] {
   return tiers.sort((a, b) => a.minQty - b.minQty);
 }
 
-function tierForQuantity(quantity: number, tiers: BulkDiscountTier[]): BulkDiscountTier | null {
-  return tiers.find((tier) => quantity >= tier.minQty && (tier.maxQty == null || quantity <= tier.maxQty)) ?? null;
+function VariantHero({ images, singleSrc, alt }: { images: string[]; singleSrc: string; alt: string }) {
+  if (images.length <= 1) {
+    return <img src={images[0] || singleSrc} alt={alt} className="w-full h-full object-cover aspect-square" />;
+  }
+  const rows = Math.ceil(images.length / 2);
+  return (
+    <div
+      className="grid w-full aspect-square"
+      style={{ gridTemplateColumns: "1fr 1fr", gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))` }}
+    >
+      {images.map((src, index) => {
+        const span = images.length % 2 === 1 && index === images.length - 1;
+        return (
+          <img
+            key={`${src}-${index}`}
+            src={src}
+            alt=""
+            className={`h-full w-full min-h-0 object-cover ${span ? "col-span-2" : ""}`}
+          />
+        );
+      })}
+    </div>
+  );
 }
 
-function parseVariantGroups(raw: unknown): ProductVariantGroup[] {
-  if (!Array.isArray(raw)) return [];
-
-  return raw
-    .map((group) => {
-      const item = group as Record<string, unknown>;
-      const name = String(item.name ?? "").trim();
-      const options = Array.isArray(item.options)
-        ? item.options.map((option) => String(option ?? "").trim()).filter(Boolean)
-        : [];
-
-      if (!name || options.length === 0) return null;
-      return { name, options };
-    })
-    .filter((group): group is ProductVariantGroup => Boolean(group));
+function tierForQuantity(quantity: number, tiers: BulkDiscountTier[]): BulkDiscountTier | null {
+  return tiers.find((tier) => quantity >= tier.minQty && (tier.maxQty == null || quantity <= tier.maxQty)) ?? null;
 }
 
 function safeGetStorage(key: string): string {
@@ -148,24 +157,45 @@ export default function ProductDetail() {
     () => parseVariantGroups((product as { variantGroups?: unknown } | null)?.variantGroups),
     [product],
   );
-  const [selectedVariantMap, setSelectedVariantMap] = useState<Record<string, string>>({});
+  const [selectedByGroup, setSelectedByGroup] = useState<Record<string, string[]>>({});
 
   useEffect(() => {
-    setSelectedVariantMap({});
+    setSelectedByGroup({});
   }, [product?.id]);
 
   const selectedVariants = useMemo<SelectedVariant[]>(
-    () => variantGroups
-      .map((group) => {
-        const option = String(selectedVariantMap[group.name] || "").trim();
-        if (!option) return null;
-        return { groupName: group.name, option };
-      })
-      .filter((item): item is SelectedVariant => Boolean(item)),
-    [variantGroups, selectedVariantMap],
+    () => orderSelectedVariants(
+      variantGroups,
+      variantGroups.flatMap((group) => (selectedByGroup[group.name] ?? []).map((option) => ({
+        groupName: group.name,
+        option,
+      }))),
+    ),
+    [variantGroups, selectedByGroup],
   );
+  const variantError = variantSelectionMessage(variantGroups, selectedVariants);
+  const hasRequiredVariants = variantError == null;
+  const galleryImages = allModeImageUrls(variantGroups, selectedVariants);
+  const singleImage = resolveVariantLineImage(variantGroups, selectedVariants, product?.image) || PRODUCT_IMAGE_FALLBACK;
 
-  const hasRequiredVariants = variantGroups.length === 0 || selectedVariants.length === variantGroups.length;
+  function toggleVariant(group: VariantGroup, label: string) {
+    setSelectedByGroup((prev) => {
+      const current = prev[group.name] ?? [];
+      const exists = current.includes(label);
+      if (group.maxSelect <= 1) {
+        return { ...prev, [group.name]: exists ? [] : [label] };
+      }
+      if (exists) return { ...prev, [group.name]: current.filter((item) => item !== label) };
+      if (current.length >= group.maxSelect) return prev;
+      return { ...prev, [group.name]: [...current, label] };
+    });
+  }
+
+  function rejectVariantSelection() {
+    if (!variantError) return false;
+    toast.error(variantError);
+    return true;
+  }
   const isSoldOut = product ? isProductUnavailable(product) : false;
   const backHref = sellerSlug ? `/${sellerSlug}` : "/";
 
@@ -194,11 +224,7 @@ export default function ProductDetail() {
         ) : (
           <div className="grid lg:grid-cols-2 gap-8 items-start">
             <div className="rounded-3xl border border-border/60 overflow-hidden bg-muted/20 shadow-sm">
-              <img
-                src={product.image || "https://placehold.co/800x800/1a2b4a/ffffff?text=KA+Imports"}
-                alt={product.name}
-                className="w-full h-full object-cover aspect-square"
-              />
+              <VariantHero images={galleryImages} singleSrc={singleImage} alt={product.name} />
             </div>
 
             <div className="space-y-5">
@@ -222,24 +248,49 @@ export default function ProductDetail() {
               </div>
 
               {variantGroups.length > 0 && (
-                <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
+                <div className="rounded-2xl border border-border bg-card p-4 space-y-4">
                   <p className="text-sm font-semibold text-foreground">Escolha as variantes</p>
-                  {variantGroups.map((group) => (
-                    <div key={group.name}>
-                      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1 block">{group.name}</label>
-                      <select
-                        value={selectedVariantMap[group.name] || ""}
-                        onChange={(event) => setSelectedVariantMap((prev) => ({ ...prev, [group.name]: event.target.value }))}
-                        className="w-full h-11 px-4 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm transition-colors"
-                      >
-                        <option value="">Selecione {group.name.toLowerCase()}...</option>
-                        {group.options.map((option) => (
-                          <option key={option} value={option}>{option}</option>
-                        ))}
-                      </select>
-                    </div>
-                  ))}
+                  {variantGroups.map((group) => {
+                    const picked = selectedByGroup[group.name] ?? [];
+                    const atMax = group.maxSelect > 1 && picked.length >= group.maxSelect;
+                    return (
+                      <div key={group.name} className="space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{group.name}</p>
+                          {group.maxSelect > 1 && (
+                            <span className="text-xs font-semibold text-primary">{picked.length} de {group.maxSelect}</span>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {group.options.map((option) => {
+                            const selected = picked.includes(option.label);
+                            const locked = atMax && !selected;
+                            return (
+                              <button
+                                key={option.label}
+                                type="button"
+                                disabled={locked}
+                                onClick={() => toggleVariant(group, option.label)}
+                                className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-left transition-colors ${selected ? "border-primary bg-primary/5" : "border-border bg-white"} ${locked ? "cursor-not-allowed opacity-40" : "hover:border-primary/50"}`}
+                              >
+                                <img
+                                  src={option.image || product.image || PRODUCT_IMAGE_FALLBACK}
+                                  alt=""
+                                  className="h-10 w-10 rounded-lg object-cover"
+                                />
+                                <span className="text-sm font-medium text-foreground">{option.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
+              )}
+
+              {variantError && (
+                <p className="text-sm font-medium text-amber-700">{variantError}</p>
               )}
 
               {progressiveOptions.length > 0 ? (
@@ -252,7 +303,7 @@ export default function ProductDetail() {
                             {Array.from({ length: option.quantity }).map((_, index) => (
                               <div key={`${option.quantityLabel}-${index}`} className="w-8 h-8 rounded-full border border-white shadow-sm overflow-hidden bg-muted">
                                 <img
-                                  src={product.image || "https://placehold.co/120x120/1a2b4a/ffffff?text=KA"}
+                                  src={singleImage}
                                   alt={`${product.name} ${index + 1}`}
                                   className="w-full h-full object-cover"
                                 />
@@ -278,10 +329,7 @@ export default function ProductDetail() {
                             toast.error("Este produto está esgotado e não pode ser adicionado.");
                             return;
                           }
-                          if (!hasRequiredVariants) {
-                            toast.error("Selecione todas as variantes para continuar.");
-                            return;
-                          }
+                          if (rejectVariantSelection()) return;
                           addItem(product, {
                             quantity: option.quantity,
                             unitPrice: option.unitPrice,
@@ -306,10 +354,7 @@ export default function ProductDetail() {
                       toast.error("Este produto está esgotado e não pode ser adicionado.");
                       return;
                     }
-                    if (!hasRequiredVariants) {
-                      toast.error("Selecione todas as variantes para continuar.");
-                      return;
-                    }
+                    if (rejectVariantSelection()) return;
                     addItem(product, { selectedVariants });
                     toast.success("Produto adicionado ao carrinho!");
                   }}
