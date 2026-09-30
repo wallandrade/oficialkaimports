@@ -822,6 +822,16 @@ function isYuryExitPool(pool: KaExitPool): boolean {
   return pool === "motoboy" || pool === "minas";
 }
 
+function orderUsesYuryExit(
+  order: { packages?: Array<{ inventoryPool?: string | null }> | null } | null | undefined,
+  pool: KaExitPool,
+): boolean {
+  if (isYuryExitPool(pool)) return true;
+  const packages = Array.isArray(order?.packages) ? order.packages : [];
+  if (packages.length < 2) return false;
+  return packages.some((pkg) => isYuryExitPool(parseKaExitPool(pkg.inventoryPool) || "loja"));
+}
+
 function motoboyOrderBlock(order: any): string {
   const products = getOrderProducts(order?.products);
   const paid = order?.status === "paid" || order?.status === "completed";
@@ -15171,6 +15181,14 @@ function OrdersPanel({
 
     const order = ordersLookup.find((item) => item.id === orderId);
     const pool = (order ? exitPoolByOrder[orderId] : undefined) || (order ? defaultKaExitPool(order) : "loja");
+    const needsYuryPassword = Boolean(order && orderUsesYuryExit(order, pool));
+    const yuryPassword = novoValor && needsYuryPassword ? yuryExitPassword.trim() : "";
+    if (novoValor && needsYuryPassword && showYuryExitPassword && !yuryPassword) {
+      setYuryExitForcePassword(true);
+      setYuryExitPasswordError(YURY_EXIT_PASSWORD_HINT);
+      toast.error("Digite a senha da baixa Yury.");
+      return;
+    }
 
     // Verify stock before marking as enviado
     if (novoValor) {
@@ -15192,7 +15210,7 @@ function OrdersPanel({
         body: JSON.stringify({
           enviado: novoValor,
           ...(adminPassword ? { adminPassword } : {}),
-          ...(novoValor && isYuryExitPool(pool) && yuryExitPassword.trim() ? { password: yuryExitPassword.trim() } : {}),
+          ...(yuryPassword ? { password: yuryPassword } : {}),
         }),
       });
       if (res.status === 404) {
@@ -15214,6 +15232,12 @@ function OrdersPanel({
       setEnviados(prev => ({ ...prev, [orderId]: confirmado }));
       if (confirmado) {
         setOrderPriorities((prev) => ({ ...prev, [orderId]: false }));
+      }
+      if (confirmado && yuryPassword) {
+        setYuryExitPassword("");
+        setYuryExitPasswordError("");
+        setYuryExitForcePassword(false);
+        void refreshYuryExitStatus();
       }
 
       // Keep local state briefly to avoid UI flip from stale background refreshes.
@@ -16534,7 +16558,7 @@ function OrdersPanel({
                   )}
                 </div>
                 )}
-                {isSplitOrder(order as { packages?: unknown[] }) && showYuryExitPassword && (
+                {isSplitOrder(order as { packages?: unknown[] }) && orderUsesYuryExit(order, selectedExitPool) && showYuryExitPassword && (
                   <div className="w-full flex flex-col gap-1 pt-1">
                     <div className="relative max-w-xs">
                       <input
@@ -16543,6 +16567,12 @@ function OrdersPanel({
                         onChange={(event) => {
                           setYuryExitPassword(event.target.value);
                           if (yuryExitPasswordError) setYuryExitPasswordError("");
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            void toggleEnviado(order.id);
+                          }
                         }}
                         autoComplete="off"
                         placeholder="Senha da baixa Yury"
