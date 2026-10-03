@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-03 | Tabela de preços na página do produto do tema farmácia | 1cx–4cx+ com ícones, quantidade e um botão de carrinho | Blocos “Adicionar Ncx” dos outros temas |
 | 2026-10-03 | Ordenação da vitrine farmácia | Relevância, menor preço, maior preço e nome (A-Z) na home `pharma_compact` | Ordem dos outros temas |
 | 2026-10-03 | `pharma_compact` só na loja 1 | Filial não vê o card; PUT recusa; GET público omite o preset | Outros temas das filiais |
 | 2026-10-03 | Fileira do tema farmácia rola inteira | Categorias, Promoções e chips andam juntos no arraste | Header dos outros temas |
@@ -148,7 +149,7 @@ Código > memória > suposições.
 - Data fetching: TanStack Query via `@workspace/api-client-react` quando o endpoint está no OpenAPI; muitos fetches manuais ainda existem (admin/checkout).
 - Path alias `@/` no FE.
 - Estilo: Tailwind + CVA + `cn` util.
-- Tema da loja: `store_theme_preset` vira `data-store-theme` no `<html>`. `pharma_compact` muda a vitrine da loja 1 (header, lista, card, `/ofertas` e `/categoria`). Filial não recebe esse preset no GET público e o PUT recusa gravá-lo. O verde fica em `--pharma-*`. A cor principal da loja continua no checkout e nos outros presets.
+- Tema da loja: `store_theme_preset` vira `data-store-theme` no `<html>`. `pharma_compact` muda a vitrine da loja 1 (header, lista, card, `/ofertas`, `/categoria` e a tabela de preços do produto). Filial não recebe esse preset no GET público e o PUT recusa gravá-lo. O verde fica em `--pharma-*`. A cor principal da loja continua no checkout e nos outros presets.
 
 ## Codegen (Orval)
 

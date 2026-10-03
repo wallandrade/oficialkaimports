@@ -14,8 +14,9 @@ import {
   type SelectedVariant,
   type VariantGroup,
 } from "@/lib/product-variants";
-import { ArrowLeft, Loader2, ShoppingCart } from "lucide-react";
+import { ArrowLeft, Loader2, Minus, Plus, ShoppingCart } from "lucide-react";
 import { toast } from "sonner";
+import { isPharmaCompactPreset, useStoreThemePreset } from "@/lib/store-theme";
 
 type BulkDiscountTier = {
   minQty: number;
@@ -78,6 +79,124 @@ function tierForQuantity(quantity: number, tiers: BulkDiscountTier[]): BulkDisco
   return tiers.find((tier) => quantity >= tier.minQty && (tier.maxQty == null || quantity <= tier.maxQty)) ?? null;
 }
 
+type ProgressiveOption = {
+  quantity: number;
+  quantityLabel: string;
+  unitPrice: number;
+  totalPrice: number;
+};
+
+function PharmaPriceTable({
+  options,
+  quantity,
+  image,
+  retailUnitPrice,
+  unitPrice,
+  disabled,
+  soldOut,
+  onQuantityChange,
+  onAdd,
+}: {
+  options: ProgressiveOption[];
+  quantity: number;
+  image: string;
+  retailUnitPrice: number;
+  unitPrice: number;
+  disabled: boolean;
+  soldOut: boolean;
+  onQuantityChange: (quantity: number) => void;
+  onAdd: () => void;
+}) {
+  const selectedQuantity = quantity >= 4 ? 4 : quantity;
+  const nextDeal = options.find((option) => option.quantity > quantity && option.unitPrice < unitPrice - 0.009);
+  const nextOff = nextDeal && retailUnitPrice > 0
+    ? Math.max(1, Math.round((1 - nextDeal.unitPrice / retailUnitPrice) * 100))
+    : 0;
+
+  return (
+    <div className="space-y-4">
+      <p className="text-xs font-bold uppercase tracking-wide text-neutral-500">Tabela de preços</p>
+      <div className="grid grid-cols-4 gap-2">
+        {options.map((option) => {
+          const selected = option.quantity === selectedQuantity;
+          const off = retailUnitPrice > option.unitPrice && retailUnitPrice > 0
+            ? Math.max(1, Math.round((1 - option.unitPrice / retailUnitPrice) * 100))
+            : 0;
+          return (
+            <button
+              key={option.quantity}
+              type="button"
+              onClick={() => onQuantityChange(option.quantity)}
+              className={`flex min-w-0 flex-col items-center rounded-2xl border px-1.5 py-2 text-center ${selected ? "border-[var(--pharma-green,#22c55e)] bg-[var(--pharma-green-soft,#e8f8ee)]" : "border-neutral-200 bg-white"}`}
+            >
+              <div className="mb-1 flex justify-center -space-x-1.5">
+                {Array.from({ length: option.quantity }).map((_, index) => (
+                  <span key={`${option.quantityLabel}-${index}`} className="h-6 w-6 overflow-hidden rounded-full border border-white bg-neutral-100">
+                    <img src={image} alt="" className="h-full w-full object-cover" />
+                  </span>
+                ))}
+              </div>
+              <span className="text-[11px] font-semibold text-neutral-500">{option.quantityLabel}</span>
+              {off > 0 ? (
+                <span className="text-[10px] text-neutral-400 line-through">{formatCurrency(retailUnitPrice)}</span>
+              ) : null}
+              <span className={`text-xs font-bold leading-tight ${selected ? "text-[var(--pharma-green-ink,#166534)]" : "text-neutral-900"}`}>
+                {formatCurrency(option.unitPrice)}
+              </span>
+              {off > 0 ? (
+                <span className="mt-0.5 text-[10px] font-semibold text-[var(--pharma-green-ink,#166534)]">-{off}%</span>
+              ) : null}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex items-center justify-between gap-3 rounded-2xl border border-neutral-200 bg-white px-3 py-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold uppercase text-neutral-500">Qtd</span>
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-neutral-200"
+            onClick={() => onQuantityChange(Math.max(1, quantity - 1))}
+            aria-label="Diminuir quantidade"
+          >
+            <Minus className="h-4 w-4" />
+          </button>
+          <span className="min-w-6 text-center text-sm font-bold">{quantity}</span>
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-neutral-200"
+            onClick={() => onQuantityChange(Math.min(99, quantity + 1))}
+            aria-label="Aumentar quantidade"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="text-right">
+          <p className="text-[10px] font-semibold uppercase text-neutral-400">Total</p>
+          <p className="text-base font-bold text-neutral-900">{formatCurrency(unitPrice * quantity)}</p>
+        </div>
+      </div>
+
+      {nextDeal ? (
+        <p className="rounded-xl bg-[var(--pharma-green-soft,#e8f8ee)] px-3 py-2 text-xs text-[var(--pharma-green-ink,#166534)]">
+          Adicione mais {nextDeal.quantity - quantity} un. para garantir preço de atacado ({formatCurrency(nextDeal.unitPrice)}) e economize {nextOff}% vs varejo.
+        </p>
+      ) : null}
+
+      <Button
+        size="lg"
+        className="h-12 w-full rounded-xl bg-[var(--pharma-green,#22c55e)] text-base text-white hover:bg-[var(--pharma-green-strong,#16a34a)]"
+        disabled={disabled}
+        onClick={onAdd}
+      >
+        <ShoppingCart className="mr-2 h-5 w-5" />
+        {soldOut ? "Produto esgotado" : "Adicionar ao carrinho"}
+      </Button>
+    </div>
+  );
+}
+
 function safeGetStorage(key: string): string {
   try {
     return localStorage.getItem(key) || sessionStorage.getItem(key) || "";
@@ -90,7 +209,8 @@ export default function ProductDetail() {
   const [, paramsSeller] = useRoute("/:seller/produto/:id");
   const [, paramsGlobal] = useRoute("/produto/:id");
   const [, setLocation] = useLocation();
-  const { addItem } = useCart();
+  const { addItem, showAddedNotice } = useCart();
+  const isPharma = isPharmaCompactPreset(useStoreThemePreset());
 
   const productId = paramsSeller?.id ?? paramsGlobal?.id ?? "";
   const sellerSlug = paramsSeller?.seller?.toLowerCase();
@@ -158,9 +278,11 @@ export default function ProductDetail() {
     [product],
   );
   const [selectedByGroup, setSelectedByGroup] = useState<Record<string, string[]>>({});
+  const [boxQty, setBoxQty] = useState(1);
 
   useEffect(() => {
     setSelectedByGroup({});
+    setBoxQty(1);
   }, [product?.id]);
 
   const selectedVariants = useMemo<SelectedVariant[]>(
@@ -233,6 +355,7 @@ export default function ProductDetail() {
                 <h1 className="text-3xl font-bold text-foreground mt-2 leading-tight">{product.name}</h1>
               </div>
 
+              {!(isPharma && progressiveOptions.length > 0) ? (
               <div className="rounded-2xl border border-border bg-card p-4">
                 {displayUnitPrice < product.price ? (
                   <div className="flex items-end gap-3">
@@ -246,6 +369,9 @@ export default function ProductDetail() {
                   <p className="mt-2 text-sm font-semibold text-destructive">Produto esgotado no momento.</p>
                 )}
               </div>
+              ) : isSoldOut ? (
+                <p className="text-sm font-semibold text-destructive">Produto esgotado no momento.</p>
+              ) : null}
 
               {variantGroups.length > 0 && (
                 <div className="rounded-2xl border border-border bg-card p-4 space-y-4">
@@ -293,7 +419,36 @@ export default function ProductDetail() {
                 <p className="text-sm font-medium text-amber-700">{variantError}</p>
               )}
 
-              {progressiveOptions.length > 0 ? (
+              {progressiveOptions.length > 0 && isPharma ? (
+                <PharmaPriceTable
+                  options={progressiveOptions}
+                  quantity={boxQty}
+                  image={singleImage}
+                  retailUnitPrice={progressiveOptions[0]?.unitPrice ?? displayUnitPrice}
+                  unitPrice={tierForQuantity(boxQty, bulkDiscountTiers)?.unitPrice ?? displayUnitPrice}
+                  disabled={isSoldOut || !hasRequiredVariants}
+                  soldOut={isSoldOut}
+                  onQuantityChange={setBoxQty}
+                  onAdd={() => {
+                    if (isSoldOut) {
+                      toast.error("Este produto está esgotado e não pode ser adicionado.");
+                      return;
+                    }
+                    if (rejectVariantSelection()) return;
+                    const unitPrice = tierForQuantity(boxQty, bulkDiscountTiers)?.unitPrice ?? displayUnitPrice;
+                    addItem(product, {
+                      quantity: boxQty,
+                      unitPrice,
+                      selectedVariants,
+                    });
+                    showAddedNotice({
+                      name: product.name,
+                      image: product.image ?? null,
+                      quantity: boxQty,
+                    });
+                  }}
+                />
+              ) : progressiveOptions.length > 0 ? (
                 <div className="space-y-3">
                   {progressiveOptions.map((option) => (
                     <div key={option.quantity} className="rounded-2xl border border-border bg-card p-3 sm:p-4">
