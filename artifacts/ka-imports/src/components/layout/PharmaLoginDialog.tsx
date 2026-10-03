@@ -104,9 +104,10 @@ export function PharmaLoginDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/30 px-4 pt-24" onClick={onClose}>
+    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/30 px-4 py-24" onClick={onClose}>
       <div
         className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"
+        onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => event.stopPropagation()}
       >
         <h2 className="text-lg font-bold text-neutral-900">{mode === "login" ? "Entrar" : "Criar conta"}</h2>
@@ -169,8 +170,12 @@ export function PharmaLoginDialog({
         </form>
         <button
           type="button"
-          className="mt-4 w-full text-center text-sm text-neutral-500"
-          onClick={() => setMode(mode === "login" ? "register" : "login")}
+          className="mt-4 flex min-h-11 w-full items-center justify-center px-2 text-center text-sm text-neutral-500"
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setMode((current) => (current === "login" ? "register" : "login"));
+          }}
         >
           {mode === "login" ? "Esqueci ou ainda não tenho senha" : "Já tenho conta"}
         </button>
