@@ -1,12 +1,13 @@
 # Auth e permissões — KA Imports
 
-> **Última atualização:** 2026-09-28  
+> **Última atualização:** 2026-10-03  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-03 | `POST /api/admin/affiliates/:userId/balance` | Mesmo `hasGlobalAccess` da lista de afiliados. Seller-scoped 403 | Carteira do seguro; comissão de vendedor |
 | 2026-09-28 | Painel apaga a Conta da loja EnvioEcom (`DELETE .../accounts/tenant`) | Mesmo `hasGlobalAccess` do CRUD de contas | Conta `env` segue sem editar/apagar; seller-scoped 403 |
 | 2026-09-16 | `POST /admin/orders/:id/replace-product` exige `hasGlobalAccess` | Mesmo recorte do Editar pedido | Seller-scoped; reenvio |
 | 2026-09-12 | Admin redefine senha do cliente (`PATCH /admin/customers/:id/password`); sessões Bearer daquele user caem | Só `hasGlobalAccess` + tenant; min 8 | Impersonar; convidado; senha de admin |

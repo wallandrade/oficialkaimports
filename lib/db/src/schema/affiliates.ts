@@ -46,3 +46,13 @@ export const affiliateCreditUsesTable = mysqlTable("affiliate_credit_uses", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+export const affiliateCreditAdjustmentsTable = mysqlTable("affiliate_credit_adjustments", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  tenantId: varchar("tenant_id", { length: 255 }),
+  affiliateUserId: varchar("affiliate_user_id", { length: 255 }).notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  reason: varchar("reason", { length: 255 }).notNull(),
+  adminUsername: varchar("admin_username", { length: 255 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});

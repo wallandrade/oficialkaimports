@@ -19,8 +19,11 @@ type AffiliateRow = {
   affiliateCode: string | null;
   released: number;
   used: number;
+  adjustment: number;
   available: number;
 };
+
+type BalanceMode = "add" | "set" | "zero";
 
 type AffiliateOrder = {
   id: string;
@@ -64,6 +67,11 @@ export function AdminAffiliatesPanel({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [details, setDetails] = useState<Record<string, AffiliateBuyer[]>>({});
   const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
+  const [balanceUserId, setBalanceUserId] = useState<string | null>(null);
+  const [balanceMode, setBalanceMode] = useState<BalanceMode | null>(null);
+  const [balanceAmount, setBalanceAmount] = useState("");
+  const [balanceReason, setBalanceReason] = useState("");
+  const [balanceBusy, setBalanceBusy] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -96,6 +104,54 @@ export function AdminAffiliatesPanel({
     );
   }, [affiliates, search]);
 
+  const balanceRow = affiliates.find((row) => row.userId === balanceUserId) || null;
+
+  const openBalance = (row: AffiliateRow, mode: BalanceMode) => {
+    setBalanceUserId(row.userId);
+    setBalanceMode(mode);
+    setBalanceAmount(mode === "set" ? row.available.toFixed(2).replace(".", ",") : "");
+    setBalanceReason("");
+  };
+
+  const closeBalance = () => {
+    setBalanceUserId(null);
+    setBalanceMode(null);
+    setBalanceAmount("");
+    setBalanceReason("");
+  };
+
+  const submitBalance = async () => {
+    if (!balanceRow || !balanceMode) return;
+    if (!balanceReason.trim()) {
+      toast.error("Informe o motivo.");
+      return;
+    }
+    setBalanceBusy(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/affiliates/${encodeURIComponent(balanceRow.userId)}/balance`, {
+        method: "POST",
+        headers: adminHeaders(),
+        body: JSON.stringify({
+          mode: balanceMode,
+          amount: balanceMode === "zero" ? undefined : balanceAmount.trim(),
+          reason: balanceReason.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({})) as { message?: string; available?: number };
+      if (!res.ok) {
+        toast.error(data.message || "Erro ao ajustar saldo.");
+        return;
+      }
+      toast.success(`Saldo atualizado. Disponível: ${formatCurrency(Number(data.available || 0))}`);
+      closeBalance();
+      await load();
+    } catch {
+      toast.error("Erro ao ajustar saldo.");
+    } finally {
+      setBalanceBusy(false);
+    }
+  };
+
   const toggle = async (userId: string) => {
     if (expandedId === userId) {
       setExpandedId(null);
@@ -127,7 +183,7 @@ export function AdminAffiliatesPanel({
         <div>
           <h2 className="text-lg font-bold text-foreground">Afiliados</h2>
           <p className="text-sm text-muted-foreground">
-            Clientes com comissão liberada. O saldo disponível é o que ainda dá para usar no checkout.
+            Clientes com comissão liberada. Disponível = liberado − usado no checkout + ajuste. O checkout usa esse disponível.
           </p>
         </div>
         <div className="flex gap-2">
@@ -149,6 +205,62 @@ export function AdminAffiliatesPanel({
           </button>
         </div>
       </div>
+
+      {balanceRow && balanceMode && (
+        <form
+          className="rounded-2xl border border-border bg-white p-4 space-y-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submitBalance();
+          }}
+        >
+          <div>
+            <p className="font-semibold text-foreground">
+              {balanceMode === "add" ? "Adicionar saldo" : balanceMode === "set" ? "Editar saldo" : "Zerar saldo"}
+              {" · "}
+              {balanceRow.name}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Disponível agora: {formatCurrency(balanceRow.available)}.
+              {balanceMode === "add" && " O valor entra em cima desse saldo."}
+              {balanceMode === "set" && " O disponível passa a ser o valor informado."}
+              {balanceMode === "zero" && " O disponível vai para R$ 0,00."}
+            </p>
+          </div>
+          {balanceMode !== "zero" && (
+            <input
+              value={balanceAmount}
+              onChange={(event) => setBalanceAmount(event.target.value)}
+              placeholder={balanceMode === "add" ? "Valor a somar" : "Saldo final"}
+              inputMode="decimal"
+              className="h-10 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm w-full sm:w-64"
+            />
+          )}
+          <input
+            value={balanceReason}
+            onChange={(event) => setBalanceReason(event.target.value)}
+            placeholder="Motivo"
+            maxLength={255}
+            className="h-10 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm w-full"
+          />
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={balanceBusy}
+              className="h-10 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-semibold disabled:opacity-60"
+            >
+              {balanceBusy ? "Salvando..." : "Confirmar"}
+            </button>
+            <button
+              type="button"
+              onClick={closeBalance}
+              className="h-10 px-4 rounded-xl border-2 border-border bg-white text-sm"
+            >
+              Cancelar
+            </button>
+          </div>
+        </form>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-20">
@@ -175,7 +287,9 @@ export function AdminAffiliatesPanel({
                 <th className="text-left px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">Código</th>
                 <th className="text-right px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">Liberado</th>
                 <th className="text-right px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">Usado</th>
+                <th className="text-right px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">Ajuste</th>
                 <th className="text-right px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">Disponível</th>
+                <th className="text-right px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">Saldo</th>
               </tr>
             </thead>
             <tbody>
@@ -204,11 +318,40 @@ export function AdminAffiliatesPanel({
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">{formatCurrency(row.released)}</td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">{formatCurrency(row.used)}</td>
+                      <td className={`px-4 py-3 text-right whitespace-nowrap ${row.adjustment < 0 ? "text-rose-700" : row.adjustment > 0 ? "text-emerald-700" : "text-muted-foreground"}`}>
+                        {formatCurrency(row.adjustment || 0)}
+                      </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap font-semibold text-emerald-700">{formatCurrency(row.available)}</td>
+                      <td className="px-4 py-3 text-right whitespace-nowrap" onClick={(event) => event.stopPropagation()}>
+                        <div className="inline-flex gap-1">
+                          <button
+                            type="button"
+                            className="h-8 px-2 rounded-lg border border-border bg-white text-xs font-semibold hover:bg-muted"
+                            onClick={() => openBalance(row, "add")}
+                          >
+                            Adicionar
+                          </button>
+                          <button
+                            type="button"
+                            className="h-8 px-2 rounded-lg border border-border bg-white text-xs font-semibold hover:bg-muted"
+                            onClick={() => openBalance(row, "set")}
+                          >
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            disabled={row.available <= 0}
+                            className="h-8 px-2 rounded-lg border border-rose-200 bg-white text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-40"
+                            onClick={() => openBalance(row, "zero")}
+                          >
+                            Zerar
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                     {open && (
                       <tr className="border-b border-border bg-slate-50">
-                        <td colSpan={6} className="px-4 py-4">
+                        <td colSpan={8} className="px-4 py-4">
                           {detailLoadingId === row.userId && !buyers ? (
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                               <Loader2 className="w-4 h-4 animate-spin" />

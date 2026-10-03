@@ -1,6 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import {
   affiliateCommissionsTable,
+  affiliateCreditAdjustmentsTable,
   affiliateCreditUsesTable,
   affiliateReferralsTable,
   affiliatesTable,
@@ -10,7 +11,8 @@ import {
 } from "@workspace/db";
 import { and, desc, eq, inArray, isNull, ne, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { getCustomerSession, requireCustomerAuth } from "../middlewares/customer-auth";
-import { getAffiliateAvailableCreditByUserId, getOrCreateAffiliateByUserId, priorSellerLinkCodesByOrderId } from "../lib/affiliates";
+import { affiliateAvailableCredit, type AffiliateBalanceMode } from "../lib/affiliate-credit";
+import { adjustAffiliateAvailableCredit, getAffiliateAvailableCreditByUserId, getOrCreateAffiliateByUserId, priorSellerLinkCodesByOrderId } from "../lib/affiliates";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-context";
 import { getAdminScope, requireAdminAuth, type AdminScope } from "./admin-auth";
 
@@ -170,10 +172,8 @@ function roundMoney(value: unknown): number {
   return Math.round(amount * 100) / 100;
 }
 
-function availableCredit(released: number, used: number): number {
-  const available = roundMoney(released) - roundMoney(used);
-  if (!Number.isFinite(available) || available <= 0) return 0;
-  return roundMoney(available);
+function availableCredit(released: number, used: number, adjustment = 0): number {
+  return affiliateAvailableCredit(released, used, adjustment);
 }
 
 type AffiliateBuyer = {
@@ -327,7 +327,7 @@ router.get("/admin/affiliates", requireAdminAuth, async (req, res) => {
       return;
     }
 
-    const [usedRows, affiliateRows, customerRows] = await Promise.all([
+    const [usedRows, adjustmentRows, affiliateRows, customerRows] = await Promise.all([
       db
         .select({
           userId: affiliateCreditUsesTable.affiliateUserId,
@@ -339,6 +339,17 @@ router.get("/admin/affiliates", requireAdminAuth, async (req, res) => {
           inArray(affiliateCreditUsesTable.affiliateUserId, userIds),
         ))
         .groupBy(affiliateCreditUsesTable.affiliateUserId),
+      db
+        .select({
+          userId: affiliateCreditAdjustmentsTable.affiliateUserId,
+          adjustment: sql<string>`COALESCE(SUM(${affiliateCreditAdjustmentsTable.amount}), 0)`,
+        })
+        .from(affiliateCreditAdjustmentsTable)
+        .where(and(
+          buildTenantWhere(tenantId, affiliateCreditAdjustmentsTable.tenantId),
+          inArray(affiliateCreditAdjustmentsTable.affiliateUserId, userIds),
+        ))
+        .groupBy(affiliateCreditAdjustmentsTable.affiliateUserId),
       db
         .select({
           userId: affiliatesTable.userId,
@@ -363,12 +374,14 @@ router.get("/admin/affiliates", requireAdminAuth, async (req, res) => {
     ]);
 
     const usedByUser = new Map(usedRows.map((row) => [row.userId, roundMoney(row.used)]));
+    const adjustmentByUser = new Map(adjustmentRows.map((row) => [row.userId, roundMoney(row.adjustment)]));
     const codeByUser = new Map(affiliateRows.map((row) => [row.userId, row.affiliateCode]));
     const customerByUser = new Map(customerRows.map((row) => [row.id, row]));
 
     const affiliates = releasedRows.map((row) => {
       const released = roundMoney(row.released);
       const used = usedByUser.get(row.userId) || 0;
+      const adjustment = adjustmentByUser.get(row.userId) || 0;
       const customer = customerByUser.get(row.userId);
       return {
         userId: row.userId,
@@ -377,7 +390,8 @@ router.get("/admin/affiliates", requireAdminAuth, async (req, res) => {
         affiliateCode: codeByUser.get(row.userId) || null,
         released,
         used,
-        available: availableCredit(released, used),
+        adjustment,
+        available: availableCredit(released, used, adjustment),
       };
     }).sort((a, b) => b.available - a.available || a.name.localeCompare(b.name, "pt-BR"));
 
@@ -418,6 +432,73 @@ router.get("/admin/affiliates/:userId", requireAdminAuth, async (req, res) => {
   } catch (err) {
     console.error("[Affiliate] admin detail error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao carregar indicações." });
+  }
+});
+
+router.post("/admin/affiliates/:userId/balance", requireAdminAuth, async (req, res) => {
+  try {
+    const scope = requireGlobalAdmin(req, res);
+    if (!scope) return;
+    const tenantId = scope.tenantId || DEFAULT_TENANT_ID;
+    const userId = String(req.params.userId || "").trim();
+    const mode = String(req.body?.mode || "").trim() as AffiliateBalanceMode;
+    const reason = String(req.body?.reason || "").trim();
+    const amount = req.body?.amount == null || req.body?.amount === ""
+      ? undefined
+      : Number(String(req.body.amount).replace(",", "."));
+
+    if (!userId) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Informe o afiliado." });
+      return;
+    }
+    if (mode !== "add" && mode !== "set" && mode !== "zero") {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Informe se é adicionar, editar ou zerar." });
+      return;
+    }
+    if (!reason) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Informe o motivo." });
+      return;
+    }
+    if (reason.length > 255) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "O motivo pode ter no máximo 255 caracteres." });
+      return;
+    }
+
+    const result = await adjustAffiliateAvailableCredit({
+      tenantId,
+      userId,
+      mode,
+      amount,
+      reason,
+      adminUsername: scope.username,
+    });
+    if (!result.ok && result.code === "NOT_FOUND") {
+      res.status(404).json({ error: "NOT_FOUND", message: "Afiliado não encontrado." });
+      return;
+    }
+    if (!result.ok && result.code === "NO_CHANGE") {
+      res.status(400).json({ error: "NO_CHANGE", message: "O saldo já está nesse valor." });
+      return;
+    }
+    if (!result.ok) {
+      const message = mode === "set"
+        ? "Informe o saldo final, zero ou maior."
+        : "Informe um valor maior que zero.";
+      res.status(400).json({ error: "INVALID_AMOUNT", message });
+      return;
+    }
+
+    res.json({
+      ok: true,
+      userId,
+      released: result.released,
+      used: result.used,
+      adjustment: result.adjustment,
+      available: result.available,
+    });
+  } catch (err) {
+    console.error("[Affiliate] admin balance error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao ajustar saldo do afiliado." });
   }
 });
 

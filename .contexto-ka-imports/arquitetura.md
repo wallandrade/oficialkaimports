@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-09-30
+> **Última atualização:** 2026-10-03
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-03 | Tabela `affiliate_credit_adjustments` | `POST /api/admin/affiliates/:userId/balance` soma no disponível do afiliado | `affiliate_commissions`; `affiliate_credit_uses`; carteira `customer_wallet_ledger` |
 | 2026-09-30 | `resolveCheckoutDeadlineHours` só no `GET /api/shipping-logistics/forecast` | Settings `shipping_queue_manual_*` em `ALLOWED_KEYS`, fora de `PUBLIC_KEYS`. Card `ShippingQueueDeadlineCard` | `findForecast` / `allocateOrderLogistics`; `GET /api/settings` |
 | 2026-09-28 | `related-shipments` hidrata `products[].image` pelo catálogo da loja | Alerta e lista do CPF mostram a miniatura | `GET /admin/orders` da fila; quote/create EE |
 | 2026-09-27 | Rodízio de vendedor no create do checkout (`seller-round-robin.ts`) | Sem `sellerCode`, PIX e `POST /api/orders` gravam o próximo slug e a comissão; cursor `seller_round_robin_cursor` por tenant | Link com slug; `custom_charges`; reenvio em `support.ts` |
@@ -91,7 +92,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 
 - `tenants`, `admin_users`, `admin_user_tenants`, `admin_sessions`
 - `orders` (incl. `envioecom_*`, `enviado`, `inventory_exit_pool`, `inventory_exited_pools`, `inventory_reserved`, `is_prioridade`, `is_procurando_produto`, `is_aguardando_estoque`, `tracking_*`, `bank_deposit_*`, `insurance_plan`, `insurance_keep_amount`, `insurance_cashback_amount`, `insurance_claim_status`, `insurance_reship_count`, `insurance_cashback_granted`, `parent_order_id`, `store_credit_used`, `observation`, `observation_visible_to_customer`), `order_shipments` (N envios EE por pedido; unique `(order_id, inventory_pool)`), `order_events` (auditoria do pedido), `order_bank_deposits` (vários PIX OFX por pedido), `custom_charges`, `products`, `coupons`, `sellers`
-- `customer_users`, `customer_wallet_ledger` (carteira da loja; não é afiliado), `affiliates` (+ referrals/commissions/credit uses)
+- `customer_users`, `customer_wallet_ledger` (carteira da loja; não é afiliado), `affiliates` (+ referrals/commissions/credit uses/credit adjustments)
 - `kyc_documents`, `site_settings` / `tenant_settings`
 - `shipping_options`, `motoboy_*` (incl. `yury_id` na cobertura), `yury_webhook_events_processed`, `order_logistics_allocations`
 - `inventory_balances` / `inventory_movements`, `yury_inventory_balances` (espelho Motoboy/Minas da Yury), `reshipments`, `manual_*`

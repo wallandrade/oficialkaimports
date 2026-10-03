@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import {
+  affiliateCreditAdjustmentsTable,
   affiliateCreditUsesTable,
   affiliateCommissionsTable,
   affiliateReferralsTable,
@@ -9,6 +10,7 @@ import {
 } from "@workspace/db";
 import { and, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 
+import { affiliateAvailableCredit, affiliateBalanceDelta, type AffiliateBalanceMode } from "./affiliate-credit";
 import { DEFAULT_TENANT_ID } from "./tenant-context";
 import {
   priorSellerLinkCode,
@@ -398,6 +400,47 @@ export async function ensureOrderCommission(orderId: string): Promise<boolean> {
   return true;
 }
 
+type CreditReader = Pick<typeof db, "select">;
+
+async function affiliateCreditParts(executor: CreditReader, tenantId: string, userId: string) {
+  const [releasedRows, usedRows, adjustmentRows] = await Promise.all([
+    executor
+      .select({
+        total: sql<string>`COALESCE(SUM(${affiliateCommissionsTable.commissionAmount}), 0)`,
+      })
+      .from(affiliateCommissionsTable)
+      .where(
+        and(
+          eq(affiliateCommissionsTable.tenantId, tenantId),
+          eq(affiliateCommissionsTable.affiliateUserId, userId),
+          eq(affiliateCommissionsTable.status, "released"),
+        )
+      ),
+    executor
+      .select({
+        total: sql<string>`COALESCE(SUM(${affiliateCreditUsesTable.amount}), 0)`,
+      })
+      .from(affiliateCreditUsesTable)
+      .where(and(eq(affiliateCreditUsesTable.tenantId, tenantId), eq(affiliateCreditUsesTable.affiliateUserId, userId))),
+    executor
+      .select({
+        total: sql<string>`COALESCE(SUM(${affiliateCreditAdjustmentsTable.amount}), 0)`,
+      })
+      .from(affiliateCreditAdjustmentsTable)
+      .where(and(eq(affiliateCreditAdjustmentsTable.tenantId, tenantId), eq(affiliateCreditAdjustmentsTable.affiliateUserId, userId))),
+  ]);
+
+  const released = Number(releasedRows[0]?.total || 0);
+  const used = Number(usedRows[0]?.total || 0);
+  const adjustment = Number(adjustmentRows[0]?.total || 0);
+  return {
+    released,
+    used,
+    adjustment,
+    available: affiliateAvailableCredit(released, used, adjustment),
+  };
+}
+
 export async function getAffiliateAvailableCreditByUserId(userId: string, tenantId = DEFAULT_TENANT_ID): Promise<number> {
   const affiliateRows = await db
     .select({ userId: affiliatesTable.userId })
@@ -409,35 +452,55 @@ export async function getAffiliateAvailableCreditByUserId(userId: string, tenant
     return 0;
   }
 
-  const releasedRows = await db
-    .select({
-      total: sql<string>`COALESCE(SUM(${affiliateCommissionsTable.commissionAmount}), 0)`,
-    })
-    .from(affiliateCommissionsTable)
-    .where(
-      and(
-        eq(affiliateCommissionsTable.tenantId, tenantId),
-        eq(affiliateCommissionsTable.affiliateUserId, userId),
-        eq(affiliateCommissionsTable.status, "released"),
-      )
-    );
+  const parts = await affiliateCreditParts(db, tenantId, userId);
+  return parts.available;
+}
 
-  const usedRows = await db
-    .select({
-      total: sql<string>`COALESCE(SUM(${affiliateCreditUsesTable.amount}), 0)`,
-    })
-    .from(affiliateCreditUsesTable)
-    .where(and(eq(affiliateCreditUsesTable.tenantId, tenantId), eq(affiliateCreditUsesTable.affiliateUserId, userId)));
+export async function adjustAffiliateAvailableCredit(input: {
+  tenantId?: string;
+  userId: string;
+  mode: AffiliateBalanceMode;
+  amount?: number;
+  reason: string;
+  adminUsername: string;
+}): Promise<
+  | { ok: true; released: number; used: number; adjustment: number; available: number }
+  | { ok: false; code: "NOT_FOUND" | "INVALID_AMOUNT" | "NO_CHANGE" }
+> {
+  const tenantId = String(input.tenantId || "").trim() || DEFAULT_TENANT_ID;
+  const userId = String(input.userId || "").trim();
+  if (!userId) return { ok: false, code: "NOT_FOUND" };
 
-  const released = Number(releasedRows[0]?.total || 0);
-  const used = Number(usedRows[0]?.total || 0);
-  const available = released - used;
+  return db.transaction(async (tx) => {
+    const affiliateRows = await tx
+      .select({ userId: affiliatesTable.userId })
+      .from(affiliatesTable)
+      .where(and(eq(affiliatesTable.tenantId, tenantId), eq(affiliatesTable.userId, userId)))
+      .limit(1);
+    if (!affiliateRows[0]) return { ok: false, code: "NOT_FOUND" };
 
-  if (!Number.isFinite(available) || available <= 0) {
-    return 0;
-  }
+    await tx.execute(sql`SELECT user_id FROM affiliates WHERE tenant_id = ${tenantId} AND user_id = ${userId} FOR UPDATE`);
 
-  return Math.round(available * 100) / 100;
+    const current = await affiliateCreditParts(tx as unknown as CreditReader, tenantId, userId);
+    const delta = affiliateBalanceDelta({
+      mode: input.mode,
+      available: current.available,
+      amount: input.amount,
+    });
+    if ("error" in delta) return { ok: false, code: delta.error };
+
+    await tx.insert(affiliateCreditAdjustmentsTable).values({
+      id: randomId(),
+      tenantId,
+      affiliateUserId: userId,
+      amount: delta.delta.toFixed(2),
+      reason: input.reason,
+      adminUsername: input.adminUsername || null,
+    });
+
+    const next = await affiliateCreditParts(tx as unknown as CreditReader, tenantId, userId);
+    return { ok: true, ...next };
+  });
 }
 
 export async function applyAffiliateCreditToOrder(input: {
@@ -463,29 +526,8 @@ export async function applyAffiliateCreditToOrder(input: {
 
     await tx.execute(sql`SELECT user_id FROM affiliates WHERE tenant_id = ${tenantId} AND user_id = ${input.userId} FOR UPDATE`);
 
-    const releasedRows = await tx
-      .select({
-        total: sql<string>`COALESCE(SUM(${affiliateCommissionsTable.commissionAmount}), 0)`,
-      })
-      .from(affiliateCommissionsTable)
-      .where(
-        and(
-          eq(affiliateCommissionsTable.tenantId, tenantId),
-          eq(affiliateCommissionsTable.affiliateUserId, input.userId),
-          eq(affiliateCommissionsTable.status, "released"),
-        )
-      );
-
-    const usedRows = await tx
-      .select({
-        total: sql<string>`COALESCE(SUM(${affiliateCreditUsesTable.amount}), 0)`,
-      })
-      .from(affiliateCreditUsesTable)
-      .where(and(eq(affiliateCreditUsesTable.tenantId, tenantId), eq(affiliateCreditUsesTable.affiliateUserId, input.userId)));
-
-    const released = Number(releasedRows[0]?.total || 0);
-    const used = Number(usedRows[0]?.total || 0);
-    const available = Math.max(0, released - used);
+    const current = await affiliateCreditParts(tx as unknown as CreditReader, tenantId, input.userId);
+    const available = current.available;
     const toApply = Math.min(available, input.requestedAmount);
     const rounded = Math.round(toApply * 100) / 100;
 

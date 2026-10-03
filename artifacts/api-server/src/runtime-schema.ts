@@ -102,6 +102,7 @@ async function ensureTenantColumns(databaseName: string): Promise<void> {
     { table: "affiliate_referrals", index: "affiliate_referrals_tenant_id_idx", sql: "ALTER TABLE affiliate_referrals ADD COLUMN tenant_id VARCHAR(255) NULL" },
     { table: "affiliate_commissions", index: "affiliate_commissions_tenant_id_idx", sql: "ALTER TABLE affiliate_commissions ADD COLUMN tenant_id VARCHAR(255) NULL" },
     { table: "affiliate_credit_uses", index: "affiliate_credit_uses_tenant_id_idx", sql: "ALTER TABLE affiliate_credit_uses ADD COLUMN tenant_id VARCHAR(255) NULL" },
+    { table: "affiliate_credit_adjustments", index: "affiliate_credit_adjustments_tenant_id_idx", sql: "ALTER TABLE affiliate_credit_adjustments ADD COLUMN tenant_id VARCHAR(255) NULL" },
     { table: "support_tickets", index: "support_tickets_tenant_id_idx", sql: "ALTER TABLE support_tickets ADD COLUMN tenant_id VARCHAR(255) NULL" },
     { table: "inventory_balances", index: "inventory_balances_tenant_id_idx", sql: "ALTER TABLE inventory_balances ADD COLUMN tenant_id VARCHAR(255) NULL" },
     { table: "inventory_movements", index: "inventory_movements_tenant_id_idx", sql: "ALTER TABLE inventory_movements ADD COLUMN tenant_id VARCHAR(255) NULL" },
@@ -191,6 +192,7 @@ async function seedDefaultTenantAndBackfill(databaseName: string): Promise<void>
     "affiliate_referrals",
     "affiliate_commissions",
     "affiliate_credit_uses",
+    "affiliate_credit_adjustments",
     "support_tickets",
     "inventory_balances",
     "inventory_movements",
@@ -554,6 +556,32 @@ async function ensureAffiliatesTables(databaseName: string): Promise<void> {
         UNIQUE KEY affiliate_credit_uses_order_id_unique (order_id)
       )
     `);
+  }
+
+  if (!(await tableExists("affiliate_credit_adjustments", databaseName))) {
+    await pool.query(`
+      CREATE TABLE affiliate_credit_adjustments (
+        id VARCHAR(255) NOT NULL PRIMARY KEY,
+        tenant_id VARCHAR(255) NULL,
+        affiliate_user_id VARCHAR(255) NOT NULL,
+        amount DECIMAL(10,2) NOT NULL,
+        reason VARCHAR(255) NOT NULL,
+        admin_username VARCHAR(255) NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY affiliate_credit_adjustments_user_idx (affiliate_user_id)
+      )
+    `);
+  }
+
+  if (
+    await tableExists("affiliate_credit_adjustments", databaseName)
+    && !(await indexExists("affiliate_credit_adjustments", "affiliate_credit_adjustments_user_idx", databaseName))
+  ) {
+    try {
+      await pool.query("ALTER TABLE affiliate_credit_adjustments ADD KEY affiliate_credit_adjustments_user_idx (affiliate_user_id)");
+    } catch {
+      // Ignore duplicate or unsupported index creation issues.
+    }
   }
 }
 
