@@ -50,14 +50,20 @@ function parseBulkDiscountTiers(raw: unknown): BulkDiscountTier[] {
   return tiers.sort((a, b) => a.minQty - b.minQty);
 }
 
-function VariantHero({ images, singleSrc, alt }: { images: string[]; singleSrc: string; alt: string }) {
+function VariantHero({ images, singleSrc, alt, compact = false }: { images: string[]; singleSrc: string; alt: string; compact?: boolean }) {
   if (images.length <= 1) {
-    return <img src={images[0] || singleSrc} alt={alt} className="w-full h-full object-cover aspect-square" />;
+    return (
+      <img
+        src={images[0] || singleSrc}
+        alt={alt}
+        className={compact ? "max-h-full max-w-full object-contain" : "w-full h-full object-cover aspect-square"}
+      />
+    );
   }
   const rows = Math.ceil(images.length / 2);
   return (
     <div
-      className="grid w-full aspect-square"
+      className={compact ? "grid h-full w-full" : "grid w-full aspect-square"}
       style={{ gridTemplateColumns: "1fr 1fr", gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))` }}
     >
       {images.map((src, index) => {
@@ -67,7 +73,7 @@ function VariantHero({ images, singleSrc, alt }: { images: string[]; singleSrc: 
             key={`${src}-${index}`}
             src={src}
             alt=""
-            className={`h-full w-full min-h-0 object-cover ${span ? "col-span-2" : ""}`}
+            className={`h-full w-full min-h-0 ${compact ? "object-contain" : "object-cover"} ${span ? "col-span-2" : ""}`}
           />
         );
       })}
@@ -434,9 +440,9 @@ export default function ProductDetail() {
             <p className="font-semibold text-foreground">Produto não encontrado.</p>
           </div>
         ) : (
-          <div className="grid lg:grid-cols-2 gap-8 items-start">
-            <div className="rounded-3xl border border-border/60 overflow-hidden bg-muted/20 shadow-sm">
-              <VariantHero images={galleryImages} singleSrc={singleImage} alt={product.name} />
+          <div className={isPharma ? "mx-auto flex w-full max-w-lg flex-col gap-5" : "grid lg:grid-cols-2 gap-8 items-start"}>
+            <div className={isPharma ? "flex h-44 items-center justify-center overflow-hidden rounded-3xl bg-white" : "rounded-3xl border border-border/60 overflow-hidden bg-muted/20 shadow-sm"}>
+              <VariantHero images={galleryImages} singleSrc={singleImage} alt={product.name} compact={isPharma} />
             </div>
 
             <div className="space-y-5">
