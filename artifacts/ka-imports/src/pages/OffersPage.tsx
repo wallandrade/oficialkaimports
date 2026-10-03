@@ -6,6 +6,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { ProductCard } from "@/components/product/ProductCard";
 import { Loader2, ArrowLeft } from "lucide-react";
 import { motion } from "framer-motion";
+import { isPharmaCompactPreset, useStoreThemePreset } from "@/lib/store-theme";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -41,6 +42,7 @@ function hasOffer(product: any): boolean {
 
 export default function OffersPage() {
   const { data, isLoading } = useGetProducts();
+  const isPharma = isPharmaCompactPreset(useStoreThemePreset());
 
   const products = useMemo(() => {
     if (Array.isArray(data)) return data;
@@ -114,7 +116,9 @@ export default function OffersPage() {
         {/* Products Grid */}
         {!isLoading && offersProducts.length > 0 && (
           <motion.div
-            className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-4 sm:gap-6 items-stretch"
+            className={isPharma
+              ? "grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 items-stretch"
+              : "grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-4 sm:gap-6 items-stretch"}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
           >
@@ -126,7 +130,12 @@ export default function OffersPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.05 }}
               >
-                <ProductCard product={product} priority={index < 4} />
+                <ProductCard
+                  product={product}
+                  sellerSlug={sellerSlug}
+                  priority={index < 4}
+                  layout={isPharma ? "pharma" : "default"}
+                />
               </motion.div>
             ))}
           </motion.div>

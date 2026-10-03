@@ -7,11 +7,13 @@ import { Loader2, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLiveTracking } from "@/hooks/useLiveTracking";
 import { sortCatalogProducts, topSellerRanks } from "@/lib/catalog-sales";
+import { isPharmaCompactPreset, useStoreThemePreset } from "@/lib/store-theme";
 
 export default function CategoryPage() {
   const [, setLocation] = useLocation();
   const [sellerMatch, sellerParams] = useRoute("/:seller/categoria/:categoryName");
   const [defaultMatch, defaultParams] = useRoute("/categoria/:categoryName");
+  const isPharma = isPharmaCompactPreset(useStoreThemePreset());
 
   if (!sellerMatch && !defaultMatch) {
     return null;
@@ -83,10 +85,19 @@ export default function CategoryPage() {
             </Button>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-4 sm:gap-6 items-stretch">
+          <div className={isPharma
+            ? "grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 items-stretch"
+            : "grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-4 sm:gap-6 items-stretch"}
+          >
             {filteredProducts.map((product) => (
               <div key={product.id} className="flex">
-                <ProductCard product={product} sellerSlug={sellerSlug} priority={false} topSellerRank={topSellerRankById.get(product.id) ?? null} />
+                <ProductCard
+                  product={product}
+                  sellerSlug={sellerSlug}
+                  priority={false}
+                  topSellerRank={isPharma ? null : (topSellerRankById.get(product.id) ?? null)}
+                  layout={isPharma ? "pharma" : "default"}
+                />
               </div>
             ))}
           </div>

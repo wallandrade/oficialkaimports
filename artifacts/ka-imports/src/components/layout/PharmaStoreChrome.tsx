@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 import { Link } from "wouter";
 import { ChevronDown, Menu, ShoppingBag, UserCircle2 } from "lucide-react";
 
@@ -30,7 +30,19 @@ export function PharmaStoreChrome({
   onSelectCategory: (category: string) => void;
 }) {
   const [categoriesOpen, setCategoriesOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const categoriesRef = useRef<HTMLDivElement>(null);
+  const categoriesButtonRef = useRef<HTMLButtonElement>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ x: number; scroll: number; moved: boolean } | null>(null);
+  const suppressClickRef = useRef(false);
+
+  function openCategories() {
+    const rect = categoriesButtonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setMenuPos({ top: rect.bottom + 8, left: Math.max(8, rect.left) });
+    setCategoriesOpen(true);
+  }
 
   useEffect(() => {
     if (!categoriesOpen) return;
@@ -47,6 +59,46 @@ export function PharmaStoreChrome({
       document.removeEventListener("touchstart", handlePointer);
     };
   }, [categoriesOpen]);
+
+  useEffect(() => {
+    const row = rowRef.current;
+    if (!row || !categoriesOpen) return;
+    const close = () => setCategoriesOpen(false);
+    row.addEventListener("scroll", close, { passive: true });
+    return () => row.removeEventListener("scroll", close);
+  }, [categoriesOpen]);
+
+  function onRowPointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (event.pointerType !== "mouse" || event.button !== 0) return;
+    const row = rowRef.current;
+    if (!row) return;
+    dragRef.current = { x: event.clientX, scroll: row.scrollLeft, moved: false };
+  }
+
+  function onRowPointerMove(event: PointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    const row = rowRef.current;
+    if (!drag || !row) return;
+    const delta = event.clientX - drag.x;
+    if (!drag.moved && Math.abs(delta) < 6) return;
+    if (!drag.moved) {
+      drag.moved = true;
+      row.setPointerCapture(event.pointerId);
+    }
+    row.scrollLeft = drag.scroll - delta;
+  }
+
+  function endRowDrag() {
+    if (dragRef.current?.moved) suppressClickRef.current = true;
+    dragRef.current = null;
+  }
+
+  function onRowClickCapture(event: MouseEvent<HTMLDivElement>) {
+    if (!suppressClickRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    suppressClickRef.current = false;
+  }
 
   return (
     <div className="ka-pharma-header sticky top-0 z-40 w-full border-b border-black/5 bg-white">
@@ -93,19 +145,52 @@ export function PharmaStoreChrome({
         </button>
       </div>
 
-      <div className="flex items-center gap-2 px-3 pb-2.5">
-        <div ref={categoriesRef} className="relative shrink-0">
+      <div ref={categoriesRef} className="px-3 pb-2.5">
+        <div
+          ref={rowRef}
+          className="ka-pharma-chip-row flex cursor-grab items-center gap-2 overflow-x-auto active:cursor-grabbing"
+          style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+          onPointerDown={onRowPointerDown}
+          onPointerMove={onRowPointerMove}
+          onPointerUp={endRowDrag}
+          onPointerCancel={endRowDrag}
+          onClickCapture={onRowClickCapture}
+        >
           <button
+            ref={categoriesButtonRef}
             type="button"
-            onClick={() => setCategoriesOpen((open) => !open)}
-            className="inline-flex h-9 items-center gap-1 rounded-full bg-[var(--pharma-green,#22c55e)] px-3.5 text-sm font-semibold text-white"
+            onClick={() => (categoriesOpen ? setCategoriesOpen(false) : openCategories())}
+            className="inline-flex h-9 shrink-0 items-center gap-1 rounded-full bg-[var(--pharma-green,#22c55e)] px-3.5 text-sm font-semibold text-white"
             aria-expanded={categoriesOpen}
           >
             Categorias
             <ChevronDown className={`w-4 h-4 transition-transform ${categoriesOpen ? "rotate-180" : ""}`} />
           </button>
-          {categoriesOpen && (
-            <div className="absolute left-0 top-full z-50 mt-2 w-[min(20rem,calc(100vw-1.5rem))] max-h-[70vh] overflow-y-auto rounded-2xl border border-black/5 bg-white p-2 shadow-xl">
+          <Link
+            href={offersHref}
+            className="inline-flex h-9 shrink-0 items-center rounded-full bg-[var(--pharma-green-soft,#e8f8ee)] px-3 text-sm font-semibold text-[var(--pharma-green-ink,#166534)]"
+          >
+            🔥 Promoções 🔥
+          </Link>
+          {categories.map((category) => {
+            const selected = activeCategory === category;
+            return (
+              <button
+                key={`chip-${category}`}
+                type="button"
+                onClick={() => onSelectCategory(selected ? "" : category)}
+                className={`shrink-0 rounded-full border px-3 py-1.5 text-sm font-medium ${selected ? "border-[var(--pharma-green,#22c55e)] text-[var(--pharma-green-ink,#166534)]" : "border-neutral-200 bg-white text-neutral-700"}`}
+              >
+                {category}
+              </button>
+            );
+          })}
+        </div>
+        {categoriesOpen && menuPos && (
+          <div
+            className="fixed z-50 w-[min(20rem,calc(100vw-1.5rem))] max-h-[70vh] overflow-y-auto rounded-2xl border border-black/5 bg-white p-2 shadow-xl"
+            style={{ top: menuPos.top, left: menuPos.left }}
+          >
               <button
                 type="button"
                 onClick={() => {
@@ -132,32 +217,8 @@ export function PharmaStoreChrome({
                   </button>
                 );
               })}
-            </div>
-          )}
-        </div>
-
-        <Link
-          href={offersHref}
-          className="shrink-0 inline-flex h-9 items-center rounded-full bg-[var(--pharma-green-soft,#e8f8ee)] px-3 text-sm font-semibold text-[var(--pharma-green-ink,#166534)]"
-        >
-          🔥 Promoções 🔥
-        </Link>
-
-        <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
-          {categories.map((category) => {
-            const selected = activeCategory === category;
-            return (
-              <button
-                key={`chip-${category}`}
-                type="button"
-                onClick={() => onSelectCategory(selected ? "" : category)}
-                className={`shrink-0 rounded-full border px-3 py-1.5 text-sm font-medium ${selected ? "border-[var(--pharma-green,#22c55e)] text-[var(--pharma-green-ink,#166534)]" : "border-neutral-200 bg-white text-neutral-700"}`}
-              >
-                {category}
-              </button>
-            );
-          })}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );
