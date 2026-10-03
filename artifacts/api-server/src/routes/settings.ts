@@ -248,7 +248,15 @@ router.get("/settings", async (_req, res) => {
     const allSettings = await getTenantSettingsMap(tenantId);
     const out: Record<string, string> = {};
     for (const key of PUBLIC_KEYS) {
-      if (key in allSettings) out[key] = allSettings[key]!;
+      if (!(key in allSettings)) continue;
+      if (
+        key === "store_theme_preset"
+        && tenantId !== DEFAULT_TENANT_ID
+        && String(allSettings[key] || "").trim().toLowerCase() === "pharma_compact"
+      ) {
+        continue;
+      }
+      out[key] = allSettings[key]!;
     }
     res.json(out);
   } catch {
@@ -296,6 +304,14 @@ router.put("/admin/settings/:key", requireAdminAuth, async (req, res) => {
       return;
     }
     const { value } = req.body as { value?: string };
+    if (
+      key === "store_theme_preset"
+      && tenantId !== DEFAULT_TENANT_ID
+      && String(value || "").trim().toLowerCase() === "pharma_compact"
+    ) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Este tema não está disponível para filiais." });
+      return;
+    }
     if (
       (key === PIX_GATEWAY_SETTING_KEYS.publicKey || key === PIX_GATEWAY_SETTING_KEYS.secretKey)
       && isMaskedGatewaySecret(value)

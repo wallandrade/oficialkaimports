@@ -21135,12 +21135,13 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
   const [siteDisplayName, setSiteDisplayName] = useState(settings["site_name"] ?? "");
   const [supportWhatsapp, setSupportWhatsapp] = useState(String(settings["support_whatsapp"] ?? "").replace(/\D/g, ""));
   const [storePrimaryColor, setStorePrimaryColor] = useState(normalizeHexColor(settings["store_primary_color"] ?? "") || "#1A2B4A");
+  const canUsePharmaTheme = adminTenantId === "tenant_loja1";
   const [storeThemePreset, setStoreThemePreset] = useState<"default" | "classic_clean" | "editorial_noir" | "market_showcase" | "pharma_compact">(() => {
     const preset = String(settings["store_theme_preset"] || "").trim().toLowerCase();
     if (preset === "classic_clean") return "classic_clean";
     if (preset === "editorial_noir") return "editorial_noir";
     if (preset === "market_showcase") return "market_showcase";
-    if (preset === "pharma_compact") return "pharma_compact";
+    if (preset === "pharma_compact" && adminTenantId === "tenant_loja1") return "pharma_compact";
     return "default";
   });
   const [promoCountdownEnabled, setPromoCountdownEnabled] = useState(!["0", "false", "off", "no", "disabled"].includes(String(settings["promo_countdown_enabled"] ?? "0").toLowerCase()));
@@ -21167,13 +21168,13 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
     if (preset === "classic_clean") setStoreThemePreset("classic_clean");
     else if (preset === "editorial_noir") setStoreThemePreset("editorial_noir");
     else if (preset === "market_showcase") setStoreThemePreset("market_showcase");
-    else if (preset === "pharma_compact") setStoreThemePreset("pharma_compact");
+    else if (preset === "pharma_compact" && canUsePharmaTheme) setStoreThemePreset("pharma_compact");
     else setStoreThemePreset("default");
     setPromoCountdownEnabled(!["0", "false", "off", "no", "disabled"].includes(String(settings["promo_countdown_enabled"] ?? "0").toLowerCase()));
     setPromoCountdownDateTime(settings["promo_countdown_datetime"] ?? "");
     setPromoCountdownText(settings["promo_countdown_text"] ?? "");
     setSyncProductsFromLoja1Enabled(!["0", "false", "off", "no", "disabled"].includes(String(settings["tenant_sync_products_from_loja1"] ?? "0").toLowerCase()));
-  }, [settings]);
+  }, [settings, canUsePharmaTheme]);
 
   const togglePaymentMethod = (key: "checkout_enable_pix" | "checkout_enable_card" | "checkout_enable_whatsapp", enabled: boolean) => {
     onSave(key, enabled ? "1" : "0");
@@ -21349,7 +21350,7 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
             <p className="text-xs text-muted-foreground">Escolha um visual diferente por loja. O padrão mantém o tema original sem alterações.</p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-2">
+          <div className={`grid grid-cols-1 md:grid-cols-2 ${canUsePharmaTheme ? "xl:grid-cols-5" : "xl:grid-cols-4"} gap-2`}>
             <button
               type="button"
               onClick={() => setStoreThemePreset("default")}
@@ -21382,6 +21383,7 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
               <p className="text-sm font-semibold">Marketplace Vitrine</p>
               <p className="text-xs text-muted-foreground mt-1">Home com menu horizontal, faixa de categorias e seção "Em destaque" com abas.</p>
             </button>
+            {canUsePharmaTheme ? (
             <button
               type="button"
               onClick={() => setStoreThemePreset("pharma_compact")}
@@ -21390,6 +21392,7 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
               <p className="text-sm font-semibold">Farmácia Compacta</p>
               <p className="text-xs text-muted-foreground mt-1">Header com busca e categorias, lista com filtros e cards de preço com PIX. Ao adicionar, aparece o aviso do carrinho.</p>
             </button>
+            ) : null}
           </div>
 
           <div className="flex flex-wrap gap-2">

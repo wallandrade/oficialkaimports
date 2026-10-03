@@ -1,12 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import type { Product } from "@workspace/api-client-react";
 import { ProductCard } from "@/components/product/ProductCard";
-import { pharmaCatalogHref, readPharmaFilters, type PharmaCatalogFilters } from "@/lib/pharma-catalog-query";
+import { pharmaCatalogHref, readPharmaFilters, type PharmaCatalogFilters, type PharmaCatalogSort } from "@/lib/pharma-catalog-query";
 import { sortCatalogProducts } from "@/lib/catalog-sales";
-import { Loader2, Search, SlidersHorizontal, X } from "lucide-react";
+import { Check, ChevronDown, Loader2, Search, SlidersHorizontal, X } from "lucide-react";
 
 const PAGE_SIZE = 24;
+
+const SORT_OPTIONS: Array<{ id: PharmaCatalogSort; label: string }> = [
+  { id: "relevancia", label: "Relevância" },
+  { id: "menor", label: "Menor Preço" },
+  { id: "maior", label: "Maior Preço" },
+  { id: "nome", label: "Nome (A-Z)" },
+];
 
 type OfferProduct = Product & {
   brand?: string | null;
@@ -35,6 +42,31 @@ function matchesFilters(product: OfferProduct, filters: PharmaCatalogFilters): b
   if (filters.marca && productBrand(product).toLowerCase() !== filters.marca.toLowerCase()) return false;
   if (filters.promo && !productHasOffer(product)) return false;
   return true;
+}
+
+function sellingPrice(product: OfferProduct): number {
+  if (product.bulkDiscountEnabled === true && Array.isArray(product.bulkDiscountTiers)) {
+    const tiers = product.bulkDiscountTiers as Array<{ minQty?: number; maxQty?: number | null; unitPrice?: number }>;
+    const oneBox = tiers.find((tier) => {
+      const minQty = Number(tier.minQty);
+      const maxQty = tier.maxQty == null ? null : Number(tier.maxQty);
+      return minQty <= 1 && (maxQty == null || maxQty >= 1);
+    });
+    const unitPrice = Number(oneBox?.unitPrice);
+    if (Number.isFinite(unitPrice) && unitPrice > 0) return unitPrice;
+  }
+  if (product.promoPrice != null && product.promoPrice < product.price) return product.promoPrice;
+  return product.price;
+}
+
+function sortPharmaProducts(products: OfferProduct[], filters: PharmaCatalogFilters): OfferProduct[] {
+  const relevant = sortCatalogProducts(products, filters.categoria);
+  if (filters.ordem === "menor") return [...relevant].sort((a, b) => sellingPrice(a) - sellingPrice(b));
+  if (filters.ordem === "maior") return [...relevant].sort((a, b) => sellingPrice(b) - sellingPrice(a));
+  if (filters.ordem === "nome") {
+    return [...relevant].sort((a, b) => a.name.localeCompare(b.name, "pt-BR", { sensitivity: "base" }));
+  }
+  return relevant;
 }
 
 function uniqueBrands(products: OfferProduct[]): string[] {
@@ -74,10 +106,26 @@ export function PharmaCatalog({
   const [draftPromo, setDraftPromo] = useState(applied.promo);
   const [brandQuery, setBrandQuery] = useState("");
   const [showAllBrands, setShowAllBrands] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);
+  const sortRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setPage(1);
-  }, [applied.q, applied.categoria, applied.marca, applied.promo]);
+  }, [applied.q, applied.categoria, applied.marca, applied.promo, applied.ordem]);
+
+  useEffect(() => {
+    if (!sortOpen) return;
+    function handlePointer(event: MouseEvent | TouchEvent) {
+      const target = event.target as Node;
+      if (sortRef.current && !sortRef.current.contains(target)) setSortOpen(false);
+    }
+    document.addEventListener("mousedown", handlePointer);
+    document.addEventListener("touchstart", handlePointer);
+    return () => {
+      document.removeEventListener("mousedown", handlePointer);
+      document.removeEventListener("touchstart", handlePointer);
+    };
+  }, [sortOpen]);
 
   useEffect(() => {
     if (!sheetOpen) return;
@@ -89,7 +137,7 @@ export function PharmaCatalog({
   }, [sheetOpen]);
 
   const filtered = useMemo(
-    () => sortCatalogProducts(catalog.filter((product) => matchesFilters(product, applied)), applied.categoria),
+    () => sortPharmaProducts(catalog.filter((product) => matchesFilters(product, applied)), applied),
     [catalog, applied],
   );
 
@@ -105,7 +153,9 @@ export function PharmaCatalog({
     categoria: draftCategory,
     marca: draftBrand,
     promo: draftPromo,
+    ordem: applied.ordem,
   };
+  const sortLabel = SORT_OPTIONS.find((option) => option.id === applied.ordem)?.label || "Relevância";
   const draftProducts = catalog.filter((product) => matchesFilters(product, draftFilters));
   const promoScope = catalog.filter((product) => {
     if (draftCategory && product.category !== draftCategory) return false;
@@ -156,9 +206,38 @@ export function PharmaCatalog({
               </span>
             )}
           </button>
-          <div className="inline-flex h-10 flex-1 items-center justify-between rounded-full border border-neutral-200 bg-white px-4 text-sm font-semibold text-neutral-800">
-            <span>Relevância</span>
-            <span className="text-neutral-400" aria-hidden="true">▾</span>
+          <div ref={sortRef} className="relative min-w-0 flex-1">
+            <button
+              type="button"
+              onClick={() => setSortOpen((open) => !open)}
+              className="inline-flex h-10 w-full items-center justify-between rounded-full border border-neutral-200 bg-white px-4 text-sm font-semibold text-neutral-800"
+              aria-expanded={sortOpen}
+            >
+              <span>{sortLabel}</span>
+              <ChevronDown className={`h-4 w-4 text-neutral-500 transition-transform ${sortOpen ? "rotate-180" : ""}`} />
+            </button>
+            {sortOpen && (
+              <div className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-2xl bg-neutral-700 py-1 text-white shadow-xl">
+                {SORT_OPTIONS.map((option) => {
+                  const selected = applied.ordem === option.id;
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => {
+                        go({ ...applied, ordem: option.id });
+                        setSortOpen(false);
+                        setPage(1);
+                      }}
+                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-medium hover:bg-white/10"
+                    >
+                      <Check className={`h-4 w-4 ${selected ? "opacity-100" : "opacity-0"}`} />
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 
@@ -204,7 +283,7 @@ export function PharmaCatalog({
             <button
               type="button"
               className="mt-4 text-sm font-semibold text-[var(--pharma-green-ink,#166534)]"
-              onClick={() => go({ q: "", categoria: "", marca: "", promo: false })}
+              onClick={() => go({ q: "", categoria: "", marca: "", promo: false, ordem: "relevancia" })}
             >
               Limpar filtros
             </button>
