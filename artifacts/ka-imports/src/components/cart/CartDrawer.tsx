@@ -30,14 +30,14 @@ export function CartDrawer() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => setIsOpen(false)}
-            className="ka-cart-backdrop fixed inset-0 bg-black/40 backdrop-blur-sm z-50"
+            className={`ka-cart-backdrop fixed inset-0 z-50 ${isPharma ? "bg-black/35" : "bg-black/40 backdrop-blur-sm"}`}
           />
           <motion.div
             initial={{ x: "100%" }}
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ type: "spring", damping: 25, stiffness: 200 }}
-            className="ka-cart-drawer fixed inset-y-0 right-0 w-full max-w-md bg-white shadow-2xl z-50 flex flex-col border-l border-border"
+            className={`ka-cart-drawer fixed inset-y-0 right-0 z-50 flex flex-col bg-white shadow-2xl ${isPharma ? "w-[calc(100%-3.5rem)] max-w-sm rounded-l-2xl border-l border-neutral-200" : "w-full max-w-md border-l border-border"}`}
           >
             <div className="ka-cart-header flex items-center justify-between p-6 border-b border-border">
               <h2 className="ka-cart-title text-2xl font-display font-bold flex items-center gap-2">
