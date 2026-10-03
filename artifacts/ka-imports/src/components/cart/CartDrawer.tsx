@@ -1,14 +1,16 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Plus, Minus, ShoppingBag, ArrowRight } from "lucide-react";
+import { X, Plus, Minus, ShoppingBag, ArrowRight, Trash2 } from "lucide-react";
 import { useCart } from "@/store/use-cart";
 import { cartCatalogProductId } from "@/lib/product-variants";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
-import { Link, useLocation } from "wouter";
+import { isPharmaCompactPreset, useStoreThemePreset } from "@/lib/store-theme";
+import { useLocation } from "wouter";
 
 export function CartDrawer() {
   const { items, isOpen, setIsOpen, updateQuantity, removeItem, getSubtotal } = useCart();
   const [, setLocation] = useLocation();
+  const isPharma = isPharmaCompactPreset(useStoreThemePreset());
 
   const handleCheckout = () => {
     setIsOpen(false);
@@ -39,8 +41,8 @@ export function CartDrawer() {
           >
             <div className="ka-cart-header flex items-center justify-between p-6 border-b border-border">
               <h2 className="ka-cart-title text-2xl font-display font-bold flex items-center gap-2">
-                <ShoppingBag className="w-6 h-6 text-primary" />
-                Seu Carrinho
+                <ShoppingBag className={`w-6 h-6 ${isPharma ? "text-[var(--pharma-green,#22c55e)]" : "text-primary"}`} />
+                {isPharma ? "Meu Carrinho" : "Seu Carrinho"}
               </h2>
               <Button variant="ghost" size="icon" onClick={() => setIsOpen(false)} className="ka-cart-close rounded-full">
                 <X className="w-5 h-5" />
@@ -117,27 +119,40 @@ export function CartDrawer() {
                       animate={{ opacity: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.9 }}
                       key={item.id} 
-                      className="ka-cart-item flex gap-4 p-3 rounded-2xl border bg-gray-50 border-border/50"
+                      className={`ka-cart-item flex gap-3 p-3 rounded-2xl border ${isPharma ? "items-center border-neutral-200 bg-white" : "gap-4 bg-gray-50 border-border/50"}`}
                     >
-                      <div className="ka-cart-item-image-wrap w-20 h-20 bg-white rounded-xl overflow-hidden shrink-0 shadow-sm">
+                      <div className={`ka-cart-item-image-wrap bg-white rounded-xl overflow-hidden shrink-0 ${isPharma ? "h-14 w-14 border border-neutral-100" : "w-20 h-20 shadow-sm"}`}>
                         <img 
                           src={item.image || "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=200&q=80"} 
                           alt={item.name} 
                           className="w-full h-full object-cover"
                         />
                       </div>
-                      <div className="flex-1 flex flex-col py-1">
-                        <div className="flex justify-between items-start gap-2">
-                          <div className="flex-1">
-                            <h4 className="font-semibold text-foreground leading-tight line-clamp-2">{item.name}</h4>
-                            {Boolean((item as { variantLabel?: string }).variantLabel) && !String(item.name || "").includes(String((item as { variantLabel?: string }).variantLabel)) && (
-                              <p className="text-[11px] text-muted-foreground mt-0.5">{(item as { variantLabel?: string }).variantLabel}</p>
-                            )}
-                            {bumpItem && (
-                              <span className="ka-cart-bump-badge inline-flex items-center gap-1 text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-semibold mt-0.5">
-                                🏷️ Desconto aplicado no checkout
+                      <div className="flex-1 flex flex-col py-1 min-w-0">
+                        {isPharma ? (
+                          <>
+                            <div className="flex items-start justify-between gap-2">
+                              <h4 className="min-w-0 flex-1 text-xs font-semibold uppercase leading-tight tracking-wide text-foreground line-clamp-2">{item.name}</h4>
+                              <button
+                                type="button"
+                                onClick={() => removeItem(item.id)}
+                                className="ka-cart-remove shrink-0 p-1 text-neutral-400 hover:text-destructive"
+                                aria-label="Remover item"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                            <div className="mt-1 flex items-center justify-between gap-2">
+                              <p className="text-xs text-neutral-500">{totalQty} un · {formatCurrency(item.price)}</p>
+                              <span className="shrink-0 text-sm font-bold text-[var(--pharma-green,#16a34a)]">
+                                {formatCurrency(item.price * item.quantity + (bumpItem ? bumpItem.price * bumpItem.quantity : 0))}
                               </span>
-                            )}
+                            </div>
+                          </>
+                        ) : (
+                        <div className="flex justify-between items-start gap-2">
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-semibold text-foreground leading-tight line-clamp-2">{item.name}</h4>
                           </div>
                           <button 
                             onClick={() => removeItem(item.id)}
@@ -146,6 +161,16 @@ export function CartDrawer() {
                             <X className="w-4 h-4" />
                           </button>
                         </div>
+                        )}
+                        {Boolean((item as { variantLabel?: string }).variantLabel) && !String(item.name || "").includes(String((item as { variantLabel?: string }).variantLabel)) && (
+                          <p className="text-[11px] text-muted-foreground mt-0.5">{(item as { variantLabel?: string }).variantLabel}</p>
+                        )}
+                        {bumpItem && (
+                          <span className="ka-cart-bump-badge inline-flex items-center gap-1 text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-semibold mt-0.5">
+                            🏷️ Desconto aplicado no checkout
+                          </span>
+                        )}
+                        {isPharma ? null : (
                         <div className="mt-auto flex items-end justify-between">
                           <span className="font-bold text-primary">{formatCurrency(item.price)}</span>
                           <div className="ka-cart-qty flex items-center gap-3 bg-white border border-border rounded-lg p-1 shadow-sm">
@@ -164,6 +189,7 @@ export function CartDrawer() {
                             </button>
                           </div>
                         </div>
+                        )}
                       </div>
                     </motion.div>
                     );
@@ -173,19 +199,24 @@ export function CartDrawer() {
             </div>
 
             {items.length > 0 && (
-              <div className="ka-cart-footer p-4 bg-gray-50 border-t border-border shrink-0">
+              <div className={`ka-cart-footer p-4 border-t shrink-0 ${isPharma ? "border-neutral-200 bg-white" : "bg-gray-50 border-border"}`}>
                 <div className="flex items-center justify-between mb-3 text-base">
-                  <span className="font-medium text-muted-foreground">Subtotal</span>
-                  <span className="font-display font-bold text-xl text-foreground">
+                  <span className={isPharma ? "font-semibold text-neutral-900" : "font-medium text-muted-foreground"}>
+                    {isPharma ? "Total:" : "Subtotal"}
+                  </span>
+                  <span className={isPharma ? "text-lg font-bold text-[var(--pharma-green,#16a34a)]" : "font-display font-bold text-xl text-foreground"}>
                     {formatCurrency(getSubtotal())}
                   </span>
                 </div>
                 <div className="flex flex-col gap-2">
-                  <Button className="ka-cart-checkout w-full shadow-xl shadow-primary/20" onClick={handleCheckout}>
+                  <Button
+                    className={isPharma ? "ka-cart-checkout h-12 w-full rounded-xl bg-[var(--pharma-green,#22c55e)] text-white shadow-none hover:bg-[var(--pharma-green-strong,#16a34a)]" : "ka-cart-checkout w-full shadow-xl shadow-primary/20"}
+                    onClick={handleCheckout}
+                  >
                     Finalizar Pedido
                     <ArrowRight className="w-4 h-4 ml-2" />
                   </Button>
-                  <Button variant="outline" className="ka-cart-continue w-full" onClick={() => setIsOpen(false)}>
+                  <Button variant="outline" className={isPharma ? "ka-cart-continue h-12 w-full rounded-xl border-neutral-200 bg-neutral-50" : "ka-cart-continue w-full"} onClick={() => setIsOpen(false)}>
                     Continuar comprando
                   </Button>
                 </div>
