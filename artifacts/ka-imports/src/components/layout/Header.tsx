@@ -1,12 +1,15 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { flushSync } from "react-dom";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { ShoppingBag, Search, Menu, X, MessageCircle, Home, UserCircle2 } from "lucide-react";
 import { getCustomerToken } from "@/lib/customer-auth";
 import { useCart } from "@/store/use-cart";
 import { Button } from "@/components/ui/button";
 import { formatCurrency, getActiveWhatsApp } from "@/lib/utils";
 import { fetchPublicSiteSettings } from "@/lib/public-settings";
+import { isPharmaCompactPreset } from "@/lib/store-theme";
+import { pharmaCatalogHref, readPharmaFilters } from "@/lib/pharma-catalog-query";
+import { PharmaStoreChrome } from "@/components/layout/PharmaStoreChrome";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -63,6 +66,9 @@ function SearchBar({
   wrapperRef,
   homeHref,
   className = "",
+  placeholder = "Buscar produtos...",
+  inputClassName = "",
+  onClear,
 }: {
   searchValue: string;
   setSearchValue: (v: string) => void;
@@ -75,6 +81,9 @@ function SearchBar({
   wrapperRef?: React.RefObject<HTMLDivElement | null>;
   homeHref: string;
   className?: string;
+  placeholder?: string;
+  inputClassName?: string;
+  onClear?: () => void;
 }) {
   const [, setLocation] = useLocation();
 
@@ -96,12 +105,17 @@ function SearchBar({
           onChange={(e) => { setSearchValue(e.target.value); setShowSuggestions(true); }}
           onFocus={() => { if (searchValue.trim()) setShowSuggestions(true); }}
           onKeyDown={handleKeyDown}
-          placeholder="Buscar produtos..."
-          className="w-full h-11 pl-10 pr-8 rounded-full bg-muted border-transparent focus:bg-white focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none border-2 text-base"
+          placeholder={placeholder}
+          className={`w-full h-11 pl-10 pr-8 rounded-full bg-muted border-transparent focus:bg-white focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none border-2 text-base ${inputClassName}`}
         />
         {searchValue && (
           <button
-            onClick={() => { setSearchValue(""); setShowSuggestions(false); setLocation(homeHref); }}
+            onClick={() => {
+              setSearchValue("");
+              setShowSuggestions(false);
+              if (onClear) onClear();
+              else setLocation(homeHref);
+            }}
             className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
           >
             <X className="w-4 h-4" />
@@ -155,7 +169,12 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
 
   const itemCount = items.reduce((acc, item) => acc + item.quantity, 0);
   const isLoggedIn = Boolean(getCustomerToken());
+  const searchString = useSearch();
   const siteSettings = usePublicSiteSettings();
+  const isPharma = isPharmaCompactPreset(siteSettings.store_theme_preset || "");
+  const pharmaFilters = readPharmaFilters(searchString);
+  const isPharmaRef = useRef(isPharma);
+  isPharmaRef.current = isPharma;
   const logo = siteSettings.logo ?? null;
   const logoScale = Math.min(240, Math.max(100, Number(siteSettings.logo_scale ?? 180) || 180));
   const allProducts = useProducts();
@@ -216,11 +235,24 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
       ).slice(0, 6)
     : [];
 
+  const pharmaCategories = useMemo(() => {
+    const unique = new Set<string>();
+    allProducts.forEach((product) => {
+      const category = String(product.category || "").trim();
+      if (category) unique.add(category);
+    });
+    return Array.from(unique);
+  }, [allProducts]);
+
   function handleSearch() {
     const q = searchValue.trim();
     setShowSuggestions(false);
     setMobileSearchOpen(false);
     setMenuOpen(false);
+    if (isPharma) {
+      setLocation(pharmaCatalogHref(sellerHomeHref, { ...pharmaFilters, q }));
+      return;
+    }
     if (q) {
       setLocation(`${sellerHomeHref}?q=${encodeURIComponent(q)}`);
     } else {
@@ -233,8 +265,27 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
     setShowSuggestions(false);
     setMobileSearchOpen(false);
     setMenuOpen(false);
+    if (isPharma) {
+      setLocation(pharmaCatalogHref(sellerHomeHref, { ...pharmaFilters, q: name }));
+      return;
+    }
     setLocation(`${sellerHomeHref}?q=${encodeURIComponent(name)}`);
   }
+
+  function clearPharmaSearch() {
+    setLocation(pharmaCatalogHref(sellerHomeHref, { ...pharmaFilters, q: "" }));
+  }
+
+  function selectPharmaCategory(category: string) {
+    setMenuOpen(false);
+    setShowSuggestions(false);
+    setLocation(pharmaCatalogHref(sellerHomeHref, { ...pharmaFilters, categoria: category }));
+  }
+
+  useEffect(() => {
+    if (!isPharma) return;
+    setSearchValue(pharmaFilters.q);
+  }, [isPharma, pharmaFilters.q]);
 
   async function openSupportWhatsApp() {
     let number = getActiveWhatsApp();
@@ -273,6 +324,10 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
   useEffect(() => {
     function handleClickOutside(e: MouseEvent | TouchEvent) {
       const target = e.target as Node;
+      if (isPharmaRef.current) {
+        if (desktopWrapperRef.current && !desktopWrapperRef.current.contains(target)) setShowSuggestions(false);
+        return;
+      }
       const outsideDesktop = desktopWrapperRef.current && !desktopWrapperRef.current.contains(target);
       const outsideMobile  = mobileWrapperRef.current  && !mobileWrapperRef.current.contains(target);
       if (outsideDesktop && outsideMobile) setShowSuggestions(false);
@@ -290,6 +345,9 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
     setMenuOpen(false);
     setMobileSearchOpen(false);
   }, []);
+
+  const offersHref = sellerSlug ? `/${encodeURIComponent(sellerSlug)}/ofertas` : "/ofertas";
+  const siteName = String(siteSettings.site_name || "").trim() || "KA Imports";
 
   return (
     <>
@@ -313,6 +371,39 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
         </div>
       )}
 
+      {isPharma && !minimal ? (
+        <PharmaStoreChrome
+          siteName={siteName}
+          logo={logo}
+          sellerHomeHref={sellerHomeHref}
+          offersHref={offersHref}
+          search={(
+            <SearchBar
+              searchValue={searchValue}
+              setSearchValue={setSearchValue}
+              onSearch={handleSearch}
+              onSelectSuggestion={selectSuggestion}
+              suggestions={suggestions}
+              showSuggestions={showSuggestions}
+              setShowSuggestions={setShowSuggestions}
+              inputRef={desktopInputRef}
+              wrapperRef={desktopWrapperRef}
+              homeHref={sellerHomeHref}
+              className="w-full"
+              placeholder="Buscar produtos.."
+              inputClassName="h-10 border-0 bg-[#f3f4f6] text-sm"
+              onClear={clearPharmaSearch}
+            />
+          )}
+          isLoggedIn={isLoggedIn}
+          itemCount={itemCount}
+          onOpenCart={() => setIsOpen(true)}
+          onOpenMenu={() => setMenuOpen((open) => !open)}
+          categories={pharmaCategories}
+          activeCategory={pharmaFilters.categoria}
+          onSelectCategory={selectPharmaCategory}
+        />
+      ) : (
       <header className="ka-main-header sticky top-0 z-40 w-full glass border-b border-border/50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 md:h-20">
@@ -421,6 +512,7 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
           )}
         </div>
       </header>
+      )}
 
       {/* Mobile drawer — hamburger menu */}
       {menuOpen && (

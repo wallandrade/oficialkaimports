@@ -8,6 +8,8 @@ import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { useLiveTracking } from "@/hooks/useLiveTracking";
 import { sortCatalogProducts, topSellerRanksByCategory } from "@/lib/catalog-sales";
+import { isPharmaCompactPreset } from "@/lib/store-theme";
+import { PharmaCatalog } from "@/components/catalog/PharmaCatalog";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -156,6 +158,7 @@ export default function Home() {
     : "";
   const themePreset = String(banners["store_theme_preset"] || "").trim().toLowerCase();
   const isMarketplaceShowcase = themePreset === "market_showcase";
+  const isPharmaCompact = isPharmaCompactPreset(themePreset);
   const [featuredCategory, setFeaturedCategory] = useState("");
 
   useLiveTracking("catalog");
@@ -362,7 +365,16 @@ export default function Home() {
         </section>
       )}
 
-      {isMarketplaceShowcase ? (
+      {isPharmaCompact ? (
+        <PharmaCatalog
+          products={data?.products ?? []}
+          categories={data?.categories ?? []}
+          isLoading={isLoading}
+          isError={isError}
+          sellerSlug={sellerSlug}
+          homeHref={sellerSlug ? `/${encodeURIComponent(sellerSlug)}` : "/"}
+        />
+      ) : isMarketplaceShowcase ? (
         <section className="py-6 sm:py-10 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full flex-1 space-y-6 sm:space-y-8">
           <div className="rounded-3xl border border-border/60 bg-gradient-to-b from-white to-muted/20 p-4 sm:p-6">
             <div className="flex items-center gap-2 mb-4">

@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-09-30
+> **Última atualização:** 2026-10-03
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-03 | Preset `pharma_compact` (Farmácia Compacta) na vitrine | Header com busca e categorias, home em grade plana (24 por página), card com PIX e aviso ao adicionar. Verde em `--pharma-*`, não em `--color-primary` | Checkout, outros presets, WhatsApp do rodapé e do menu, preço em dólar e cidade |
 | 2026-09-30 | Anti-padrão: aplicar o prazo manual dentro de `findForecast` / `allocateOrderLogistics` | `resolveCheckoutDeadlineHours` só na resposta do forecast | `promised_hours` gravado e as cópias 48/72/96h |
 | 2026-09-28 | Histórico do CPF no admin mostra foto e nome | `products[].image` no related-shipments; miniatura na lista | Não entra no GET da fila de pedidos |
 | 2026-09-26 | Anti-padrão: listar produto no admin só pelo nome | `InventoryProductThumb` + foto do item ou do catálogo (id, senão nome) | Payload de cupom, bump e reenvio |
@@ -143,6 +144,7 @@ Código > memória > suposições.
 - Data fetching: TanStack Query via `@workspace/api-client-react` quando o endpoint está no OpenAPI; muitos fetches manuais ainda existem (admin/checkout).
 - Path alias `@/` no FE.
 - Estilo: Tailwind + CVA + `cn` util.
+- Tema da loja: `store_theme_preset` vira `data-store-theme` no `<html>`. `pharma_compact` muda só a vitrine (header, lista e card). O verde fica em `--pharma-*`. A cor principal da loja continua no checkout e nos outros presets.
 
 ## Codegen (Orval)
 

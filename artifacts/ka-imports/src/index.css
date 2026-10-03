@@ -126,6 +126,16 @@
   --radius-2xl: 1.2rem;
 }
 
+/* Verde próprio da vitrine. Não troca --color-primary, para checkout e os outros temas seguirem a cor da loja. */
+:root[data-store-theme="pharma_compact"] {
+  --pharma-green: #22c55e;
+  --pharma-green-strong: #16a34a;
+  --pharma-green-soft: #e8f8ee;
+  --pharma-green-ink: #166534;
+  --pharma-cart: #111111;
+  --pharma-off: #ef4444;
+}
+
 :root[data-store-theme="editorial_noir"] body {
   background-image:
     radial-gradient(circle at 10% 10%, hsl(35 68% 58% / 0.09), transparent 34%),

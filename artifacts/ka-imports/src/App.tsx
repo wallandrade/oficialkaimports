@@ -10,6 +10,7 @@ import SocialProofWidget from "@/components/SocialProofWidget";
 import { captureReferralFromCurrentUrl } from "@/lib/affiliate";
 import { reportClientError } from "@/lib/client-error-reporting";
 import { fetchPublicSiteSettings } from "@/lib/public-settings";
+import { normalizeStoreThemePreset } from "@/lib/store-theme";
 import Home from "@/pages/Home";
 import CategoryPage from "@/pages/CategoryPage";
 import OffersPage from "@/pages/OffersPage";
@@ -174,14 +175,6 @@ function getReadableForeground(hexColor: string): string {
   const b = Number.parseInt(hex.slice(4, 6), 16);
   const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
   return luminance > 0.62 ? "#0F172A" : "#FFFFFF";
-}
-
-function normalizeStoreThemePreset(value: string): "default" | "classic_clean" | "editorial_noir" | "market_showcase" {
-  const normalized = String(value || "").trim().toLowerCase();
-  if (normalized === "classic_clean") return "classic_clean";
-  if (normalized === "editorial_noir") return "editorial_noir";
-  if (normalized === "market_showcase") return "market_showcase";
-  return "default";
 }
 
 function applyThemePresetFromSettings(settings: Record<string, string>): void {

@@ -88,10 +88,20 @@ function getTierUnitPrice(baseUnitPrice: number, quantity: number, tiers: BulkDi
   return match?.unitPrice ?? baseUnitPrice;
 }
 
+export type CartAddedNotice = {
+  id: number;
+  name: string;
+  image: string | null;
+  quantity: number;
+};
+
 interface CartState {
   items: CartItemExtended[];
   isOpen: boolean;
+  addedNotice: CartAddedNotice | null;
   setIsOpen: (isOpen: boolean) => void;
+  showAddedNotice: (notice: Omit<CartAddedNotice, "id">) => void;
+  clearAddedNotice: () => void;
   addItem: (
     product: Product,
     options?: { quantity?: number; unitPrice?: number; selectedVariants?: Array<{ groupName?: string; option?: string }> },
@@ -115,8 +125,15 @@ export const useCart = create<CartState>()(
     (set, get) => ({
       items: [],
       isOpen: false,
+      addedNotice: null,
 
       setIsOpen: (isOpen) => set({ isOpen }),
+
+      showAddedNotice: (notice) => set({
+        addedNotice: { ...notice, id: Date.now() },
+      }),
+
+      clearAddedNotice: () => set({ addedNotice: null }),
 
       addBumpItem: (bumpOfferId, anchorProductId, product, bumpedPrice, bumpedQty) => {
         const cartId = `bump_${bumpOfferId}`;

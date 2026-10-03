@@ -11,6 +11,7 @@ interface ProductCardProps {
   sellerSlug?: string;
   priority?: boolean;
   topSellerRank?: 1 | 2 | 3 | null;
+  layout?: "default" | "pharma";
 }
 
 type BulkDiscountTier = {
@@ -49,7 +50,7 @@ function hasVariantGroups(product: Product): boolean {
   return parseVariantGroups((product as Product & { variantGroups?: unknown }).variantGroups).length > 0;
 }
 
-export function ProductCard({ product, sellerSlug, priority = false, topSellerRank = null }: ProductCardProps) {
+export function ProductCard({ product, sellerSlug, priority = false, topSellerRank = null, layout = "default" }: ProductCardProps) {
   const hasPromo = product.promoPrice != null && product.promoPrice < product.price;
   const isSoldOut = isProductUnavailable(product);
   const isLaunch = (product as Product & { isLaunch?: boolean }).isLaunch === true;
@@ -62,7 +63,7 @@ export function ProductCard({ product, sellerSlug, priority = false, topSellerRa
     : (hasPromo ? product.promoPrice! : product.price);
   const showOriginalPrice = displayUnitPrice < product.price;
   const href = sellerSlug ? `/${sellerSlug}/produto/${product.id}` : `/produto/${product.id}`;
-  const { addItem, setIsOpen } = useCart();
+  const { addItem, setIsOpen, showAddedNotice } = useCart();
   const [, setLocation] = useLocation();
   const requiresVariantSelection = hasVariantGroups(product);
 
@@ -74,7 +75,79 @@ export function ProductCard({ product, sellerSlug, priority = false, topSellerRa
       return;
     }
     addItem(product);
+    if (layout === "pharma") {
+      showAddedNotice({
+        name: product.name,
+        image: product.image ?? null,
+        quantity: 1,
+      });
+      return;
+    }
     setIsOpen(true);
+  }
+
+  if (layout === "pharma") {
+    const offPct = showOriginalPrice && product.price > 0
+      ? Math.max(1, Math.round((1 - displayUnitPrice / product.price) * 100))
+      : 0;
+    const brand = String((product as Product & { brand?: string | null }).brand || "").trim();
+
+    return (
+      <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm">
+        <div className="relative bg-white px-3 pt-3">
+          {offPct > 0 && (
+            <span className="absolute left-2 top-2 z-10 rounded-full bg-[var(--pharma-off,#ef4444)] px-2 py-0.5 text-[10px] font-bold text-white">
+              Até {offPct}% OFF
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={handleAddToCart}
+            disabled={isSoldOut}
+            aria-label={isSoldOut ? "Produto esgotado" : "Adicionar ao carrinho"}
+            className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--pharma-green,#22c55e)] text-white disabled:opacity-40"
+          >
+            <ShoppingCart className="h-4 w-4" />
+          </button>
+          <Link href={href} className="block">
+            <img
+              src={product.image || "https://placehold.co/400x400/f4f4f5/111111?text=Produto"}
+              alt={product.name}
+              loading={priority ? "eager" : "lazy"}
+              decoding="async"
+              fetchPriority={priority ? "high" : "auto"}
+              className="mx-auto h-36 w-full object-contain"
+            />
+          </Link>
+        </div>
+        <div className="flex flex-1 flex-col px-3 pb-3 pt-2">
+          {brand ? <p className="mb-0.5 text-xs text-neutral-400">{brand}</p> : null}
+          <Link href={href} className="mb-2 line-clamp-2 text-sm font-bold leading-tight text-neutral-900">
+            {product.name}
+          </Link>
+          <div className="mt-auto flex items-end justify-between gap-2">
+            <div className="min-w-0">
+              {showOriginalPrice ? (
+                <p className="text-[10px] leading-tight text-neutral-400">
+                  A PARTIR DE <span className="line-through">{formatCurrency(product.price)}</span>
+                </p>
+              ) : null}
+              <div className="flex items-center gap-1">
+                <span className="text-[15px] font-bold text-[var(--pharma-green-strong,#16a34a)]">{formatCurrency(displayUnitPrice)}</span>
+                <span className="rounded border border-[var(--pharma-green,#22c55e)] px-1 text-[9px] font-bold uppercase text-[var(--pharma-green-strong,#16a34a)]">PIX</span>
+              </div>
+            </div>
+            <Link
+              href={href}
+              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--pharma-green,#22c55e)] px-2.5 py-1.5 text-xs font-semibold text-white"
+            >
+              Ver
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
