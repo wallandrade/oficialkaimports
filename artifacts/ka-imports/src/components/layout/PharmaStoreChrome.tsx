@@ -102,11 +102,7 @@ export function PharmaStoreChrome({
 
   return (
     <div className="ka-pharma-header sticky top-0 z-40 w-full border-b border-black/5 bg-white">
-      <div className="flex items-center justify-between gap-3 px-4 py-1.5">
-        <p className="truncate text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-800">{siteName}</p>
-      </div>
-
-      <div className="flex items-center gap-2 px-3 pb-2">
+      <div className="flex items-center gap-2 px-3 py-2">
         <button
           type="button"
           className="md:hidden shrink-0 p-1.5 rounded-full text-neutral-700"

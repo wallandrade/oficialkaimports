@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-03 | Topo do tema farmácia sem o nome escrito | Fica só a logo; o nome aparece se não houver imagem | Header dos outros temas |
 | 2026-10-03 | Compra simples na página farmácia | Sem faixa progressiva: ícones, quantidade, total, adicionar e comprar agora | Cards 1cx–4cx+ e os outros temas |
 | 2026-10-03 | Tabela de preços na página do produto do tema farmácia | 1cx–4cx+ com ícones, quantidade e um botão de carrinho | Blocos “Adicionar Ncx” dos outros temas |
 | 2026-10-03 | Ordenação da vitrine farmácia | Relevância, menor preço, maior preço e nome (A-Z) na home `pharma_compact` | Ordem dos outros temas |
