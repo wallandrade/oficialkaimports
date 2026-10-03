@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2, RefreshCw, Truck, FileText, Ban, ExternalLink, X, Link2, Unlink, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -220,6 +220,7 @@ export function EnvioEcomOrderActions({
   const [relatedWarningOpen, setRelatedWarningOpen] = useState(false);
   const [lossPickerOpen, setLossPickerOpen] = useState(false);
   const [lossCarrier, setLossCarrier] = useState(DEFAULT_CARRIER_FILTERS[0]);
+  const [lossActive, setLossActive] = useState(false);
   const [pendingQuoteAccountId, setPendingQuoteAccountId] = useState<string | null>(null);
   const boundPackage = packageId ? (order.packages || []).find((pkg) => pkg.id === packageId) : null;
   const bound: EnvioEcomOrderFields = boundPackage ? bindOrderFieldsToPackage(order, boundPackage) : order;
@@ -234,6 +235,31 @@ export function EnvioEcomOrderActions({
     ].filter(Boolean);
     return Array.from(new Set([...DEFAULT_CARRIER_FILTERS, ...fromResults]));
   }, [quotes, unavailable]);
+
+  const lossQuery = packageId ? `?packageId=${encodeURIComponent(packageId)}` : "";
+  const canTrackLoss = !isMotoboyOrPickup(order.shippingType) && Boolean(
+    bound.envioecomShipmentId
+    || String(bound.envioecomBarcode || (!packageId ? bound.trackingCode : "") || "").trim()
+    || String(bound.envioecomLabelUrl || (!packageId ? bound.trackingLabelUrl : "") || "").trim()
+    || String(bound.envioecomStatus || "").trim()
+  );
+
+  useEffect(() => {
+    if (!canTrackLoss) return;
+    let cancelled = false;
+    void fetch(`${BASE}/api/admin/envioecom/orders/${order.id}/loss-blacklist${lossQuery}`, {
+      headers: adminHeaders(),
+    })
+      .then(async (res) => {
+        if (!res.ok || cancelled) return;
+        const data = await res.json() as { active?: boolean };
+        if (!cancelled) setLossActive(!!data.active);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [canTrackLoss, order.id, lossQuery]);
 
   if (isMotoboyOrPickup(order.shippingType)) return null;
 
@@ -572,37 +598,45 @@ export function EnvioEcomOrderActions({
     });
     if (!res.ok) throw new Error(await readError(res));
     setLossPickerOpen(false);
+    setLossActive(true);
     toast.success("Pedido na lista negra de extravio.");
   }
 
+  async function removeLossBlacklist() {
+    const removed = await fetch(`${BASE}/api/admin/envioecom/orders/${order.id}/loss-blacklist`, {
+      method: "DELETE",
+      headers: adminHeaders(),
+      body: JSON.stringify(withPackageId({})),
+    });
+    if (!removed.ok) throw new Error(await readError(removed));
+    setLossActive(false);
+    toast.success("Pedido fora da lista negra.");
+  }
+
   async function toggleLossBlacklist() {
+    if (lossActive) {
+      if (!window.confirm("Tirar da lista negra de extravio?")) return;
+      setBusy("loss");
+      try {
+        await removeLossBlacklist();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Falha ao tirar da lista negra.");
+      } finally {
+        setBusy(null);
+      }
+      return;
+    }
+    if (!String(bound.envioecomDeliveryMode || "").trim()) {
+      setLossCarrier(DEFAULT_CARRIER_FILTERS[0]);
+      setLossPickerOpen(true);
+      return;
+    }
+    if (!window.confirm("Colocar na lista negra de extravio?")) return;
     setBusy("loss");
     try {
-      const query = packageId ? `?packageId=${encodeURIComponent(packageId)}` : "";
-      const res = await fetch(`${BASE}/api/admin/envioecom/orders/${order.id}/loss-blacklist${query}`, {
-        headers: adminHeaders(),
-      });
-      if (!res.ok) throw new Error(await readError(res));
-      const data = await res.json() as { active?: boolean };
-      if (data.active) {
-        if (!window.confirm("Tirar da lista negra de extravio?")) return;
-        const removed = await fetch(`${BASE}/api/admin/envioecom/orders/${order.id}/loss-blacklist`, {
-          method: "DELETE",
-          headers: adminHeaders(),
-          body: JSON.stringify(withPackageId({})),
-        });
-        if (!removed.ok) throw new Error(await readError(removed));
-        toast.success("Pedido fora da lista negra.");
-        return;
-      }
-      if (!String(bound.envioecomDeliveryMode || "").trim()) {
-        setLossCarrier(DEFAULT_CARRIER_FILTERS[0]);
-        setLossPickerOpen(true);
-        return;
-      }
       await postLossBlacklist();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Falha ao atualizar a lista negra.");
+      toast.error(err instanceof Error ? err.message : "Falha ao marcar a lista negra.");
     } finally {
       setBusy(null);
     }
@@ -673,7 +707,7 @@ export function EnvioEcomOrderActions({
       {hasBinding && (
         <Button size="sm" variant="outline" className="gap-1.5 text-rose-800 border-rose-200 hover:bg-rose-50" disabled={!!busy} onClick={() => void toggleLossBlacklist()}>
           {busy === "loss" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldAlert className="w-3.5 h-3.5" />}
-          Lista negra de extravio
+          {lossActive ? "Tirar da lista negra" : "Lista negra de extravio"}
         </Button>
       )}
       {labelUrl && !labelBlocked && (
@@ -968,6 +1002,7 @@ export function EnvioEcomOrderActions({
                 type="button"
                 disabled={!!busy}
                 onClick={() => {
+                  if (!window.confirm("Colocar na lista negra de extravio?")) return;
                   setBusy("loss");
                   void postLossBlacklist(lossCarrier)
                     .catch((err) => toast.error(err instanceof Error ? err.message : "Falha ao marcar a lista negra."))
