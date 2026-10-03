@@ -38,6 +38,7 @@ import {
   reverseOrderInventoryForSplit,
 } from "./order-enviado";
 import { markOpenReshipmentSentIfLabeled } from "./reshipments";
+import { recordAutomaticCarrierLoss } from "./carrier-loss-store";
 import { parseKaInventoryExitPool, parseKaInventoryExitedPools } from "./yury-inventory";
 import { DEFAULT_TENANT_ID } from "./tenant-context";
 
@@ -247,6 +248,25 @@ export async function persistEnvioEcomPackage(
     await markOpenReshipmentSentIfLabeled(order.id);
   } catch (err) {
     console.warn("[OrderShipments] Falha ao marcar reenvio enviado pela etiqueta:", err);
+  }
+  try {
+    await recordAutomaticCarrierLoss({
+      orderId: order.id,
+      packageId: pkg.id,
+      tenantId: order.tenantId,
+      orderNumber: order.orderNumber,
+      addressCity: order.addressCity,
+      addressState: order.addressState,
+      addressNeighborhood: order.addressNeighborhood,
+      addressCep: order.addressCep,
+      deliveryMode: patch.deliveryMode,
+      fallbackCarrier: pkg.envioecomDeliveryMode,
+      status,
+      description: patch.description,
+      history,
+    });
+  } catch (err) {
+    console.warn("[CarrierLoss] Falha ao registrar extravio:", err);
   }
   return { order: refreshedOrder, pkg: refreshedPkg };
 }

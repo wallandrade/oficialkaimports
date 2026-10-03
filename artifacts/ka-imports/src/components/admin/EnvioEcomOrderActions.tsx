@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Loader2, RefreshCw, Truck, FileText, Ban, ExternalLink, X, Link2, Unlink } from "lucide-react";
+import { Loader2, RefreshCw, Truck, FileText, Ban, ExternalLink, X, Link2, Unlink, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
@@ -76,6 +76,7 @@ type QuoteOption = {
   freight_cost?: string | number;
   delivery_time?: string | number;
   delivery_days?: string | number;
+  lossAlert?: { level: "warn" | "danger"; message: string } | null;
   [key: string]: unknown;
 };
 
@@ -217,6 +218,8 @@ export function EnvioEcomOrderActions({
   const [pendingLinkContinueToLabel, setPendingLinkContinueToLabel] = useState(false);
   const [relatedShipments, setRelatedShipments] = useState<RelatedCpfShipmentsResult | null>(null);
   const [relatedWarningOpen, setRelatedWarningOpen] = useState(false);
+  const [lossPickerOpen, setLossPickerOpen] = useState(false);
+  const [lossCarrier, setLossCarrier] = useState(DEFAULT_CARRIER_FILTERS[0]);
   const [pendingQuoteAccountId, setPendingQuoteAccountId] = useState<string | null>(null);
   const boundPackage = packageId ? (order.packages || []).find((pkg) => pkg.id === packageId) : null;
   const bound: EnvioEcomOrderFields = boundPackage ? bindOrderFieldsToPackage(order, boundPackage) : order;
@@ -561,6 +564,50 @@ export function EnvioEcomOrderActions({
     }
   }
 
+  async function postLossBlacklist(carrier?: string) {
+    const res = await fetch(`${BASE}/api/admin/envioecom/orders/${order.id}/loss-blacklist`, {
+      method: "POST",
+      headers: adminHeaders(),
+      body: JSON.stringify(withPackageId(carrier ? { carrier } : {})),
+    });
+    if (!res.ok) throw new Error(await readError(res));
+    setLossPickerOpen(false);
+    toast.success("Pedido na lista negra de extravio.");
+  }
+
+  async function toggleLossBlacklist() {
+    setBusy("loss");
+    try {
+      const query = packageId ? `?packageId=${encodeURIComponent(packageId)}` : "";
+      const res = await fetch(`${BASE}/api/admin/envioecom/orders/${order.id}/loss-blacklist${query}`, {
+        headers: adminHeaders(),
+      });
+      if (!res.ok) throw new Error(await readError(res));
+      const data = await res.json() as { active?: boolean };
+      if (data.active) {
+        if (!window.confirm("Tirar da lista negra de extravio?")) return;
+        const removed = await fetch(`${BASE}/api/admin/envioecom/orders/${order.id}/loss-blacklist`, {
+          method: "DELETE",
+          headers: adminHeaders(),
+          body: JSON.stringify(withPackageId({})),
+        });
+        if (!removed.ok) throw new Error(await readError(removed));
+        toast.success("Pedido fora da lista negra.");
+        return;
+      }
+      if (!String(bound.envioecomDeliveryMode || "").trim()) {
+        setLossCarrier(DEFAULT_CARRIER_FILTERS[0]);
+        setLossPickerOpen(true);
+        return;
+      }
+      await postLossBlacklist();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Falha ao atualizar a lista negra.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function cancelShipment() {
     if (!window.confirm("Cancelar este envio na EnvioEcom?")) return;
     setBusy("cancel");
@@ -621,6 +668,12 @@ export function EnvioEcomOrderActions({
         <Button size="sm" variant="outline" className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50" disabled={!!busy} onClick={() => void cancelShipment()}>
           {busy === "cancel" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />}
           Cancelar EE
+        </Button>
+      )}
+      {hasBinding && (
+        <Button size="sm" variant="outline" className="gap-1.5 text-rose-800 border-rose-200 hover:bg-rose-50" disabled={!!busy} onClick={() => void toggleLossBlacklist()}>
+          {busy === "loss" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldAlert className="w-3.5 h-3.5" />}
+          Lista negra de extravio
         </Button>
       )}
       {labelUrl && !labelBlocked && (
@@ -712,21 +765,37 @@ export function EnvioEcomOrderActions({
               ) : quotes.length === 0 ? (
                 <p className="text-sm text-neutral-500">Nenhuma opção disponível.</p>
               ) : (
-                quotes.map((quoteOption, index) => (
+                quotes.map((quoteOption, index) => {
+                  const alert = quoteOption.lossAlert;
+                  const tone = alert?.level === "danger"
+                    ? "border-red-300 bg-red-50 hover:bg-red-100"
+                    : alert?.level === "warn"
+                      ? "border-amber-300 bg-amber-50 hover:bg-amber-100"
+                      : "border-neutral-200 hover:border-neutral-400 hover:bg-neutral-50";
+                  return (
                   <button
                     key={`${quoteCarrier(quoteOption)}-${index}`}
                     type="button"
-                    className="w-full text-left rounded-2xl border border-neutral-200 hover:border-neutral-400 hover:bg-neutral-50 px-4 py-3 disabled:opacity-60"
+                    className={`w-full text-left rounded-2xl border px-4 py-3 disabled:opacity-60 ${tone}`}
                     disabled={!!busy}
-                    onClick={() => void createShipment(quoteOption)}
+                    onClick={() => {
+                      if (alert && !window.confirm("Gerar a etiqueta mesmo assim?")) return;
+                      void createShipment(quoteOption);
+                    }}
                   >
                     <p className="text-sm font-bold text-neutral-900">{quoteCarrier(quoteOption) || "Transportadora"}</p>
                     <p className="text-sm text-neutral-500 mt-0.5">
                       {formatCurrency(quotePrice(quoteOption))}
                       {quoteDays(quoteOption) ? ` · ${quoteDays(quoteOption)} dia(s)` : ""}
                     </p>
+                    {alert?.message ? (
+                      <p className={`text-xs mt-1 ${alert.level === "danger" ? "text-red-800" : "text-amber-900"}`}>
+                        {alert.message}
+                      </p>
+                    ) : null}
                   </button>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
@@ -850,6 +919,63 @@ export function EnvioEcomOrderActions({
               </Button>
               <Button type="button" onClick={() => void confirmRelatedWarning()}>
                 Continuar cotação
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {lossPickerOpen && (
+        <div className="fixed inset-0 z-[80] bg-black/40 flex items-center justify-center p-4" onClick={() => !busy && setLossPickerOpen(false)}>
+          <div className="bg-white rounded-[28px] max-w-md w-full shadow-xl p-5 sm:p-6" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-3 pb-4 border-b border-neutral-200">
+              <div>
+                <h2 className="text-lg font-bold text-neutral-900 leading-tight">Lista negra de extravio</h2>
+                <p className="text-sm text-neutral-500 mt-1">Pedido #{orderDisplayId}</p>
+              </div>
+              <button
+                type="button"
+                className="text-neutral-500 hover:text-neutral-800 p-1 -mt-1"
+                onClick={() => setLossPickerOpen(false)}
+                aria-label="Fechar"
+                disabled={!!busy}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-sm text-neutral-600 mt-4">Este envio não tem transportadora. Escolha qual entra na lista.</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {DEFAULT_CARRIER_FILTERS.map((carrier) => (
+                <button
+                  key={carrier}
+                  type="button"
+                  onClick={() => setLossCarrier(carrier)}
+                  className={`px-3 py-1.5 rounded-full text-sm border ${
+                    lossCarrier === carrier
+                      ? "border-rose-700 bg-rose-50 text-rose-900"
+                      : "border-neutral-300 bg-white text-neutral-800"
+                  }`}
+                >
+                  {carrier}
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-end gap-2 mt-5">
+              <Button type="button" variant="outline" disabled={!!busy} onClick={() => setLossPickerOpen(false)}>
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                disabled={!!busy}
+                onClick={() => {
+                  setBusy("loss");
+                  void postLossBlacklist(lossCarrier)
+                    .catch((err) => toast.error(err instanceof Error ? err.message : "Falha ao marcar a lista negra."))
+                    .finally(() => setBusy(null));
+                }}
+              >
+                {busy === "loss" ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : null}
+                Marcar
               </Button>
             </div>
           </div>

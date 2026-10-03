@@ -5,6 +5,14 @@ import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { getCustomerSession, requireCustomerAuth } from "../middlewares/customer-auth";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 import { actorFromAdminRequest, addOrderEvent } from "../lib/order-events";
+import { carrierDisplayName, isAllowedManualCarrier } from "../lib/carrier-loss";
+import {
+  attachLossAlerts,
+  getCarrierLossState,
+  lossPackageId,
+  removeCarrierLoss,
+  upsertCarrierLoss,
+} from "../lib/carrier-loss-store";
 import { isStandardShipping } from "../lib/order-logistics-calendar";
 import { buildCallbackUrl } from "../gateway";
 import { getR2MissingConfig, isR2Configured, uploadShipmentLabelPdfToR2 } from "../lib/r2";
@@ -761,15 +769,142 @@ router.post("/admin/envioecom/orders/:id/quote", requireAdminAuth, async (req, r
     if (scoped.account.originCep.length === 8) payload.postal_code_origin = scoped.account.originCep;
     if (carriersFilter.length) payload.carriers = carriersFilter;
     const quoted = await scoped.client.quote(payload);
+    const rawQuotes = Array.isArray(quoted.quotes) ? quoted.quotes as Array<Record<string, unknown>> : [];
+    let quotes: Array<Record<string, unknown>> = rawQuotes;
+    try {
+      quotes = await attachLossAlerts(admin.tenantId, {
+        city: order.addressCity,
+        state: order.addressState,
+        neighborhood: order.addressNeighborhood,
+        cep: order.addressCep,
+      }, rawQuotes);
+    } catch (err) {
+      console.warn("[CarrierLoss] Falha ao montar aviso da cotação:", err);
+    }
     res.json({
       originZipcode: quoted.origin_zipcode || quoted.origin_zip || scoped.account.originCep,
       destinationZipcode: quoted.destination_zipcode || destination,
-      quotes: quoted.quotes || [],
+      quotes,
       unavailableCarriers: quoted.unavailable_carriers || [],
       package: packed.product,
       accountId: scoped.account.accountId,
       accountName: scoped.account.name,
     });
+  } catch (err) {
+    sendEnvioEcomError(res, err);
+  }
+});
+
+function lossRequestPackageId(req: Request): string | null {
+  return readPackageId(req.body) || String(req.query.packageId || "").trim() || null;
+}
+
+router.get("/admin/envioecom/orders/:id/loss-blacklist", requireAdminAuth, async (req, res) => {
+  try {
+    const admin = requireEnvioEcomAdmin(req, res);
+    if (!admin) return;
+    const order = await loadTenantOrder(String(req.params.id), admin.tenantId);
+    if (!order) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
+    await resolveEnvioEcomTarget(order, lossRequestPackageId(req));
+    const state = await getCarrierLossState(order.id, lossPackageId(lossRequestPackageId(req)));
+    res.json(state);
+  } catch (err) {
+    sendEnvioEcomError(res, err);
+  }
+});
+
+router.post("/admin/envioecom/orders/:id/loss-blacklist", requireAdminAuth, async (req, res) => {
+  try {
+    const admin = requireEnvioEcomAdmin(req, res);
+    if (!admin) return;
+    const order = await loadTenantOrder(String(req.params.id), admin.tenantId);
+    if (!order) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
+    if (!isStandardShipping(order.shippingType)) {
+      res.status(400).json({ error: "UNSUPPORTED_SHIPPING", message: "Lista negra não se aplica a motoboy ou retirada." });
+      return;
+    }
+    const target = await resolveEnvioEcomTarget(order, lossRequestPackageId(req));
+    const body = (req.body || {}) as { carrier?: string };
+    const bound = target.pkg ? orderBoundFromPackage(order, target.pkg) : order;
+    const requestedCarrier = String(body.carrier || "").trim();
+    if (requestedCarrier && !isAllowedManualCarrier(requestedCarrier)) {
+      res.status(400).json({ error: "INVALID_CARRIER", message: "Transportadora não aceita." });
+      return;
+    }
+    const carrierRaw = requestedCarrier || String(bound.envioecomDeliveryMode || "").trim();
+    if (!carrierRaw) {
+      res.status(400).json({ error: "CARRIER_REQUIRED", message: "Escolha a transportadora." });
+      return;
+    }
+    const result = await upsertCarrierLoss({
+      orderId: order.id,
+      packageId: target.pkg?.id || "",
+      tenantId: admin.tenantId,
+      carrierRaw,
+      cityName: order.addressCity,
+      state: order.addressState,
+      neighborhoodName: order.addressNeighborhood,
+      cep: order.addressCep,
+      incidentType: "manual",
+      source: "manual",
+      rawStatus: "Lista negra de extravio",
+      orderNumber: order.orderNumber,
+    });
+    if (result === "skipped") {
+      res.status(400).json({ error: "INVALID_ADDRESS", message: "Pedido sem cidade, UF ou CEP de 8 dígitos para a lista." });
+      return;
+    }
+    await addOrderEvent({
+      orderId: order.id,
+      tenantId: admin.tenantId,
+      action: "loss_blacklist_added",
+      ...actorFromAdminRequest(req),
+      payload: {
+        carrier: carrierDisplayName(carrierRaw),
+        packageId: target.pkg?.id || null,
+        type: "manual",
+      },
+    });
+    res.json({ ok: true, active: true, reopened: result === "reopened" });
+  } catch (err) {
+    sendEnvioEcomError(res, err);
+  }
+});
+
+router.delete("/admin/envioecom/orders/:id/loss-blacklist", requireAdminAuth, async (req, res) => {
+  try {
+    const admin = requireEnvioEcomAdmin(req, res);
+    if (!admin) return;
+    const order = await loadTenantOrder(String(req.params.id), admin.tenantId);
+    if (!order) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
+    const target = await resolveEnvioEcomTarget(order, lossRequestPackageId(req));
+    const result = await removeCarrierLoss(order.id, target.pkg?.id || "");
+    if (result.result === "missing") {
+      res.status(404).json({ error: "NOT_FOUND", message: "Este envio não está na lista negra." });
+      return;
+    }
+    if (result.result === "removed") {
+      await addOrderEvent({
+        orderId: order.id,
+        tenantId: admin.tenantId,
+        action: "loss_blacklist_removed",
+        ...actorFromAdminRequest(req),
+        payload: {
+          carrier: result.carrierName,
+          packageId: target.pkg?.id || null,
+        },
+      });
+    }
+    res.json({ ok: true, active: false });
   } catch (err) {
     sendEnvioEcomError(res, err);
   }

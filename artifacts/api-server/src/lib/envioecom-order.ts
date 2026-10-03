@@ -19,6 +19,7 @@ import { allocateOrderLogistics, completeOrderLogistics } from "./order-logistic
 import { ensureOrderMarkedEnviado } from "./order-enviado";
 import { markOpenReshipmentSentIfLabeled } from "./reshipments";
 import { grantInsuranceCashbackIfEligible } from "./customer-wallet";
+import { recordAutomaticCarrierLoss } from "./carrier-loss-store";
 
 export type EnvioEcomShipmentPatch = {
   shipmentId?: number | null;
@@ -194,6 +195,25 @@ export async function persistEnvioEcomShipment(order: typeof ordersTable.$inferS
     await markOpenReshipmentSentIfLabeled(order.id);
   } catch (err) {
     console.warn("[EnvioEcom] Falha ao marcar reenvio enviado pela etiqueta:", err);
+  }
+  try {
+    await recordAutomaticCarrierLoss({
+      orderId: order.id,
+      packageId: "",
+      tenantId: order.tenantId,
+      orderNumber: order.orderNumber,
+      addressCity: order.addressCity,
+      addressState: order.addressState,
+      addressNeighborhood: order.addressNeighborhood,
+      addressCep: order.addressCep,
+      deliveryMode: patch.deliveryMode,
+      fallbackCarrier: order.envioecomDeliveryMode,
+      status,
+      description: patch.description,
+      history,
+    });
+  } catch (err) {
+    console.warn("[CarrierLoss] Falha ao registrar extravio:", err);
   }
 
   const refreshed = await db.select().from(ordersTable).where(eq(ordersTable.id, order.id)).limit(1);
