@@ -9,6 +9,7 @@ export function PharmaStoreChrome({
   offersHref,
   search,
   isLoggedIn,
+  onOpenLogin,
   itemCount,
   onOpenCart,
   onOpenMenu,
@@ -22,6 +23,7 @@ export function PharmaStoreChrome({
   offersHref: string;
   search: ReactNode;
   isLoggedIn: boolean;
+  onOpenLogin: () => void;
   itemCount: number;
   onOpenCart: () => void;
   onOpenMenu: () => void;
@@ -119,13 +121,24 @@ export function PharmaStoreChrome({
           )}
         </Link>
         <div className="flex-1 min-w-0">{search}</div>
-        <Link
-          href={isLoggedIn ? "/minha-conta/pedidos" : "/login"}
-          className="shrink-0 inline-flex h-10 w-10 items-center justify-center rounded-full border border-neutral-200 text-neutral-700"
-          aria-label={isLoggedIn ? "Minha conta" : "Entrar"}
-        >
-          <UserCircle2 className="w-5 h-5" />
-        </Link>
+        {isLoggedIn ? (
+          <Link
+            href="/minha-conta/pedidos"
+            className="shrink-0 inline-flex h-10 w-10 items-center justify-center rounded-full border border-neutral-200 text-neutral-700"
+            aria-label="Minha conta"
+          >
+            <UserCircle2 className="w-5 h-5" />
+          </Link>
+        ) : (
+          <button
+            type="button"
+            onClick={onOpenLogin}
+            className="shrink-0 inline-flex h-10 w-10 items-center justify-center rounded-full border border-neutral-200 text-neutral-700"
+            aria-label="Entrar"
+          >
+            <UserCircle2 className="w-5 h-5" />
+          </button>
+        )}
         <button
           type="button"
           onClick={onOpenCart}

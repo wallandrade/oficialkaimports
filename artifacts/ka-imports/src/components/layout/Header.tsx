@@ -10,6 +10,7 @@ import { fetchPublicSiteSettings } from "@/lib/public-settings";
 import { isPharmaCompactPreset } from "@/lib/store-theme";
 import { pharmaCatalogHref, readPharmaFilters } from "@/lib/pharma-catalog-query";
 import { PharmaStoreChrome } from "@/components/layout/PharmaStoreChrome";
+import { PharmaLoginDialog } from "@/components/layout/PharmaLoginDialog";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -161,6 +162,8 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
   const [menuOpen, setMenuOpen]               = useState(false);
+  const [loginOpen, setLoginOpen]             = useState(false);
+  const [authStamp, setAuthStamp]             = useState(0);
 
   const desktopInputRef  = useRef<HTMLInputElement>(null);
   const mobileInputRef   = useRef<HTMLInputElement>(null);
@@ -168,7 +171,7 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
   const mobileWrapperRef  = useRef<HTMLDivElement>(null);
 
   const itemCount = items.reduce((acc, item) => acc + item.quantity, 0);
-  const isLoggedIn = Boolean(getCustomerToken());
+  const isLoggedIn = useMemo(() => Boolean(getCustomerToken()), [authStamp]);
   const searchString = useSearch();
   const siteSettings = usePublicSiteSettings();
   const isPharma = isPharmaCompactPreset(siteSettings.store_theme_preset || "");
@@ -396,6 +399,7 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
             />
           )}
           isLoggedIn={isLoggedIn}
+          onOpenLogin={() => setLoginOpen(true)}
           itemCount={itemCount}
           onOpenCart={() => setIsOpen(true)}
           onOpenMenu={() => setMenuOpen((open) => !open)}
@@ -544,6 +548,16 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
                 Produtos
               </Link>
 
+              {isPharma && !isLoggedIn ? (
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-3 px-4 py-3 rounded-xl hover:bg-primary/5 text-foreground font-medium transition-colors"
+                  onClick={() => { setMenuOpen(false); setLoginOpen(true); }}
+                >
+                  <UserCircle2 className="w-5 h-5 text-primary" />
+                  Entrar / Criar conta
+                </button>
+              ) : (
               <Link
                 href={isLoggedIn ? "/minha-conta/pedidos" : "/login"}
                 className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-primary/5 text-foreground font-medium transition-colors"
@@ -552,6 +566,7 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
                 <UserCircle2 className="w-5 h-5 text-primary" />
                 {isLoggedIn ? "Minha Conta" : "Entrar / Criar conta"}
               </Link>
+              )}
 
               <button
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-green-50 text-green-700 font-medium transition-colors"
@@ -580,6 +595,14 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
           </div>
         </>
       )}
+
+      {isPharma && !minimal ? (
+        <PharmaLoginDialog
+          open={loginOpen}
+          onClose={() => setLoginOpen(false)}
+          onAuthenticated={() => setAuthStamp((value) => value + 1)}
+        />
+      ) : null}
     </>
   );
 }
