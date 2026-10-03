@@ -14,7 +14,7 @@ import {
   type SelectedVariant,
   type VariantGroup,
 } from "@/lib/product-variants";
-import { ArrowLeft, Loader2, Minus, Plus, ShoppingCart } from "lucide-react";
+import { ArrowLeft, Loader2, Minus, Plus, ShoppingCart, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { isPharmaCompactPreset, useStoreThemePreset } from "@/lib/store-theme";
 
@@ -197,6 +197,96 @@ function PharmaPriceTable({
   );
 }
 
+function PharmaSingleBuy({
+  quantity,
+  image,
+  unitPrice,
+  listPrice,
+  disabled,
+  soldOut,
+  onQuantityChange,
+  onAdd,
+  onBuyNow,
+}: {
+  quantity: number;
+  image: string;
+  unitPrice: number;
+  listPrice: number;
+  disabled: boolean;
+  soldOut: boolean;
+  onQuantityChange: (quantity: number) => void;
+  onAdd: () => void;
+  onBuyNow: () => void;
+}) {
+  const iconCount = Math.min(quantity, 4);
+  const total = unitPrice * quantity;
+  const showList = listPrice > unitPrice;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-center -space-x-2">
+        {Array.from({ length: iconCount }).map((_, index) => (
+          <span key={index} className="h-10 w-10 overflow-hidden rounded-full border-2 border-white bg-neutral-100 shadow-sm">
+            <img src={image} alt="" className="h-full w-full object-cover" />
+          </span>
+        ))}
+      </div>
+
+      <div className="flex items-center justify-between gap-3 rounded-2xl border border-neutral-200 bg-neutral-50 px-3 py-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold uppercase text-neutral-500">Qtd</span>
+          <div className="flex items-center rounded-full bg-white px-1 shadow-sm">
+            <button
+              type="button"
+              className="inline-flex h-8 w-8 items-center justify-center"
+              onClick={() => onQuantityChange(Math.max(1, quantity - 1))}
+              aria-label="Diminuir quantidade"
+            >
+              <Minus className="h-4 w-4" />
+            </button>
+            <span className="min-w-6 text-center text-sm font-bold">{quantity}</span>
+            <button
+              type="button"
+              className="inline-flex h-8 w-8 items-center justify-center"
+              onClick={() => onQuantityChange(Math.min(99, quantity + 1))}
+              aria-label="Aumentar quantidade"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+        <div className="text-right">
+          <p className="text-[10px] font-semibold uppercase text-neutral-400">Total</p>
+          <p className="text-base font-bold text-neutral-900">{formatCurrency(total)}</p>
+          {showList ? (
+            <p className="text-xs text-neutral-400 line-through">{formatCurrency(listPrice * quantity)}</p>
+          ) : null}
+        </div>
+      </div>
+
+      <Button
+        size="lg"
+        variant="outline"
+        className="h-12 w-full rounded-xl border-neutral-200 bg-white text-base text-neutral-900"
+        disabled={disabled}
+        onClick={onAdd}
+      >
+        <ShoppingCart className="mr-2 h-5 w-5" />
+        {soldOut ? "Produto esgotado" : "Adicionar ao carrinho"}
+      </Button>
+      <Button
+        size="lg"
+        className="h-12 w-full rounded-xl bg-[var(--pharma-green,#22c55e)] text-base text-white hover:bg-[var(--pharma-green-strong,#16a34a)]"
+        disabled={disabled}
+        onClick={onBuyNow}
+      >
+        <Zap className="mr-2 h-5 w-5" />
+        {soldOut ? "Produto esgotado" : "Comprar agora"}
+      </Button>
+    </div>
+  );
+}
+
 function safeGetStorage(key: string): string {
   try {
     return localStorage.getItem(key) || sessionStorage.getItem(key) || "";
@@ -209,7 +299,7 @@ export default function ProductDetail() {
   const [, paramsSeller] = useRoute("/:seller/produto/:id");
   const [, paramsGlobal] = useRoute("/produto/:id");
   const [, setLocation] = useLocation();
-  const { addItem, showAddedNotice } = useCart();
+  const { addItem, setIsOpen, showAddedNotice } = useCart();
   const isPharma = isPharmaCompactPreset(useStoreThemePreset());
 
   const productId = paramsSeller?.id ?? paramsGlobal?.id ?? "";
@@ -355,7 +445,7 @@ export default function ProductDetail() {
                 <h1 className="text-3xl font-bold text-foreground mt-2 leading-tight">{product.name}</h1>
               </div>
 
-              {!(isPharma && progressiveOptions.length > 0) ? (
+              {!isPharma ? (
               <div className="rounded-2xl border border-border bg-card p-4">
                 {displayUnitPrice < product.price ? (
                   <div className="flex items-end gap-3">
@@ -499,6 +589,48 @@ export default function ProductDetail() {
                     </div>
                   ))}
                 </div>
+              ) : isPharma ? (
+                <PharmaSingleBuy
+                  quantity={boxQty}
+                  image={singleImage}
+                  unitPrice={displayUnitPrice}
+                  listPrice={product.price}
+                  disabled={isSoldOut || !hasRequiredVariants}
+                  soldOut={isSoldOut}
+                  onQuantityChange={setBoxQty}
+                  onAdd={() => {
+                    if (isSoldOut) {
+                      toast.error("Este produto está esgotado e não pode ser adicionado.");
+                      return;
+                    }
+                    if (rejectVariantSelection()) return;
+                    addItem(product, {
+                      quantity: boxQty,
+                      unitPrice: displayUnitPrice,
+                      selectedVariants,
+                    });
+                    setIsOpen(false);
+                    showAddedNotice({
+                      name: product.name,
+                      image: product.image ?? null,
+                      quantity: boxQty,
+                    });
+                  }}
+                  onBuyNow={() => {
+                    if (isSoldOut) {
+                      toast.error("Este produto está esgotado e não pode ser adicionado.");
+                      return;
+                    }
+                    if (rejectVariantSelection()) return;
+                    addItem(product, {
+                      quantity: boxQty,
+                      unitPrice: displayUnitPrice,
+                      selectedVariants,
+                    });
+                    setIsOpen(false);
+                    setLocation(sellerSlug ? `/${sellerSlug}/checkout` : "/checkout");
+                  }}
+                />
               ) : (
                 <Button
                   size="lg"
