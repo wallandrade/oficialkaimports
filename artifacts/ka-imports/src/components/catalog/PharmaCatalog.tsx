@@ -329,25 +329,30 @@ export function PharmaCatalog({
             </div>
           ) : (
             <div className="space-y-8">
-              {showcases.map((section) => (
+              {showcases.map((section) => {
+                const centeredAction = section.id === "tirzepatida" || section.id === "retatrutida" || section.id === "lancamentos";
+                const openSection = () => go({
+                  q: "",
+                  categoria: section.categoria,
+                  marca: "",
+                  promo: false,
+                  ordem: "relevancia",
+                  vitrine: section.vitrine,
+                });
+                return (
                 <section key={section.id}>
                   <div className="mb-3 flex items-end justify-between gap-3">
                     <h2 className="text-xl font-bold tracking-tight text-neutral-900 sm:text-2xl">{section.title}</h2>
-                    <button
-                      type="button"
-                      className="shrink-0 text-sm font-semibold text-[var(--pharma-green-ink,#166534)]"
-                      aria-label={section.ariaLabel}
-                      onClick={() => go({
-                        q: "",
-                        categoria: section.categoria,
-                        marca: "",
-                        promo: false,
-                        ordem: "relevancia",
-                        vitrine: section.vitrine,
-                      })}
-                    >
-                      {section.actionLabel}
-                    </button>
+                    {!centeredAction && (
+                      <button
+                        type="button"
+                        className="shrink-0 text-sm font-semibold text-[var(--pharma-green,#22c55e)]"
+                        aria-label={section.ariaLabel}
+                        onClick={openSection}
+                      >
+                        {section.actionLabel} →
+                      </button>
+                    )}
                   </div>
                   <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
                     {section.products.map((product, index) => (
@@ -360,8 +365,21 @@ export function PharmaCatalog({
                       />
                     ))}
                   </div>
+                  {centeredAction && (
+                    <div className="mt-6 flex justify-center">
+                      <button
+                        type="button"
+                        className="inline-flex h-11 items-center rounded-full bg-[var(--pharma-green,#22c55e)] px-6 text-sm font-semibold text-white"
+                        aria-label={section.ariaLabel}
+                        onClick={openSection}
+                      >
+                        {section.actionLabel} →
+                      </button>
+                    </div>
+                  )}
                 </section>
-              ))}
+                );
+              })}
             </div>
           )
         ) : pageItems.length === 0 ? (
