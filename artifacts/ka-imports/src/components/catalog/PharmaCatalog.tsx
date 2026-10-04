@@ -4,6 +4,16 @@ import type { Product } from "@workspace/api-client-react";
 import { ProductCard } from "@/components/product/ProductCard";
 import { pharmaCatalogHref, readPharmaFilters, type PharmaCatalogFilters, type PharmaCatalogSort } from "@/lib/pharma-catalog-query";
 import { sortCatalogProducts } from "@/lib/catalog-sales";
+import {
+  buildPharmaShowcases,
+  comparePharmaCategory,
+  comparePharmaLaunches,
+  comparePharmaSoldQty,
+  isPeptideCategoryKey,
+  isPharmaShowcaseHome,
+  pharmaCategoryMatches,
+  pharmaCategorySelected,
+} from "@/lib/pharma-home-showcases";
 import { Check, ChevronDown, Loader2, Search, SlidersHorizontal, X } from "lucide-react";
 
 const PAGE_SIZE = 24;
@@ -19,6 +29,11 @@ type OfferProduct = Product & {
   brand?: string | null;
   bulkDiscountEnabled?: boolean;
   bulkDiscountTiers?: unknown;
+  isLaunch?: boolean;
+  isSoldOut?: boolean;
+  soldQty?: number;
+  sortOrder?: number;
+  createdAt?: string;
 };
 
 function productBrand(product: OfferProduct): string {
@@ -38,7 +53,8 @@ function matchesFilters(product: OfferProduct, filters: PharmaCatalogFilters): b
     const description = String(product.description || "").toLowerCase();
     if (!name.includes(q) && !description.includes(q)) return false;
   }
-  if (filters.categoria && product.category !== filters.categoria) return false;
+  if (filters.categoria && !pharmaCategoryMatches(product.category, filters.categoria)) return false;
+  if (filters.vitrine === "lancamentos" && product.isLaunch !== true) return false;
   if (filters.marca && productBrand(product).toLowerCase() !== filters.marca.toLowerCase()) return false;
   if (filters.promo && !productHasOffer(product)) return false;
   return true;
@@ -59,8 +75,18 @@ function sellingPrice(product: OfferProduct): number {
   return product.price;
 }
 
+function sortPharmaRelevance(products: OfferProduct[], filters: PharmaCatalogFilters): OfferProduct[] {
+  if (filters.vitrine === "lancamentos") return [...products].sort(comparePharmaLaunches);
+  if (filters.vitrine === "vendidos") return [...products].sort(comparePharmaSoldQty);
+  if (filters.categoria.trim()) {
+    const peptide = isPeptideCategoryKey(filters.categoria);
+    return [...products].sort((a, b) => comparePharmaCategory(a, b, peptide));
+  }
+  return sortCatalogProducts(products, filters.categoria);
+}
+
 function sortPharmaProducts(products: OfferProduct[], filters: PharmaCatalogFilters): OfferProduct[] {
-  const relevant = sortCatalogProducts(products, filters.categoria);
+  const relevant = sortPharmaRelevance(products, filters);
   if (filters.ordem === "menor") return [...relevant].sort((a, b) => sellingPrice(a) - sellingPrice(b));
   if (filters.ordem === "maior") return [...relevant].sort((a, b) => sellingPrice(b) - sellingPrice(a));
   if (filters.ordem === "nome") {
@@ -111,7 +137,7 @@ export function PharmaCatalog({
 
   useEffect(() => {
     setPage(1);
-  }, [applied.q, applied.categoria, applied.marca, applied.promo, applied.ordem]);
+  }, [applied.q, applied.categoria, applied.marca, applied.promo, applied.ordem, applied.vitrine]);
 
   useEffect(() => {
     if (!sortOpen) return;
@@ -154,20 +180,26 @@ export function PharmaCatalog({
     marca: draftBrand,
     promo: draftPromo,
     ordem: applied.ordem,
+    vitrine: applied.vitrine,
   };
+  const showHome = isPharmaShowcaseHome(applied, page);
+  const showcases = useMemo(() => (showHome ? buildPharmaShowcases(catalog) : []), [showHome, catalog]);
   const sortLabel = SORT_OPTIONS.find((option) => option.id === applied.ordem)?.label || "Relevância";
-  const draftProducts = catalog.filter((product) => matchesFilters(product, draftFilters));
+  const draftProducts = catalog.filter((product) => matchesFilters(product, {
+    ...draftFilters,
+    vitrine: draftCategory.trim() ? "" : applied.vitrine,
+  }));
   const promoScope = catalog.filter((product) => {
-    if (draftCategory && product.category !== draftCategory) return false;
+    if (draftCategory && !pharmaCategoryMatches(product.category, draftCategory)) return false;
     return productHasOffer(product);
   });
-  const brandSource = catalog.filter((product) => !draftCategory || product.category === draftCategory);
+  const brandSource = catalog.filter((product) => !draftCategory || pharmaCategoryMatches(product.category, draftCategory));
   const brandOptions = uniqueBrands(brandSource).filter((brand) => {
     const query = brandQuery.trim().toLowerCase();
     return !query || brand.toLowerCase().includes(query);
   });
   const visibleBrands = showAllBrands ? brandOptions : brandOptions.slice(0, 12);
-  const activeFilterCount = [applied.categoria, applied.marca, applied.promo ? "1" : ""].filter(Boolean).length;
+  const activeFilterCount = [applied.categoria, applied.marca, applied.promo ? "1" : "", applied.vitrine].filter(Boolean).length;
 
   function go(next: PharmaCatalogFilters) {
     setLocation(pharmaCatalogHref(homeHref, next));
@@ -183,14 +215,19 @@ export function PharmaCatalog({
   }
 
   function applySheet() {
-    go(draftFilters);
+    go({
+      ...draftFilters,
+      vitrine: draftCategory.trim() ? "" : applied.vitrine,
+    });
     setSheetOpen(false);
   }
 
   return (
     <section className="w-full flex-1 bg-[#f6f7f9] px-3 py-4 sm:px-6">
       <div className="mx-auto w-full max-w-7xl">
-        <h2 className="mb-3 text-2xl font-bold tracking-tight text-neutral-900">Produtos</h2>
+        {!showHome && (
+          <h2 className="mb-3 text-2xl font-bold tracking-tight text-neutral-900">Produtos</h2>
+        )}
 
         <div className="mb-3 flex items-center gap-2">
           <button
@@ -241,7 +278,7 @@ export function PharmaCatalog({
           </div>
         </div>
 
-        {(applied.categoria || applied.marca || applied.promo) && (
+        {(applied.categoria || applied.marca || applied.promo || applied.vitrine) && (
           <div className="mb-3 flex flex-wrap gap-2">
             {applied.categoria && (
               <button type="button" onClick={() => go({ ...applied, categoria: "" })} className="inline-flex items-center gap-1 rounded-full bg-[var(--pharma-green-soft,#e8f8ee)] px-3 py-1 text-sm font-medium text-[var(--pharma-green-ink,#166534)]">
@@ -261,12 +298,20 @@ export function PharmaCatalog({
                 <X className="h-3.5 w-3.5" />
               </button>
             )}
+            {applied.vitrine && (
+              <button type="button" onClick={() => go({ ...applied, vitrine: "" })} className="inline-flex items-center gap-1 rounded-full bg-[var(--pharma-green-soft,#e8f8ee)] px-3 py-1 text-sm font-medium text-[var(--pharma-green-ink,#166534)]">
+                {applied.vitrine === "lancamentos" ? "Novidades" : "Mais vendidos"}
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
         )}
 
-        <div className="mb-3 rounded-2xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-500">
-          {filtered.length === 0 ? "0 de 0" : `${rangeFrom}–${rangeTo} de ${filtered.length}`}
-        </div>
+        {!showHome && (
+          <div className="mb-3 rounded-2xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-500">
+            {filtered.length === 0 ? "0 de 0" : `${rangeFrom}–${rangeTo} de ${filtered.length}`}
+          </div>
+        )}
 
         {isLoading ? (
           <div className="flex flex-col items-center justify-center py-20">
@@ -277,13 +322,55 @@ export function PharmaCatalog({
           <div className="rounded-2xl border border-red-100 bg-red-50 px-4 py-8 text-center text-red-700">
             Não foi possível carregar os produtos.
           </div>
+        ) : showHome ? (
+          showcases.length === 0 ? (
+            <div className="rounded-2xl border border-neutral-200 bg-white px-4 py-12 text-center">
+              <p className="font-semibold text-neutral-900">Nenhum produto encontrado</p>
+            </div>
+          ) : (
+            <div className="space-y-8">
+              {showcases.map((section) => (
+                <section key={section.id}>
+                  <div className="mb-3 flex items-end justify-between gap-3">
+                    <h2 className="text-xl font-bold tracking-tight text-neutral-900 sm:text-2xl">{section.title}</h2>
+                    <button
+                      type="button"
+                      className="shrink-0 text-sm font-semibold text-[var(--pharma-green-ink,#166534)]"
+                      aria-label={section.ariaLabel}
+                      onClick={() => go({
+                        q: "",
+                        categoria: section.categoria,
+                        marca: "",
+                        promo: false,
+                        ordem: "relevancia",
+                        vitrine: section.vitrine,
+                      })}
+                    >
+                      {section.actionLabel}
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+                    {section.products.map((product, index) => (
+                      <ProductCard
+                        key={`${section.id}-${product.id}`}
+                        product={product}
+                        sellerSlug={sellerSlug}
+                        priority={section.id === "tirzepatida" && index < 4}
+                        layout="pharma"
+                      />
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )
         ) : pageItems.length === 0 ? (
           <div className="rounded-2xl border border-neutral-200 bg-white px-4 py-12 text-center">
             <p className="font-semibold text-neutral-900">Nenhum produto encontrado</p>
             <button
               type="button"
               className="mt-4 text-sm font-semibold text-[var(--pharma-green-ink,#166534)]"
-              onClick={() => go({ q: "", categoria: "", marca: "", promo: false, ordem: "relevancia" })}
+              onClick={() => go({ q: "", categoria: "", marca: "", promo: false, ordem: "relevancia", vitrine: "" })}
             >
               Limpar filtros
             </button>
@@ -302,7 +389,7 @@ export function PharmaCatalog({
           </div>
         )}
 
-        {pageCount > 1 && (
+        {!showHome && pageCount > 1 && (
           <div className="mt-4 flex items-center justify-center gap-2">
             <button
               type="button"
@@ -378,7 +465,7 @@ export function PharmaCatalog({
                 Todas
               </button>
               {categories.map((category) => {
-                const selected = draftCategory === category;
+                const selected = pharmaCategorySelected(category, draftCategory);
                 return (
                   <button
                     key={`sheet-${category}`}

@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-10-03
+> **Última atualização:** 2026-10-04
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-04 | Home farmácia em cinco vitrines | `pharma-home-showcases.ts` monta os cortes; `?vitrine=vendidos` e `?vitrine=lancamentos` voltam para a grade | `sortCatalogProducts` dos outros temas e de `/categoria/:nome` |
 | 2026-10-03 | Fontes do tema saem do CSS do Tailwind | O `<link>` em `index.html` carrega as famílias. O bundle não tem `@import` do Google Fonts | Nomes das fontes e os temas |
 | 2026-10-03 | Página do produto farmácia no computador | A partir de 768px, foto à esquerda e compra à direita. A faixa de 176px fica só abaixo disso | Tabela, quantidade, botões e os outros temas |
 | 2026-10-03 | Foto do produto no tema farmácia | Faixa de 176px, imagem inteira, página numa coluna de 32rem | Quadrado `object-cover` dos outros temas |
@@ -157,7 +158,7 @@ Código > memória > suposições.
 - Data fetching: TanStack Query via `@workspace/api-client-react` quando o endpoint está no OpenAPI; muitos fetches manuais ainda existem (admin/checkout).
 - Path alias `@/` no FE.
 - Estilo: Tailwind + CVA + `cn` util.
-- Tema da loja: `store_theme_preset` vira `data-store-theme` no `<html>`. `pharma_compact` muda a vitrine da loja 1 (header, lista, card, `/ofertas`, `/categoria`, página do produto com foto em faixa no celular e ao lado da compra a partir de 768px, drawer do carrinho e login em cartão). Filial não recebe esse preset no GET público e o PUT recusa gravá-lo. O verde fica em `--pharma-*`. A cor principal da loja continua no checkout e nos outros presets.
+- Tema da loja: `store_theme_preset` vira `data-store-theme` no `<html>`. `pharma_compact` muda a vitrine da loja 1 (header, lista, card, `/ofertas`, `/categoria`, página do produto com foto em faixa no celular e ao lado da compra a partir de 768px, drawer do carrinho e login em cartão). A home limpa dessa lista são cinco vitrines (`pharma-home-showcases.ts`); busca, categoria, marca, promoção, `vitrine` ou outra ordem voltam à grade de 24. Filial não recebe esse preset no GET público e o PUT recusa gravá-lo. O verde fica em `--pharma-*`. A cor principal da loja continua no checkout e nos outros presets.
 
 ## Codegen (Orval)
 
@@ -181,6 +182,7 @@ Código > memória > suposições.
 
 ## Anti-padrões (não reintroduzir)
 
+- Ordenar a categoria da home `pharma_compact` com `sortCatalogProducts`. Nessa lista a ordem manual vem antes de `soldQty`; a marca BIOGENESIS do peptídeo vem depois do `sortOrder`. A home dos outros temas e `/categoria/:nome` continuam no sorter antigo.
 - Colocar `@import` do Google Fonts dentro de `index.css`. Se o navegador recusa esse import, ele joga fora o CSS do Tailwind inteiro. A fonte fica no `<link>` de `index.html`.
 - Aplicar `shipping_queue_manual_hours` em `findForecast` ou `allocateOrderLogistics`. O número manual só substitui `promisedHours` em `GET /api/shipping-logistics/forecast`. A vaga, as cópias e o card usam o prazo da fila.
 - Assumir PostgreSQL / Prisma / Next / Nest.

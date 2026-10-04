@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 import { Link } from "wouter";
 import { ChevronDown, Menu, ShoppingBag, UserCircle2 } from "lucide-react";
+import { pharmaCategorySelected } from "@/lib/pharma-home-showcases";
 
 export function PharmaStoreChrome({
   siteName,
@@ -182,7 +183,7 @@ export function PharmaStoreChrome({
             🔥 Promoções 🔥
           </Link>
           {categories.map((category) => {
-            const selected = activeCategory === category;
+            const selected = pharmaCategorySelected(category, activeCategory);
             return (
               <button
                 key={`chip-${category}`}
@@ -211,7 +212,7 @@ export function PharmaStoreChrome({
                 Todos os produtos
               </button>
               {categories.map((category) => {
-                const selected = activeCategory === category;
+                const selected = pharmaCategorySelected(category, activeCategory);
                 return (
                   <button
                     key={category}

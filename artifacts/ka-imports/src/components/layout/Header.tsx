@@ -282,7 +282,11 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
   function selectPharmaCategory(category: string) {
     setMenuOpen(false);
     setShowSuggestions(false);
-    setLocation(pharmaCatalogHref(sellerHomeHref, { ...pharmaFilters, categoria: category }));
+    setLocation(pharmaCatalogHref(sellerHomeHref, {
+      ...pharmaFilters,
+      categoria: category,
+      vitrine: category ? "" : pharmaFilters.vitrine,
+    }));
   }
 
   useEffect(() => {
