@@ -3,6 +3,13 @@ import { and, eq, isNull, or } from "drizzle-orm";
 import { DEFAULT_TENANT_ID } from "./tenant-context";
 import type { EnvioEcomPackageDefaults } from "./envioecom-package";
 import { maskEmail, maskSecret } from "./envioecom-accounts-core";
+import {
+  SHIPMENT_ITEM_SETTING_KEYS,
+  drawShipmentLabelItem,
+  prepareShipmentItemSave,
+  readShipmentItemState,
+  type ShipmentItemState,
+} from "./envioecom-shipment-item";
 
 export { maskEmail, maskSecret };
 
@@ -18,7 +25,13 @@ export const ENVIOECOM_SETTING_KEYS = {
   carriers: "envioecom_carriers",
   shipmentItemName: "envioecom_shipment_item_name",
   shipmentItemQuantity: "envioecom_shipment_item_quantity",
+  shipmentItemQty: "envioecom_shipment_item_qty",
   shipmentItemUnitCost: "envioecom_shipment_item_unit_cost",
+  shipmentItemPool: "envioecom_shipment_item_pool",
+  shipmentItemPoolOrder: "envioecom_shipment_item_pool_order",
+  shipmentItemPoolCursor: "envioecom_shipment_item_pool_cursor",
+  shipmentItemValueMin: "envioecom_shipment_item_value_min",
+  shipmentItemValueMax: "envioecom_shipment_item_value_max",
   accounts: "envioecom_accounts",
 } as const;
 
@@ -96,7 +109,7 @@ function parseLooseDecimal(value: unknown): number {
 export function normalizeShipmentItemQuantity(value: unknown): number {
   const parsed = Math.trunc(parseLooseDecimal(value));
   if (!Number.isFinite(parsed) || parsed < 1) return ENVIOECOM_DEFAULT_SHIPMENT_ITEM_QUANTITY;
-  return Math.min(parsed, 99);
+  return Math.min(parsed, 999);
 }
 
 export function normalizeShipmentItemUnitCost(value: unknown): number {
@@ -133,7 +146,7 @@ export async function loadEnvioEcomConfig(tenantId: string): Promise<EnvioEcomTe
       widthCm: parseNumber(settings[ENVIOECOM_SETTING_KEYS.defaultWidth] || process.env.ENVIOECOM_DEFAULT_WIDTH, 12),
     },
     shipmentItemName: normalizeShipmentItemName(settings[ENVIOECOM_SETTING_KEYS.shipmentItemName]),
-    shipmentItemQuantity: normalizeShipmentItemQuantity(settings[ENVIOECOM_SETTING_KEYS.shipmentItemQuantity]),
+    shipmentItemQuantity: readShipmentItemState(settings).quantity,
     shipmentItemUnitCost: normalizeShipmentItemUnitCost(settings[ENVIOECOM_SETTING_KEYS.shipmentItemUnitCost]),
     baseUrl: String(process.env.ENVIOECOM_BASE_URL || "https://envioecom.com.br/api/v1/whitelabel").replace(/\/$/, ""),
     neverExpires: String(process.env.ENVIOECOM_TOKEN_NEVER_EXPIRES || "true").toLowerCase() !== "false",
@@ -180,6 +193,75 @@ export async function saveEnvioEcomConfig(tenantId: string, patch: {
       .values({ tenantId, key, value, updatedAt: new Date() })
       .onDuplicateKeyUpdate({ set: { value, updatedAt: new Date() } });
   }
+}
+
+export type ShipmentItemSettingsView = {
+  quantity: number;
+  items: ShipmentItemState["items"];
+  valueMin: string | null;
+  valueMax: string | null;
+  reserveName: string;
+  reserveUnitCost: number;
+};
+
+function toShipmentItemView(state: ShipmentItemState): ShipmentItemSettingsView {
+  return {
+    quantity: state.quantity,
+    items: state.items,
+    valueMin: state.valueMin,
+    valueMax: state.valueMax,
+    reserveName: state.reserveName,
+    reserveUnitCost: state.reserveUnitCost,
+  };
+}
+
+export async function loadShipmentItemSettings(tenantId: string): Promise<ShipmentItemSettingsView> {
+  return toShipmentItemView(readShipmentItemState(await getTenantSettingsMap(tenantId)));
+}
+
+export async function saveShipmentItemSettings(tenantId: string, input: {
+  quantity: unknown;
+  items: unknown;
+  valueMin: unknown;
+  valueMax: unknown;
+}): Promise<ShipmentItemSettingsView> {
+  const prepared = prepareShipmentItemSave(input);
+  const writes: Array<[string, string | null]> = [
+    [SHIPMENT_ITEM_SETTING_KEYS.qty, String(prepared.quantity)],
+    [ENVIOECOM_SETTING_KEYS.shipmentItemQuantity, String(prepared.quantity)],
+    [SHIPMENT_ITEM_SETTING_KEYS.pool, JSON.stringify(prepared.items)],
+    [SHIPMENT_ITEM_SETTING_KEYS.order, JSON.stringify(prepared.order)],
+    [SHIPMENT_ITEM_SETTING_KEYS.cursor, String(prepared.cursor)],
+    [SHIPMENT_ITEM_SETTING_KEYS.valueMin, prepared.valueMin],
+    [SHIPMENT_ITEM_SETTING_KEYS.valueMax, prepared.valueMax],
+  ];
+  for (const [key, value] of writes) {
+    await upsertTenantSetting(tenantId, key, value);
+  }
+  return loadShipmentItemSettings(tenantId);
+}
+
+/** Avança o baralho só no create. Lista vazia usa a reserva e não grava o cursor. */
+export async function consumeEnvioEcomShipmentItem(tenantId: string): Promise<{
+  name: string;
+  quantity: number;
+  unitCost: number;
+}> {
+  const state = readShipmentItemState(await getTenantSettingsMap(tenantId));
+  const drawn = drawShipmentLabelItem({
+    pool: state.items,
+    order: state.order,
+    cursor: state.cursor,
+    range: state.range,
+    quantity: state.quantity,
+    reserveName: state.reserveName,
+    reserveUnitCost: state.reserveUnitCost,
+  });
+  if (drawn.consumed) {
+    await upsertTenantSetting(tenantId, SHIPMENT_ITEM_SETTING_KEYS.order, JSON.stringify(drawn.order));
+    await upsertTenantSetting(tenantId, SHIPMENT_ITEM_SETTING_KEYS.cursor, String(drawn.cursor));
+  }
+  return { name: drawn.name, quantity: drawn.quantity, unitCost: drawn.unitCost };
 }
 
 export async function upsertTenantSetting(tenantId: string, key: string, value: string | null | undefined): Promise<void> {

@@ -187,9 +187,10 @@ export function applyGenericShipmentItemName(
 ): EnvioEcomCreateItem[] {
   const name = String(genericName || "").trim().slice(0, 120) || "Mercadoria";
   const quantityRaw = Math.trunc(parseLooseDecimal(options?.quantity));
-  const quantity = Number.isFinite(quantityRaw) && quantityRaw >= 1 ? Math.min(quantityRaw, 99) : 1;
-  const costRaw = parseLooseDecimal(options?.unitCost);
-  const unitCost = Number.isFinite(costRaw) && costRaw > 0
+  const quantity = Number.isFinite(quantityRaw) && quantityRaw >= 1 ? Math.min(quantityRaw, 999) : 1;
+  const hasUnitCost = options?.unitCost != null && String(options.unitCost).trim() !== "";
+  const costRaw = hasUnitCost ? parseLooseDecimal(options?.unitCost) : NaN;
+  const unitCost = Number.isFinite(costRaw) && costRaw >= 0
     ? round2(Math.min(costRaw, MAX_DECLARED_VALUE))
     : round2(fallbackUnitCost);
   return [{ name, quantity, unit_cost: unitCost }];

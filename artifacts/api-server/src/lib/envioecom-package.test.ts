@@ -62,6 +62,13 @@ test("create usa 1 item generico com qty e valor do setting", () => {
   assert.equal(items.some((item) => /whey|creatina/i.test(item.name)), false);
 });
 
+test("quantidade da etiqueta aceita 120 e valor zero explicito", () => {
+  const items = applyGenericShipmentItemName([], "Capa de celular", 5, { quantity: 120, unitCost: 0 });
+  assert.equal(items[0].quantity, 120);
+  assert.equal(items[0].unit_cost, 0);
+  assert.equal(items[0].name, "Capa de celular");
+});
+
 test("create sem produtos usa 1 item generico com o subtotal", () => {
   const items = applyGenericShipmentItemName([], "  ", 49.9);
   assert.equal(items.length, 1);

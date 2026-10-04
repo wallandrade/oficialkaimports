@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-04 | Anti-padrão: sortear o valor da etiqueta no GET ou mandar o preço do catálogo no create | Baralho e faixa só no create EnvioEcom; a linha gravada fica | Cotação R$ 5 |
 | 2026-10-04 | Home farmácia em cinco vitrines | `pharma-home-showcases.ts` monta os cortes; `?vitrine=vendidos` e `?vitrine=lancamentos` voltam para a grade | `sortCatalogProducts` dos outros temas e de `/categoria/:nome` |
 | 2026-10-03 | Fontes do tema saem do CSS do Tailwind | O `<link>` em `index.html` carrega as famílias. O bundle não tem `@import` do Google Fonts | Nomes das fontes e os temas |
 | 2026-10-03 | Página do produto farmácia no computador | A partir de 768px, foto à esquerda e compra à direita. A faixa de 176px fica só abaixo disso | Tabela, quantidade, botões e os outros temas |
@@ -217,7 +218,7 @@ Código > memória > suposições.
 - Pedir ID EnvioEcom com `window.prompt`; usar o modal **Vincular EE** (ID 4–10 dígitos ou rastreio) e `POST .../sync`.
 - Enviar um produto × N linhas na cotação EnvioEcom (empilha altura → `QUOTE_ERROR`); usar 1 pacote **por create**. Split = N creates (um `packageId` cada), não `shipments: [a, b]` no mesmo POST.
 - Cotar EnvioEcom com caixa 10×15×20 e valor declarado = total do pedido; o simulador usa 2×12×17, 0,3 kg, R$ 5.
-- Enviar o nome, a quantidade ou o preço reais do pedido/catálogo em `items[]` no create EnvioEcom; usar 1 linha com `envioecom_shipment_item_name` / `_quantity` / `_unit_cost` (defaults Mercadoria, 1, R$ 5).
+- Enviar o nome, a quantidade ou o preço reais do pedido/catálogo em `items[]` no create EnvioEcom. Uma linha: nome da próxima carta de `envioecom_shipment_item_pool` (reserva Mercadoria se a lista estiver vazia), quantidade `envioecom_shipment_item_qty`, valor aleatório na faixa min/max ou o valor da linha ou R$ 5. Não sortear no GET. Não avançar o cursor se o pedido for recusado.
 - Mandar `cost` R$ 5 (valor da cotação) no create se o admin configurou outro valor na etiqueta; a DACE lê `cost`, então `cost` = qty × unit_cost.
 - Setar `orders.enviado` na etiqueta EnvioEcom sem passar por `ensureOrderMarkedEnviado` (estoque/logística).
 - Marcar `enviado` ao gerar etiqueta / DC-e / “Pronto para envio” / **Aguardando coleta**; isso só na coleta/postagem da API. No split o pai só marca quando todos os pacotes já teriam `enviado`.

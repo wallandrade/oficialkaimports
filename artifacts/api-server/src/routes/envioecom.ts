@@ -21,10 +21,14 @@ import {
   ENVIOECOM_DEFAULT_SHIPMENT_ITEM_NAME,
   ENVIOECOM_DEFAULT_SHIPMENT_ITEM_QUANTITY,
   ENVIOECOM_DEFAULT_SHIPMENT_ITEM_UNIT_COST,
+  consumeEnvioEcomShipmentItem,
   loadEnvioEcomConfig,
+  loadShipmentItemSettings,
   maskSecret,
   saveEnvioEcomConfig,
+  saveShipmentItemSettings,
 } from "../lib/envioecom-config";
+import { ShipmentItemConfigError } from "../lib/envioecom-shipment-item";
 import {
   createEnvioEcomClientForAccount,
   createEnvioEcomExtraAccount,
@@ -106,6 +110,10 @@ function requireEnvioEcomAdmin(req: Request, res: Response): { tenantId: string;
 }
 
 function sendEnvioEcomError(res: Response, err: unknown) {
+  if (err instanceof ShipmentItemConfigError) {
+    res.status(400).json({ error: "INVALID_INPUT", message: err.message });
+    return;
+  }
   if (err instanceof OrderShipmentError) {
     const status = err.code === "NEED_PACKAGE_ID" || err.code === "PACKAGE_NOT_FOUND" ? 400 : 400;
     res.status(status).json({ error: err.code, message: err.message });
@@ -603,11 +611,16 @@ router.get("/admin/envioecom/shipment-item-name", requireAdminAuth, async (req, 
   try {
     const admin = requireEnvioEcomAdmin(req, res);
     if (!admin) return;
-    const config = await loadEnvioEcomConfig(admin.tenantId);
+    const item = await loadShipmentItemSettings(admin.tenantId);
     res.json({
-      name: config.shipmentItemName,
-      quantity: config.shipmentItemQuantity,
-      unitCost: config.shipmentItemUnitCost,
+      name: item.reserveName,
+      quantity: item.quantity,
+      unitCost: item.reserveUnitCost,
+      items: item.items,
+      valueMin: item.valueMin,
+      valueMax: item.valueMax,
+      reserveName: item.reserveName,
+      reserveUnitCost: item.reserveUnitCost,
       defaultName: ENVIOECOM_DEFAULT_SHIPMENT_ITEM_NAME,
       defaultQuantity: ENVIOECOM_DEFAULT_SHIPMENT_ITEM_QUANTITY,
       defaultUnitCost: ENVIOECOM_DEFAULT_SHIPMENT_ITEM_UNIT_COST,
@@ -621,18 +634,28 @@ router.put("/admin/envioecom/shipment-item-name", requireAdminAuth, async (req, 
   try {
     const admin = requireEnvioEcomAdmin(req, res);
     if (!admin) return;
-    const body = (req.body || {}) as { name?: string; quantity?: string | number; unitCost?: string | number };
-    await saveEnvioEcomConfig(admin.tenantId, {
-      shipmentItemName: String(body.name ?? ""),
-      shipmentItemQuantity: body.quantity,
-      shipmentItemUnitCost: body.unitCost,
+    const body = (req.body || {}) as {
+      quantity?: string | number;
+      items?: unknown;
+      valueMin?: string | number | null;
+      valueMax?: string | number | null;
+    };
+    const item = await saveShipmentItemSettings(admin.tenantId, {
+      quantity: body.quantity,
+      items: body.items,
+      valueMin: body.valueMin,
+      valueMax: body.valueMax,
     });
-    const config = await loadEnvioEcomConfig(admin.tenantId);
     res.json({
       ok: true,
-      name: config.shipmentItemName,
-      quantity: config.shipmentItemQuantity,
-      unitCost: config.shipmentItemUnitCost,
+      name: item.reserveName,
+      quantity: item.quantity,
+      unitCost: item.reserveUnitCost,
+      items: item.items,
+      valueMin: item.valueMin,
+      valueMax: item.valueMax,
+      reserveName: item.reserveName,
+      reserveUnitCost: item.reserveUnitCost,
       defaultName: ENVIOECOM_DEFAULT_SHIPMENT_ITEM_NAME,
       defaultQuantity: ENVIOECOM_DEFAULT_SHIPMENT_ITEM_QUANTITY,
       defaultUnitCost: ENVIOECOM_DEFAULT_SHIPMENT_ITEM_UNIT_COST,
@@ -998,10 +1021,11 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       workingOrder = await unlinkEnvioEcomBinding(order);
     }
     const packed = buildConsolidatedQuotePackage({ products: workingOrder.products, defaults: config.defaults });
+    const drawnItem = await consumeEnvioEcomShipmentItem(admin.tenantId);
     const labelItem = buildGenericShipmentItem({
-      name: config.shipmentItemName,
-      quantity: config.shipmentItemQuantity,
-      unitCost: config.shipmentItemUnitCost,
+      name: drawnItem.name,
+      quantity: drawnItem.quantity,
+      unitCost: drawnItem.unitCost,
       fallbackUnitCost: packed.declaredValue,
     });
     const shipmentFields = {

@@ -1,11 +1,82 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronUp, ExternalLink, FileText, Loader2, RefreshCw, Save } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronDown, ChevronUp, ExternalLink, FileText, Loader2, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { formatDateBR } from "@/lib/utils";
 import { ShippingStatusTimeline } from "@/components/ShippingStatusTimeline";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+const SUGGESTED_SHIPMENT_ITEM_NAMES = [
+  "Capa de celular",
+  "Película de vidro",
+  "Carregador USB",
+  "Cabo de dados",
+  "Fone de ouvido",
+  "Suporte de mesa",
+  "Caixa de som",
+  "Mouse sem fio",
+  "Teclado compacto",
+  "Pen drive",
+  "Adaptador de tomada",
+  "Luminária de mesa",
+  "Organizador de cabos",
+  "Suporte veicular",
+  "Power bank",
+  "Ring light",
+  "Tripé de celular",
+  "Capa de notebook",
+  "Mousepad",
+  "Hub USB",
+];
+
+type DraftLine = { key: string; name: string; value: string };
+
+type ShipmentItemResponse = {
+  quantity?: number;
+  items?: Array<{ name?: string; declaredValue?: number }>;
+  valueMin?: string | null;
+  valueMax?: string | null;
+  reserveName?: string;
+  reserveUnitCost?: number;
+  name?: string;
+  unitCost?: number;
+  defaultQuantity?: number;
+  message?: string;
+};
+
+function draftKey(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function roundMoney(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function formatMoneyInput(value: number): string {
+  return roundMoney(value).toFixed(2).replace(".", ",");
+}
+
+function parseDraftMoney(raw: string): number {
+  const text = raw.trim().replace(/[R$\s]/gi, "");
+  if (!text) return NaN;
+  const normalized = text.includes(",") && text.includes(".")
+    ? text.replace(/\./g, "").replace(",", ".")
+    : text.replace(",", ".");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : NaN;
+}
+
+function suggestedFixedValue(index: number): number {
+  return roundMoney(8.9 + index * 1.9);
+}
+
+function randomMoneyInput(min: number, max: number): string {
+  const minCents = Math.round(min * 100);
+  const maxCents = Math.round(max * 100);
+  const cents = minCents + Math.floor(Math.random() * (maxCents - minCents + 1));
+  return formatMoneyInput(cents / 100);
+}
 
 function adminHeaders() {
   const token = sessionStorage.getItem("adminToken") || localStorage.getItem("adminToken") || "";
@@ -150,13 +221,29 @@ export function EnvioEcomTrackingBoard({
   const [items, setItems] = useState<TrackingItem[]>([]);
   const [summary, setSummary] = useState<Summary>(EMPTY_SUMMARY);
   const [configured, setConfigured] = useState(true);
-  const [itemName, setItemName] = useState("Mercadoria");
   const [itemQuantity, setItemQuantity] = useState("1");
-  const [itemUnitCost, setItemUnitCost] = useState("5");
+  const [valueMin, setValueMin] = useState("");
+  const [valueMax, setValueMax] = useState("");
+  const [draftItems, setDraftItems] = useState<DraftLine[]>([]);
+  const [reserveName, setReserveName] = useState("Mercadoria");
+  const [reserveUnitCost, setReserveUnitCost] = useState(5);
   const [canEditItemName, setCanEditItemName] = useState(false);
   const [savingName, setSavingName] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [statusSort, setStatusSort] = useState<StatusSort>("none");
+
+  function applyItemResponse(data: ShipmentItemResponse) {
+    setItemQuantity(String(data.quantity ?? data.defaultQuantity ?? 1));
+    setValueMin(data.valueMin ? formatMoneyInput(Number(data.valueMin)) : "");
+    setValueMax(data.valueMax ? formatMoneyInput(Number(data.valueMax)) : "");
+    setReserveName(data.reserveName || data.name || "Mercadoria");
+    setReserveUnitCost(Number(data.reserveUnitCost ?? data.unitCost ?? 5));
+    setDraftItems((data.items || []).map((item) => ({
+      key: draftKey(),
+      name: item.name || "",
+      value: formatMoneyInput(Number(item.declaredValue ?? 0)),
+    })));
+  }
 
   async function loadItemName() {
     try {
@@ -165,17 +252,7 @@ export function EnvioEcomTrackingBoard({
         setCanEditItemName(false);
         return;
       }
-      const data = await res.json() as {
-        name?: string;
-        quantity?: number;
-        unitCost?: number;
-        defaultName?: string;
-        defaultQuantity?: number;
-        defaultUnitCost?: number;
-      };
-      setItemName(data.name || data.defaultName || "Mercadoria");
-      setItemQuantity(String(data.quantity ?? data.defaultQuantity ?? 1));
-      setItemUnitCost(String(data.unitCost ?? data.defaultUnitCost ?? 5));
+      applyItemResponse(await res.json() as ShipmentItemResponse);
       setCanEditItemName(true);
     } catch {
       setCanEditItemName(false);
@@ -204,6 +281,36 @@ export function EnvioEcomTrackingBoard({
     void loadItemName();
   }, []);
 
+  function applySuggestions() {
+    const minText = valueMin.trim();
+    const maxText = valueMax.trim();
+    let values: string[];
+    if (!minText && !maxText) {
+      values = SUGGESTED_SHIPMENT_ITEM_NAMES.map((_, index) => formatMoneyInput(suggestedFixedValue(index)));
+    } else if (!minText || !maxText) {
+      toast.error("Preencha mínimo e máximo juntos, ou deixe os dois vazios.");
+      return;
+    } else {
+      const min = roundMoney(parseDraftMoney(minText));
+      const max = roundMoney(parseDraftMoney(maxText));
+      if (!Number.isFinite(min) || min < 0 || min > 3000 || !Number.isFinite(max) || max < 0 || max > 3000) {
+        toast.error("Mínimo e máximo devem ficar entre 0 e 3000.");
+        return;
+      }
+      if (min > max) {
+        toast.error("Mínimo não pode passar do máximo.");
+        return;
+      }
+      values = SUGGESTED_SHIPMENT_ITEM_NAMES.map(() => randomMoneyInput(min, max));
+    }
+    setDraftItems(SUGGESTED_SHIPMENT_ITEM_NAMES.map((name, index) => ({
+      key: draftKey(),
+      name,
+      value: values[index],
+    })));
+    toast.success("20 sugestões na lista. Clique em Salvar para gravar.");
+  }
+
   async function saveItemName() {
     setSavingName(true);
     try {
@@ -211,21 +318,15 @@ export function EnvioEcomTrackingBoard({
         method: "PUT",
         headers: adminHeaders(),
         body: JSON.stringify({
-          name: itemName,
           quantity: itemQuantity,
-          unitCost: itemUnitCost,
+          valueMin,
+          valueMax,
+          items: draftItems.map((item) => ({ name: item.name, declaredValue: item.value })),
         }),
       });
-      const data = await res.json().catch(() => ({})) as {
-        name?: string;
-        quantity?: number;
-        unitCost?: number;
-        message?: string;
-      };
+      const data = await res.json().catch(() => ({})) as ShipmentItemResponse;
       if (!res.ok) throw new Error(data.message || "Falha ao salvar o item da etiqueta.");
-      setItemName(data.name || "Mercadoria");
-      setItemQuantity(String(data.quantity ?? 1));
-      setItemUnitCost(String(data.unitCost ?? 5));
+      applyItemResponse(data);
       toast.success("Item da etiqueta salvo.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erro ao salvar.");
@@ -325,21 +426,15 @@ export function EnvioEcomTrackingBoard({
 
       {canEditItemName ? (
         <div className="rounded-xl border border-border bg-white p-4 space-y-3">
-          <p className="text-sm font-semibold">Item da etiqueta no create</p>
+          <div>
+            <p className="text-sm font-semibold">Item da etiqueta no create</p>
+            <p className="text-xs text-muted-foreground">
+              A etiqueta nova usa esta quantidade e o próximo nome da lista, sem repetir até a lista acabar. Com mínimo e máximo, o valor da etiqueta é sorteado nessa faixa. O número de cada linha fica gravado. Cotação, pedido, estoque e comissão não mudam.
+            </p>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <label className="space-y-1 min-w-0">
-              <span className="text-xs font-medium text-muted-foreground">Nome</span>
-              <input
-                id="envioecom-shipment-item-name"
-                className="w-full h-11 px-3 rounded-xl border-2 border-border bg-white text-sm"
-                maxLength={120}
-                placeholder="Mercadoria"
-                value={itemName}
-                onChange={(event) => setItemName(event.target.value)}
-              />
-            </label>
             <label className="space-y-1">
-              <span className="text-xs font-medium text-muted-foreground">Quantidade na etiqueta</span>
+              <span className="text-xs font-medium text-muted-foreground">Quantidade</span>
               <input
                 id="envioecom-shipment-item-qty"
                 inputMode="numeric"
@@ -349,26 +444,94 @@ export function EnvioEcomTrackingBoard({
               />
             </label>
             <label className="space-y-1">
-              <span className="text-xs font-medium text-muted-foreground">Valor global (R$)</span>
+              <span className="text-xs font-medium text-muted-foreground">Mínimo (R$)</span>
               <input
-                id="envioecom-shipment-item-cost"
+                id="envioecom-shipment-item-min"
                 inputMode="decimal"
                 className="w-full h-11 px-3 rounded-xl border-2 border-border bg-white text-sm"
-                placeholder="89,90"
-                value={itemUnitCost}
-                onChange={(event) => setItemUnitCost(event.target.value)}
+                placeholder="100,00"
+                value={valueMin}
+                onChange={(event) => setValueMin(event.target.value)}
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs font-medium text-muted-foreground">Máximo (R$)</span>
+              <input
+                id="envioecom-shipment-item-max"
+                inputMode="decimal"
+                className="w-full h-11 px-3 rounded-xl border-2 border-border bg-white text-sm"
+                placeholder="500,00"
+                value={valueMax}
+                onChange={(event) => setValueMax(event.target.value)}
               />
             </label>
           </div>
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-            <Button onClick={() => void saveItemName()} disabled={savingName} className="gap-1.5 shrink-0">
+          <div className="space-y-2">
+            {draftItems.map((item, index) => (
+              <div key={item.key} className="grid grid-cols-1 sm:grid-cols-[1fr_8rem_auto] gap-2 items-end">
+                <label className="space-y-1 min-w-0">
+                  <span className="text-xs font-medium text-muted-foreground">Nome {index + 1}</span>
+                  <input
+                    id={`envioecom-shipment-item-name-${index}`}
+                    className="w-full h-11 px-3 rounded-xl border-2 border-border bg-white text-sm"
+                    maxLength={120}
+                    value={item.name}
+                    onChange={(event) => {
+                      const name = event.target.value;
+                      setDraftItems((current) => current.map((row) => row.key === item.key ? { ...row, name } : row));
+                    }}
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-xs font-medium text-muted-foreground">Valor (R$)</span>
+                  <input
+                    id={`envioecom-shipment-item-value-${index}`}
+                    inputMode="decimal"
+                    className="w-full h-11 px-3 rounded-xl border-2 border-border bg-white text-sm"
+                    value={item.value}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setDraftItems((current) => current.map((row) => row.key === item.key ? { ...row, value } : row));
+                    }}
+                  />
+                </label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11"
+                  aria-label={`Remover linha ${index + 1}`}
+                  onClick={() => setDraftItems((current) => current.filter((row) => row.key !== item.key))}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-1.5"
+              disabled={draftItems.length >= 30}
+              onClick={() => setDraftItems((current) => [...current, { key: draftKey(), name: "", value: "" }])}
+            >
+              <Plus className="w-4 h-4" />
+              Adicionar linha
+            </Button>
+            <Button type="button" variant="outline" id="envioecom-shipment-item-suggestions" onClick={applySuggestions}>
+              Usar 20 sugestões
+            </Button>
+            <Button id="envioecom-shipment-item-save" onClick={() => void saveItemName()} disabled={savingName} className="gap-1.5">
               {savingName ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               Salvar
             </Button>
-            <p className="text-xs text-muted-foreground">
-              Salve antes de criar o envio. A DACE usa esse valor (não o R$ 5 da cotação). Pedido e estoque não mudam. Etiqueta já emitida não atualiza — cancele e crie de novo.
-            </p>
           </div>
+          <p className="text-xs text-muted-foreground">
+            {draftItems.length === 0
+              ? `Sem lista, a etiqueta usa ${reserveName}, ${reserveUnitCost.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}. `
+              : "O valor sorteado na etiqueta não troca o número desta linha. "}
+            Usar 20 sugestões só preenche a lista. Salvar grava, embaralha a ordem das próximas etiquetas e recomeça do zero. Etiqueta já emitida não muda.
+          </p>
         </div>
       ) : null}
 
