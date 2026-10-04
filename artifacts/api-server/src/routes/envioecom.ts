@@ -9,6 +9,7 @@ import { carrierDisplayName, isAllowedManualCarrier } from "../lib/carrier-loss"
 import {
   attachLossAlerts,
   getCarrierLossState,
+  listCarrierLossBoard,
   lossPackageId,
   removeCarrierLoss,
   upsertCarrierLoss,
@@ -798,6 +799,22 @@ router.post("/admin/envioecom/orders/:id/quote", requireAdminAuth, async (req, r
 function lossRequestPackageId(req: Request): string | null {
   return readPackageId(req.body) || String(req.query.packageId || "").trim() || null;
 }
+
+router.get("/admin/envioecom/loss-blacklist", requireAdminAuth, async (req, res) => {
+  try {
+    const admin = requireEnvioEcomAdmin(req, res);
+    if (!admin) return;
+    const query = req.query as { q?: string; includeRemoved?: string };
+    const board = await listCarrierLossBoard({
+      tenantId: admin.tenantId,
+      q: query.q,
+      includeRemoved: String(query.includeRemoved || "") === "1",
+    });
+    res.json(board);
+  } catch (err) {
+    sendEnvioEcomError(res, err);
+  }
+});
 
 router.get("/admin/envioecom/orders/:id/loss-blacklist", requireAdminAuth, async (req, res) => {
   try {

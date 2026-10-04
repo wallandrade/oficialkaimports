@@ -1,6 +1,6 @@
 import crypto from "crypto";
-import { and, eq, gte, isNull } from "drizzle-orm";
-import { carrierLossIncidentsTable, db } from "@workspace/db";
+import { and, desc, eq, gte, inArray, isNull } from "drizzle-orm";
+import { carrierLossIncidentsTable, db, orderShipmentsTable, ordersTable } from "@workspace/db";
 import {
   CARRIER_LOSS_WINDOW_MS,
   carrierDisplayName,
@@ -16,7 +16,10 @@ import {
   type CarrierLossPhrase,
   type CarrierLossType,
 } from "./carrier-loss";
+import { trackingEventsNewestFirst, type EnvioEcomHistoryEvent } from "./envioecom-status";
 import { DEFAULT_TENANT_ID } from "./tenant-context";
+
+const LOSS_BOARD_LIMIT = 500;
 
 export type CarrierLossWriteResult = "created" | "updated" | "reopened" | "skipped";
 
@@ -194,6 +197,121 @@ export async function recordAutomaticCarrierLoss(input: {
     rawStatus: classified.raw,
     orderNumber: input.orderNumber,
   });
+}
+
+export type CarrierLossBoardItem = {
+  id: string;
+  orderId: string;
+  packageId: string | null;
+  orderNumber: number | null;
+  clientName: string | null;
+  carrierName: string;
+  cityName: string;
+  neighborhoodName: string | null;
+  state: string;
+  cep: string;
+  incidentType: string;
+  source: string;
+  rawStatus: string | null;
+  occurredAt: string;
+  removedAt: string | null;
+  envioecomStatus: string | null;
+  envioecomBarcode: string | null;
+  events: EnvioEcomHistoryEvent[];
+};
+
+function isoDate(value: Date | string | null | undefined): string | null {
+  const date = asDate(value);
+  return date ? date.toISOString() : null;
+}
+
+export async function listCarrierLossBoard(input: {
+  tenantId: string;
+  q?: string | null;
+  includeRemoved?: boolean;
+}): Promise<{ items: CarrierLossBoardItem[]; truncated: boolean }> {
+  const conditions = [eq(carrierLossIncidentsTable.tenantId, tenantKey(input.tenantId))];
+  if (!input.includeRemoved) conditions.push(isNull(carrierLossIncidentsTable.removedAt));
+  const rows = await db
+    .select()
+    .from(carrierLossIncidentsTable)
+    .where(and(...conditions))
+    .orderBy(desc(carrierLossIncidentsTable.occurredAt));
+
+  const orderIds = [...new Set(rows.map((row) => row.orderId).filter(Boolean))];
+  const packageIds = [...new Set(rows.map((row) => row.packageId).filter(Boolean))];
+  const orders = orderIds.length
+    ? await db
+      .select({
+        id: ordersTable.id,
+        clientName: ordersTable.clientName,
+        orderNumber: ordersTable.orderNumber,
+        envioecomStatus: ordersTable.envioecomStatus,
+        envioecomBarcode: ordersTable.envioecomBarcode,
+        envioecomStatusHistory: ordersTable.envioecomStatusHistory,
+      })
+      .from(ordersTable)
+      .where(inArray(ordersTable.id, orderIds))
+    : [];
+  const packages = packageIds.length
+    ? await db
+      .select({
+        id: orderShipmentsTable.id,
+        envioecomStatus: orderShipmentsTable.envioecomStatus,
+        envioecomBarcode: orderShipmentsTable.envioecomBarcode,
+        envioecomStatusHistory: orderShipmentsTable.envioecomStatusHistory,
+      })
+      .from(orderShipmentsTable)
+      .where(inArray(orderShipmentsTable.id, packageIds))
+    : [];
+  const orderById = new Map(orders.map((order) => [order.id, order]));
+  const packageById = new Map(packages.map((pkg) => [pkg.id, pkg]));
+  const query = foldPlace(input.q);
+
+  const items = rows.flatMap((row) => {
+    const order = orderById.get(row.orderId);
+    const pkg = row.packageId ? packageById.get(row.packageId) : null;
+    const history = row.packageId ? pkg?.envioecomStatusHistory : order?.envioecomStatusHistory;
+    const shipment = row.packageId ? pkg : order;
+    const item: CarrierLossBoardItem = {
+      id: row.id,
+      orderId: row.orderId,
+      packageId: row.packageId || null,
+      orderNumber: row.orderNumber ?? order?.orderNumber ?? null,
+      clientName: order?.clientName ?? null,
+      carrierName: row.carrierName,
+      cityName: row.cityName,
+      neighborhoodName: row.neighborhoodName,
+      state: row.state,
+      cep: row.cep,
+      incidentType: row.incidentType,
+      source: row.source,
+      rawStatus: row.rawStatus,
+      occurredAt: isoDate(row.occurredAt) || new Date(0).toISOString(),
+      removedAt: isoDate(row.removedAt),
+      envioecomStatus: shipment?.envioecomStatus ?? null,
+      envioecomBarcode: shipment?.envioecomBarcode ?? null,
+      events: trackingEventsNewestFirst(history, 80),
+    };
+    if (!query) return [item];
+    const hay = foldPlace([
+      item.orderNumber,
+      item.orderId,
+      item.clientName,
+      item.carrierName,
+      item.cityName,
+      item.neighborhoodName,
+      item.state,
+      item.cep,
+      item.rawStatus,
+      item.envioecomStatus,
+      item.envioecomBarcode,
+      item.incidentType,
+    ].join(" "));
+    return hay.includes(query) ? [item] : [];
+  });
+  const truncated = items.length > LOSS_BOARD_LIMIT;
+  return { items: truncated ? items.slice(0, LOSS_BOARD_LIMIT) : items, truncated };
 }
 
 export async function getCarrierLossState(orderId: string, packageId?: string | null) {

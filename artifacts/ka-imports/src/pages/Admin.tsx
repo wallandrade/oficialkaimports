@@ -927,6 +927,7 @@ import { RelatedCpfShipments } from "@/components/admin/RelatedCpfShipments";
 import { ReplaceOrderProductButton } from "@/components/admin/ReplaceOrderProductModal";
 import { OrderHistoryTimeline } from "@/components/admin/OrderHistoryTimeline";
 import { EnvioEcomTrackingBoard } from "@/components/admin/EnvioEcomTrackingBoard";
+import { LossBlacklistBoard } from "@/components/admin/LossBlacklistBoard";
 import { EnvioEcomSettingsCard } from "@/components/admin/EnvioEcomSettingsCard";
 import { CheckoutCarrierPriorityCard } from "@/components/admin/CheckoutCarrierPriorityCard";
 import { ShippingQueueDeadlineCard } from "@/components/admin/ShippingQueueDeadlineCard";
@@ -1416,7 +1417,7 @@ function OrderBumpsPanel({ bumps, products, form, setForm, creating, toggling, d
   );
 }
 
-type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "affiliates" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "checkout" | "seguro" | "socialProof" | "raffles" | "lojas" | "supplierPurchases" | "envioecom" | "extrato" | "depositos";
+type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "affiliates" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "checkout" | "seguro" | "socialProof" | "raffles" | "lojas" | "supplierPurchases" | "envioecom" | "listaNegra" | "extrato" | "depositos";
 type LojasSubTab = "criar" | "pedidos" | "cadastradas";
 type FilialScopeSubTab = "pedidos" | "produtos" | "estoque";
 
@@ -5920,7 +5921,7 @@ export default function Admin() {
   }, [tab, authChecked, fetchUsers, fetchCustomers, fetchRecurringCustomers]);
 
   useEffect(() => {
-    if ((tab === "products" && !canManageProductsTab) || (tab === "raffles" && !canManageRafflesTab) || (tab === "seguro" && !canManageInsuranceTab) || (tab === "affiliates" && !canManageAffiliatesTab) || (!isPrimary && PRIMARY_ONLY_TABS.has(tab)) || (tab === "lojas" && !canManageTenants) || (tab === "supplierPurchases" && !canViewSupplierPurchasesTab) || (tab === "envioecom" && !canManageShippingTab)) {
+    if ((tab === "products" && !canManageProductsTab) || (tab === "raffles" && !canManageRafflesTab) || (tab === "seguro" && !canManageInsuranceTab) || (tab === "affiliates" && !canManageAffiliatesTab) || (!isPrimary && PRIMARY_ONLY_TABS.has(tab)) || (tab === "lojas" && !canManageTenants) || (tab === "supplierPurchases" && !canViewSupplierPurchasesTab) || ((tab === "envioecom" || tab === "listaNegra") && !canManageShippingTab)) {
       setTab("orders");
     }
   }, [isPrimary, tab, canManageTenants, canManageProductsTab, canManageRafflesTab, canManageInsuranceTab, canManageAffiliatesTab, canViewSupplierPurchasesTab, canManageShippingTab]);
@@ -7772,6 +7773,7 @@ export default function Admin() {
             ] : []),
             ...(canManageShippingTab ? [
               { key: "envioecom" as TabType, label: "Rastreios", icon: "Truck" },
+              { key: "listaNegra" as TabType, label: "Lista negra", icon: "ShieldAlert" },
             ] : []),
             ...(canManageProductsTab ? [
               { key: "configuracoes" as TabType, label: "Configuração", icon: "Settings" },
@@ -8682,6 +8684,14 @@ export default function Admin() {
             onOpenOrder={(item) => {
               const numeric = Number(item.orderNumber);
               setSearch(Number.isFinite(numeric) && numeric > 0 ? String(Math.trunc(numeric)) : item.id);
+              setTab("orders");
+            }}
+          />
+        ) : tab === "listaNegra" ? (
+          <LossBlacklistBoard
+            onOpenOrder={(item) => {
+              const numeric = Number(item.orderNumber);
+              setSearch(Number.isFinite(numeric) && numeric > 0 ? String(Math.trunc(numeric)) : item.orderId);
               setTab("orders");
             }}
           />
