@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-10-03
+> **Última atualização:** 2026-10-04
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-04 | `/frete` (`FreightLookup`) sem `AppLayout minimal` | Menu da loja no topo; grade Tirzepatida via `useGetProducts` abaixo do CEP | Rota continua só `/frete`; cotação e Motoboy iguais |
 | 2026-10-03 | Tabela `affiliate_credit_adjustments` | `POST /api/admin/affiliates/:userId/balance` soma no disponível do afiliado | `affiliate_commissions`; `affiliate_credit_uses`; carteira `customer_wallet_ledger` |
 | 2026-09-30 | `resolveCheckoutDeadlineHours` só no `GET /api/shipping-logistics/forecast` | Settings `shipping_queue_manual_*` em `ALLOWED_KEYS`, fora de `PUBLIC_KEYS`. Card `ShippingQueueDeadlineCard` | `findForecast` / `allocateOrderLogistics`; `GET /api/settings` |
 | 2026-09-28 | `related-shipments` hidrata `products[].image` pelo catálogo da loja | Alerta e lista do CPF mostram a miniatura | `GET /admin/orders` da fila; quote/create EE |
