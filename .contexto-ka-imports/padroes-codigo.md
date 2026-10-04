@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-03 | Fontes do tema saem do CSS do Tailwind | O `<link>` em `index.html` carrega as famílias. O bundle não tem `@import` do Google Fonts | Nomes das fontes e os temas |
 | 2026-10-03 | Página do produto farmácia no computador | A partir de 768px, foto à esquerda e compra à direita. A faixa de 176px fica só abaixo disso | Tabela, quantidade, botões e os outros temas |
 | 2026-10-03 | Foto do produto no tema farmácia | Faixa de 176px, imagem inteira, página numa coluna de 32rem | Quadrado `object-cover` dos outros temas |
 | 2026-10-03 | Login do tema farmácia no próprio site | Ícone e menu abrem o cartão Entrar; criar conta no mesmo cartão | Página `/login` dos outros temas |
@@ -180,6 +181,7 @@ Código > memória > suposições.
 
 ## Anti-padrões (não reintroduzir)
 
+- Colocar `@import` do Google Fonts dentro de `index.css`. Se o navegador recusa esse import, ele joga fora o CSS do Tailwind inteiro. A fonte fica no `<link>` de `index.html`.
 - Aplicar `shipping_queue_manual_hours` em `findForecast` ou `allocateOrderLogistics`. O número manual só substitui `promisedHours` em `GET /api/shipping-logistics/forecast`. A vaga, as cópias e o card usam o prazo da fila.
 - Assumir PostgreSQL / Prisma / Next / Nest.
 - Polling de status no gateway APPCNPay (bloqueado; usar webhook + BD local).
