@@ -440,8 +440,8 @@ export default function ProductDetail() {
             <p className="font-semibold text-foreground">Produto não encontrado.</p>
           </div>
         ) : (
-          <div className={isPharma ? "mx-auto flex w-full max-w-lg flex-col gap-5" : "grid lg:grid-cols-2 gap-8 items-start"}>
-            <div className={isPharma ? "flex h-44 items-center justify-center overflow-hidden rounded-3xl bg-white" : "rounded-3xl border border-border/60 overflow-hidden bg-muted/20 shadow-sm"}>
+          <div className={isPharma ? "mx-auto grid w-full max-w-lg grid-cols-1 items-start gap-5 md:max-w-none md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] md:gap-10" : "grid lg:grid-cols-2 gap-8 items-start"}>
+            <div className={isPharma ? "flex h-44 items-center justify-center overflow-hidden rounded-3xl bg-white md:sticky md:top-24 md:aspect-square md:h-auto" : "rounded-3xl border border-border/60 overflow-hidden bg-muted/20 shadow-sm"}>
               <VariantHero images={galleryImages} singleSrc={singleImage} alt={product.name} compact={isPharma} />
             </div>
 

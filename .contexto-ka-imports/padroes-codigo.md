@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-03 | Página do produto farmácia no computador | A partir de 768px, foto à esquerda e compra à direita. A faixa de 176px fica só abaixo disso | Tabela, quantidade, botões e os outros temas |
 | 2026-10-03 | Foto do produto no tema farmácia | Faixa de 176px, imagem inteira, página numa coluna de 32rem | Quadrado `object-cover` dos outros temas |
 | 2026-10-03 | Login do tema farmácia no próprio site | Ícone e menu abrem o cartão Entrar; criar conta no mesmo cartão | Página `/login` dos outros temas |
 | 2026-10-03 | Drawer farmácia deixa a loja visível | Painel mais estreito, sem blur; toque na faixa fecha | Drawer dos outros temas em tela cheia |
@@ -155,7 +156,7 @@ Código > memória > suposições.
 - Data fetching: TanStack Query via `@workspace/api-client-react` quando o endpoint está no OpenAPI; muitos fetches manuais ainda existem (admin/checkout).
 - Path alias `@/` no FE.
 - Estilo: Tailwind + CVA + `cn` util.
-- Tema da loja: `store_theme_preset` vira `data-store-theme` no `<html>`. `pharma_compact` muda a vitrine da loja 1 (header, lista, card, `/ofertas`, `/categoria`, página do produto com foto em faixa, drawer do carrinho e login em cartão). Filial não recebe esse preset no GET público e o PUT recusa gravá-lo. O verde fica em `--pharma-*`. A cor principal da loja continua no checkout e nos outros presets.
+- Tema da loja: `store_theme_preset` vira `data-store-theme` no `<html>`. `pharma_compact` muda a vitrine da loja 1 (header, lista, card, `/ofertas`, `/categoria`, página do produto com foto em faixa no celular e ao lado da compra a partir de 768px, drawer do carrinho e login em cartão). Filial não recebe esse preset no GET público e o PUT recusa gravá-lo. O verde fica em `--pharma-*`. A cor principal da loja continua no checkout e nos outros presets.
 
 ## Codegen (Orval)
 
