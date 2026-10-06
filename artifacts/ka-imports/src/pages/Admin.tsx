@@ -140,14 +140,12 @@ function todayStr() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
 }
 const MONTHS_PT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
-function currentMonthRangeSaoPaulo() {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Sao_Paulo",
-    year: "numeric",
-    month: "2-digit",
-  }).formatToParts(new Date());
-  const year = Number(parts.find((part) => part.type === "year")?.value || "2026");
-  const month = Number(parts.find((part) => part.type === "month")?.value || "1");
+function monthRangeFromYmd(ymd: string) {
+  const match = /^(\d{4})-(\d{2})/.exec(ymd);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (!year || month < 1 || month > 12) return null;
   const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
   const mm = String(month).padStart(2, "0");
   return {
@@ -155,6 +153,20 @@ function currentMonthRangeSaoPaulo() {
     to: `${year}-${mm}-${String(lastDay).padStart(2, "0")}`,
     label: `${MONTHS_PT[month - 1] || mm}/${year}`,
   };
+}
+function currentMonthRangeSaoPaulo() {
+  const today = todayStr();
+  return monthRangeFromYmd(today) || { from: today, to: today, label: today };
+}
+function expenseNetWindows(item: { expenseDate: string; expenseStartDate?: string; expenseEndDate?: string }) {
+  const startRaw = ymdInSaoPaulo(item.expenseStartDate || item.expenseDate);
+  const endRaw = ymdInSaoPaulo(item.expenseEndDate || item.expenseStartDate || item.expenseDate);
+  if (!startRaw || !endRaw) return null;
+  const from = startRaw <= endRaw ? startRaw : endRaw;
+  const to = startRaw <= endRaw ? endRaw : startRaw;
+  const month = monthRangeFromYmd(from);
+  if (!month) return null;
+  return { from, to, month };
 }
 function daysAgoStr(days: number) {
   const d = new Date();
@@ -2378,6 +2390,7 @@ export default function Admin() {
     byChannel: Array<{ channel: string; total: number }>;
   }>({ items: [], total: 0, byChannel: [] });
   const [monthNetRevenue, setMonthNetRevenue] = useState<number | null>(null);
+  const [netRevenueByRange, setNetRevenueByRange] = useState<Record<string, number>>({});
   const [pendingReshipments, setPendingReshipments] = useState<ReshipmentRecord[]>([]);
   const [activeManualReturnItemId, setActiveManualReturnItemId] = useState<string | null>(null);
   const [inventoryEntryForm, setInventoryEntryForm] = useState({
@@ -6905,6 +6918,42 @@ export default function Admin() {
   React.useEffect(() => { if (authChecked) fetchFinancialSummary(); }, [authChecked, statsDateFrom, statsDateTo, statsSeller, fetchFinancialSummary]);
   React.useEffect(() => { if (authChecked) fetchMarketingExpenses(); }, [authChecked, fetchMarketingExpenses]);
   React.useEffect(() => { if (authChecked) fetchMonthNetRevenue(); }, [authChecked, fetchMonthNetRevenue]);
+  React.useEffect(() => {
+    if (!authChecked) return;
+    const ranges = new Map<string, { from: string; to: string }>();
+    for (const item of marketingExpenseLedger.items) {
+      const windows = expenseNetWindows(item);
+      if (!windows) continue;
+      ranges.set(`${windows.from}|${windows.to}`, { from: windows.from, to: windows.to });
+      ranges.set(`${windows.month.from}|${windows.month.to}`, { from: windows.month.from, to: windows.month.to });
+    }
+    if (ranges.size === 0) {
+      setNetRevenueByRange({});
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const entries = await Promise.all(Array.from(ranges.entries()).map(async ([key, range]) => {
+        const params = new URLSearchParams({ dateFrom: range.from, dateTo: range.to, repasseDateBasis: "purchaseRecordedAt" });
+        if (statsSeller !== "all") params.set("sellerCode", statsSeller);
+        try {
+          const res = await fetch(`${BASE}/api/admin/financial-summary?${params}`, { headers: authHeaders() });
+          if (!res.ok) return [key, null] as const;
+          const data = await res.json() as { realNetRevenue?: number };
+          return [key, Number(data.realNetRevenue) || 0] as const;
+        } catch {
+          return [key, null] as const;
+        }
+      }));
+      if (cancelled) return;
+      const next: Record<string, number> = {};
+      for (const [key, value] of entries) {
+        if (value != null) next[key] = value;
+      }
+      setNetRevenueByRange(next);
+    })();
+    return () => { cancelled = true; };
+  }, [authChecked, marketingExpenseLedger.items, statsSeller, BASE]);
 
   const productImageById = useMemo(() => Object.fromEntries(
     (products as Array<{ id?: string; image?: string | null }>)
@@ -11889,9 +11938,13 @@ export default function Admin() {
 
                 <div className="rounded-xl border border-rose-200 bg-white/80 p-4">
                   <p className="text-xs font-semibold text-rose-700 uppercase tracking-wide mb-3">Lançamentos recentes</p>
-                  <div className="space-y-2 max-h-72 overflow-auto pr-1">
+                  <div className="space-y-2 max-h-[28rem] overflow-auto pr-1">
                     {marketingExpenseLedger.items.length > 0 ? (
-                      marketingExpenseLedger.items.map((item) => (
+                      marketingExpenseLedger.items.map((item) => {
+                        const windows = expenseNetWindows(item);
+                        const periodNet = windows ? netRevenueByRange[`${windows.from}|${windows.to}`] : undefined;
+                        const monthNet = windows ? netRevenueByRange[`${windows.month.from}|${windows.month.to}`] : undefined;
+                        return (
                         <div key={item.id} className="rounded-lg border border-rose-100 bg-white px-3 py-2">
                           <div className="flex items-start justify-between gap-3">
                             <div>
@@ -11899,6 +11952,13 @@ export default function Admin() {
                               <p className="text-xs text-muted-foreground">
                                 {formatDateBR(item.expenseStartDate || item.expenseDate)} até {formatDateBR(item.expenseEndDate || item.expenseDate)}
                               </p>
+                              {windows ? (
+                                <p className="text-xs text-rose-800 mt-1">
+                                  Líquido neste período {periodNet == null ? "..." : formatCurrency(periodNet)}
+                                  {" · "}
+                                  Líquido em {windows.month.label} {monthNet == null ? "..." : formatCurrency(monthNet)}
+                                </p>
+                              ) : null}
                               {item.note ? <p className="text-xs text-rose-700/80 mt-1">{item.note}</p> : null}
                             </div>
                             <div className="flex flex-col items-end gap-2">
@@ -11921,7 +11981,8 @@ export default function Admin() {
                             </div>
                           </div>
                         </div>
-                      ))
+                        );
+                      })
                     ) : (
                       <p className="text-sm text-rose-700/80">{marketingExpensesLoading ? "Carregando gastos..." : "Sem lançamentos para mostrar."}</p>
                     )}
