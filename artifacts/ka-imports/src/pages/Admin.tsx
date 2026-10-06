@@ -2346,6 +2346,20 @@ export default function Admin() {
   });
   const [marketingExpensesSubmitting, setMarketingExpensesSubmitting] = useState(false);
   const [marketingExpenseDeletingId, setMarketingExpenseDeletingId] = useState<string | null>(null);
+  const [marketingExpensesLoading, setMarketingExpensesLoading] = useState(false);
+  const [marketingExpenseLedger, setMarketingExpenseLedger] = useState<{
+    items: Array<{
+      id: string;
+      expenseDate: string;
+      expenseStartDate?: string;
+      expenseEndDate?: string;
+      channel: string;
+      amount: number;
+      note?: string | null;
+    }>;
+    total: number;
+    byChannel: Array<{ channel: string; total: number }>;
+  }>({ items: [], total: 0, byChannel: [] });
   const [pendingReshipments, setPendingReshipments] = useState<ReshipmentRecord[]>([]);
   const [activeManualReturnItemId, setActiveManualReturnItemId] = useState<string | null>(null);
   const [inventoryEntryForm, setInventoryEntryForm] = useState({
@@ -3116,6 +3130,35 @@ export default function Admin() {
     } catch {}
     setFinancialSummaryLoading(false);
   }, [statsDateFrom, statsDateTo, statsSeller]);
+
+  const fetchMarketingExpenses = React.useCallback(async () => {
+    setMarketingExpensesLoading(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/marketing-expenses`, { headers: authHeaders() });
+      if (res.ok) {
+        const data = await res.json() as {
+          items?: Array<{
+            id: string;
+            expenseDate: string;
+            expenseStartDate?: string;
+            expenseEndDate?: string;
+            channel: string;
+            amount: number;
+            note?: string | null;
+          }>;
+          total?: number;
+          byChannel?: Array<{ channel: string; total: number }>;
+        };
+        setMarketingExpenseLedger({
+          items: Array.isArray(data.items) ? data.items : [],
+          total: Number(data.total) || 0,
+          byChannel: Array.isArray(data.byChannel) ? data.byChannel : [],
+        });
+      }
+    } catch {}
+    setMarketingExpensesLoading(false);
+  }, [BASE]);
+
   const handleAddMarketingExpense = React.useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -3157,12 +3200,13 @@ export default function Admin() {
       }));
       toast.success("Gasto adicionado com sucesso.");
       fetchFinancialSummary();
+      fetchMarketingExpenses();
     } catch {
       toast.error("Erro ao registrar gasto.");
     } finally {
       setMarketingExpensesSubmitting(false);
     }
-  }, [BASE, fetchFinancialSummary, marketingExpenseForm]);
+  }, [BASE, fetchFinancialSummary, fetchMarketingExpenses, marketingExpenseForm]);
 
   const handleDeleteMarketingExpense = React.useCallback(async (expenseId: string) => {
     if (!expenseId) return;
@@ -3183,12 +3227,13 @@ export default function Admin() {
 
       toast.success("Gasto removido com sucesso.");
       fetchFinancialSummary();
+      fetchMarketingExpenses();
     } catch {
       toast.error("Erro ao remover gasto.");
     } finally {
       setMarketingExpenseDeletingId(null);
     }
-  }, [BASE, fetchFinancialSummary]);
+  }, [BASE, fetchFinancialSummary, fetchMarketingExpenses]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
   const webhookUrl  = `${window.location.origin}${BASE}/api/webhook/pix`;
@@ -6824,6 +6869,7 @@ export default function Admin() {
 
   // Atualizar junto com stats (must be before the early return to respect Rules of Hooks)
   React.useEffect(() => { if (authChecked) fetchFinancialSummary(); }, [authChecked, statsDateFrom, statsDateTo, statsSeller, fetchFinancialSummary]);
+  React.useEffect(() => { if (authChecked) fetchMarketingExpenses(); }, [authChecked, fetchMarketingExpenses]);
 
   const productImageById = useMemo(() => Object.fromEntries(
     (products as Array<{ id?: string; image?: string | null }>)
@@ -11734,11 +11780,11 @@ export default function Admin() {
               <div className="flex flex-wrap items-start justify-between gap-2 mb-4">
                 <div>
                   <p className="text-xs font-semibold text-rose-700 uppercase tracking-wide">Gastos por data</p>
-                  <p className="text-sm text-rose-700/80">Cadastre novas despesas de marketing aqui. Os registros antigos ficam intactos.</p>
+                  <p className="text-sm text-rose-700/80">Cadastre novas despesas de marketing aqui. A lista abaixo mostra todos os gastos salvos. A Visão Geral só desconta o que cruza o período De/até.</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs text-rose-700/70 uppercase tracking-wide">Total no período</p>
-                  <p className="text-2xl font-bold text-rose-700">{formatCurrency(Number(financialSummary?.totalMarketingExpenses) || 0)}</p>
+                  <p className="text-xs text-rose-700/70 uppercase tracking-wide">Total registrado</p>
+                  <p className="text-2xl font-bold text-rose-700">{formatCurrency(Number(marketingExpenseLedger.total) || 0)}</p>
                 </div>
               </div>
 
@@ -11787,15 +11833,15 @@ export default function Admin() {
                 <div className="rounded-xl border border-rose-200 bg-white/80 p-4">
                   <p className="text-xs font-semibold text-rose-700 uppercase tracking-wide mb-3">Resumo por canal</p>
                   <div className="space-y-2">
-                    {(financialSummary?.marketingExpensesByChannel?.length || 0) > 0 ? (
-                      financialSummary!.marketingExpensesByChannel!.map((item) => (
+                    {marketingExpenseLedger.byChannel.length > 0 ? (
+                      marketingExpenseLedger.byChannel.map((item) => (
                         <div key={item.channel} className="flex items-center justify-between rounded-lg border border-rose-100 bg-rose-50 px-3 py-2">
                           <span className="text-sm font-medium text-rose-900">{item.channel}</span>
                           <span className="text-sm font-semibold text-rose-700">{formatCurrency(Number(item.total) || 0)}</span>
                         </div>
                       ))
                     ) : (
-                      <p className="text-sm text-rose-700/80">Nenhum gasto registrado no período selecionado.</p>
+                      <p className="text-sm text-rose-700/80">{marketingExpensesLoading ? "Carregando gastos..." : "Nenhum gasto registrado."}</p>
                     )}
                   </div>
                 </div>
@@ -11803,8 +11849,8 @@ export default function Admin() {
                 <div className="rounded-xl border border-rose-200 bg-white/80 p-4">
                   <p className="text-xs font-semibold text-rose-700 uppercase tracking-wide mb-3">Lançamentos recentes</p>
                   <div className="space-y-2 max-h-72 overflow-auto pr-1">
-                    {(financialSummary?.marketingExpenses?.length || 0) > 0 ? (
-                      financialSummary!.marketingExpenses!.map((item) => (
+                    {marketingExpenseLedger.items.length > 0 ? (
+                      marketingExpenseLedger.items.map((item) => (
                         <div key={item.id} className="rounded-lg border border-rose-100 bg-white px-3 py-2">
                           <div className="flex items-start justify-between gap-3">
                             <div>
@@ -11836,7 +11882,7 @@ export default function Admin() {
                         </div>
                       ))
                     ) : (
-                      <p className="text-sm text-rose-700/80">Sem lançamentos para mostrar.</p>
+                      <p className="text-sm text-rose-700/80">{marketingExpensesLoading ? "Carregando gastos..." : "Sem lançamentos para mostrar."}</p>
                     )}
                   </div>
                 </div>
