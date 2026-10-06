@@ -158,6 +158,18 @@ function currentMonthRangeSaoPaulo() {
   const today = todayStr();
   return monthRangeFromYmd(today) || { from: today, to: today, label: today };
 }
+function moneyTone(value: number | null | undefined) {
+  if (value == null || Number.isNaN(Number(value))) {
+    return { text: "text-muted-foreground", box: "border-border bg-muted/40", label: "text-muted-foreground" };
+  }
+  if (value > 0.009) {
+    return { text: "text-emerald-700", box: "border-emerald-200 bg-emerald-50", label: "text-emerald-700" };
+  }
+  if (value < -0.009) {
+    return { text: "text-red-700", box: "border-red-200 bg-red-50", label: "text-red-700" };
+  }
+  return { text: "text-slate-600", box: "border-slate-200 bg-slate-50", label: "text-slate-600" };
+}
 function expenseNetWindows(item: { expenseDate: string; expenseStartDate?: string; expenseEndDate?: string }) {
   const startRaw = ymdInSaoPaulo(item.expenseStartDate || item.expenseDate);
   const endRaw = ymdInSaoPaulo(item.expenseEndDate || item.expenseStartDate || item.expenseDate);
@@ -2373,6 +2385,7 @@ export default function Admin() {
     amount: "",
     note: "",
   });
+  const [marketingExpenseEditingId, setMarketingExpenseEditingId] = useState<string | null>(null);
   const [marketingExpensesSubmitting, setMarketingExpensesSubmitting] = useState(false);
   const [marketingExpenseDeletingId, setMarketingExpenseDeletingId] = useState<string | null>(null);
   const [marketingExpensesLoading, setMarketingExpensesLoading] = useState(false);
@@ -3218,10 +3231,11 @@ export default function Admin() {
       return;
     }
 
+    const editingId = marketingExpenseEditingId;
     setMarketingExpensesSubmitting(true);
     try {
-      const res = await fetch(`${BASE}/api/admin/marketing-expenses`, {
-        method: "POST",
+      const res = await fetch(`${BASE}/api/admin/marketing-expenses${editingId ? `/${editingId}` : ""}`, {
+        method: editingId ? "PATCH" : "POST",
         headers: authHeaders(),
         body: JSON.stringify({
           expenseStartDate: marketingExpenseForm.expenseStartDate,
@@ -3234,25 +3248,26 @@ export default function Admin() {
 
       const data = await res.json().catch(() => null) as { message?: string } | null;
       if (!res.ok) {
-        toast.error(data?.message || "Erro ao registrar gasto.");
+        toast.error(data?.message || (editingId ? "Erro ao atualizar gasto." : "Erro ao registrar gasto."));
         return;
       }
 
+      setMarketingExpenseEditingId(null);
       setMarketingExpenseForm((current) => ({
         ...current,
         amount: "",
         note: "",
       }));
-      toast.success("Gasto adicionado com sucesso.");
+      toast.success(editingId ? "Gasto atualizado." : "Gasto adicionado com sucesso.");
       fetchFinancialSummary();
       fetchMonthNetRevenue();
       fetchMarketingExpenses();
     } catch {
-      toast.error("Erro ao registrar gasto.");
+      toast.error(editingId ? "Erro ao atualizar gasto." : "Erro ao registrar gasto.");
     } finally {
       setMarketingExpensesSubmitting(false);
     }
-  }, [BASE, fetchFinancialSummary, fetchMonthNetRevenue, fetchMarketingExpenses, marketingExpenseForm]);
+  }, [BASE, fetchFinancialSummary, fetchMonthNetRevenue, fetchMarketingExpenses, marketingExpenseEditingId, marketingExpenseForm]);
 
   const handleDeleteMarketingExpense = React.useCallback(async (expenseId: string) => {
     if (!expenseId) return;
@@ -3271,6 +3286,10 @@ export default function Admin() {
         return;
       }
 
+      if (marketingExpenseEditingId === expenseId) {
+        setMarketingExpenseEditingId(null);
+        setMarketingExpenseForm((current) => ({ ...current, amount: "", note: "" }));
+      }
       toast.success("Gasto removido com sucesso.");
       fetchFinancialSummary();
       fetchMonthNetRevenue();
@@ -3280,7 +3299,7 @@ export default function Admin() {
     } finally {
       setMarketingExpenseDeletingId(null);
     }
-  }, [BASE, fetchFinancialSummary, fetchMonthNetRevenue, fetchMarketingExpenses]);
+  }, [BASE, fetchFinancialSummary, fetchMonthNetRevenue, fetchMarketingExpenses, marketingExpenseEditingId]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
   const webhookUrl  = `${window.location.origin}${BASE}/api/webhook/pix`;
@@ -11866,19 +11885,19 @@ export default function Admin() {
                 <p className="text-2xl font-bold text-rose-700 mt-1">{formatCurrency(Number(financialSummary?.totalMarketingExpenses) || 0)}</p>
                 <p className="text-xs text-rose-700/70 mt-1">{formatDateOnlyLocal(statsDateFrom)} até {formatDateOnlyLocal(statsDateTo)}</p>
               </div>
-              <div className="rounded-xl border border-rose-200 bg-white/80 p-4">
-                <p className="text-xs font-semibold text-rose-700 uppercase tracking-wide">Faturamento líquido no mesmo período</p>
-                <p className="text-2xl font-bold text-rose-900 mt-1">{formatCurrency(Number(financialSummary?.realNetRevenue) || 0)}</p>
-                <p className="text-xs text-rose-700/70 mt-1">Já desconta este gasto, custo, comissão e taxas</p>
+              <div className={`rounded-xl border bg-white/80 p-4 ${moneyTone(financialSummary?.realNetRevenue).box}`}>
+                <p className={`text-xs font-semibold uppercase tracking-wide ${moneyTone(financialSummary?.realNetRevenue).label}`}>Faturamento líquido no mesmo período</p>
+                <p className={`text-2xl font-bold mt-1 ${moneyTone(financialSummary?.realNetRevenue).text}`}>{formatCurrency(Number(financialSummary?.realNetRevenue) || 0)}</p>
+                <p className="text-xs text-muted-foreground mt-1">Já desconta este gasto, custo, comissão e taxas</p>
               </div>
-              <div className="rounded-xl border border-rose-200 bg-white/80 p-4">
-                <p className="text-xs font-semibold text-rose-700 uppercase tracking-wide">Faturamento líquido no mês</p>
-                <p className="text-2xl font-bold text-rose-900 mt-1">{monthNetRevenue == null ? "..." : formatCurrency(monthNetRevenue)}</p>
-                <p className="text-xs text-rose-700/70 mt-1">{currentMonthRangeSaoPaulo().label}</p>
+              <div className={`rounded-xl border bg-white/80 p-4 ${moneyTone(monthNetRevenue).box}`}>
+                <p className={`text-xs font-semibold uppercase tracking-wide ${moneyTone(monthNetRevenue).label}`}>Faturamento líquido no mês</p>
+                <p className={`text-2xl font-bold mt-1 ${moneyTone(monthNetRevenue).text}`}>{monthNetRevenue == null ? "..." : formatCurrency(monthNetRevenue)}</p>
+                <p className="text-xs text-muted-foreground mt-1">{currentMonthRangeSaoPaulo().label}</p>
               </div>
             </div>
 
-              <form onSubmit={handleAddMarketingExpense} className="grid grid-cols-1 sm:grid-cols-6 gap-3 mb-4">
+              <form id="marketing-expense-form" onSubmit={handleAddMarketingExpense} className="grid grid-cols-1 sm:grid-cols-6 gap-3 mb-4">
                 <input
                   type="date"
                   value={marketingExpenseForm.expenseStartDate}
@@ -11914,9 +11933,24 @@ export default function Admin() {
                   placeholder="Observação opcional"
                   className="h-11 px-3 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
                 />
-                <Button type="submit" disabled={marketingExpensesSubmitting} className="h-11 rounded-xl bg-rose-600 hover:bg-rose-700 text-white">
-                  {marketingExpensesSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Adicionar gasto"}
-                </Button>
+                <div className="flex flex-col gap-2">
+                  <Button type="submit" disabled={marketingExpensesSubmitting} className="h-11 rounded-xl bg-rose-600 hover:bg-rose-700 text-white">
+                    {marketingExpensesSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : (marketingExpenseEditingId ? "Salvar alteração" : "Adicionar gasto")}
+                  </Button>
+                  {marketingExpenseEditingId ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9 rounded-xl"
+                      onClick={() => {
+                        setMarketingExpenseEditingId(null);
+                        setMarketingExpenseForm((current) => ({ ...current, amount: "", note: "" }));
+                      }}
+                    >
+                      Cancelar edição
+                    </Button>
+                  ) : null}
+                </div>
               </form>
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -11944,8 +11978,10 @@ export default function Admin() {
                         const windows = expenseNetWindows(item);
                         const periodNet = windows ? netRevenueByRange[`${windows.from}|${windows.to}`] : undefined;
                         const monthNet = windows ? netRevenueByRange[`${windows.month.from}|${windows.month.to}`] : undefined;
+                        const periodTone = moneyTone(periodNet);
+                        const monthTone = moneyTone(monthNet);
                         return (
-                        <div key={item.id} className="rounded-xl border border-rose-100 bg-white p-3">
+                        <div key={item.id} className={`rounded-xl border bg-white p-3 ${marketingExpenseEditingId === item.id ? "border-rose-400 ring-2 ring-rose-200" : "border-rose-100"}`}>
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
                               <p className="text-sm font-semibold text-rose-900">{item.channel}</p>
@@ -11954,33 +11990,57 @@ export default function Admin() {
                               </p>
                             </div>
                             <div className="flex flex-col items-end gap-2 shrink-0">
-                              <span className="text-sm font-semibold text-rose-700 whitespace-nowrap">{formatCurrency(Number(item.amount) || 0)}</span>
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                className="h-8 px-2 border-rose-200 text-rose-700 hover:bg-rose-50"
-                                disabled={marketingExpenseDeletingId === item.id}
-                                onClick={() => handleDeleteMarketingExpense(item.id)}
-                              >
-                                {marketingExpenseDeletingId === item.id ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                )}
-                                <span className="ml-1">Remover</span>
-                              </Button>
+                              <span className="text-sm font-semibold text-red-700 whitespace-nowrap">{formatCurrency(Number(item.amount) || 0)}</span>
+                              <div className="flex gap-2">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 px-2"
+                                  onClick={() => {
+                                    const start = ymdInSaoPaulo(item.expenseStartDate || item.expenseDate) || todayStr();
+                                    const end = ymdInSaoPaulo(item.expenseEndDate || item.expenseStartDate || item.expenseDate) || start;
+                                    setMarketingExpenseEditingId(item.id);
+                                    setMarketingExpenseForm({
+                                      expenseStartDate: start,
+                                      expenseEndDate: end,
+                                      channel: item.channel || "",
+                                      amount: String(item.amount ?? ""),
+                                      note: item.note || "",
+                                    });
+                                    document.getElementById("marketing-expense-form")?.scrollIntoView({ behavior: "smooth", block: "center" });
+                                  }}
+                                >
+                                  <Pencil className="w-3.5 h-3.5" />
+                                  <span className="ml-1">Editar</span>
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 px-2 border-rose-200 text-rose-700 hover:bg-rose-50"
+                                  disabled={marketingExpenseDeletingId === item.id}
+                                  onClick={() => handleDeleteMarketingExpense(item.id)}
+                                >
+                                  {marketingExpenseDeletingId === item.id ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  )}
+                                  <span className="ml-1">Remover</span>
+                                </Button>
+                              </div>
                             </div>
                           </div>
                           {windows ? (
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3">
-                              <div className="rounded-lg border border-rose-100 bg-rose-50/70 px-3 py-2">
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-rose-700/80">Líquido no período</p>
-                                <p className="text-base font-bold text-rose-900 mt-0.5">{periodNet == null ? "..." : formatCurrency(periodNet)}</p>
+                              <div className={`rounded-lg border px-3 py-2 ${periodTone.box}`}>
+                                <p className={`text-[11px] font-semibold uppercase tracking-wide ${periodTone.label}`}>Líquido no período</p>
+                                <p className={`text-base font-bold mt-0.5 ${periodTone.text}`}>{periodNet == null ? "..." : formatCurrency(periodNet)}</p>
                               </div>
-                              <div className="rounded-lg border border-rose-100 bg-rose-50/70 px-3 py-2">
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-rose-700/80">Líquido em {windows.month.label}</p>
-                                <p className="text-base font-bold text-rose-900 mt-0.5">{monthNet == null ? "..." : formatCurrency(monthNet)}</p>
+                              <div className={`rounded-lg border px-3 py-2 ${monthTone.box}`}>
+                                <p className={`text-[11px] font-semibold uppercase tracking-wide ${monthTone.label}`}>Líquido em {windows.month.label}</p>
+                                <p className={`text-base font-bold mt-0.5 ${monthTone.text}`}>{monthNet == null ? "..." : formatCurrency(monthNet)}</p>
                               </div>
                             </div>
                           ) : null}

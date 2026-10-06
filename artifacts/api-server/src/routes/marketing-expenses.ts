@@ -173,6 +173,98 @@ router.post("/admin/marketing-expenses", requireAdminAuth, async (req, res) => {
   }
 });
 
+// PATCH /api/admin/marketing-expenses/:id
+router.patch("/admin/marketing-expenses/:id", requireAdminAuth, async (req, res) => {
+  try {
+    const scope = getAdminScope(req);
+    if (!scope) {
+      res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
+      return;
+    }
+    if (!scope.hasGlobalAccess && !scope.sellerCode) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Usuário sem seller vinculado." });
+      return;
+    }
+
+    const id = String(req.params.id || "").trim();
+    if (!id) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "ID inválido." });
+      return;
+    }
+
+    const expenseStartDateRaw = String(req.body?.expenseStartDate ?? req.body?.expenseDate ?? "").trim();
+    const expenseEndDateRaw = String(req.body?.expenseEndDate ?? req.body?.expenseDate ?? "").trim();
+    const channel = String(req.body?.channel ?? "").trim();
+    const note = String(req.body?.note ?? "").trim();
+    const amount = Number(req.body?.amount ?? 0);
+
+    if (!expenseStartDateRaw || !expenseEndDateRaw) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Informe a data inicial e final do gasto." });
+      return;
+    }
+    if (!channel) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Informe o canal do gasto." });
+      return;
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Informe um valor válido." });
+      return;
+    }
+
+    const expenseStartDate = new Date(`${expenseStartDateRaw}T00:00:00-03:00`);
+    const expenseEndDate = new Date(`${expenseEndDateRaw}T23:59:59-03:00`);
+    if (Number.isNaN(expenseStartDate.getTime()) || Number.isNaN(expenseEndDate.getTime()) || expenseEndDate < expenseStartDate) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Período inválido." });
+      return;
+    }
+
+    const conditions = [eq(marketingExpensesTable.id, id)];
+    const tenantId = scope.tenantId || DEFAULT_TENANT_ID;
+    conditions.push(buildMarketingExpensesTenantWhere(tenantId));
+    if (!scope.hasGlobalAccess) {
+      const sellerCode = normalizeSellerCode(scope.sellerCode);
+      if (!sellerCode) {
+        res.status(403).json({ error: "FORBIDDEN", message: "Usuário sem seller vinculado." });
+        return;
+      }
+      conditions.push(eq(marketingExpensesTable.sellerCode, sellerCode));
+    }
+
+    const existing = await db
+      .select({ id: marketingExpensesTable.id })
+      .from(marketingExpensesTable)
+      .where(and(...conditions))
+      .limit(1);
+
+    if (existing.length === 0) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Gasto não encontrado." });
+      return;
+    }
+
+    await db.update(marketingExpensesTable).set({
+      expenseDate: expenseStartDate,
+      expenseStartDate,
+      expenseEndDate,
+      channel,
+      amount: amount.toFixed(2),
+      note: note || null,
+    }).where(eq(marketingExpensesTable.id, id));
+
+    res.json({
+      id,
+      expenseDate: expenseStartDate.toISOString(),
+      expenseStartDate: expenseStartDate.toISOString(),
+      expenseEndDate: expenseEndDate.toISOString(),
+      channel,
+      amount,
+      note: note || null,
+    });
+  } catch (err) {
+    console.error("[MarketingExpenses] update error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao atualizar gasto." });
+  }
+});
+
 // DELETE /api/admin/marketing-expenses/:id
 router.delete("/admin/marketing-expenses/:id", requireAdminAuth, async (req, res) => {
   try {
