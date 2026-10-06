@@ -33,6 +33,10 @@ export type EnvioEcomShipmentPatch = {
   description?: string | null;
   history?: EnvioEcomHistoryEvent[] | null;
   accountId?: string | null;
+  /** Senha Yury só no fluxo de gerar etiqueta. Não vai para a API EnvioEcom. */
+  reshipmentPassword?: string;
+  /** A rota de etiqueta fecha o reenvio depois, com a senha. */
+  skipReshipmentClose?: boolean;
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -191,10 +195,12 @@ export async function persistEnvioEcomShipment(order: typeof ordersTable.$inferS
       console.warn("[EnvioEcom] Falha ao marcar enviado:", err);
     }
   }
-  try {
-    await markOpenReshipmentSentIfLabeled(order.id);
-  } catch (err) {
-    console.warn("[EnvioEcom] Falha ao marcar reenvio enviado pela etiqueta:", err);
+  if (!patch.skipReshipmentClose) {
+    try {
+      await markOpenReshipmentSentIfLabeled(order.id, patch.reshipmentPassword);
+    } catch (err) {
+      console.warn("[EnvioEcom] Falha ao marcar reenvio enviado pela etiqueta:", err);
+    }
   }
   try {
     await recordAutomaticCarrierLoss({

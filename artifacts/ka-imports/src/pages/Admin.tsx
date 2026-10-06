@@ -16379,11 +16379,27 @@ function OrdersPanel({
                         inventoryByProduct={Object.fromEntries(inventoryBalances.map((row) => [row.productId, row.quantity]))}
                         yuryByProduct={Object.fromEntries(yuryBalances.map((row) => [row.productId, { motoboy: row.qtyMotoboy, minas: row.qtyMinas }]))}
                         productImageById={productImageById}
+                        yuryPassword={yuryExitPassword}
+                        onYuryAuthError={applyYuryExitAuthError}
+                        onReshipmentClosed={(orderId, status) => {
+                          onSetOrderPatched({
+                            id: orderId,
+                            reshipment: { ...(order as { reshipment?: { id?: string; status?: string } }).reshipment, status },
+                          } as AdminOrder);
+                        }}
                       />
                     ) : (
                       <>
                         <EnvioEcomOrderActions
                           order={order as any}
+                          yuryPassword={yuryExitPassword}
+                          onYuryAuthError={applyYuryExitAuthError}
+                          onReshipmentClosed={(orderId, status) => {
+                            onSetOrderPatched({
+                              id: orderId,
+                              reshipment: { ...(order as { reshipment?: { id?: string; status?: string } }).reshipment, status },
+                            } as AdminOrder);
+                          }}
                           onPatched={(patch) => {
                             onSetOrderPatched({ ...order, ...patch } as AdminOrder);
                             if (typeof patch.enviado === "boolean") {
@@ -16402,6 +16418,14 @@ function OrdersPanel({
                           inventoryByProduct={Object.fromEntries(inventoryBalances.map((row) => [row.productId, row.quantity]))}
                           yuryByProduct={Object.fromEntries(yuryBalances.map((row) => [row.productId, { motoboy: row.qtyMotoboy, minas: row.qtyMinas }]))}
                           productImageById={productImageById}
+                          yuryPassword={yuryExitPassword}
+                          onYuryAuthError={applyYuryExitAuthError}
+                          onReshipmentClosed={(orderId, status) => {
+                            onSetOrderPatched({
+                              id: orderId,
+                              reshipment: { ...(order as { reshipment?: { id?: string; status?: string } }).reshipment, status },
+                            } as AdminOrder);
+                          }}
                         />
                       </>
                     )

@@ -1,12 +1,13 @@
 # Integrações externas — KA Imports
 
-> **Última atualização:** 2026-10-04
+> **Última atualização:** 2026-10-05
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-05 | `POST /admin/envioecom/orders/:id/labels` fecha reenvio aberto | Com etiqueta e rastreio, baixa o estoque (Fóz ou Yury) e marca `reenvio_enviado`. Body aceita `password`. Resposta pode trazer `reshipmentClose` | Cotação, create, webhook e pedido sem reenvio |
 | 2026-10-04 | Create EnvioEcom consome a lista da etiqueta | `cost` e `items[0]` saem do baralho / faixa. GET da tela não avança o cursor | Cotação, webhook e envio já criado |
 | 2026-10-04 | Página `/frete` também lista a categoria Tirzepatida | A grade usa o catálogo (`useGetProducts`); a cotação de prazo não muda | `delivery-estimate`, `shipping-options`, ViaCEP e Motoboy |
 | 2026-10-03 | Aba Lista negra lista `carrier_loss_incidents` | `GET /admin/envioecom/loss-blacklist` devolve o histórico local do pedido ou do pacote. Não consulta a API EnvioEcom | Cotação `lossAlert`, POST/DELETE por pedido, create e webhook |

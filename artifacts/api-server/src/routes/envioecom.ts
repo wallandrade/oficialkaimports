@@ -82,6 +82,8 @@ import {
   OrderShipmentError,
   unlinkPackageEnvioEcomBinding,
 } from "../lib/order-shipments";
+import { markOpenReshipmentSentIfLabeled } from "../lib/reshipments";
+import { pickYuryInventoryPassword } from "../lib/yury-inventory";
 
 const router: IRouter = Router();
 
@@ -1280,6 +1282,7 @@ router.post("/admin/envioecom/orders/:id/labels", requireAdminAuth, async (req, 
       return;
     }
     const labelUrl = await uploadShipmentLabelPdfToR2({ buffer: result.buffer, orderId: target.pkg ? `${order.id}-${target.pkg.id}` : order.id });
+    const yuryPassword = pickYuryInventoryPassword(req.body) || undefined;
     const labelPatch = {
       shipmentId: shipmentId || bound.envioecomShipmentId,
       barcode: isUsableLabelBarcode(bound.envioecomBarcode)
@@ -1287,10 +1290,12 @@ router.post("/admin/envioecom/orders/:id/labels", requireAdminAuth, async (req, 
         : (target.pkg ? bound.envioecomBarcode : bound.trackingCode),
       labelUrl,
       status: resolveStatusAfterLabelGenerated(bound.envioecomStatus),
+      skipReshipmentClose: true,
     };
     const persisted = target.pkg
       ? (await persistEnvioEcomPackage(order, target.pkg, { ...labelPatch, accountId: found.account.accountId })).order
       : await persistShipmentForAccount(order, labelPatch, found.account);
+    const reshipmentClose = await markOpenReshipmentSentIfLabeled(order.id, yuryPassword);
     await addOrderEvent({
       orderId: order.id,
       tenantId: admin.tenantId,
@@ -1308,6 +1313,9 @@ router.post("/admin/envioecom/orders/:id/labels", requireAdminAuth, async (req, 
       labelUrl,
       order: await mapEnvioEcomOrderWithPackages(persisted, { accountName: found.account.name }),
       accountId: found.account.accountId,
+      reshipmentClose: reshipmentClose.marked || reshipmentClose.passwordRequired || reshipmentClose.invalidPassword
+        ? reshipmentClose
+        : undefined,
     });
   } catch (err) {
     sendEnvioEcomError(res, err);

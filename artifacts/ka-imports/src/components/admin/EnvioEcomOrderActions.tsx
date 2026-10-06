@@ -190,16 +190,32 @@ async function readError(res: Response) {
   return (await readErrorPayload(res)).message;
 }
 
+export type LabeledReshipmentClose = {
+  marked?: boolean;
+  passwordRequired?: boolean;
+  invalidPassword?: boolean;
+  missingProducts?: string[];
+  debitedProducts?: Array<{ productId?: string; productName?: string; quantity?: number }>;
+  alreadyDebited?: boolean;
+  status?: string | null;
+};
+
 export function EnvioEcomOrderActions({
   order,
   onPatched,
   packageId,
   poolLabel,
+  yuryPassword,
+  onReshipmentClosed,
+  onYuryAuthError,
 }: {
   order: EnvioEcomOrderFields;
   onPatched: (patch: Partial<EnvioEcomOrderFields> & { id: string }) => void;
   packageId?: string;
   poolLabel?: string;
+  yuryPassword?: string;
+  onReshipmentClosed?: (orderId: string, status: string) => void;
+  onYuryAuthError?: (data: { error?: string; message?: string; passwordRequired?: boolean }, status: number) => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [quoteOpen, setQuoteOpen] = useState(false);
@@ -523,10 +539,11 @@ export function EnvioEcomOrderActions({
 
     setBusy("label");
     try {
+      const password = String(yuryPassword || "").trim();
       const res = await fetch(`${BASE}/api/admin/envioecom/orders/${order.id}/labels`, {
         method: "POST",
         headers: adminHeaders(),
-        body: JSON.stringify(withPackageId({})),
+        body: JSON.stringify(withPackageId(password ? { password } : {})),
       });
       if (res.status === 202) {
         toast.message("Etiqueta ainda em processamento. Tente de novo em instantes.");
@@ -539,9 +556,36 @@ export function EnvioEcomOrderActions({
         }
         throw new Error(payload.message);
       }
-      const data = await res.json() as { order?: EnvioEcomOrderFields; labelUrl?: string };
+      const data = await res.json() as { order?: EnvioEcomOrderFields; labelUrl?: string; reshipmentClose?: LabeledReshipmentClose };
       await patchFromResponse(data);
-      toast.success("Etiqueta gerada.");
+      const close = data.reshipmentClose;
+      if (close?.passwordRequired || close?.invalidPassword) {
+        onYuryAuthError?.({
+          error: close.invalidPassword ? "INVALID_PASSWORD" : "PASSWORD_REQUIRED",
+          passwordRequired: close.passwordRequired === true,
+          message: close.invalidPassword ? "Senha inválida. Digite novamente." : "Informe a senha para liberar a baixa.",
+        }, 403);
+        toast.message(close.invalidPassword
+          ? "Etiqueta gerada. A senha da Yury não baixou o reenvio."
+          : "Etiqueta gerada. Digite a senha da Yury e gere a etiqueta de novo para dar baixa no reenvio.");
+      } else if (close?.status === "reenvio_enviado") {
+        onReshipmentClosed?.(order.id, "reenvio_enviado");
+        const debited = Array.isArray(close.debitedProducts) ? close.debitedProducts : [];
+        if (debited.length > 0) {
+          const summary = debited
+            .map((item) => `${Number(item?.quantity || 0)}x ${String(item?.productName || item?.productId || "Produto")}`)
+            .join(", ");
+          toast.success(`Etiqueta gerada. Baixa do reenvio: ${summary}.`);
+        } else if (close.alreadyDebited) {
+          toast.success("Etiqueta gerada. Reenvio saiu da fila — o estoque já estava baixado.");
+        } else if (Array.isArray(close.missingProducts) && close.missingProducts.length > 0) {
+          toast.success(`Etiqueta gerada. Reenvio saiu da fila. Sem saldo para baixar: ${close.missingProducts.join(", ")}.`);
+        } else {
+          toast.success("Etiqueta gerada. Reenvio baixado e saiu da fila de envio.");
+        }
+      } else {
+        toast.success("Etiqueta gerada.");
+      }
       if (data.labelUrl) window.open(data.labelUrl, "_blank", "noopener,noreferrer");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Falha ao gerar etiqueta.");

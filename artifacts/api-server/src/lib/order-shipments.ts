@@ -244,10 +244,12 @@ export async function persistEnvioEcomPackage(
   await db.update(orderShipmentsTable).set(updates).where(eq(orderShipmentsTable.id, pkg.id));
   const refreshedPkg = (await db.select().from(orderShipmentsTable).where(eq(orderShipmentsTable.id, pkg.id)).limit(1))[0] || pkg;
   const refreshedOrder = await rollupOrderFromPackages(order);
-  try {
-    await markOpenReshipmentSentIfLabeled(order.id);
-  } catch (err) {
-    console.warn("[OrderShipments] Falha ao marcar reenvio enviado pela etiqueta:", err);
+  if (!patch.skipReshipmentClose) {
+    try {
+      await markOpenReshipmentSentIfLabeled(order.id, patch.reshipmentPassword);
+    } catch (err) {
+      console.warn("[OrderShipments] Falha ao marcar reenvio enviado pela etiqueta:", err);
+    }
   }
   try {
     await recordAutomaticCarrierLoss({

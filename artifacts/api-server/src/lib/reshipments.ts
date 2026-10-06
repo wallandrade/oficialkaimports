@@ -1359,35 +1359,107 @@ async function loadOrderEnvioEcomLabelTracking(orderIds: string[]) {
   return new Map(orders.map((order) => [order.id, { order, packages: packagesByOrder.get(order.id) || [] }]));
 }
 
-/** Marca reenvio aberto como enviado quando a etiqueta EnvioEcom já tem rastreio. Não baixa estoque. */
-export async function markOpenReshipmentSentIfLabeled(orderId: string): Promise<boolean> {
+export type LabeledReshipmentClose = {
+  marked: boolean;
+  passwordRequired: boolean;
+  invalidPassword: boolean;
+  missingProducts: string[];
+  debitedProducts: Array<{ productId: string; productName: string; quantity: number }>;
+  alreadyDebited: boolean;
+  reshipmentId: string | null;
+  status: "reenvio_enviado" | null;
+};
+
+const EMPTY_LABELED_RESHIPMENT_CLOSE: LabeledReshipmentClose = {
+  marked: false,
+  passwordRequired: false,
+  invalidPassword: false,
+  missingProducts: [],
+  debitedProducts: [],
+  alreadyDebited: false,
+  reshipmentId: null,
+  status: null,
+};
+
+/** Baixa o estoque do reenvio (igual a Marcar Reenvio Enviado) e só então marca enviado. */
+async function debitAndCloseReshipment(
+  row: { id: string; tenantId: string | null; orderId: string },
+  password?: string,
+): Promise<LabeledReshipmentClose> {
+  const debit = await ensureReshipmentSendDebit({
+    id: row.id,
+    source: "support",
+    tenantId: row.tenantId || DEFAULT_TENANT_ID,
+    password,
+  });
+  if (!debit.ok) {
+    if (debit.passwordRequired) {
+      console.info("[Reshipment] Etiqueta pronta, baixa aguardando senha Yury", { id: row.id, orderId: row.orderId });
+      return { ...EMPTY_LABELED_RESHIPMENT_CLOSE, passwordRequired: true, reshipmentId: row.id };
+    }
+    if (debit.error === "INVALID_PASSWORD") {
+      console.info("[Reshipment] Etiqueta pronta, senha Yury inválida", { id: row.id, orderId: row.orderId });
+      return { ...EMPTY_LABELED_RESHIPMENT_CLOSE, invalidPassword: true, reshipmentId: row.id };
+    }
+    if (debit.notFound || debit.invalidProducts) {
+      console.info("[Reshipment] Etiqueta não fechou o reenvio", {
+        id: row.id,
+        orderId: row.orderId,
+        notFound: debit.notFound,
+        invalidProducts: debit.invalidProducts,
+      });
+      return { ...EMPTY_LABELED_RESHIPMENT_CLOSE, reshipmentId: row.id };
+    }
+    console.info("[Reshipment] Etiqueta marcou enviado sem saldo completo", {
+      id: row.id,
+      orderId: row.orderId,
+      missingProducts: debit.missingProducts,
+      error: debit.error,
+    });
+  }
+  const updated = await setReshipmentStatus(row.id, "reenvio_enviado", row.tenantId || DEFAULT_TENANT_ID);
+  if (!updated) return { ...EMPTY_LABELED_RESHIPMENT_CLOSE, reshipmentId: row.id };
+  console.log(`[Reshipment] Etiqueta EnvioEcom baixou e marcou reenvio ${row.id} do pedido ${row.orderId} como enviado`);
+  return {
+    marked: true,
+    passwordRequired: false,
+    invalidPassword: false,
+    missingProducts: debit.missingProducts || [],
+    debitedProducts: debit.debitedProducts || [],
+    alreadyDebited: Boolean(debit.alreadyDebited),
+    reshipmentId: row.id,
+    status: "reenvio_enviado",
+  };
+}
+
+/** Marca reenvio aberto como enviado quando a etiqueta EnvioEcom já tem rastreio, e dá baixa. */
+export async function markOpenReshipmentSentIfLabeled(orderId: string, password?: string): Promise<LabeledReshipmentClose> {
   const id = String(orderId || "").trim();
-  if (!id) return false;
+  if (!id) return EMPTY_LABELED_RESHIPMENT_CLOSE;
   const rows = await db
     .select({
       id: reshipmentsTable.id,
       tenantId: reshipmentsTable.tenantId,
+      orderId: reshipmentsTable.orderId,
     })
     .from(reshipmentsTable)
     .where(and(
       eq(reshipmentsTable.orderId, id),
       inArray(reshipmentsTable.status, [...OPEN_RESHIPMENT_STATUSES]),
     ));
-  if (rows.length === 0) return false;
+  if (rows.length === 0) return EMPTY_LABELED_RESHIPMENT_CLOSE;
   const loaded = await loadOrderEnvioEcomLabelTracking([id]);
   const current = loaded.get(id);
-  if (!current || !orderHasEnvioEcomLabelAndTracking(current.order, current.packages)) return false;
-  let marked = false;
+  if (!current || !orderHasEnvioEcomLabelAndTracking(current.order, current.packages)) return EMPTY_LABELED_RESHIPMENT_CLOSE;
+  let result = EMPTY_LABELED_RESHIPMENT_CLOSE;
   for (const reshipment of rows) {
-    const updated = await setReshipmentStatus(reshipment.id, "reenvio_enviado", reshipment.tenantId || DEFAULT_TENANT_ID);
-    if (!updated) continue;
-    marked = true;
-    console.log(`[Reshipment] Etiqueta EnvioEcom marcou reenvio ${reshipment.id} do pedido ${id} como enviado`);
+    result = await debitAndCloseReshipment(reshipment, password);
+    if (result.passwordRequired || result.invalidPassword) return result;
   }
-  return marked;
+  return result;
 }
 
-/** Varre reenvios ainda abertos e marca os que já têm etiqueta e rastreio. Não baixa estoque. */
+/** Varre reenvios ainda abertos com etiqueta e rastreio, dá baixa e marca enviado. */
 export async function syncOpenReshipmentsSentFromEnvioEcom(): Promise<number> {
   const rows = await db
     .select({
@@ -1403,11 +1475,11 @@ export async function syncOpenReshipmentsSentFromEnvioEcom(): Promise<number> {
   for (const row of rows) {
     const current = loaded.get(row.orderId);
     if (!current || !orderHasEnvioEcomLabelAndTracking(current.order, current.packages)) continue;
-    const updated = await setReshipmentStatus(row.id, "reenvio_enviado", row.tenantId || DEFAULT_TENANT_ID);
-    if (updated) marked += 1;
+    const closed = await debitAndCloseReshipment(row);
+    if (closed.marked) marked += 1;
   }
   if (marked > 0) {
-    console.log(`[Reshipment] Varredura marcou ${marked} reenvio(s) com etiqueta e rastreio EnvioEcom`);
+    console.log(`[Reshipment] Varredura baixou e marcou ${marked} reenvio(s) com etiqueta e rastreio EnvioEcom`);
   }
   return marked;
 }
