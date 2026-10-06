@@ -139,6 +139,23 @@ function escapeHtml(value: string | number | null | undefined): string {
 function todayStr() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
 }
+const MONTHS_PT = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+function currentMonthRangeSaoPaulo() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(new Date());
+  const year = Number(parts.find((part) => part.type === "year")?.value || "2026");
+  const month = Number(parts.find((part) => part.type === "month")?.value || "1");
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const mm = String(month).padStart(2, "0");
+  return {
+    from: `${year}-${mm}-01`,
+    to: `${year}-${mm}-${String(lastDay).padStart(2, "0")}`,
+    label: `${MONTHS_PT[month - 1] || mm}/${year}`,
+  };
+}
 function daysAgoStr(days: number) {
   const d = new Date();
   d.setDate(d.getDate() - Math.max(0, days));
@@ -1417,7 +1434,7 @@ function OrderBumpsPanel({ bumps, products, form, setForm, creating, toggling, d
   );
 }
 
-type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "affiliates" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "checkout" | "seguro" | "socialProof" | "raffles" | "lojas" | "supplierPurchases" | "envioecom" | "listaNegra" | "extrato" | "depositos";
+type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "affiliates" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "despesas" | "checkout" | "seguro" | "socialProof" | "raffles" | "lojas" | "supplierPurchases" | "envioecom" | "listaNegra" | "extrato" | "depositos";
 type LojasSubTab = "criar" | "pedidos" | "cadastradas";
 type FilialScopeSubTab = "pedidos" | "produtos" | "estoque";
 
@@ -2360,6 +2377,7 @@ export default function Admin() {
     total: number;
     byChannel: Array<{ channel: string; total: number }>;
   }>({ items: [], total: 0, byChannel: [] });
+  const [monthNetRevenue, setMonthNetRevenue] = useState<number | null>(null);
   const [pendingReshipments, setPendingReshipments] = useState<ReshipmentRecord[]>([]);
   const [activeManualReturnItemId, setActiveManualReturnItemId] = useState<string | null>(null);
   const [inventoryEntryForm, setInventoryEntryForm] = useState({
@@ -3131,6 +3149,20 @@ export default function Admin() {
     setFinancialSummaryLoading(false);
   }, [statsDateFrom, statsDateTo, statsSeller]);
 
+  const fetchMonthNetRevenue = React.useCallback(async () => {
+    const range = currentMonthRangeSaoPaulo();
+    try {
+      const params = new URLSearchParams({ dateFrom: range.from, dateTo: range.to });
+      if (statsSeller !== "all") params.set("sellerCode", statsSeller);
+      params.set("repasseDateBasis", "purchaseRecordedAt");
+      const res = await fetch(`${BASE}/api/admin/financial-summary?${params}`, { headers: authHeaders() });
+      if (res.ok) {
+        const data = await res.json() as { realNetRevenue?: number };
+        setMonthNetRevenue(Number(data.realNetRevenue) || 0);
+      }
+    } catch {}
+  }, [BASE, statsSeller]);
+
   const fetchMarketingExpenses = React.useCallback(async () => {
     setMarketingExpensesLoading(true);
     try {
@@ -3200,13 +3232,14 @@ export default function Admin() {
       }));
       toast.success("Gasto adicionado com sucesso.");
       fetchFinancialSummary();
+      fetchMonthNetRevenue();
       fetchMarketingExpenses();
     } catch {
       toast.error("Erro ao registrar gasto.");
     } finally {
       setMarketingExpensesSubmitting(false);
     }
-  }, [BASE, fetchFinancialSummary, fetchMarketingExpenses, marketingExpenseForm]);
+  }, [BASE, fetchFinancialSummary, fetchMonthNetRevenue, fetchMarketingExpenses, marketingExpenseForm]);
 
   const handleDeleteMarketingExpense = React.useCallback(async (expenseId: string) => {
     if (!expenseId) return;
@@ -3227,13 +3260,14 @@ export default function Admin() {
 
       toast.success("Gasto removido com sucesso.");
       fetchFinancialSummary();
+      fetchMonthNetRevenue();
       fetchMarketingExpenses();
     } catch {
       toast.error("Erro ao remover gasto.");
     } finally {
       setMarketingExpenseDeletingId(null);
     }
-  }, [BASE, fetchFinancialSummary, fetchMarketingExpenses]);
+  }, [BASE, fetchFinancialSummary, fetchMonthNetRevenue, fetchMarketingExpenses]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
   const webhookUrl  = `${window.location.origin}${BASE}/api/webhook/pix`;
@@ -6870,6 +6904,7 @@ export default function Admin() {
   // Atualizar junto com stats (must be before the early return to respect Rules of Hooks)
   React.useEffect(() => { if (authChecked) fetchFinancialSummary(); }, [authChecked, statsDateFrom, statsDateTo, statsSeller, fetchFinancialSummary]);
   React.useEffect(() => { if (authChecked) fetchMarketingExpenses(); }, [authChecked, fetchMarketingExpenses]);
+  React.useEffect(() => { if (authChecked) fetchMonthNetRevenue(); }, [authChecked, fetchMonthNetRevenue]);
 
   const productImageById = useMemo(() => Object.fromEntries(
     (products as Array<{ id?: string; image?: string | null }>)
@@ -7822,6 +7857,7 @@ export default function Admin() {
               { key: "listaNegra" as TabType, label: "Lista negra", icon: "ShieldAlert" },
             ] : []),
             ...(canManageProductsTab ? [
+              { key: "despesas" as TabType, label: "Despesas", icon: "DollarSign" },
               { key: "configuracoes" as TabType, label: "Configuração", icon: "Settings" },
             ] : []),
             ...(canManageShippingTab ? [
@@ -11762,31 +11798,36 @@ export default function Admin() {
               setTimeout(() => setWebhookCopied(false), 2000);
             }}
           />
-        ) : tab === "configuracoes" ? (
-          <div className="space-y-6">
-            <EnvioEcomSettingsCard />
-            <CheckoutCarrierPriorityCard
-              value={settings.envioecom_checkout_carrier_priority}
-              saving={!!settingsLoading.envioecom_checkout_carrier_priority}
-              onSave={saveSetting}
-            />
-            <ShippingQueueDeadlineCard
-              enabledValue={settings.shipping_queue_manual_enabled}
-              hoursValue={settings.shipping_queue_manual_hours}
-              saving={!!settingsLoading.shipping_queue_manual_enabled || !!settingsLoading.shipping_queue_manual_hours}
-              onSave={saveSetting}
-            />
-            <div className="rounded-xl border bg-gradient-to-br from-rose-50 to-orange-50/60 border-rose-200 p-5">
-              <div className="flex flex-wrap items-start justify-between gap-2 mb-4">
-                <div>
-                  <p className="text-xs font-semibold text-rose-700 uppercase tracking-wide">Gastos por data</p>
-                  <p className="text-sm text-rose-700/80">Cadastre novas despesas de marketing aqui. A lista abaixo mostra todos os gastos salvos. A Visão Geral só desconta o que cruza o período De/até.</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs text-rose-700/70 uppercase tracking-wide">Total registrado</p>
-                  <p className="text-2xl font-bold text-rose-700">{formatCurrency(Number(marketingExpenseLedger.total) || 0)}</p>
-                </div>
+        ) : tab === "despesas" ? (
+          <div className="rounded-xl border bg-gradient-to-br from-rose-50 to-orange-50/60 border-rose-200 p-5">
+            <div className="flex flex-wrap items-start justify-between gap-2 mb-4">
+              <div>
+                <p className="text-xs font-semibold text-rose-700 uppercase tracking-wide">Despesas</p>
+                <p className="text-sm text-rose-700/80">Cadastre os gastos de marketing. A lista mostra tudo que foi salvo. O gasto e o líquido do período seguem o De/até da Visão Geral.</p>
               </div>
+              <div className="text-right">
+                <p className="text-xs text-rose-700/70 uppercase tracking-wide">Total registrado</p>
+                <p className="text-2xl font-bold text-rose-700">{formatCurrency(Number(marketingExpenseLedger.total) || 0)}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+              <div className="rounded-xl border border-rose-200 bg-white/80 p-4">
+                <p className="text-xs font-semibold text-rose-700 uppercase tracking-wide">Gasto no período</p>
+                <p className="text-2xl font-bold text-rose-700 mt-1">{formatCurrency(Number(financialSummary?.totalMarketingExpenses) || 0)}</p>
+                <p className="text-xs text-rose-700/70 mt-1">{formatDateOnlyLocal(statsDateFrom)} até {formatDateOnlyLocal(statsDateTo)}</p>
+              </div>
+              <div className="rounded-xl border border-rose-200 bg-white/80 p-4">
+                <p className="text-xs font-semibold text-rose-700 uppercase tracking-wide">Faturamento líquido no mesmo período</p>
+                <p className="text-2xl font-bold text-rose-900 mt-1">{formatCurrency(Number(financialSummary?.realNetRevenue) || 0)}</p>
+                <p className="text-xs text-rose-700/70 mt-1">Já desconta este gasto, custo, comissão e taxas</p>
+              </div>
+              <div className="rounded-xl border border-rose-200 bg-white/80 p-4">
+                <p className="text-xs font-semibold text-rose-700 uppercase tracking-wide">Faturamento líquido no mês</p>
+                <p className="text-2xl font-bold text-rose-900 mt-1">{monthNetRevenue == null ? "..." : formatCurrency(monthNetRevenue)}</p>
+                <p className="text-xs text-rose-700/70 mt-1">{currentMonthRangeSaoPaulo().label}</p>
+              </div>
+            </div>
 
               <form onSubmit={handleAddMarketingExpense} className="grid grid-cols-1 sm:grid-cols-6 gap-3 mb-4">
                 <input
@@ -11887,7 +11928,21 @@ export default function Admin() {
                   </div>
                 </div>
               </div>
-            </div>
+          </div>
+        ) : tab === "configuracoes" ? (
+          <div className="space-y-6">
+            <EnvioEcomSettingsCard />
+            <CheckoutCarrierPriorityCard
+              value={settings.envioecom_checkout_carrier_priority}
+              saving={!!settingsLoading.envioecom_checkout_carrier_priority}
+              onSave={saveSetting}
+            />
+            <ShippingQueueDeadlineCard
+              enabledValue={settings.shipping_queue_manual_enabled}
+              hoursValue={settings.shipping_queue_manual_hours}
+              saving={!!settingsLoading.shipping_queue_manual_enabled || !!settingsLoading.shipping_queue_manual_hours}
+              onSave={saveSetting}
+            />
 
             <ConfiguracoesPanel
               adminTenantId={adminTenantId}
