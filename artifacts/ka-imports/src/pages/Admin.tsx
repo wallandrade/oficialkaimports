@@ -14723,7 +14723,10 @@ function OrdersPanel({
     let cancelled = false;
     void (async () => {
       try {
-        const res = await fetch(`${BASE}/api/admin/yury-inventory`, { headers: authHeaders() });
+        const res = await fetch(`${BASE}/api/admin/yury-inventory`, {
+          headers: authHeaders(),
+          cache: "no-store",
+        });
         if (!res.ok) return;
         const data = await res.json() as { balances?: YuryInventoryBalanceRecord[] };
         if (cancelled) return;
@@ -14736,6 +14739,48 @@ function OrdersPanel({
     })();
     return () => { cancelled = true; };
   }, []);
+
+  const readYuryBalances = async (): Promise<YuryInventoryBalanceRecord[] | null> => {
+    try {
+      const res = await fetch(`${BASE}/api/admin/yury-inventory`, {
+        headers: authHeaders(),
+        cache: "no-store",
+      });
+      if (!res.ok) return null;
+      const data = await res.json() as { balances?: YuryInventoryBalanceRecord[] };
+      const balances = Array.isArray(data.balances) ? data.balances : [];
+      setYuryBalances(balances);
+      setYuryInventoryReady(true);
+      return balances;
+    } catch {
+      return null;
+    }
+  };
+
+  const pullYuryBalances = async (): Promise<YuryInventoryBalanceRecord[] | null> => {
+    try {
+      const res = await fetch(`${BASE}/api/admin/yury-inventory/sync`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      if (!res.ok) return null;
+      const data = await res.json() as { balances?: YuryInventoryBalanceRecord[] };
+      const balances = Array.isArray(data.balances) ? data.balances : [];
+      setYuryBalances(balances);
+      setYuryInventoryReady(true);
+      return balances;
+    } catch {
+      return null;
+    }
+  };
+
+  const yuryBalancesForCheck = async (pool: KaExitPool): Promise<YuryInventoryBalanceRecord[]> => {
+    if (pool === "loja") return yuryBalances;
+    const pulled = await pullYuryBalances();
+    if (pulled) return pulled;
+    const fresh = await readYuryBalances();
+    return fresh ?? yuryBalances;
+  };
 
   const refreshYuryExitStatus = async () => {
     try {
@@ -15188,6 +15233,7 @@ function OrdersPanel({
     orderId: string,
     pool: KaExitPool = "loja",
     balancesSnapshot: InventoryBalanceRecord[] = inventoryBalances,
+    yurySnapshot: YuryInventoryBalanceRecord[] = yuryBalances,
   ): { hasStock: boolean; message: string; missingItems: string[] } => {
     // Only check stock when marking as enviado (novoValor = true)
     const order = ordersLookup.find(o => o.id === orderId);
@@ -15207,7 +15253,7 @@ function OrdersPanel({
       if (balancesSnapshot.length === 0) {
         return { hasStock: true, message: "", missingItems: [] };
       }
-    } else if (!yuryInventoryReady) {
+    } else if (!yuryInventoryReady && yurySnapshot.length === 0) {
       return { hasStock: true, message: "", missingItems: [] };
     }
 
@@ -15215,6 +15261,7 @@ function OrdersPanel({
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
       .toLowerCase()
+      .replace(/[.\-_]/g, "")
       .replace(/[^a-z0-9]+/g, " ")
       .replace(/\s+/g, " ")
       .trim();
@@ -15263,7 +15310,7 @@ function OrdersPanel({
         stockByName.set(normalized, typeof current === "number" ? current + quantity : quantity);
       }
     } else {
-      for (const row of yuryBalances) {
+      for (const row of yurySnapshot) {
         const key = String(row.productId || "").trim();
         const quantity = pool === "minas" ? Number(row.qtyMinas) || 0 : Number(row.qtyMotoboy) || 0;
         if (key) {
@@ -15363,7 +15410,7 @@ function OrdersPanel({
   };
 
   const debitOrderStockNow = async (order: AdminOrder, pool: KaExitPool) => {
-    const stockCheck = verifyOrderStock(order.id, pool);
+    const stockCheck = verifyOrderStock(order.id, pool, inventoryBalances, await yuryBalancesForCheck(pool));
     if (!stockCheck.hasStock) {
       toast.error(stockCheck.message);
       return;
@@ -15428,9 +15475,15 @@ function OrdersPanel({
       return;
     }
 
-    // Verify stock before marking as enviado
+    // Verify stock before marking as enviado. Motoboy/Minas puxa a Yury na hora
+    // (não usa a lista da aba nem o espelho de até 3 min). "T.G" vale como "TG".
     if (novoValor) {
-      const stockCheck = verifyOrderStock(orderId, pool, trackingInventoryBalances ?? inventoryBalances);
+      const stockCheck = verifyOrderStock(
+        orderId,
+        pool,
+        trackingInventoryBalances ?? inventoryBalances,
+        await yuryBalancesForCheck(pool),
+      );
       if (!stockCheck.hasStock) {
         toast.error(stockCheck.message);
         return;
@@ -15961,7 +16014,13 @@ function OrdersPanel({
 
     const targetOrderId = trackingSelectedOrderId || trackingReview.order.id;
     const targetOrder = ordersLookup.find((o) => o.id === targetOrderId) || trackingReview.order;
-    const stockCheck = verifyOrderStock(targetOrderId, defaultKaExitPool(targetOrder));
+    const targetPool = defaultKaExitPool(targetOrder);
+    const stockCheck = verifyOrderStock(
+      targetOrderId,
+      targetPool,
+      inventoryBalances,
+      await yuryBalancesForCheck(targetPool),
+    );
     if (!stockCheck.hasStock) {
       toast.error(stockCheck.message);
       return;
