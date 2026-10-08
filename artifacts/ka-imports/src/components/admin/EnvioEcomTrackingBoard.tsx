@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { formatDateBR } from "@/lib/utils";
 import { ShippingStatusTimeline } from "@/components/ShippingStatusTimeline";
+import { EnvioEcomControlTower } from "@/components/admin/EnvioEcomControlTower";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -206,8 +207,10 @@ function resolveTimelineEvents(item: TrackingItem): TrackingEvent[] {
 
 export function EnvioEcomTrackingBoard({
   onOpenOrder,
+  onUnauthorized,
 }: {
-  onOpenOrder?: (item: TrackingItem) => void;
+  onOpenOrder?: (item: { id: string; orderNumber?: number | null }) => void;
+  onUnauthorized?: () => void;
 }) {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -532,6 +535,8 @@ export function EnvioEcomTrackingBoard({
           </p>
         </div>
       ) : null}
+
+      <EnvioEcomControlTower onOpenOrder={onOpenOrder} onUnauthorized={onUnauthorized} />
 
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
         {kpis.map((kpi) => (

@@ -8836,6 +8836,7 @@ export default function Admin() {
               setSearch(Number.isFinite(numeric) && numeric > 0 ? String(Math.trunc(numeric)) : item.id);
               setTab("orders");
             }}
+            onUnauthorized={handleUnauthorized}
           />
         ) : tab === "listaNegra" ? (
           <LossBlacklistBoard

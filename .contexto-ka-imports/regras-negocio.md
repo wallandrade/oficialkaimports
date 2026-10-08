@@ -1,12 +1,13 @@
 # Regras de negócio — KA Imports
 
-> **Última atualização:** 2026-10-06
+> **Última atualização:** 2026-10-08
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-08 | Torre de ocorrências na aba Rastreios | Lista etiqueta EnvioEcom com problema ainda aberto e diz o que fazer. Não grava | Cards do painel, lista negra, `enviado`, estoque e cópia de 48h |
 | 2026-10-06 | Despesa pode ser editada; lucro e prejuízo mudam de cor | `PATCH /api/admin/marketing-expenses/:id` altera data, canal, valor e observação. Gasto fica vermelho. Líquido positivo fica verde e negativo fica vermelho | Remover, tenant e seller-scoped; a Visão Geral continua descontando só o que cruza o De/até |
 | 2026-10-06 | Cada despesa mostra o líquido do próprio intervalo e do mês | Em **Lançamentos recentes**, a linha traz o faturamento líquido das datas daquele gasto e o líquido do mês dessa data | Os cards do topo continuam no De/até da Visão Geral e no mês calendário atual |
 | 2026-10-06 | Aba **Despesas** no admin | Sai de Configuração. Lista todos os gastos salvos. Mostra gasto do De/até, faturamento líquido desse intervalo e líquido do mês calendário | A linha **Gastos marketing** da Visão Geral continua só o que cruza o período; cadastro, remoção, tenant e seller-scoped |
@@ -241,6 +242,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 - **Aguardando estoque** no card: botão grava `is_aguardando_estoque`. Liga/desliga à mão; persiste no BD. O card sai de **Pedido normal** (ou **Motoboy**) e entra na pill **Pedidos aguardando estoque** (anel/selo laranja), sem rolar a página. **Envios 48h/72h/96h**, Motoboy e Outros **não** incluem (junto com Procurando produto). **Compra 48h/72h/96h** nessa pill copia só os pedidos aguardando estoque do lote — precisa comprar. Troca de SKU (`replace-product`) zera a flag. Não é o badge automático **Faltando estoque**, nem `reenvio_aguardando_estoque`, nem o “Aguardando estoque” da Minha conta (pacote sem etiqueta). Cópia do card: `AGUARDANDO ESTOQUE — não fazer etiqueta ainda.`
 - Frete Motoboy (`shippingType` com motoboy ou agenda `motoboyDeliveryDate`+`Time`) entra na pill **Motoboy**, não em Pedido normal, salvo se for reenvio ativo ou `is_aguardando_estoque`.
 - Aba **Rastreios EE**: lista pedidos com barcode/shipment_id/status EnvioEcom; Atualizar lista lê o BD; Sync consulta a API. Clique na linha abre/fecha a timeline (`envioecom_status_history`, mais recente em cima); Sync/PDF/Pedido não fecham a linha. Clique no cabeçalho **Status** ordena A–Z, depois Z–A, depois volta à ordem por data. Campo “Nome do produto no create” (até 120 chars) vale para todos os itens da loja; envios já criados não mudam. **Vincular EE** cola ID ou rastreio de um envio já criado no painel EnvioEcom no pedido (não cotação/create).
+- **Torre de ocorrências** (aba Rastreios, só leitura): `GET /api/admin/envioecom/control-tower`. Mostra a etiqueta EnvioEcom com problema aberto na última movimentação, a transportadora e o tipo que concentram os casos, e a ação (indenização, liberação, endereço, cliente, devolução ou retirada). Período padrão: 90 dias. Pedido dividido entra pelo pacote, não pela linha do pai. Não marca Enviado, não baixa estoque, não tira o pedido da cópia de 48 horas e não escreve na lista negra.
 - Aba **Extrato**: upload OFX → Analisar → relatório (100% / **Valor bateu, nome diferente** / ambíguos / PIX sem pedido / pedido sem depósito) → aplicar em lote ou **Aplicar este** por linha (grava `ok` nos outros; `confirmed_100` nos 100%; ambíguo depois de escolher o pedido). **Buscar no extrato**: filtra PIX por nome/valor/FITID e **Vincular** ao nº do pedido (`clear` se o FITID já estiver em *outro* pedido). Valor igual ou soma que fecha o total aplica direto; se a soma ainda ≠ total, abre modal de motivo. Vários PIX no mesmo pedido (ex. edição). Clique no nº do pedido abre Pedidos ampliando `dateFrom`/`dateTo` (data do pedido → hoje, ou 365 dias). Meta mostra créditos novos, FITIDs já registrados (ignorados) e pedidos manuais vs. total no período. Badge no card: **Depósito pago 100%** / Depósito OK / **Depósito parcial** (soma < total) / Depósito não encontrado.
 - Aba **Depósitos**: `GET /api/admin/bank-deposits` lista cada PIX aplicado (`confirmed_100` / `ok` / ambos). Não some ao atualizar. Clique no pedido abre o card em Pedidos. **Desfazer** remove aquele FITID; os outros PIX do pedido ficam.
 

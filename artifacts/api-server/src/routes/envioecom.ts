@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { db, ordersTable } from "@workspace/db";
-import { and, desc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
+import { db, orderShipmentsTable, ordersTable } from "@workspace/db";
+import { and, desc, eq, gte, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { getCustomerSession, requireCustomerAuth } from "../middlewares/customer-auth";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
@@ -84,6 +84,7 @@ import {
 } from "../lib/order-shipments";
 import { markOpenReshipmentSentIfLabeled } from "../lib/reshipments";
 import { pickYuryInventoryPassword } from "../lib/yury-inventory";
+import { buildControlTower, resolveTowerPeriod, type TowerCandidate } from "../lib/shipping-control-tower";
 
 const router: IRouter = Router();
 
@@ -1510,6 +1511,168 @@ router.post("/admin/envioecom/orders/:id/unlink", requireAdminAuth, async (req, 
     });
   } catch (err) {
     sendEnvioEcomError(res, err);
+  }
+});
+
+function requireControlTowerAdmin(req: Request, res: Response): { tenantId: string; sellerCode: string | null; hasGlobalAccess: boolean } | null {
+  const scope = getAdminScope(req);
+  if (!scope) {
+    res.status(401).json({ error: "UNAUTHORIZED", message: "Não autenticado." });
+    return null;
+  }
+  if (!scope.hasGlobalAccess && !scope.sellerCode) {
+    res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão." });
+    return null;
+  }
+  return {
+    tenantId: scope.tenantId || DEFAULT_TENANT_ID,
+    sellerCode: scope.sellerCode,
+    hasGlobalAccess: scope.hasGlobalAccess,
+  };
+}
+
+function towerBindingSql(
+  barcode: typeof ordersTable.envioecomBarcode | typeof orderShipmentsTable.envioecomBarcode,
+  shipmentId: typeof ordersTable.envioecomShipmentId | typeof orderShipmentsTable.envioecomShipmentId,
+  status: typeof ordersTable.envioecomStatus | typeof orderShipmentsTable.envioecomStatus,
+) {
+  return or(
+    sql`trim(coalesce(${barcode}, '')) <> ''`,
+    sql`coalesce(${shipmentId}, 0) > 0`,
+    sql`trim(coalesce(${status}, '')) <> ''`,
+  );
+}
+
+function towerOpenStatusSql(status: typeof ordersTable.envioecomStatus | typeof orderShipmentsTable.envioecomStatus) {
+  return or(
+    isNull(status),
+    and(
+      sql`lower(${status}) not like '%entregue%'`,
+      sql`lower(${status}) not like '%cancelad%'`,
+      sql`lower(${status}) not like '%cancelamento%'`,
+    ),
+  );
+}
+
+async function countPackagesForTower(orderIds: string[]): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  for (let index = 0; index < orderIds.length; index += 400) {
+    const batch = orderIds.slice(index, index + 400);
+    if (!batch.length) continue;
+    const rows = await db
+      .select({
+        orderId: orderShipmentsTable.orderId,
+        total: sql<number>`count(*)`,
+      })
+      .from(orderShipmentsTable)
+      .where(inArray(orderShipmentsTable.orderId, batch))
+      .groupBy(orderShipmentsTable.orderId);
+    for (const row of rows) counts.set(row.orderId, Number(row.total) || 0);
+  }
+  return counts;
+}
+
+router.get("/admin/envioecom/control-tower", requireAdminAuth, async (req, res) => {
+  try {
+    const admin = requireControlTowerAdmin(req, res);
+    if (!admin) return;
+    const query = req.query as { period?: string; carrier?: string; kind?: string };
+    const now = new Date();
+    const { since } = resolveTowerPeriod(query.period, now);
+    const sellerFilter = !admin.hasGlobalAccess && admin.sellerCode
+      ? eq(ordersTable.sellerCode, admin.sellerCode)
+      : undefined;
+    const orderWhere = and(
+      buildOrderTenantWhere(admin.tenantId),
+      sellerFilter,
+      towerBindingSql(ordersTable.envioecomBarcode, ordersTable.envioecomShipmentId, ordersTable.envioecomStatus),
+      isNotNull(ordersTable.envioecomStatusUpdatedAt),
+      gte(ordersTable.envioecomStatusUpdatedAt, since),
+      towerOpenStatusSql(ordersTable.envioecomStatus),
+    );
+    const packageWhere = and(
+      buildOrderTenantWhere(admin.tenantId),
+      sellerFilter,
+      towerBindingSql(orderShipmentsTable.envioecomBarcode, orderShipmentsTable.envioecomShipmentId, orderShipmentsTable.envioecomStatus),
+      isNotNull(orderShipmentsTable.envioecomStatusUpdatedAt),
+      gte(orderShipmentsTable.envioecomStatusUpdatedAt, since),
+      towerOpenStatusSql(orderShipmentsTable.envioecomStatus),
+    );
+    const [orderRows, packageRows] = await Promise.all([
+      db.select({
+        id: ordersTable.id,
+        orderNumber: ordersTable.orderNumber,
+        clientName: ordersTable.clientName,
+        clientPhone: ordersTable.clientPhone,
+        trackingCode: ordersTable.trackingCode,
+        barcode: ordersTable.envioecomBarcode,
+        shipmentId: ordersTable.envioecomShipmentId,
+        carrierRaw: ordersTable.envioecomDeliveryMode,
+        status: ordersTable.envioecomStatus,
+        statusUpdatedAt: ordersTable.envioecomStatusUpdatedAt,
+        history: ordersTable.envioecomStatusHistory,
+      }).from(ordersTable).where(orderWhere),
+      db.select({
+        packageId: orderShipmentsTable.id,
+        orderId: orderShipmentsTable.orderId,
+        orderNumber: ordersTable.orderNumber,
+        clientName: ordersTable.clientName,
+        clientPhone: ordersTable.clientPhone,
+        barcode: orderShipmentsTable.envioecomBarcode,
+        shipmentId: orderShipmentsTable.envioecomShipmentId,
+        carrierRaw: orderShipmentsTable.envioecomDeliveryMode,
+        status: orderShipmentsTable.envioecomStatus,
+        statusUpdatedAt: orderShipmentsTable.envioecomStatusUpdatedAt,
+        history: orderShipmentsTable.envioecomStatusHistory,
+      }).from(orderShipmentsTable)
+        .innerJoin(ordersTable, eq(orderShipmentsTable.orderId, ordersTable.id))
+        .where(packageWhere),
+    ]);
+    const orders: TowerCandidate[] = orderRows.map((row) => ({
+      orderId: row.id,
+      orderNumber: row.orderNumber,
+      clientName: row.clientName,
+      clientPhone: row.clientPhone,
+      trackingCode: row.trackingCode,
+      barcode: row.barcode,
+      shipmentId: row.shipmentId,
+      carrierRaw: row.carrierRaw,
+      status: row.status,
+      statusUpdatedAt: row.statusUpdatedAt,
+      history: row.history,
+    }));
+    const packages: TowerCandidate[] = packageRows.map((row) => ({
+      orderId: row.orderId,
+      packageId: row.packageId,
+      orderNumber: row.orderNumber,
+      clientName: row.clientName,
+      clientPhone: row.clientPhone,
+      barcode: row.barcode,
+      shipmentId: row.shipmentId,
+      carrierRaw: row.carrierRaw,
+      status: row.status,
+      statusUpdatedAt: row.statusUpdatedAt,
+      history: row.history,
+    }));
+    const orderIds = [...new Set([...orders.map((row) => row.orderId), ...packages.map((row) => row.orderId)])];
+    let packageCounts = new Map<string, number>();
+    try {
+      packageCounts = await countPackagesForTower(orderIds);
+    } catch (err) {
+      console.warn("[EnvioEcom] contagem de pacotes da torre", err);
+    }
+    res.json(buildControlTower({
+      periodRaw: query.period,
+      carrierRaw: query.carrier,
+      kindRaw: query.kind,
+      now,
+      orders,
+      packages,
+      packageCounts,
+    }));
+  } catch (err) {
+    console.error("[EnvioEcom] torre", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao montar a torre de ocorrências." });
   }
 });
 
