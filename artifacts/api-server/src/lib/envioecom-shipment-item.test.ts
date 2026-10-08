@@ -3,7 +3,7 @@ import test from "node:test";
 
 import {
   SHIPMENT_ITEM_SETTING_KEYS,
-  SUGGESTED_SHIPMENT_ITEM_NAMES,
+  SUGGESTED_LABEL_OPTIONS,
   ShipmentItemConfigError,
   drawShipmentLabelItem,
   prepareShipmentItemSave,
@@ -14,13 +14,23 @@ import {
 
 const reserve = { reserveName: "Mercadoria", reserveUnitCost: 5 };
 
-test("sugestoes sem faixa vao de 8,90 a 45,00", () => {
-  assert.equal(SUGGESTED_SHIPMENT_ITEM_NAMES.length, 20);
-  assert.equal(SUGGESTED_SHIPMENT_ITEM_NAMES[0], "Capa de celular");
-  assert.equal(SUGGESTED_SHIPMENT_ITEM_NAMES[19], "Hub USB");
-  assert.equal(suggestedShipmentItemFixedValue(0), 8.9);
-  assert.equal(suggestedShipmentItemFixedValue(3), 14.6);
-  assert.equal(suggestedShipmentItemFixedValue(19), 45);
+test("sugestoes sem faixa usam o preco fixo de cada peca", () => {
+  assert.equal(SUGGESTED_LABEL_OPTIONS.length, 20);
+  assert.equal(SUGGESTED_LABEL_OPTIONS[0].name, "Peça sensor painel Land Rover");
+  assert.equal(suggestedShipmentItemFixedValue(0), 902.68);
+  assert.equal(SUGGESTED_LABEL_OPTIONS[3].name, "Peça botão painel BMW");
+  assert.equal(suggestedShipmentItemFixedValue(3), 985.3);
+  assert.equal(SUGGESTED_LABEL_OPTIONS[5].name, "Peça emblema grade Porsche");
+  assert.equal(suggestedShipmentItemFixedValue(5), 941.15);
+  assert.equal(SUGGESTED_LABEL_OPTIONS[17].name, "Peça atuador trava BMW");
+  assert.equal(suggestedShipmentItemFixedValue(17), 993.8);
+  assert.equal(SUGGESTED_LABEL_OPTIONS[18].name, "Peça capa chave Land Rover");
+  assert.equal(suggestedShipmentItemFixedValue(18), 806.42);
+  for (const item of SUGGESTED_LABEL_OPTIONS) {
+    assert.equal(item.name.startsWith("Peça "), true);
+    assert.ok(suggestedShipmentItemFixedValue(SUGGESTED_LABEL_OPTIONS.indexOf(item)) >= 806.42);
+    assert.ok(suggestedShipmentItemFixedValue(SUGGESTED_LABEL_OPTIONS.indexOf(item)) <= 993.8);
+  }
 });
 
 test("faixa sorteia inclusive e nao troca o valor gravado da linha", () => {

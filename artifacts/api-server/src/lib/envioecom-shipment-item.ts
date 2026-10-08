@@ -17,28 +17,28 @@ export const SHIPMENT_ITEM_SETTING_KEYS = {
   reserveValue: "envioecom_shipment_item_unit_cost",
 } as const;
 
-/** Ordem fixa do botão “Usar 20 sugestões”. Sem faixa, o preço é 8,90 + índice × 1,90, até 45,00. */
-export const SUGGESTED_SHIPMENT_ITEM_NAMES = [
-  "Capa de celular",
-  "Película de vidro",
-  "Carregador USB",
-  "Cabo de dados",
-  "Fone de ouvido",
-  "Suporte de mesa",
-  "Caixa de som",
-  "Mouse sem fio",
-  "Teclado compacto",
-  "Pen drive",
-  "Adaptador de tomada",
-  "Luminária de mesa",
-  "Organizador de cabos",
-  "Suporte veicular",
-  "Power bank",
-  "Ring light",
-  "Tripé de celular",
-  "Capa de notebook",
-  "Mousepad",
-  "Hub USB",
+/** Catálogo fixo do botão “Usar 20 sugestões”. Sem faixa, cada linha usa o próprio declaredValue. */
+export const SUGGESTED_LABEL_OPTIONS = [
+  { name: "Peça sensor painel Land Rover", declaredValue: 902.68 },
+  { name: "Peça sensor Camaro 2026", declaredValue: 930.43 },
+  { name: "Peça sensor placa Range Rover", declaredValue: 814.46 },
+  { name: "Peça botão painel BMW", declaredValue: 985.3 },
+  { name: "Peça sensor estacionamento Mercedes", declaredValue: 876.2 },
+  { name: "Peça emblema grade Porsche", declaredValue: 941.15 },
+  { name: "Peça sensor chuva Audi", declaredValue: 858.9 },
+  { name: "Peça chave canivete Bentley", declaredValue: 967.4 },
+  { name: "Peça conector módulo Jaguar", declaredValue: 823.75 },
+  { name: "Peça botão vidro Lexus", declaredValue: 912.08 },
+  { name: "Peça sensor pressão pneu Maserati", declaredValue: 889.55 },
+  { name: "Peça relé pequeno Ferrari", declaredValue: 954.12 },
+  { name: "Peça sensor temperatura Rolls-Royce", declaredValue: 837.6 },
+  { name: "Peça interruptor painel Lamborghini", declaredValue: 978.25 },
+  { name: "Peça sensor ABS Porsche", declaredValue: 865.33 },
+  { name: "Peça moldura botão Mercedes", declaredValue: 921.7 },
+  { name: "Peça sensor ré Audi", declaredValue: 848.19 },
+  { name: "Peça atuador trava BMW", declaredValue: 993.8 },
+  { name: "Peça capa chave Land Rover", declaredValue: 806.42 },
+  { name: "Peça sensor luz RAM", declaredValue: 917.55 },
 ] as const;
 
 export class ShipmentItemConfigError extends Error {
@@ -111,7 +111,7 @@ export function formatShipmentMoney(value: number): string {
 }
 
 export function suggestedShipmentItemFixedValue(index: number): number {
-  return round2(8.9 + index * 1.9);
+  return round2(SUGGESTED_LABEL_OPTIONS[index].declaredValue);
 }
 
 export function randomMoneyInclusive(min: number, max: number, random: () => number = Math.random): number {

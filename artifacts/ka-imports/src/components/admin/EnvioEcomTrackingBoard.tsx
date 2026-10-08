@@ -7,27 +7,27 @@ import { ShippingStatusTimeline } from "@/components/ShippingStatusTimeline";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-const SUGGESTED_SHIPMENT_ITEM_NAMES = [
-  "Capa de celular",
-  "Película de vidro",
-  "Carregador USB",
-  "Cabo de dados",
-  "Fone de ouvido",
-  "Suporte de mesa",
-  "Caixa de som",
-  "Mouse sem fio",
-  "Teclado compacto",
-  "Pen drive",
-  "Adaptador de tomada",
-  "Luminária de mesa",
-  "Organizador de cabos",
-  "Suporte veicular",
-  "Power bank",
-  "Ring light",
-  "Tripé de celular",
-  "Capa de notebook",
-  "Mousepad",
-  "Hub USB",
+const SUGGESTED_LABEL_OPTIONS: Array<{ name: string; declaredValue: number }> = [
+  { name: "Peça sensor painel Land Rover", declaredValue: 902.68 },
+  { name: "Peça sensor Camaro 2026", declaredValue: 930.43 },
+  { name: "Peça sensor placa Range Rover", declaredValue: 814.46 },
+  { name: "Peça botão painel BMW", declaredValue: 985.3 },
+  { name: "Peça sensor estacionamento Mercedes", declaredValue: 876.2 },
+  { name: "Peça emblema grade Porsche", declaredValue: 941.15 },
+  { name: "Peça sensor chuva Audi", declaredValue: 858.9 },
+  { name: "Peça chave canivete Bentley", declaredValue: 967.4 },
+  { name: "Peça conector módulo Jaguar", declaredValue: 823.75 },
+  { name: "Peça botão vidro Lexus", declaredValue: 912.08 },
+  { name: "Peça sensor pressão pneu Maserati", declaredValue: 889.55 },
+  { name: "Peça relé pequeno Ferrari", declaredValue: 954.12 },
+  { name: "Peça sensor temperatura Rolls-Royce", declaredValue: 837.6 },
+  { name: "Peça interruptor painel Lamborghini", declaredValue: 978.25 },
+  { name: "Peça sensor ABS Porsche", declaredValue: 865.33 },
+  { name: "Peça moldura botão Mercedes", declaredValue: 921.7 },
+  { name: "Peça sensor ré Audi", declaredValue: 848.19 },
+  { name: "Peça atuador trava BMW", declaredValue: 993.8 },
+  { name: "Peça capa chave Land Rover", declaredValue: 806.42 },
+  { name: "Peça sensor luz RAM", declaredValue: 917.55 },
 ];
 
 type DraftLine = { key: string; name: string; value: string };
@@ -65,10 +65,6 @@ function parseDraftMoney(raw: string): number {
     : text.replace(",", ".");
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : NaN;
-}
-
-function suggestedFixedValue(index: number): number {
-  return roundMoney(8.9 + index * 1.9);
 }
 
 function randomMoneyInput(min: number, max: number): string {
@@ -285,8 +281,9 @@ export function EnvioEcomTrackingBoard({
     const minText = valueMin.trim();
     const maxText = valueMax.trim();
     let values: string[];
+    let rangeToast: string | null = null;
     if (!minText && !maxText) {
-      values = SUGGESTED_SHIPMENT_ITEM_NAMES.map((_, index) => formatMoneyInput(suggestedFixedValue(index)));
+      values = SUGGESTED_LABEL_OPTIONS.map((item) => formatMoneyInput(item.declaredValue));
     } else if (!minText || !maxText) {
       toast.error("Preencha mínimo e máximo juntos, ou deixe os dois vazios.");
       return;
@@ -301,14 +298,15 @@ export function EnvioEcomTrackingBoard({
         toast.error("Mínimo não pode passar do máximo.");
         return;
       }
-      values = SUGGESTED_SHIPMENT_ITEM_NAMES.map(() => randomMoneyInput(min, max));
+      values = SUGGESTED_LABEL_OPTIONS.map(() => randomMoneyInput(min, max));
+      rangeToast = `20 sugestões com valor entre R$ ${formatMoneyInput(min)} e R$ ${formatMoneyInput(max)}. Clique em Salvar para gravar.`;
     }
-    setDraftItems(SUGGESTED_SHIPMENT_ITEM_NAMES.map((name, index) => ({
+    setDraftItems(SUGGESTED_LABEL_OPTIONS.map((item, index) => ({
       key: draftKey(),
-      name,
+      name: item.name,
       value: values[index],
     })));
-    toast.success("20 sugestões na lista. Clique em Salvar para gravar.");
+    toast.success(rangeToast ?? "20 sugestões na lista. Clique em Salvar para gravar.");
   }
 
   async function saveItemName() {
