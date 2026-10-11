@@ -12,6 +12,7 @@ import {
   isPaymentConfirmed,
 } from "../gateway";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
+import { confirmRaffleReservationFromPix } from "../lib/raffle-pix-confirm";
 
 const router: IRouter = Router();
 
@@ -78,6 +79,14 @@ async function getActivePixGateway(tenantId: string): Promise<"appcnpay" | "dent
 function parseNumbers(raw: string | null | undefined): number[] {
   if (!raw) return [];
   try { return JSON.parse(raw) as number[]; } catch { return []; }
+}
+
+function buildStorePixCallbackUrl(req: Parameters<typeof buildCallbackUrl>[0]): string {
+  const webhookSecret = String(process.env.WEBHOOK_SHARED_SECRET || "").trim();
+  const callbackBase = buildCallbackUrl(req, "/webhook/pix");
+  if (!webhookSecret) return callbackBase;
+  const joiner = callbackBase.includes("?") ? "&" : "?";
+  return `${callbackBase}${joiner}whsec=${encodeURIComponent(webhookSecret)}`;
 }
 
 function normalizePhone(raw: string | null | undefined): string {
@@ -349,7 +358,7 @@ router.post("/raffles/:id/reserve", async (req, res) => {
   // Generate PIX
   const gatewayProvider = await getActivePixGateway(tenantId);
   const identifier = genIdentifier();
-  const callbackUrl = buildCallbackUrl(req as never, "/webhook/raffle-pix");
+  const callbackUrl = buildStorePixCallbackUrl(req as never);
 
   let gatewayData;
   try {
@@ -561,7 +570,7 @@ router.post("/raffles/reservations/:reservationId/refresh-pix", async (req, res)
 
   const identifier = genIdentifier();
   const gatewayProvider = await getActivePixGateway(tenantId);
-  const callbackUrl = buildCallbackUrl(req as never, "/webhook/raffle-pix");
+  const callbackUrl = buildStorePixCallbackUrl(req as never);
   const totalAmount = Number(reservation.totalAmount);
 
   let gatewayData;
@@ -1065,7 +1074,7 @@ router.delete("/admin/raffles/:id/promotions/:promotionId", requireAdminAuth, as
 });
 
 // ---------------------------------------------------------------------------
-// WEBHOOK: POST /webhook/raffle-pix — payment confirmation
+// WEBHOOK: POST /webhook/raffle-pix — cobranças já emitidas com o callback antigo
 // ---------------------------------------------------------------------------
 router.post("/webhook/raffle-pix", async (req, res) => {
   const raw = (req.body ?? {}) as Record<string, unknown>;
@@ -1092,88 +1101,32 @@ router.post("/webhook/raffle-pix", async (req, res) => {
     return;
   }
 
-  const [reservation] = transactionId
-    ? await db
-      .select()
-      .from(raffleReservationsTable)
-      .where(eq(raffleReservationsTable.transactionId, transactionId))
-      .limit(1)
-    : await db
-      .select()
-      .from(raffleReservationsTable)
-      .where(eq(raffleReservationsTable.id, reservationId))
-      .limit(1);
+  const confirmed = status ? isPaymentConfirmed(status) : false;
+  const result = await confirmRaffleReservationFromPix({
+    transactionId,
+    reservationId,
+    confirmed,
+    source: "raffle-pix",
+  });
 
-  if (!reservation) {
+  if (!result.matched) {
     console.log("[RaffleWebhook] Reservation not found", JSON.stringify({ transactionId, reservationId, status }));
     res.status(404).json({ error: "RESERVATION_NOT_FOUND" });
     return;
   }
 
-  const confirmed = status ? isPaymentConfirmed(status) : false;
-  if (confirmed && reservation.status !== "paid") {
-    const tenantId = String(reservation.tenantId || "").trim() || DEFAULT_TENANT_ID;
-    const now = new Date();
-    const reservationNumbers = parseNumbers(reservation.numbers);
-    const reservationExpired = reservation.status === "expired" || (reservation.status === "reserved" && reservation.expiresAt < now);
-
-    // Safety check: never mark as paid if those numbers are already assigned to another active/paid reservation.
-    const competingRows = reservationNumbers.length > 0
-      ? await db
-        .select({
-          id: raffleReservationsTable.id,
-          numbers: raffleReservationsTable.numbers,
-          status: raffleReservationsTable.status,
-          expiresAt: raffleReservationsTable.expiresAt,
-        })
-        .from(raffleReservationsTable)
-        .where(and(
-          buildRaffleReservationsTenantWhere(tenantId),
-          eq(raffleReservationsTable.raffleId, reservation.raffleId),
-          inArray(raffleReservationsTable.status, ["reserved", "paid"]),
-        ))
-      : [];
-
-    const conflict = competingRows.find((row) => {
-      if (row.id === reservation.id) return false;
-      const rowExpired = row.status === "reserved" && row.expiresAt < now;
-      if (rowExpired) return false;
-      const rowNumbers = parseNumbers(row.numbers);
-      return rowNumbers.some((n) => reservationNumbers.includes(n));
+  if (result.ignored) {
+    res.json({
+      ok: true,
+      confirmed: false,
+      ignored: true,
+      reason: result.reason,
+      reservationId: result.reservationId,
     });
-
-    if (reservationExpired || conflict) {
-      await db
-        .update(raffleReservationsTable)
-        .set({ status: "expired", updatedAt: new Date() })
-        .where(and(buildRaffleReservationsTenantWhere(tenantId), eq(raffleReservationsTable.id, reservation.id)));
-
-      console.log("[RaffleWebhook] Ignored late/conflicting payment", JSON.stringify({
-        reservationId: reservation.id,
-        transactionId,
-        status,
-        reason: conflict ? "NUMBER_ALREADY_ASSIGNED" : "RESERVATION_EXPIRED",
-        conflictReservationId: conflict?.id,
-      }));
-
-      res.json({
-        ok: true,
-        confirmed: false,
-        ignored: true,
-        reason: conflict ? "NUMBER_ALREADY_ASSIGNED" : "RESERVATION_EXPIRED",
-        reservationId: reservation.id,
-      });
-      return;
-    }
-
-    await db
-      .update(raffleReservationsTable)
-      .set({ status: "paid", updatedAt: new Date() })
-      .where(and(buildRaffleReservationsTenantWhere(tenantId), eq(raffleReservationsTable.id, reservation.id)));
-    console.log("[RaffleWebhook] Reservation paid", JSON.stringify({ id: reservation.id, transactionId, status }));
+    return;
   }
 
-  res.json({ ok: true, confirmed, reservationId: reservation.id });
+  res.json({ ok: true, confirmed: result.confirmed, reservationId: result.reservationId });
 });
 
 export default router;

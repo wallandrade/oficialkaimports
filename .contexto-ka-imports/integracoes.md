@@ -1,12 +1,13 @@
 # Integrações externas — KA Imports
 
-> **Última atualização:** 2026-10-08
+> **Última atualização:** 2026-10-11
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-11 | PIX da rifa confirma no mesmo webhook da loja | `POST /api/webhook/pix` marca `raffle_reservations` como `paid` pelo `transactionId`. Cobrança nova usa esse callback com `whsec`. A tela `/rifas/pix/:id` lê o banco e mostra pago | Pedido, cobrança custom e DentPeg de pedido. Sem GET de status no CN Pay. `POST /webhook/raffle-pix` fica só para QR já emitido |
 | 2026-10-08 | Aviso de falta Motoboy/Minas puxa o snapshot antes de bloquear | `POST /admin/yury-inventory/sync` no clique de enviado, baixa e rastreio. Falha do pull cai no `GET` do espelho | Job de 3 min, webhook e a baixa `exit` |
 | 2026-10-08 | Torre de ocorrências na aba Rastreios | `GET /admin/envioecom/control-tower` lista etiqueta EnvioEcom com problema aberto. Não grava | Os cards do painel continuam em `tracking-board`. Atraso, Motoboy, lista negra, `enviado`, estoque e a cópia de 48h |
 | 2026-10-08 | Botão **Usar 20 sugestões** preenche peças leves de carro | Cada linha traz nome e preço fixo entre R$ 806,42 e R$ 993,80. Com mínimo e máximo, o botão sorteia outro valor nessa faixa. Sem Salvar, a lista antiga continua | Create, baralho, cursor, cotação e etiqueta já gerada |
@@ -81,6 +82,7 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 - **Credenciais APPCNPay por loja:** `tenant_settings` `gateway_appcnpay_public_key` + `gateway_appcnpay_secret_key` (as duas juntas). Sem o par, usa env `GATEWAY_IDENTIFIER` / `GATEWAY_SECRET`. Não mistura pública da loja com secret do env. GET admin mascara; PUT com valor `***` é no-op. Admin Configurações: bloco “Credenciais APPCNPay desta loja”; “Usar chaves globais” = DELETE. Chaves **não** vão para `localStorage` nem `PUBLIC_KEYS`.
 - Checkout, `/pix/generate`, cobrança custom, PIX de diferença, rifas passam `tenantId` em `createPixCharge*`. Webhook não confiável: `findTenantIdByPixTransactionId` (pedido / cobrança / reserva) e `fetchTransactionStatus(txId, tenantId)`.
 - Webhook confirmação: `/api/webhook/pix` (+ webhook universal `/api/webhook`). No painel APPCNPay da conta da loja: `{origin}/api/webhook/pix`.
+- **Rifa:** reserva e refresh do PIX usam o mesmo callback `/api/webhook/pix` (com `whsec` quando `WEBHOOK_SHARED_SECRET` existe). `handleCallback` grava `raffle_reservations.status = paid` pelo `transactionId` (ou `metadata.reservationId`). Recusa se a reserva expirou ou o número já está em outra reserva ativa/paga. `POST /api/webhook/raffle-pix` continua só para cobrança antiga. A página `/rifas/pix/:id` consulta `GET /api/raffles/reservations/lookup` no banco a cada 8s.
 - **Não** depender de GET transactions para confirmação (polling bloqueado no APPCNPay).
 - Status local: endpoints de status leem BD.
 

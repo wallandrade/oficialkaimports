@@ -1,12 +1,13 @@
 # Regras de negócio — KA Imports
 
-> **Última atualização:** 2026-10-09
+> **Última atualização:** 2026-10-11
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-11 | PIX da rifa no CN Pay marca a reserva paga | O webhook da loja grava `paid`. A tela do cliente sai de “Aguardando confirmação automática” quando o lookup vê `paid` | Números, promoção, expiração e a tela de pago que já existia |
 | 2026-10-09 | Cópia pós-pagamento avisa o seguro | **Copiar pós-pagamento** (só `paid`/`completed`) cola 10%, 20% ou sem seguro antes de “Obrigado pela confiança”. Primeiro nome, nº do pedido, endereço vazio some, sem item vira `💊 1x Produto`. 10% e 20% são o nome do aviso | Resumo, Completo (`Seguro: Sim`), WhatsApp do checkout, reenvio, % da aba Seguro e saldo da garantia |
 | 2026-10-08 | Aviso de falta no Motoboy/Minas puxa a Yury no clique e ignora ponto no nome | **Marcar como Enviado**, **Dar baixa agora** e salvar rastreio fazem `POST /admin/yury-inventory/sync` antes de decidir. Se o pull falhar, leem o espelho. `T.G Tirzepatida` usa o saldo de `TG Tirzepatida` | A baixa na Yury, a senha, o job de 3 min e o pool Fóz |
 | 2026-10-08 | Torre de ocorrências na aba Rastreios | Lista etiqueta EnvioEcom com problema ainda aberto e diz o que fazer. Não grava | Cards do painel, lista negra, `enviado`, estoque e cópia de 48h |
@@ -266,6 +267,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 - Tabelas `raffles`, `raffle_reservations`, `raffle_results`, `raffle_promotions`. Isoladas por `tenantId`.
 - Admin: aba Rifas para primary da loja 1 **e** admin de filial (`isPrimary || tenant ≠ tenant_loja1`). Seller-scoped da loja 1 não vê. API já era `requireAdminAuth` + `buildRafflesTenantWhere`.
 - Job de expiração: `raffle-expiry.ts`.
+- PIX CN Pay/DentPeg: a confirmação entra por `POST /api/webhook/pix` e grava `raffle_reservations.status = paid`. A tela `/rifas/pix/:id` só troca para “Pagamento confirmado” quando esse status chega no lookup. Não consulta o gateway.
 - Páginas FE: `/rifas`, `/rifas/:id`, `/rifas/pix/:id`, `/rifas/consulta`.
 
 ## Cliente final

@@ -2,7 +2,7 @@
  * Unified Gateway Webhook Handler
  *
  * The gateway calls these URLs when a PIX transaction status changes.
- * We update both orders and custom-charges tables accordingly, then
+ * We update orders, custom charges and raffle reservations, then
  * broadcast an SSE notification to all connected admin sessions.
  *
  * URL format:
@@ -26,6 +26,7 @@ import { enqueueFilialOrderPurchaseRequest } from "../lib/filial-purchase-queue"
 import { allocateOrderLogistics, releaseOrderLogistics } from "../lib/order-logistics";
 import { applyEnvioEcomWebhook } from "./envioecom";
 import { actionFromStatusChange, addOrderEvent } from "../lib/order-events";
+import { confirmRaffleReservationFromPix } from "../lib/raffle-pix-confirm";
 
 const router: IRouter = Router();
 
@@ -252,7 +253,21 @@ async function handleCallback(body: GatewayCallback) {
     }
   }
 
-  return { matched: orderUpdated || chargeUpdated, orderUpdated, chargeUpdated };
+  // -----------------------------------------------------------------------
+  // 3. Raffle reservations (CN Pay panel posts here, same as store PIX)
+  // -----------------------------------------------------------------------
+  let raffleUpdated = false;
+  if (confirmed && (transactionId || metadata?.reservationId)) {
+    const raffle = await confirmRaffleReservationFromPix({
+      transactionId,
+      reservationId: metadata?.reservationId,
+      confirmed: true,
+      source: "pix_webhook",
+    });
+    raffleUpdated = raffle.matched;
+  }
+
+  return { matched: orderUpdated || chargeUpdated || raffleUpdated, orderUpdated, chargeUpdated, raffleUpdated };
 }
 
 // Generic webhook — gateway can call with just the transactionId/status
@@ -266,12 +281,19 @@ router.post("/webhook/pix", async (req, res) => {
     // Normalize APPCNPay envelope: fields may be nested inside `transaction`
     const tx = (raw.transaction as Record<string, unknown>) ?? raw;
     const dentpegData = (raw.data as Record<string, unknown>) ?? {};
+    const txMeta = (tx.metadata as Record<string, unknown>) ?? {};
+    const rawMeta = (raw.metadata as Record<string, unknown>) ?? {};
+    const metadata: Record<string, string> = {};
+    for (const [key, value] of Object.entries({ ...rawMeta, ...txMeta })) {
+      if (typeof value === "string" || typeof value === "number") metadata[key] = String(value);
+    }
     const normalized: GatewayCallback = {
       transactionId: String(tx.id || dentpegData.depositId || raw.transactionId || raw.transaction_id || "").trim() || undefined,
       identifier:    String(tx.identifier || raw.identifier || "").trim() || undefined,
       status:        String(tx.status || dentpegData.status || raw.status || raw.event || "").trim() || undefined,
       amount:        Number(tx.amount ?? tx.chargeAmount ?? tx.originalAmount ?? raw.amount) || undefined,
       paidAt:        String(tx.payedAt || tx.paidAt || raw.paidAt || "").trim() || undefined,
+      metadata:      Object.keys(metadata).length > 0 ? metadata : undefined,
     };
 
     // Map APPCNPay event name to a status if status is still missing
