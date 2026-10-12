@@ -15,10 +15,10 @@ function saveBlob(blob: Blob, filename: string) {
   document.body.appendChild(link);
   link.click();
   link.remove();
-  return objectUrl;
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
 }
 
-/** Baixa a etiqueta com o nome do cliente e abre o PDF na aba já criada. */
+/** Baixa a etiqueta uma vez, com o nome do cliente. */
 export function openShipmentLabelPdf(input: {
   orderId: string;
   packageId?: string | null;
@@ -27,7 +27,6 @@ export function openShipmentLabelPdf(input: {
   orderNumber?: number | null;
   poolLabel?: string | null;
 }): void {
-  const preview = window.open("about:blank", "_blank");
   const query = input.packageId ? `?packageId=${encodeURIComponent(input.packageId)}` : "";
   void (async () => {
     try {
@@ -36,18 +35,10 @@ export function openShipmentLabelPdf(input: {
       });
       if (!res.ok) throw new Error("label-pdf");
       const blob = await res.blob();
-      const filename = shipmentLabelPdfFilename(input);
-      const objectUrl = saveBlob(blob, filename);
-      if (preview && !preview.closed) preview.location.href = objectUrl;
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 180_000);
+      saveBlob(blob, shipmentLabelPdfFilename(input));
     } catch {
       const fallback = String(input.fallbackUrl || "").trim();
-      if (preview && !preview.closed) {
-        if (fallback) preview.location.href = fallback;
-        else preview.close();
-      } else if (fallback) {
-        window.open(fallback, "_blank", "noopener,noreferrer");
-      }
+      if (fallback) window.open(fallback, "_blank", "noopener,noreferrer");
     }
   })();
 }

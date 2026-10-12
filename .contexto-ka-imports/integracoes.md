@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-12 | Etiqueta baixa uma vez, com o nome do cliente | Ver PDF e o PDF da aba Rastreios só disparam o arquivo `Maria Silva 2041.pdf`. A aba extra que gravava o código antigo saiu | Create, webhook e a chave aleatória no bucket |
 | 2026-10-12 | PDF da etiqueta baixa com o nome do cliente | `GET /admin/envioecom/orders/:id/label-pdf` devolve o PDF com `Content-Disposition` `Maria Silva 2041.pdf` (pool no split). Ver PDF e o PDF da aba Rastreios usam esse nome. Upload novo também grava o nome no R2 | Código grande da J&T na etiqueta. Create, webhook e o id aleatório da chave no bucket |
 | 2026-10-11 | PIX da rifa confirma no mesmo webhook da loja | `POST /api/webhook/pix` marca `raffle_reservations` como `paid` pelo `transactionId`. Cobrança nova usa esse callback com `whsec`. A tela `/rifas/pix/:id` lê o banco e mostra pago | Pedido, cobrança custom e DentPeg de pedido. Sem GET de status no CN Pay. `POST /webhook/raffle-pix` fica só para QR já emitido |
 | 2026-10-08 | Aviso de falta Motoboy/Minas puxa o snapshot antes de bloquear | `POST /admin/yury-inventory/sync` no clique de enviado, baixa e rastreio. Falha do pull cai no `GET` do espelho | Job de 3 min, webhook e a baixa `exit` |
@@ -90,7 +91,7 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 ## Storage
 
 - **Cloudflare R2** (S3-compatible): upload imagens produto/comprovantes etc. (`lib/r2.ts`).
-- Etiqueta EnvioEcom: PDF em `tracking-labels/` via `uploadShipmentLabelPdfToR2`. O arquivo no bucket continua com chave aleatória. O download (`GET /admin/envioecom/orders/:id/label-pdf`, admin com acesso global) manda o nome `Cliente Número.pdf` (e o pool no split: Fóz Guaçu, Motoboy ou Minas). Só lê data URL ou o host público do R2 desta loja.
+- Etiqueta EnvioEcom: PDF em `tracking-labels/` via `uploadShipmentLabelPdfToR2`. O arquivo no bucket continua com chave aleatória. O download (`GET /admin/envioecom/orders/:id/label-pdf`, admin com acesso global) manda o nome `Cliente Número.pdf` (e o pool no split: Fóz Guaçu, Motoboy ou Minas) e o clique grava esse arquivo uma vez. Só lê data URL ou o host público do R2 desta loja.
 - Script migrate: `scripts/src/migrate-product-images-to-r2.ts`.
 
 ## EnvioEcom (frete / etiqueta / rastreio)
