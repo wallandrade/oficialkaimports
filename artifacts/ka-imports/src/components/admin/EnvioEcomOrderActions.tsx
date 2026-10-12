@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
 import { hasEnvioEcomLabelReady } from "@/lib/pending-shipment-copy";
 import { fetchRelatedCpfShipments, type RelatedCpfShipmentsResult } from "@/lib/related-cpf-shipments";
+import { openShipmentLabelPdf } from "@/lib/shipment-label-download";
 import { RelatedCpfWarningBox } from "@/components/admin/RelatedCpfShipments";
 
 export { hasEnvioEcomLabelReady };
@@ -586,7 +587,16 @@ export function EnvioEcomOrderActions({
       } else {
         toast.success("Etiqueta gerada.");
       }
-      if (data.labelUrl) window.open(data.labelUrl, "_blank", "noopener,noreferrer");
+      if (data.labelUrl) {
+        openShipmentLabelPdf({
+          orderId: order.id,
+          packageId,
+          fallbackUrl: data.labelUrl,
+          clientName: order.clientName,
+          orderNumber: order.orderNumber,
+          poolLabel,
+        });
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Falha ao gerar etiqueta.");
     } finally {
@@ -755,7 +765,14 @@ export function EnvioEcomOrderActions({
         </Button>
       )}
       {labelUrl && !labelBlocked && (
-        <Button size="sm" variant="outline" className="gap-1.5" onClick={() => window.open(labelUrl, "_blank", "noopener,noreferrer")}>
+        <Button size="sm" variant="outline" className="gap-1.5" onClick={() => openShipmentLabelPdf({
+          orderId: order.id,
+          packageId,
+          fallbackUrl: labelUrl,
+          clientName: order.clientName,
+          orderNumber: order.orderNumber,
+          poolLabel,
+        })}>
           <ExternalLink className="w-3.5 h-3.5" /> Ver PDF
         </Button>
       )}

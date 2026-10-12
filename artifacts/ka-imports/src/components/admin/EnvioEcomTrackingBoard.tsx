@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { formatDateBR } from "@/lib/utils";
 import { ShippingStatusTimeline } from "@/components/ShippingStatusTimeline";
 import { EnvioEcomControlTower } from "@/components/admin/EnvioEcomControlTower";
+import { openShipmentLabelPdf } from "@/lib/shipment-label-download";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -637,7 +638,12 @@ export function EnvioEcomTrackingBoard({
                             {syncingId === item.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Sync"}
                           </Button>
                           {labelUrl ? (
-                            <Button size="sm" variant="outline" className="gap-1" onClick={() => window.open(labelUrl, "_blank", "noopener,noreferrer")}>
+                            <Button size="sm" variant="outline" className="gap-1" onClick={() => openShipmentLabelPdf({
+                              orderId: item.id,
+                              fallbackUrl: labelUrl,
+                              clientName: item.clientName,
+                              orderNumber: item.orderNumber,
+                            })}>
                               <FileText className="w-3.5 h-3.5" /> PDF
                             </Button>
                           ) : null}

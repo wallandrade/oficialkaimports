@@ -1,5 +1,6 @@
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import crypto from "crypto";
+import { inlinePdfContentDisposition } from "./shipment-label-filename";
 
 const R2_ACCOUNT_ID = String(process.env.CLOUDFLARE_R2_ACCOUNT_ID || "").trim();
 const R2_ACCESS_KEY_ID = String(process.env.CLOUDFLARE_R2_ACCESS_KEY_ID || "").trim();
@@ -108,10 +109,17 @@ export async function uploadOrderTrackingLabelToR2(input: { dataUrl: string; ord
   return `${R2_PUBLIC_BASE_URL}/${objectKey}`;
 }
 
-export async function uploadShipmentLabelPdfToR2(input: { buffer: Buffer; orderId?: string | null }): Promise<string> {
+const SHIPMENT_LABEL_PDF_MAX_BYTES = 15 * 1024 * 1024;
+
+export async function uploadShipmentLabelPdfToR2(input: {
+  buffer: Buffer;
+  orderId?: string | null;
+  downloadFilename?: string | null;
+}): Promise<string> {
   const client = getR2Client();
   const orderPrefix = String(input.orderId || "unassigned").trim() || "unassigned";
   const objectKey = `tracking-labels/${orderPrefix}/${Date.now()}-${crypto.randomBytes(6).toString("hex")}.pdf`;
+  const downloadFilename = String(input.downloadFilename || "").trim();
 
   await client.send(new PutObjectCommand({
     Bucket: R2_BUCKET_NAME,
@@ -119,9 +127,31 @@ export async function uploadShipmentLabelPdfToR2(input: { buffer: Buffer; orderI
     Body: input.buffer,
     ContentType: "application/pdf",
     CacheControl: "public, max-age=31536000, immutable",
+    ...(downloadFilename ? { ContentDisposition: inlinePdfContentDisposition(downloadFilename) } : {}),
   }));
 
   return `${R2_PUBLIC_BASE_URL}/${objectKey}`;
+}
+
+/** Lê o PDF já gravado. Só aceita data URL ou o bucket público desta loja. */
+export async function readStoredShipmentLabelPdf(url: string): Promise<Buffer | null> {
+  const value = String(url || "").trim();
+  if (!value) return null;
+  const data = value.match(/^data:application\/pdf;base64,([a-z0-9+/=\s]+)$/i);
+  if (data) {
+    const buffer = Buffer.from(data[1].replace(/\s/g, ""), "base64");
+    if (!buffer.length || buffer.length > SHIPMENT_LABEL_PDF_MAX_BYTES) return null;
+    return buffer.slice(0, 4).toString() === "%PDF" ? buffer : null;
+  }
+  const base = R2_PUBLIC_BASE_URL;
+  if (!base || !value.startsWith(`${base}/`)) return null;
+  const res = await fetch(value);
+  if (!res.ok || !res.url.startsWith(`${base}/`)) return null;
+  const declared = Number(res.headers.get("content-length") || 0);
+  if (Number.isFinite(declared) && declared > SHIPMENT_LABEL_PDF_MAX_BYTES) return null;
+  const buffer = Buffer.from(await res.arrayBuffer());
+  if (!buffer.length || buffer.length > SHIPMENT_LABEL_PDF_MAX_BYTES) return null;
+  return buffer.slice(0, 4).toString() === "%PDF" ? buffer : null;
 }
 
 export async function uploadSiteSettingImageToR2(input: { dataUrl: string; settingKey: string }): Promise<string> {

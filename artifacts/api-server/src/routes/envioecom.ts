@@ -16,7 +16,8 @@ import {
 } from "../lib/carrier-loss-store";
 import { isStandardShipping } from "../lib/order-logistics-calendar";
 import { buildCallbackUrl } from "../gateway";
-import { getR2MissingConfig, isR2Configured, uploadShipmentLabelPdfToR2 } from "../lib/r2";
+import { getR2MissingConfig, isR2Configured, readStoredShipmentLabelPdf, uploadShipmentLabelPdfToR2 } from "../lib/r2";
+import { inlinePdfContentDisposition, shipmentLabelPdfFilename, shipmentPoolLabel } from "../lib/shipment-label-filename";
 import {
   ENVIOECOM_DEFAULT_SHIPMENT_ITEM_NAME,
   ENVIOECOM_DEFAULT_SHIPMENT_ITEM_QUANTITY,
@@ -1209,6 +1210,43 @@ router.post("/admin/envioecom/orders/:id/bind-id", requireAdminAuth, async (req,
   }
 });
 
+router.get("/admin/envioecom/orders/:id/label-pdf", requireAdminAuth, async (req, res) => {
+  try {
+    const admin = requireEnvioEcomAdmin(req, res);
+    if (!admin) return;
+    const order = await loadTenantOrder(String(req.params.id), admin.tenantId);
+    if (!order) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
+    const queryPackage = req.query.packageId;
+    const packageId = String(Array.isArray(queryPackage) ? queryPackage[0] : queryPackage || "").trim() || null;
+    const target = await resolveEnvioEcomTarget(order, packageId);
+    const bound = target.pkg ? orderBoundFromPackage(order, target.pkg) : order;
+    const labelUrl = String(bound.envioecomLabelUrl || (!target.pkg ? bound.trackingLabelUrl : "") || "").trim();
+    if (!labelUrl) {
+      res.status(404).json({ error: "LABEL_NOT_FOUND", message: "Este pedido ainda não tem etiqueta." });
+      return;
+    }
+    const pdf = await readStoredShipmentLabelPdf(labelUrl);
+    if (!pdf) {
+      res.status(404).json({ error: "LABEL_NOT_FOUND", message: "Não foi possível ler o PDF da etiqueta." });
+      return;
+    }
+    const filename = shipmentLabelPdfFilename({
+      clientName: order.clientName,
+      orderNumber: order.orderNumber,
+      poolLabel: target.pkg ? shipmentPoolLabel(target.pkg.inventoryPool) : null,
+    });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", inlinePdfContentDisposition(filename));
+    res.setHeader("Cache-Control", "private, no-store");
+    res.send(pdf);
+  } catch (err) {
+    sendEnvioEcomError(res, err);
+  }
+});
+
 router.post("/admin/envioecom/orders/:id/labels", requireAdminAuth, async (req, res) => {
   try {
     const admin = requireEnvioEcomAdmin(req, res);
@@ -1282,7 +1320,16 @@ router.post("/admin/envioecom/orders/:id/labels", requireAdminAuth, async (req, 
       });
       return;
     }
-    const labelUrl = await uploadShipmentLabelPdfToR2({ buffer: result.buffer, orderId: target.pkg ? `${order.id}-${target.pkg.id}` : order.id });
+    const labelFilename = shipmentLabelPdfFilename({
+      clientName: order.clientName,
+      orderNumber: order.orderNumber,
+      poolLabel: target.pkg ? shipmentPoolLabel(target.pkg.inventoryPool) : null,
+    });
+    const labelUrl = await uploadShipmentLabelPdfToR2({
+      buffer: result.buffer,
+      orderId: target.pkg ? `${order.id}-${target.pkg.id}` : order.id,
+      downloadFilename: labelFilename,
+    });
     const yuryPassword = pickYuryInventoryPassword(req.body) || undefined;
     const labelPatch = {
       shipmentId: shipmentId || bound.envioecomShipmentId,
