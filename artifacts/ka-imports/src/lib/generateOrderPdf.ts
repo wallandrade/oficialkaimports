@@ -85,6 +85,7 @@ export interface OrderForPdf {
   subtotal: number;
   shippingCost: number;
   insuranceAmount: number;
+  affiliateCreditUsed?: number | null;
   total: number;
   status: string;
   paymentMethod?: string | null;
@@ -183,6 +184,9 @@ export function generateOrderPdf(order: OrderForPdf): void {
     ["Frete", fmt(Number(order.shippingCost)), false],
   ];
   if (order.includeInsurance) finRows.push(["Seguro", fmt(Number(order.insuranceAmount)), false]);
+  if (Number(order.affiliateCreditUsed) > 0) {
+    finRows.push(["Saldo de comissão", `-${fmt(Number(order.affiliateCreditUsed))}`, false]);
+  }
   finRows.push(["TOTAL", fmt(Number(order.total)), true]);
 
   finRows.forEach(([label, value, bold]) => {

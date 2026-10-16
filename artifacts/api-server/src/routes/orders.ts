@@ -15,6 +15,7 @@ import {
 } from "../gateway";
 import { getCustomerSession, requireCustomerAuth } from "../middlewares/customer-auth";
 import {
+  applyAffiliateCreditToOrder,
   ensureOrderCommission,
   normalizeAffiliateCode,
   registerAffiliateLead,
@@ -1219,6 +1220,7 @@ router.post("/orders", async (req, res) => {
       shippingCost,
       paymentMethod, cardInstallments, sellerCode,
       useStoreCredit,
+      useAffiliateCredit,
     } = req.body;
 
     const normalizedAffiliateCode = normalizeAffiliateCode(req.body?.affiliateCode);
@@ -1547,6 +1549,29 @@ router.post("/orders", async (req, res) => {
       }
     }
 
+    let affiliateCreditUsed = 0;
+    const remainingAfterStore = Math.max(0, computedTotal - storeCreditUsed);
+    if (useAffiliateCredit === true && customerSession?.userId && remainingAfterStore > 0) {
+      affiliateCreditUsed = await applyAffiliateCreditToOrder({
+        tenantId,
+        userId: customerSession.userId,
+        orderId: id,
+        requestedAmount: remainingAfterStore,
+      });
+      if (affiliateCreditUsed > 0) {
+        const payableAfterAffiliate = Math.max(0, remainingAfterStore - affiliateCreditUsed);
+        await db.update(ordersTable).set({
+          total: String(payableAfterAffiliate),
+          affiliateCreditUsed: String(affiliateCreditUsed),
+          paymentMethod: payableAfterAffiliate <= 0 ? "affiliate_credit" : method,
+          status: payableAfterAffiliate <= 0 ? "paid" : (method === "card_simulation" ? "awaiting_payment" : "pending"),
+          updatedAt: new Date(),
+        }).where(eq(ordersTable.id, id));
+      }
+    }
+
+    const payableAmount = Math.max(0, computedTotal - storeCreditUsed - affiliateCreditUsed);
+
     // Geo lookup — fire and forget, não bloqueia a resposta
     lookupIpGeo(purchaseIp).then((geo) => {
       if (!geo) return;
@@ -1570,8 +1595,8 @@ router.post("/orders", async (req, res) => {
       data: {
         id,
         clientName: client.name,
-        total: computedTotal,
-        paymentMethod: method,
+        total: payableAmount,
+        paymentMethod: payableAmount <= 0 && affiliateCreditUsed > 0 ? "affiliate_credit" : method,
         sellerCode: resolvedSellerCode,
         tenantId,
         createdAt: new Date().toISOString(),
@@ -1580,8 +1605,8 @@ router.post("/orders", async (req, res) => {
     void sendOutboundWebhook("new_order", {
       id,
       clientName: client.name,
-      total: computedTotal,
-      paymentMethod: method,
+      total: payableAmount,
+      paymentMethod: payableAmount <= 0 && affiliateCreditUsed > 0 ? "affiliate_credit" : method,
       sellerCode: resolvedSellerCode,
       createdAt: new Date().toISOString(),
     }, { tenantId });
@@ -1594,8 +1619,9 @@ router.post("/orders", async (req, res) => {
       actorUsername: client.name,
       payload: {
         paymentMethod: method,
-        total: computedTotal,
+        total: payableAmount,
         orderNumber: assignedOrderNumber,
+        affiliateCreditUsed: affiliateCreditUsed > 0 ? affiliateCreditUsed : undefined,
       },
     });
     if (storeCreditUsed > 0 && storeCreditUsed >= computedTotal - 0.01) {
@@ -1612,6 +1638,25 @@ router.post("/orders", async (req, res) => {
         },
       });
     }
+    if (payableAmount <= 0 && affiliateCreditUsed > 0) {
+      await ensureOrderCommission(id);
+      await allocateOrderLogistics(id);
+      await enqueueFilialOrderPurchaseRequest(id);
+      await addOrderEvent({
+        orderId: id,
+        tenantId,
+        action: "marked_paid",
+        actorType: "system",
+        actorUsername: "Crédito afiliado",
+        payload: {
+          fromStatus: method === "card_simulation" ? "awaiting_payment" : "pending",
+          toStatus: "paid",
+          source: "affiliate_credit",
+          affiliateCreditUsed,
+        },
+      });
+      broadcastNotification({ type: "order_paid", data: { id, status: "paid", tenantId } });
+    }
 
     res.status(201).json({
       id,
@@ -1625,9 +1670,10 @@ router.post("/orders", async (req, res) => {
       insuranceKeepAmount: insurance.keepAmount,
       insuranceCashbackAmount: insurance.cashbackAmount,
       storeCreditUsed: storeCreditUsed > 0 ? storeCreditUsed : null,
-      total: Math.max(0, computedTotal - storeCreditUsed),
-      status:        method === "card_simulation" ? "awaiting_payment" : "pending",
-      paymentMethod: method,
+      affiliateCreditUsed: affiliateCreditUsed > 0 ? affiliateCreditUsed : null,
+      total: payableAmount,
+      status: payableAmount <= 0 ? "paid" : (method === "card_simulation" ? "awaiting_payment" : "pending"),
+      paymentMethod: payableAmount <= 0 && affiliateCreditUsed > 0 ? "affiliate_credit" : method,
       sellerCode:    resolvedSellerCode,
       affiliateCode: affiliateUserId ? normalizedAffiliateCode : null,
       guestAccessToken,

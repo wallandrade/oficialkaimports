@@ -468,6 +468,7 @@ export function orderToFullText(order: any): string {
   const subtotalFromItems = products.reduce((sum, p) => sum + orderLineNet(p), 0);
 
   const discountAmount = Math.max(0, Number(order?.discountAmount) || 0);
+  const affiliateCreditUsed = Math.max(0, Number(order?.affiliateCreditUsed) || 0);
   const storedTotal = Number(order?.cardTotalActual ?? order?.total) || 0;
 
   const freteCandidates = [
@@ -546,6 +547,7 @@ export function orderToFullText(order: any): string {
     `Frete: ${formatCurrency(frete)}`,
     hasInsurance ? `Seguro: Sim (${formatCurrency(insuranceAmount)})` : "",
     discountAmount > 0 ? `Desconto: -${formatCurrency(discountAmount)}` : "",
+    affiliateCreditUsed > 0 ? `Saldo de comissão: -${formatCurrency(affiliateCreditUsed)}` : "",
     `Total: ${formatCurrency(total)}`,
     `Status: ${order?.status || "-"}`,
     `Pagamento: ${paymentLabel}`,
@@ -17055,6 +17057,11 @@ function OrdersPanel({
                       <p>
                         Desconto: <span className="text-green-700">-{formatCurrency(Number(order.discountAmount || 0))}</span>
                         {order.couponCode && <span>{` (Cupom ${order.couponCode})`}</span>}
+                      </p>
+                    )}
+                    {Number(order.affiliateCreditUsed) > 0 && (
+                      <p>
+                        Saldo de comissão: <span className="text-green-700">-{formatCurrency(Number(order.affiliateCreditUsed))}</span>
                       </p>
                     )}
                     {order.transactionId && <p className="font-mono text-xs">Tx: {order.transactionId}</p>}

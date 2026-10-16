@@ -59,6 +59,7 @@ type CustomerOrder = {
   subtotal?: number;
   shippingCost?: number;
   insuranceAmount?: number;
+  affiliateCreditUsed?: number | null;
   shippingType?: string;
   motoboyDeliveryDate?: string | null;
   motoboyDeliveryTime?: string | null;
@@ -1096,6 +1097,12 @@ export default function CustomerOrders() {
                                     <div className="flex justify-between text-sm">
                                       <span className="text-muted-foreground">Seguro:</span>
                                       <span className="font-medium">{formatCurrency(order.insuranceAmount)}</span>
+                                    </div>
+                                  )}
+                                  {Number(order.affiliateCreditUsed) > 0 && (
+                                    <div className="flex justify-between text-sm">
+                                      <span className="text-muted-foreground">Saldo de comissão:</span>
+                                      <span className="font-medium text-green-700">-{formatCurrency(Number(order.affiliateCreditUsed))}</span>
                                     </div>
                                   )}
                                   <div className="flex justify-between text-sm font-semibold pt-2 border-t border-border/30">

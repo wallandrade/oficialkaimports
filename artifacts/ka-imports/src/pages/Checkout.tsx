@@ -1624,6 +1624,7 @@ export default function Checkout() {
         includeInsurance: insuranceSnapshot.includeInsurance,
         insurancePlan: insuranceSnapshot.plan === "none" ? undefined : insuranceSnapshot.plan,
         useStoreCredit,
+        useAffiliateCredit,
         subtotal,
         shippingCost,
         insuranceAmount,
@@ -1660,6 +1661,9 @@ export default function Checkout() {
         .filter(Boolean)
         .join(", ");
 
+      const appliedAffiliateCredit = Number((order as { affiliateCreditUsed?: number | null }).affiliateCreditUsed) || 0;
+      const savedPayable = Number((order as { total?: number }).total);
+      const messageTotal = Number.isFinite(savedPayable) ? savedPayable : payableTotal;
       const isMotoboyShipping = selectedShipping?.id.startsWith("motoboy_") === true;
       const message = isMotoboyShipping
         ? `# 🛵 ENTREGAS DE HOJE\n` +
@@ -1676,8 +1680,8 @@ export default function Checkout() {
           `🏍️ *Motoboy:* ${formatCurrency(shippingCost)}\n` +
           (includeInsurance ? `🛡️ *Seguro:* ${formatCurrency(insuranceAmount)}\n` : "") +
           (discountAmount > 0 ? `🏷️ *Desconto:* -${formatCurrency(discountAmount)}\n` : "") +
-          (affiliateCreditToApply > 0 ? `💳 *Crédito:* -${formatCurrency(affiliateCreditToApply)}\n` : "") +
-          `💵 *TOTAL: ${formatCurrency(payableTotal)}*\n\n` +
+          (appliedAffiliateCredit > 0 ? `💳 *Saldo de comissão:* -${formatCurrency(appliedAffiliateCredit)}\n` : "") +
+          `💵 *TOTAL: ${formatCurrency(messageTotal)}*\n\n` +
           `━━━━━━━━━━━━━━━━━━`
         : `Olá! Quero finalizar meu pedido.\n\n` +
           `Pedido: #${formatCheckoutOrderNumber(order)}\n` +
@@ -1693,7 +1697,8 @@ export default function Checkout() {
           (discountAmount > 0
             ? `Desconto${appliedCoupon?.code ? ` (${appliedCoupon.code})` : ""}: -${formatCurrency(discountAmount)}\n`
             : "") +
-          `Total: ${formatCurrency(payableTotal)}\n\n` +
+          (appliedAffiliateCredit > 0 ? `Saldo de comissão: -${formatCurrency(appliedAffiliateCredit)}\n` : "") +
+          `Total: ${formatCurrency(messageTotal)}\n\n` +
           `Pode me enviar a chave PIX para pagamento?`;
 
       const sellerWhatsApp = await resolveSellerWhatsAppStrict();
@@ -1774,6 +1779,7 @@ export default function Checkout() {
         includeInsurance: insuranceSnapshot.includeInsurance,
         insurancePlan: insuranceSnapshot.plan === "none" ? undefined : insuranceSnapshot.plan,
         useStoreCredit,
+        useAffiliateCredit,
         subtotal: cardSubtotal,
         shippingCost,
         insuranceAmount: cardInsuranceAmount,
@@ -1814,9 +1820,12 @@ export default function Checkout() {
         (cardDiscountAmount > 0
           ? `*Desconto${appliedCoupon?.code ? ` (${appliedCoupon.code})` : ""}:* -${formatCurrency(cardDiscountAmount)}\n`
           : "") +
+        (Number((order as { affiliateCreditUsed?: number | null }).affiliateCreditUsed) > 0
+          ? `*Saldo de comissão:* -${formatCurrency(Number((order as { affiliateCreditUsed?: number | null }).affiliateCreditUsed))}\n`
+          : "") +
         (cardFee > 0 ? `*Taxa parcelamento:* +${formatCurrency(cardFee)}\n` : "") +
         `*Parcelamento desejado:* ${installments}x\n` +
-        `*Total:* ${formatCurrency(cardTotal)}\n\n` +
+        `*Total:* ${formatCurrency(Math.max(0, cardTotal - (Number((order as { affiliateCreditUsed?: number | null }).affiliateCreditUsed) || 0)))}\n\n` +
         `Aguardo o retorno para confirmar os detalhes!`;
 
       const sellerWhatsApp = await resolveSellerWhatsAppStrict();
