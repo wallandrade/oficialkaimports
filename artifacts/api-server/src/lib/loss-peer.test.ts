@@ -4,7 +4,9 @@ import test from "node:test";
 import { lossRegionLabel, lossScopeFromRegionKey } from "./carrier-loss";
 import {
   buildLossSnapshotEnvelope,
+  notePeerLossRead,
   parsePeerLossSnapshot,
+  peerLossBoardStatus,
   reconcilePeerLossList,
   toPublishedLossIncident,
 } from "./loss-peer";
@@ -182,6 +184,16 @@ test("snapshot publicado leva só o caso nosso e omite dados do pedido", () => {
       occurredAt: new Date("2026-09-01T12:00:00.000Z"),
     },
   }), null);
+});
+
+test("falha na leitura esconde o bloco da outra loja e o acerto seguinte libera", () => {
+  notePeerLossRead(true);
+  assert.deepEqual(peerLossBoardStatus(true), { enabled: true, ok: true });
+  assert.deepEqual(peerLossBoardStatus(false), { enabled: false, ok: false });
+  notePeerLossRead(false);
+  assert.deepEqual(peerLossBoardStatus(true), { enabled: true, ok: false });
+  notePeerLossRead(true);
+  assert.deepEqual(peerLossBoardStatus(true), { enabled: true, ok: true });
 });
 
 test("Bearer e X-Api-Key usam o LOSS_SYNC_TOKEN, nunca o token da Yury", () => {

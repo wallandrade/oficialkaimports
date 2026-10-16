@@ -1,3 +1,4 @@
+import { notePeerLossRead } from "./loss-peer";
 import { isYuryLossPullConfigured, yuryLossPullBlockReason } from "./loss-sync-config";
 import { pullYuryLossSnapshot } from "./loss-peer-sync";
 
@@ -8,8 +9,10 @@ async function runPull(reason: string): Promise<void> {
   if (!isYuryLossPullConfigured()) return;
   try {
     const result = await pullYuryLossSnapshot();
+    notePeerLossRead(true);
     console.log("[YuryLoss] pull ok", { reason, ...result });
   } catch (error) {
+    notePeerLossRead(false);
     console.error("[YuryLoss] pull failed", { reason, error });
   }
 }

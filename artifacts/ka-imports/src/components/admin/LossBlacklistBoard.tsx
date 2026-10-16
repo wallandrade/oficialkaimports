@@ -23,6 +23,7 @@ type LossEvent = {
 
 export type LossBlacklistItem = {
   id: string;
+  origin?: "store" | "peer" | null;
   orderId: string;
   packageId?: string | null;
   orderNumber?: number | null;
@@ -79,6 +80,7 @@ export function LossBlacklistBoard({
   const [includeRemoved, setIncludeRemoved] = useState(false);
   const [items, setItems] = useState<LossBlacklistItem[]>([]);
   const [truncated, setTruncated] = useState(false);
+  const [peer, setPeer] = useState<{ enabled: boolean; ok: boolean }>({ enabled: false, ok: false });
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -95,10 +97,15 @@ export function LossBlacklistBoard({
         if (includeRemoved) params.set("includeRemoved", "1");
         const res = await fetch(`${BASE}/api/admin/envioecom/loss-blacklist?${params}`, { headers: adminHeaders() });
         if (!res.ok) throw new Error("Falha ao carregar a lista negra.");
-        const data = await res.json() as { items?: LossBlacklistItem[]; truncated?: boolean };
+        const data = await res.json() as {
+          items?: LossBlacklistItem[];
+          truncated?: boolean;
+          peer?: { enabled?: boolean; ok?: boolean };
+        };
         if (cancelled) return;
         setItems(data.items || []);
         setTruncated(!!data.truncated);
+        setPeer({ enabled: !!data.peer?.enabled, ok: !!data.peer?.ok });
       } catch (err) {
         if (!cancelled) toast.error(err instanceof Error ? err.message : "Erro ao carregar a lista negra.");
       } finally {
@@ -157,13 +164,73 @@ export function LossBlacklistBoard({
       {truncated ? (
         <p className="text-xs text-amber-800">Mostrando os 500 mais recentes.</p>
       ) : null}
+      {peer.enabled && !peer.ok ? (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          A lista da outra loja não respondeu. Mostrando só a nossa.
+        </p>
+      ) : null}
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
           Carregando lista negra…
         </div>
-      ) : items.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Nenhum envio na lista negra.</p>
+      ) : (
+        <div className="space-y-6">
+          <LossBlock
+            title="Esta loja"
+            hint="Extravios gravados aqui. Dá para tirar da lista."
+            items={items.filter((item) => item.origin !== "peer")}
+            expandedId={expandedId}
+            removingId={removingId}
+            onToggle={setExpandedId}
+            onOpenOrder={onOpenOrder}
+            onRemove={(item) => void removeFromList(item)}
+          />
+          {peer.enabled && peer.ok ? (
+            <LossBlock
+              title="Outra loja"
+              hint="Casos lidos da outra loja. Tirar da lista só vale lá."
+              items={items.filter((item) => item.origin === "peer")}
+              expandedId={expandedId}
+              removingId={removingId}
+              onToggle={setExpandedId}
+              onOpenOrder={onOpenOrder}
+              onRemove={(item) => void removeFromList(item)}
+            />
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LossBlock({
+  title,
+  hint,
+  items,
+  expandedId,
+  removingId,
+  onToggle,
+  onOpenOrder,
+  onRemove,
+}: {
+  title: string;
+  hint: string;
+  items: LossBlacklistItem[];
+  expandedId: string | null;
+  removingId: string | null;
+  onToggle: (next: string | null) => void;
+  onOpenOrder?: (item: LossBlacklistItem) => void;
+  onRemove: (item: LossBlacklistItem) => void;
+}) {
+  return (
+    <section className="space-y-2">
+      <div>
+        <h3 className="text-base font-semibold text-foreground">{title}</h3>
+        <p className="text-sm text-muted-foreground">{hint}</p>
+      </div>
+      {items.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Nenhum envio nesta lista.</p>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-border bg-white">
           <table className="w-full text-sm">
@@ -181,26 +248,31 @@ export function LossBlacklistBoard({
             </thead>
             <tbody>
               {items.map((item) => {
+                const peerRow = item.origin === "peer";
                 const open = expandedId === item.id;
                 const removed = !!item.removedAt;
                 return (
                   <Fragment key={item.id}>
                     <tr
                       className="border-t border-border/70 cursor-pointer hover:bg-muted/40"
-                      onClick={() => setExpandedId((prev) => (prev === item.id ? null : item.id))}
+                      onClick={() => onToggle(open ? null : item.id)}
                     >
                       <td className="px-3 py-2 align-top">
-                        <button
-                          type="button"
-                          className="font-semibold text-primary hover:underline"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onOpenOrder?.(item);
-                          }}
-                        >
-                          #{displayOrderNumber(item)}
-                        </button>
-                        {item.packageId ? (
+                        {peerRow ? (
+                          <span className="font-semibold text-foreground">Outra loja</span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="font-semibold text-primary hover:underline"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onOpenOrder?.(item);
+                            }}
+                          >
+                            #{displayOrderNumber(item)}
+                          </button>
+                        )}
+                        {!peerRow && item.packageId ? (
                           <p className="text-xs text-muted-foreground">Pacote</p>
                         ) : null}
                       </td>
@@ -210,7 +282,9 @@ export function LossBlacklistBoard({
                         <p className="font-mono text-xs text-muted-foreground">{item.envioecomBarcode || ""}</p>
                       </td>
                       <td className="px-3 py-2 align-top">{placeLabel(item)}</td>
-                      <td className="px-3 py-2 align-top">{item.source === "manual" ? "Manual" : "Rastreio"}</td>
+                      <td className="px-3 py-2 align-top">
+                        {peerRow ? "Outra loja" : (item.source === "manual" ? "KA · Manual" : "KA · Rastreio")}
+                      </td>
                       <td className="px-3 py-2 align-top">
                         <p>{typeLabel(item.incidentType)}</p>
                         {item.envioecomStatus ? (
@@ -221,7 +295,9 @@ export function LossBlacklistBoard({
                         ) : null}
                         <p className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-sky-700">
                           {open ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                          {open ? "Ocultar rastreio" : "Ver caminho do envio"}
+                          {peerRow
+                            ? (open ? "Ocultar" : "Ver detalhe")
+                            : (open ? "Ocultar rastreio" : "Ver caminho do envio")}
                         </p>
                       </td>
                       <td className="px-3 py-2 align-top text-xs text-muted-foreground whitespace-nowrap">
@@ -229,13 +305,13 @@ export function LossBlacklistBoard({
                       </td>
                       <td className="px-3 py-2 align-top" onClick={(event) => event.stopPropagation()}>
                         <div className="flex flex-wrap justify-end gap-1.5">
-                          {!removed ? (
+                          {!peerRow && !removed ? (
                             <Button
                               size="sm"
                               variant="outline"
                               className="text-rose-800 border-rose-200 hover:bg-rose-50"
                               disabled={removingId === item.id}
-                              onClick={() => void removeFromList(item)}
+                              onClick={() => onRemove(item)}
                             >
                               {removingId === item.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Tirar da lista negra"}
                             </Button>
@@ -246,14 +322,20 @@ export function LossBlacklistBoard({
                     {open ? (
                       <tr className="border-t border-border/40 bg-muted/20">
                         <td colSpan={8} className="px-4 py-3">
-                          {item.rawStatus ? (
-                            <p className="mb-3 text-xs text-muted-foreground">Registro: {item.rawStatus}</p>
-                          ) : null}
-                          <ShippingStatusTimeline
-                            events={item.events || []}
-                            title="Caminho na EnvioEcom"
-                            emptyText="Sem histórico EnvioEcom neste envio."
-                          />
+                          {peerRow ? (
+                            <p className="text-sm text-foreground">Caso da outra loja. Dá para tirar só na lista de lá.</p>
+                          ) : (
+                            <>
+                              {item.rawStatus ? (
+                                <p className="mb-3 text-xs text-muted-foreground">Registro: {item.rawStatus}</p>
+                              ) : null}
+                              <ShippingStatusTimeline
+                                events={item.events || []}
+                                title="Caminho na EnvioEcom"
+                                emptyText="Sem histórico EnvioEcom neste envio."
+                              />
+                            </>
+                          )}
                         </td>
                       </tr>
                     ) : null}
@@ -264,6 +346,6 @@ export function LossBlacklistBoard({
           </table>
         </div>
       )}
-    </div>
+    </section>
   );
 }

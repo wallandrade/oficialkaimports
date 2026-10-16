@@ -1,7 +1,9 @@
 import crypto from "crypto";
 import { and, desc, eq, gte, inArray, isNull } from "drizzle-orm";
-import { carrierLossIncidentsTable, db, orderShipmentsTable, ordersTable } from "@workspace/db";
+import { carrierLossIncidentsTable, carrierLossPeerIncidentsTable, db, orderShipmentsTable, ordersTable } from "@workspace/db";
+import { peerLossBoardStatus } from "./loss-peer";
 import { listPeerLossAlerts } from "./loss-peer-sync";
+import { YURY_LOSS_SOURCE, isYuryLossPullConfigured } from "./loss-sync-config";
 import {
   CARRIER_LOSS_WINDOW_MS,
   carrierDisplayName,
@@ -202,6 +204,7 @@ export async function recordAutomaticCarrierLoss(input: {
 
 export type CarrierLossBoardItem = {
   id: string;
+  origin: "store" | "peer";
   orderId: string;
   packageId: string | null;
   orderNumber: number | null;
@@ -210,7 +213,7 @@ export type CarrierLossBoardItem = {
   cityName: string;
   neighborhoodName: string | null;
   state: string;
-  cep: string;
+  cep: string | null;
   incidentType: string;
   source: string;
   rawStatus: string | null;
@@ -230,7 +233,7 @@ export async function listCarrierLossBoard(input: {
   tenantId: string;
   q?: string | null;
   includeRemoved?: boolean;
-}): Promise<{ items: CarrierLossBoardItem[]; truncated: boolean }> {
+}): Promise<{ items: CarrierLossBoardItem[]; truncated: boolean; peer: { enabled: boolean; ok: boolean } }> {
   const conditions = [eq(carrierLossIncidentsTable.tenantId, tenantKey(input.tenantId))];
   if (!input.includeRemoved) conditions.push(isNull(carrierLossIncidentsTable.removedAt));
   const rows = await db
@@ -276,6 +279,7 @@ export async function listCarrierLossBoard(input: {
     const shipment = row.packageId ? pkg : order;
     const item: CarrierLossBoardItem = {
       id: row.id,
+      origin: "store",
       orderId: row.orderId,
       packageId: row.packageId || null,
       orderNumber: row.orderNumber ?? order?.orderNumber ?? null,
@@ -308,6 +312,64 @@ export async function listCarrierLossBoard(input: {
       item.envioecomStatus,
       item.envioecomBarcode,
       item.incidentType,
+    ].join(" "));
+    return hay.includes(query) ? [item] : [];
+  });
+  const ownTruncated = items.length > LOSS_BOARD_LIMIT;
+  const ownItems = ownTruncated ? items.slice(0, LOSS_BOARD_LIMIT) : items;
+  const peer = peerLossBoardStatus(isYuryLossPullConfigured());
+  if (!peer.enabled || !peer.ok) {
+    return { items: ownItems, truncated: ownTruncated, peer };
+  }
+  const peerItems = await listPeerLossBoardItems(query, !!input.includeRemoved);
+  return {
+    items: [...ownItems, ...peerItems.items],
+    truncated: ownTruncated || peerItems.truncated,
+    peer,
+  };
+}
+
+async function listPeerLossBoardItems(
+  query: string,
+  includeRemoved: boolean,
+): Promise<{ items: CarrierLossBoardItem[]; truncated: boolean }> {
+  const conditions = [eq(carrierLossPeerIncidentsTable.source, YURY_LOSS_SOURCE)];
+  if (!includeRemoved) conditions.push(isNull(carrierLossPeerIncidentsTable.removedAt));
+  const rows = await db
+    .select()
+    .from(carrierLossPeerIncidentsTable)
+    .where(and(...conditions))
+    .orderBy(desc(carrierLossPeerIncidentsTable.occurredAt));
+  const items = rows.flatMap((row) => {
+    const item: CarrierLossBoardItem = {
+      id: row.id,
+      origin: "peer",
+      orderId: "",
+      packageId: null,
+      orderNumber: null,
+      clientName: null,
+      carrierName: row.carrierName,
+      cityName: row.cityName,
+      neighborhoodName: row.neighborhoodName,
+      state: row.state,
+      cep: null,
+      incidentType: row.incidentType,
+      source: "peer",
+      rawStatus: null,
+      occurredAt: isoDate(row.occurredAt) || new Date(0).toISOString(),
+      removedAt: isoDate(row.removedAt),
+      envioecomStatus: null,
+      envioecomBarcode: null,
+      events: [],
+    };
+    if (!query) return [item];
+    const hay = foldPlace([
+      item.carrierName,
+      item.cityName,
+      item.neighborhoodName,
+      item.state,
+      item.incidentType,
+      row.regionLabel,
     ].join(" "));
     return hay.includes(query) ? [item] : [];
   });

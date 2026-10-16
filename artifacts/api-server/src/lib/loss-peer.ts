@@ -13,6 +13,16 @@ import { LOSS_SNAPSHOT_SOURCE, YURY_LOSS_SOURCE } from "./loss-sync-config";
 
 export const LOSS_SNAPSHOT_LIMIT = 2000;
 
+let peerReadFailed = false;
+
+export function notePeerLossRead(ok: boolean): void {
+  peerReadFailed = !ok;
+}
+
+export function peerLossBoardStatus(enabled: boolean): { enabled: boolean; ok: boolean } {
+  return { enabled, ok: enabled && !peerReadFailed };
+}
+
 export type PeerLossIncident = {
   id: string;
   carrierKey: string;
