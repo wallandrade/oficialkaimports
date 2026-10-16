@@ -34,7 +34,10 @@ export type CarrierLossAlertIncident = {
   occurredAt: Date;
   cityName: string;
   state: string;
+  fromPeer?: boolean;
 };
+
+const LOSS_KINDS = new Set<string>(["extravio", "roubo", "furto", "sinistro", "manual"]);
 
 const SP_ZONE_LABELS: Record<string, string> = {
   "sp-centro": "Centro",
@@ -130,6 +133,31 @@ export function lossRegionKey(city: unknown, state: unknown, cep: unknown): stri
   return "city";
 }
 
+export function isSharedLossRegionKey(value: unknown): boolean {
+  const key = String(value || "").trim().toLowerCase();
+  if (key === "city") return true;
+  if (key in SP_ZONE_LABELS) return true;
+  return /^[a-z]{2}-cep-\d{3}$/.test(key);
+}
+
+export function lossScopeFromRegionKey(regionKey: string): "region" | "city" {
+  return regionKey === "city" ? "city" : "region";
+}
+
+/** Texto publicado no snapshot. A cotação local continua com os rótulos de `placePhrase`. */
+export function lossRegionLabel(regionKey: string, cityName: string): string {
+  if (regionKey === "sp-extremo-leste") return "Extremo leste";
+  const zone = SP_ZONE_LABELS[regionKey];
+  if (zone) return zone;
+  const cepMatch = /^[a-z]{2}-cep-(\d{3})$/.exec(regionKey);
+  if (cepMatch) return `CEP ${cepMatch[1]}`;
+  return String(cityName || "").trim();
+}
+
+export function isSharedLossKind(value: unknown): value is CarrierLossType {
+  return LOSS_KINDS.has(String(value || "").trim().toLowerCase());
+}
+
 export function classifyLossText(value: unknown): Exclude<CarrierLossType, "manual"> | null {
   const folded = foldPlace(value);
   if (!folded) return null;
@@ -199,7 +227,9 @@ export function lossAlertMessage(incident: CarrierLossAlertIncident): string {
   const details = [
     incident.neighborhoodName ? `bairro ${incident.neighborhoodName}` : "",
     formatDayMonth(incident.occurredAt),
-    incident.orderNumber != null && incident.orderNumber > 0 ? `pedido #${incident.orderNumber}` : "",
+    incident.fromPeer
+      ? "outra loja"
+      : (incident.orderNumber != null && incident.orderNumber > 0 ? `pedido #${incident.orderNumber}` : ""),
   ].filter(Boolean);
   const tail = details.length ? ` (${details.join(", ")})` : "";
   return `${placePhrase(incident)} ${verb} na ${incident.carrierName}${tail}. Cuidado.`;

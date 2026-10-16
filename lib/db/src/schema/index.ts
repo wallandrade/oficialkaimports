@@ -1,6 +1,7 @@
 export * from "./orders";
 export * from "./order-events";
 export * from "./carrier-loss-incidents";
+export * from "./carrier-loss-peer-incidents";
 export * from "./order-shipments";
 export * from "./order-bank-deposits";
 export * from "./tenants";

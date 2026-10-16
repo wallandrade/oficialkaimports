@@ -139,3 +139,22 @@ test("frase de capital, cidade menor e caso manual", () => {
   );
   assert.match(lossAlertForCarrier("Jadlog", "República", [manual])?.message || "", /teve um caso na Jadlog/);
 });
+
+test("caso da outra loja entra na mesma conta e o texto não leva número de pedido", () => {
+  const peer = incident({
+    neighborhoodKey: "bela vista",
+    neighborhoodName: "Bela Vista",
+    orderNumber: 9999,
+    fromPeer: true,
+    occurredAt: new Date("2026-08-12T15:00:00.000Z"),
+  });
+  const own = incident({
+    neighborhoodKey: "republica",
+    occurredAt: new Date("2026-08-01T15:00:00.000Z"),
+  });
+  const alert = lossAlertForCarrier("Jadlog envioEcom", "República", [peer]);
+  assert.equal(alert?.level, "warn");
+  assert.match(alert?.message || "", /outra loja/);
+  assert.doesNotMatch(alert?.message || "", /pedido #/);
+  assert.equal(lossAlertForCarrier("Jadlog", "Sé", [own, peer])?.level, "danger");
+});

@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { and, desc, eq, gte, inArray, isNull } from "drizzle-orm";
 import { carrierLossIncidentsTable, db, orderShipmentsTable, ordersTable } from "@workspace/db";
+import { listPeerLossAlerts } from "./loss-peer-sync";
 import {
   CARRIER_LOSS_WINDOW_MS,
   carrierDisplayName,
@@ -366,7 +367,7 @@ export async function attachLossAlerts<T extends Record<string, unknown>>(
       isNull(carrierLossIncidentsTable.removedAt),
       gte(carrierLossIncidentsTable.occurredAt, since),
     ));
-  const incidents: CarrierLossAlertIncident[] = rows
+  const ownIncidents: CarrierLossAlertIncident[] = rows
     .filter((row) => row.regionKey === region)
     .map((row) => ({
       carrierKey: row.carrierKey,
@@ -379,7 +380,15 @@ export async function attachLossAlerts<T extends Record<string, unknown>>(
       occurredAt: asDate(row.occurredAt) || new Date(0),
       cityName: row.cityName,
       state: row.state,
+      fromPeer: false,
     }));
+  let peerIncidents: CarrierLossAlertIncident[] = [];
+  try {
+    peerIncidents = await listPeerLossAlerts(city, state, region, since);
+  } catch (err) {
+    console.warn("[CarrierLoss] Falha ao ler a lista da outra loja:", err);
+  }
+  const incidents = [...ownIncidents, ...peerIncidents];
   return quotes.map((quote) => ({
     ...quote,
     lossAlert: lossAlertForCarrier(quote.carrier || quote.shipping_company, destination.neighborhood, incidents),

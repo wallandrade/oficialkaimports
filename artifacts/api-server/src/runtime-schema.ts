@@ -1271,6 +1271,34 @@ async function ensureCarrierLossIncidentsTable(databaseName: string): Promise<vo
   `);
 }
 
+async function ensureCarrierLossPeerIncidentsTable(databaseName: string): Promise<void> {
+  if (await tableExists("carrier_loss_peer_incidents", databaseName)) return;
+  await pool.query(`
+    CREATE TABLE carrier_loss_peer_incidents (
+      id VARCHAR(255) NOT NULL PRIMARY KEY,
+      source VARCHAR(64) NOT NULL,
+      carrier_key VARCHAR(128) NOT NULL,
+      carrier_name VARCHAR(255) NOT NULL,
+      city_key VARCHAR(128) NOT NULL,
+      city_name VARCHAR(255) NOT NULL,
+      state VARCHAR(2) NOT NULL,
+      neighborhood_key VARCHAR(128) NOT NULL DEFAULT '',
+      neighborhood_name VARCHAR(255) NULL,
+      region_key VARCHAR(32) NOT NULL,
+      region_label VARCHAR(255) NOT NULL,
+      scope VARCHAR(16) NOT NULL,
+      incident_type VARCHAR(16) NOT NULL,
+      occurred_at TIMESTAMP NOT NULL,
+      removed_at TIMESTAMP NULL,
+      synced_at TIMESTAMP NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY carrier_loss_peer_quote_idx (city_key, state, removed_at, occurred_at),
+      KEY carrier_loss_peer_source_idx (source, removed_at)
+    )
+  `);
+}
+
 async function ensureOrderEventsTable(databaseName: string): Promise<void> {
   if (await tableExists("order_events", databaseName)) return;
   await pool.query(`
@@ -1638,6 +1666,7 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureFilialPurchaseTables(databaseName);
     await ensureOrderEventsTable(databaseName);
     await ensureCarrierLossIncidentsTable(databaseName);
+    await ensureCarrierLossPeerIncidentsTable(databaseName);
     await ensureOrderShipmentsTable(databaseName);
     await ensureAdminSessionsTenantColumn(databaseName);
     await ensureTenantColumns(databaseName);

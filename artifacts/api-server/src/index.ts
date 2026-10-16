@@ -6,6 +6,7 @@ import { startRaffleExpiryJob } from "./raffle-expiry";
 import { reconcilePendingOrderLogistics } from "./lib/order-logistics";
 import { startYuryMotoboyCoverageSyncJob } from "./lib/motoboy-yury-sync-job";
 import { startYuryInventorySyncJob } from "./lib/yury-inventory-sync-job";
+import { startYuryLossSyncJob } from "./lib/loss-peer-sync-job";
 import { syncOpenReshipmentsSentFromEnvioEcom } from "./lib/reshipments";
 
 const rawPort = process.env["PORT"];
@@ -47,6 +48,7 @@ async function bootstrap(): Promise<void> {
     startRaffleExpiryJob();
     startYuryMotoboyCoverageSyncJob();
     startYuryInventorySyncJob();
+    startYuryLossSyncJob();
     void reconcilePendingOrderLogistics().catch((error) => {
       console.error("[OrderLogistics] Startup reconciliation failed:", error);
     });

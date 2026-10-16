@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-10-04
+> **Última atualização:** 2026-10-15
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-15 | Anti-padrão: gravar extravio da Yury em `carrier_loss_incidents` ou repetir o mesmo token nos dois envs | Espelho em `carrier_loss_peer_incidents`. `LOSS_SYNC_TOKEN` ≠ `YURY_LOSS_SYNC_TOKEN` | Cotação local e o GET da lista nossa |
 | 2026-10-04 | Anti-padrão: sortear o valor da etiqueta no GET ou mandar o preço do catálogo no create | Baralho e faixa só no create EnvioEcom; a linha gravada fica | Cotação R$ 5 |
 | 2026-10-04 | Home farmácia em cinco vitrines | `pharma-home-showcases.ts` monta os cortes; `?vitrine=vendidos` e `?vitrine=lancamentos` voltam para a grade | `sortCatalogProducts` dos outros temas e de `/categoria/:nome` |
 | 2026-10-03 | Fontes do tema saem do CSS do Tailwind | O `<link>` em `index.html` carrega as famílias. O bundle não tem `@import` do Google Fonts | Nomes das fontes e os temas |
@@ -188,6 +189,7 @@ Código > memória > suposições.
 - Aplicar `shipping_queue_manual_hours` em `findForecast` ou `allocateOrderLogistics`. O número manual só substitui `promisedHours` em `GET /api/shipping-logistics/forecast`. A vaga, as cópias e o card usam o prazo da fila.
 - Assumir PostgreSQL / Prisma / Next / Nest.
 - Polling de status no gateway APPCNPay (bloqueado; usar webhook + BD local).
+- Gravar caso da Yury em `carrier_loss_incidents` ou devolver esse espelho no `GET /api/integrations/loss-blacklist/snapshot`. O mesmo extravio conta duas vezes na cotação deles. Os dois tokens (`LOSS_SYNC_TOKEN` e `YURY_LOSS_SYNC_TOKEN`) não podem ter o mesmo valor.
 - Usar só `GATEWAY_IDENTIFIER`/`GATEWAY_SECRET` para PIX da filial, ou misturar pública da loja com secret do env. Par completo em `tenant_settings` ou fallback env.
 - Devolver chave APPCNPay crua no GET settings, gravar no `localStorage` (`siteSettings`) ou incluir em `PUBLIC_KEYS`. Mascarar no GET; PUT `***` é no-op.
 - Tratar `mockup-sandbox` como app de produção.
