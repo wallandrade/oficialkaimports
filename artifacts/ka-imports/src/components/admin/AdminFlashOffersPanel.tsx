@@ -77,22 +77,26 @@ export function AdminFlashOffersPanel() {
   };
 
   const load = async () => {
+    const headers = authHeaders();
     try {
       const [campaignRes, productRes] = await Promise.all([
-        fetch(`${BASE}/api/admin/flash-campaigns`, { headers: authHeaders() }),
-        fetch(`${BASE}/api/admin/products`, { headers: authHeaders() }),
+        fetch(`${BASE}/api/admin/flash-campaigns`, { headers }),
+        fetch(`${BASE}/api/admin/products`, { headers }),
       ]);
-      if (!campaignRes.ok) {
-        setErrorText(await readApiError(campaignRes, "Não foi possível carregar as promoções."));
-        return;
-      }
-      const data = await campaignRes.json() as { campaigns?: Campaign[] };
-      setCampaigns(data.campaigns || []);
-      setErrorText("");
+      const notes: string[] = [];
       if (productRes.ok) {
         const productData = await productRes.json() as { products?: CatalogProduct[] };
         setProducts(productData.products || []);
+      } else {
+        notes.push(await readApiError(productRes, "Não foi possível carregar os produtos."));
       }
+      if (campaignRes.ok) {
+        const data = await campaignRes.json() as { campaigns?: Campaign[] };
+        setCampaigns(data.campaigns || []);
+      } else {
+        notes.push(await readApiError(campaignRes, "Não foi possível carregar as promoções."));
+      }
+      setErrorText(notes.join(" "));
     } catch (err) {
       setErrorText(err instanceof Error ? err.message : "Não foi possível carregar as promoções.");
     }
