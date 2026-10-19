@@ -1,4 +1,5 @@
 import { getPendingShipmentCopy, pendingShipmentResumoHeading } from "@/lib/pending-shipment-copy";
+import { AdminFlashOffersPanel } from "@/components/admin/AdminFlashOffersPanel";
 import { orderToPostPaymentText } from "@/lib/post-payment-message";
 import {
   emptyVariantGroupDraft,
@@ -1416,7 +1417,7 @@ function OrderBumpsPanel({ bumps, products, form, setForm, creating, toggling, d
   );
 }
 
-type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "affiliates" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "despesas" | "checkout" | "seguro" | "socialProof" | "raffles" | "lojas" | "supplierPurchases" | "envioecom" | "listaNegra" | "extrato" | "depositos";
+type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "flashOffers" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "affiliates" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "despesas" | "checkout" | "seguro" | "socialProof" | "raffles" | "lojas" | "supplierPurchases" | "envioecom" | "listaNegra" | "extrato" | "depositos";
 type LojasSubTab = "criar" | "pedidos" | "cadastradas";
 type FilialScopeSubTab = "pedidos" | "produtos" | "estoque";
 
@@ -5990,7 +5991,7 @@ export default function Admin() {
   }, [tab, authChecked, fetchUsers, fetchCustomers, fetchRecurringCustomers]);
 
   useEffect(() => {
-    if ((tab === "products" && !canManageProductsTab) || (tab === "raffles" && !canManageRafflesTab) || (tab === "seguro" && !canManageInsuranceTab) || (tab === "affiliates" && !canManageAffiliatesTab) || (!isPrimary && PRIMARY_ONLY_TABS.has(tab)) || (tab === "lojas" && !canManageTenants) || (tab === "supplierPurchases" && !canViewSupplierPurchasesTab) || ((tab === "envioecom" || tab === "listaNegra") && !canManageShippingTab)) {
+    if ((tab === "products" && !canManageProductsTab) || (tab === "flashOffers" && !canManageProductsTab) || (tab === "raffles" && !canManageRafflesTab) || (tab === "seguro" && !canManageInsuranceTab) || (tab === "affiliates" && !canManageAffiliatesTab) || (!isPrimary && PRIMARY_ONLY_TABS.has(tab)) || (tab === "lojas" && !canManageTenants) || (tab === "supplierPurchases" && !canViewSupplierPurchasesTab) || ((tab === "envioecom" || tab === "listaNegra") && !canManageShippingTab)) {
       setTab("orders");
     }
   }, [isPrimary, tab, canManageTenants, canManageProductsTab, canManageRafflesTab, canManageInsuranceTab, canManageAffiliatesTab, canViewSupplierPurchasesTab, canManageShippingTab]);
@@ -7910,6 +7911,9 @@ export default function Admin() {
             ...(canViewSupplierPurchasesTab ? [
               { key: "supplierPurchases" as TabType, label: "Compra fornecedor", icon: "ShoppingBag", count: myFilialPurchaseRequests.length || undefined },
             ] : []),
+            ...(canManageProductsTab ? [
+              { key: "flashOffers" as TabType, label: "Promoções", icon: "Zap" },
+            ] : []),
             ...(isPrimary ? [
               { key: "checkout", label: "Checkout", icon: "Zap" },
               { key: "coupons", label: "Cupons", icon: "Ticket", count: coupons.length },
@@ -8190,6 +8194,8 @@ export default function Admin() {
             paymentNotes={commissionPaymentNotes}
             setPaymentNotes={setCommissionPaymentNotes}
           />
+        ) : tab === "flashOffers" && canManageProductsTab ? (
+          <AdminFlashOffersPanel />
         ) : tab === "coupons" ? (
           <CouponsPanel
             coupons={coupons}

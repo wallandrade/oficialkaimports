@@ -36,3 +36,4 @@ export * from "./manual-return-items";
 export * from "./marketing-expenses";
 export * from "./seller-commission-payments";
 export * from "./filial-purchase-requests";
+export * from "./flash-offers";

@@ -40,6 +40,7 @@ import envioecomRouter from "./envioecom";
 import lossBlacklistSyncRouter from "./loss-blacklist-sync";
 import bankStatementRouter from "./bank-statement";
 import walletRouter from "./wallet";
+import flashOffersRouter from "./flash-offers";
 const router: IRouter = Router();
 
 router.use(healthRouter);
@@ -82,5 +83,6 @@ router.use(envioecomRouter);
 router.use(lossBlacklistSyncRouter);
 router.use(bankStatementRouter);
 router.use(walletRouter);
+router.use(flashOffersRouter);
 
 export default router;

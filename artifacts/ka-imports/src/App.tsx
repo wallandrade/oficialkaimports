@@ -7,6 +7,7 @@ import { useEffect } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 import { SitePasswordGate } from "@/components/SitePasswordGate";
 import SocialProofWidget from "@/components/SocialProofWidget";
+import { FlashOfferHost } from "@/components/flash/FlashOfferHost";
 import { captureReferralFromCurrentUrl } from "@/lib/affiliate";
 import { reportClientError } from "@/lib/client-error-reporting";
 import { fetchPublicSiteSettings } from "@/lib/public-settings";
@@ -405,6 +406,7 @@ function AppInner() {
         <Router />
       </SitePasswordGate>
       {!isAdmin && <SocialProofWidget />}
+      <FlashOfferHost />
     </AppErrorBoundary>
   );
 }

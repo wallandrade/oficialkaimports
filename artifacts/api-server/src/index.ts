@@ -3,6 +3,7 @@ import { startReconciliationJob } from "./reconciliation";
 import { ensureRuntimeSchema } from "./runtime-schema";
 import { revokeSellerCustomerAffiliateCommissions } from "./lib/affiliates";
 import { startRaffleExpiryJob } from "./raffle-expiry";
+import { startFlashExpiryJob } from "./flash-expiry";
 import { reconcilePendingOrderLogistics } from "./lib/order-logistics";
 import { startYuryMotoboyCoverageSyncJob } from "./lib/motoboy-yury-sync-job";
 import { startYuryInventorySyncJob } from "./lib/yury-inventory-sync-job";
@@ -46,6 +47,7 @@ async function bootstrap(): Promise<void> {
     console.log(`Server listening on port ${port}`);
     startReconciliationJob();
     startRaffleExpiryJob();
+    startFlashExpiryJob();
     startYuryMotoboyCoverageSyncJob();
     startYuryInventorySyncJob();
     startYuryLossSyncJob();

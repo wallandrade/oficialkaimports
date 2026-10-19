@@ -80,6 +80,7 @@ import {
   listOrderEventsByOrderIds,
 } from "../lib/order-events";
 import { assignNextOrganicSeller } from "../lib/seller-round-robin";
+import { consumeFlashReservation, FlashOfferError, resolveCheckoutFlash, unitPriceWithFlash } from "../lib/flash-offers";
 import {
   isObservationVisibleToCustomer,
   observationForCustomerApi,
@@ -1325,6 +1326,21 @@ router.post("/orders", async (req, res) => {
       }
     }
 
+    const flashDecision = await resolveCheckoutFlash({
+      tenantId,
+      reservationId: req.body?.flashReservationId,
+      visitorKey: req.body?.flashVisitorId,
+      customerUserId: customerSession?.userId ?? null,
+      paymentMethod: method,
+      couponCode: req.body?.couponCode,
+      lines: productItems,
+    });
+    if (!flashDecision.ok) {
+      res.status(flashDecision.status).json({ error: flashDecision.error, message: flashDecision.message });
+      return;
+    }
+    const flashHit = flashDecision.hit;
+
     const unavailableProducts: string[] = [];
     const priceChanges: Array<{ id: string; name: string; sentPrice: number; currentPrice: number }> = [];
     const orderProducts = productItems
@@ -1341,7 +1357,13 @@ router.post("/orders", async (req, res) => {
 
         const sentUnitPrice = Number(item.price) || 0;
         const isBump = item.isBump === true;
-        const serverUnitPrice = isBump ? sentUnitPrice : resolveUnitPriceForQuantity(current, quantity);
+        const catalogUnitPrice = isBump ? sentUnitPrice : resolveUnitPriceForQuantity(current, quantity);
+        const serverUnitPrice = unitPriceWithFlash({
+          catalogUnitPrice,
+          flash: flashHit,
+          productId,
+          isBump,
+        });
         const applied = applyVariantToOrderItem({
           groups: parseVariantGroups(current.variantGroups),
           isBump,
@@ -1367,6 +1389,7 @@ router.post("/orders", async (req, res) => {
           quantity,
           price: serverUnitPrice,
           costPrice: Number(current.costPrice || 0),
+          ...(flashHit && !isBump && flashHit.productId === productId ? { flashOffer: true } : {}),
           ...(applied.selectedVariants && applied.selectedVariants.length > 0
             ? {
                 selectedVariants: applied.selectedVariants,
@@ -1382,6 +1405,7 @@ router.post("/orders", async (req, res) => {
         quantity: number;
         price: number;
         costPrice: number;
+        flashOffer?: boolean;
         image?: string | null;
         selectedVariants?: Array<{ groupName: string; option: string }>;
         variantLabel?: string;
@@ -1485,6 +1509,12 @@ router.post("/orders", async (req, res) => {
         }
       }
       assignedOrderNumber = await reserveNextOrderNumber(tx, tenantId);
+      if (flashHit) {
+        const consumed = await consumeFlashReservation(tx, flashHit.reservationId, id);
+        if (!consumed) {
+          throw new FlashOfferError("FLASH_EXPIRED", "A promoção relâmpago expirou. O preço voltou ao normal.");
+        }
+      }
       const motoboySchedule = isMotoboyShippingType(shippingType)
         ? await reserveMotoboySchedule(tx, tenantId, id, req.body?.motoboySchedule || {})
         : null;
@@ -1683,6 +1713,10 @@ router.post("/orders", async (req, res) => {
   } catch (err) {
     if (err instanceof MotoboyScheduleError) {
       res.status(err.code === "DELIVERY_SLOT_UNAVAILABLE" ? 409 : 400).json({ error: err.code, message: err.message });
+      return;
+    }
+    if (err instanceof FlashOfferError) {
+      res.status(err.status).json({ error: err.code, message: err.message });
       return;
     }
     console.error("Create order error:", err);

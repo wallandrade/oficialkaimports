@@ -17,6 +17,7 @@ import { useLiveTracking } from "@/hooks/useLiveTracking";
 import { isProductUnavailable, useCart } from "@/store/use-cart";
 import { buildVariantLabel, cartCatalogProductId, parseVariantGroups, readSelectedVariants } from "@/lib/product-variants";
 import { getStoredReferralCode } from "@/lib/affiliate";
+import { clearStoredFlashOffer, flashCheckoutFields } from "@/lib/flash-offer";
 import { getCheckoutSecurityHeaders } from "@/lib/checkout-security";
 import { getCustomerAuthHeaders, getCustomerToken } from "@/lib/customer-auth";
 import { formatCurrency, getActiveWhatsApp } from "@/lib/utils";
@@ -898,7 +899,10 @@ export default function Checkout() {
   const missingForFreeShipping = isFreeShippingEligible || activeFreeShippingMin == null
     ? 0
     : Math.max(0, activeFreeShippingMin - subtotal);
-  const discountAmount = appliedCoupon
+  const hasFlashPrice = items.some((item) => (item as { isFlash?: boolean; flashExpiresAt?: string }).isFlash === true && new Date(String((item as { flashExpiresAt?: string }).flashExpiresAt || "")).getTime() > Date.now());
+  const discountAmount = hasFlashPrice
+    ? 0
+    : appliedCoupon
     ? appliedCoupon.discountType === "percent"
       ? eligibleProductSubtotal * (appliedCoupon.discountValue / 100)
       : Math.min(appliedCoupon.discountValue, eligibleProductSubtotal)
@@ -1378,7 +1382,8 @@ export default function Checkout() {
           sellerCode,
           affiliateCode:   affiliateCode || undefined,
           useAffiliateCredit,
-          couponCode:      appliedCoupon?.code,
+          couponCode:      hasFlashPrice ? undefined : appliedCoupon?.code,
+          ...flashCheckoutFields(items),
           discountAmount:  discountAmount > 0 ? discountAmount : undefined,
           motoboySchedule: motoboySchedulePayload,
         }),
@@ -1458,6 +1463,7 @@ export default function Checkout() {
             total:           0,
           })
         );
+        clearStoredFlashOffer();
         clearCart();
         setIsOpen(false);
         setLocation("/success");
@@ -1528,6 +1534,7 @@ export default function Checkout() {
           total,
         })
       );
+      clearStoredFlashOffer();
       clearCart();
       setIsOpen(false);
       setLocation(`/pix/${result.transactionId}`);
@@ -1632,9 +1639,10 @@ export default function Checkout() {
         paymentMethod: "whatsapp_pix",
         sellerCode,
         affiliateCode: affiliateCode || undefined,
-        couponCode: appliedCoupon?.code,
+        couponCode: hasFlashPrice ? undefined : appliedCoupon?.code,
         discountAmount: discountAmount > 0 ? discountAmount : undefined,
         motoboySchedule: motoboySchedulePayload,
+        ...flashCheckoutFields(items),
       });
 
       const itemsText = productsPayload
@@ -1712,6 +1720,7 @@ export default function Checkout() {
       setWhatsappModalData({ url: waUrl, displayNumber: formatCheckoutOrderNumber(order) });
       toast.success(`Pedido #${formatCheckoutOrderNumber(order)} criado com sucesso!`);
       priceSyncRetryCountRef.current.whatsapp = 0;
+      clearStoredFlashOffer();
       clearCart();
       setIsOpen(false);
     } catch (error) {
@@ -2710,7 +2719,10 @@ export default function Checkout() {
                     <span>− {formatCurrency(storeCreditToApply)}</span>
                   </div>
                 )}
-                {appliedCoupon && (
+                {appliedCoupon && hasFlashPrice && (
+                  <p className="text-xs font-medium text-orange-700">O cupom não entra na promoção relâmpago. No PIX e no WhatsApp vale o preço da oferta.</p>
+                )}
+                {appliedCoupon && !hasFlashPrice && (
                   <div className="flex justify-between text-green-700 font-semibold">
                     <span className="flex items-center gap-1.5">
                       <Tag className="w-3.5 h-3.5" />
@@ -3149,6 +3161,7 @@ export default function Checkout() {
                       className="w-full gap-2 bg-green-600 hover:bg-green-700"
                       onClick={() => {
                         window.open(kycWhatsAppUrl, "_blank");
+                        clearStoredFlashOffer();
                         clearCart();
                         setShowCardModal(false);
                       }}
@@ -3200,6 +3213,7 @@ export default function Checkout() {
                       className="w-full gap-2"
                       onClick={() => {
                         window.open(kycWhatsAppUrl, "_blank");
+                        clearStoredFlashOffer();
                         clearCart();
                         setShowCardModal(false);
                       }}

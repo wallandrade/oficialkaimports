@@ -1620,6 +1620,73 @@ async function ensureCustomerWalletLedgerTable(databaseName: string): Promise<vo
   `);
 }
 
+async function ensureFlashOfferTables(databaseName: string): Promise<void> {
+  if (!(await tableExists("flash_campaigns", databaseName))) {
+    await pool.query(`
+      CREATE TABLE flash_campaigns (
+        id VARCHAR(255) NOT NULL PRIMARY KEY,
+        tenant_id VARCHAR(255) NULL,
+        name VARCHAR(255) NOT NULL,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        slot_limit INT NOT NULL DEFAULT 5,
+        draw_percent INT NOT NULL DEFAULT 25,
+        active_from_hour INT NULL,
+        active_until_hour INT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+  }
+  if (!(await tableExists("flash_campaign_items", databaseName))) {
+    await pool.query(`
+      CREATE TABLE flash_campaign_items (
+        id VARCHAR(255) NOT NULL PRIMARY KEY,
+        campaign_id VARCHAR(255) NOT NULL,
+        tenant_id VARCHAR(255) NULL,
+        product_id VARCHAR(255) NOT NULL,
+        flash_price DECIMAL(10,2) NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY flash_campaign_items_campaign_idx (campaign_id)
+      )
+    `);
+  }
+  if (!(await tableExists("flash_visits", databaseName))) {
+    await pool.query(`
+      CREATE TABLE flash_visits (
+        id VARCHAR(255) NOT NULL PRIMARY KEY,
+        tenant_id VARCHAR(255) NULL,
+        campaign_id VARCHAR(255) NOT NULL,
+        visitor_key VARCHAR(80) NOT NULL,
+        customer_user_id VARCHAR(255) NULL,
+        ip_hash VARCHAR(64) NULL,
+        outcome VARCHAR(16) NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY flash_visits_campaign_visitor_uq (campaign_id, visitor_key),
+        KEY flash_visits_campaign_ip_idx (campaign_id, ip_hash)
+      )
+    `);
+  }
+  if (!(await tableExists("flash_reservations", databaseName))) {
+    await pool.query(`
+      CREATE TABLE flash_reservations (
+        id VARCHAR(255) NOT NULL PRIMARY KEY,
+        tenant_id VARCHAR(255) NULL,
+        campaign_id VARCHAR(255) NOT NULL,
+        visitor_key VARCHAR(80) NOT NULL,
+        customer_user_id VARCHAR(255) NULL,
+        product_id VARCHAR(255) NOT NULL,
+        unit_price DECIMAL(10,2) NOT NULL,
+        status VARCHAR(16) NOT NULL,
+        order_id VARCHAR(255) NULL,
+        expires_at TIMESTAMP NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY flash_reservations_campaign_status_idx (campaign_id, status)
+      )
+    `);
+  }
+}
+
 async function ensureYuryInventoryBalancesTable(databaseName: string): Promise<void> {
   if (await tableExists("yury_inventory_balances", databaseName)) return;
 
@@ -1678,6 +1745,7 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureYuryWebhookEventsProcessedTable(databaseName);
     await ensureYuryInventoryBalancesTable(databaseName);
     await ensureCustomerWalletLedgerTable(databaseName);
+    await ensureFlashOfferTables(databaseName);
     await seedDefaultTenantAndBackfill(databaseName);
     if (isYuryMotoboySyncConfigured()) {
       console.log("[RuntimeSchema] Skipping Motoboy seed; Yury coverage sync is configured.");

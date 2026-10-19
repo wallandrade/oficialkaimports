@@ -12,6 +12,7 @@ import {
   variantSelectionMessage,
   type SelectedVariant,
 } from "@/lib/product-variants";
+import { readActiveFlashOffer } from "@/lib/flash-offer";
 
 type BulkDiscountTier = {
   minQty: number;
@@ -46,6 +47,9 @@ type CartItemExtended = CartItem & {
   bumpForProductId?: string;
   bumpOfferId?: string;
   bumpProductId?: string;
+  isFlash?: boolean;
+  flashReservationId?: string;
+  flashExpiresAt?: string;
 };
 
 function getBaseUnitPrice(product: Product): number {
@@ -116,6 +120,7 @@ interface CartState {
   removeItem: (itemId: string) => void;
   updateQuantity: (itemId: string, quantity: number) => void;
   clearCart: () => void;
+  clearExpiredFlash: () => void;
   getSubtotal: () => number;
   getCardSubtotal: () => number;
 }
@@ -193,6 +198,34 @@ export const useCart = create<CartState>()(
 
           const existingItem = state.items.find((item) => item.id === lineId && item.isBump !== true);
           const regularPrice = product.price;
+          const storedFlash = readActiveFlashOffer();
+          const flash = storedFlash && storedFlash.productId === product.id ? storedFlash : null;
+          const flashPrice = flash ? flash.unitPrice : options?.unitPrice;
+
+          if (flash && existingItem) {
+            return {
+              items: state.items.map((item) =>
+                item.id === lineId
+                  ? {
+                    ...item,
+                    productId: product.id,
+                    name: displayName,
+                    quantity: 1,
+                    price: flash.unitPrice,
+                    image: lineImage,
+                    baseUnitPrice,
+                    regularPrice,
+                    isFlash: true,
+                    flashReservationId: flash.reservationId,
+                    flashExpiresAt: flash.expiresAt,
+                    selectedVariants,
+                    variantLabel: variantLabel || undefined,
+                  }
+                  : item
+              ),
+              isOpen: true,
+            };
+          }
 
           if (existingItem) {
             const nextQuantity = existingItem.quantity + addQuantity;
@@ -220,7 +253,7 @@ export const useCart = create<CartState>()(
             };
           }
 
-          const initialPrice = options?.unitPrice ?? getTierUnitPrice(baseUnitPrice, addQuantity, bulkDiscountTiers);
+          const initialPrice = flashPrice ?? getTierUnitPrice(baseUnitPrice, addQuantity, bulkDiscountTiers);
 
           return {
             items: [
@@ -232,7 +265,10 @@ export const useCart = create<CartState>()(
                 price: initialPrice,
                 baseUnitPrice,
                 regularPrice,
-                quantity: addQuantity,
+                quantity: flash ? 1 : addQuantity,
+                isFlash: Boolean(flash),
+                flashReservationId: flash?.reservationId,
+                flashExpiresAt: flash?.expiresAt,
                 image: lineImage,
                 bulkDiscountEnabled,
                 bulkDiscountTiers,
@@ -259,23 +295,44 @@ export const useCart = create<CartState>()(
 
       updateQuantity: (itemId, quantity) => {
         set((state) => ({
-          items: state.items.map((item) =>
-            item.id === itemId
-              ? {
-                ...item,
-                quantity: Math.max(1, quantity),
-                price: item.isBump === true
-                  ? Number(item.price)
-                  : (item.bulkDiscountEnabled === true)
-                    ? getTierUnitPrice(Number(item.baseUnitPrice ?? item.price), Math.max(1, quantity), item.bulkDiscountTiers ?? [])
-                    : Number(item.baseUnitPrice ?? item.price),
-              }
-              : item
-          ),
+          items: state.items.map((item) => {
+            if (item.id !== itemId) return item;
+            if (item.isFlash === true) {
+              return { ...item, quantity: 1, price: Number(item.price) };
+            }
+            const nextQuantity = Math.max(1, quantity);
+            return {
+              ...item,
+              quantity: nextQuantity,
+              price: item.isBump === true
+                ? Number(item.price)
+                : (item.bulkDiscountEnabled === true)
+                  ? getTierUnitPrice(Number(item.baseUnitPrice ?? item.price), nextQuantity, item.bulkDiscountTiers ?? [])
+                  : Number(item.baseUnitPrice ?? item.price),
+            };
+          }),
         }));
       },
 
       clearCart: () => set({ items: [] }),
+
+      clearExpiredFlash: () => {
+        const now = Date.now();
+        set((state) => ({
+          items: state.items.map((item) => {
+            if (item.isFlash !== true) return item;
+            const expires = item.flashExpiresAt ? new Date(item.flashExpiresAt).getTime() : 0;
+            if (expires > now) return item;
+            return {
+              ...item,
+              isFlash: false,
+              flashReservationId: undefined,
+              flashExpiresAt: undefined,
+              price: Number(item.baseUnitPrice ?? item.regularPrice ?? item.price),
+            };
+          }),
+        }));
+      },
 
       getSubtotal: () => {
         return get().items.reduce((total, item) => total + item.price * item.quantity, 0);

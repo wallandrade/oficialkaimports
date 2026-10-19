@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { useCart } from "@/store/use-cart";
+import { clearStoredFlashOffer } from "@/lib/flash-offer";
 import { MessageCircle, CheckCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import { fetchAndCacheSellerWhatsApp, makeWhatsAppLink, formatCurrency } from "@/lib/utils";
@@ -113,6 +114,7 @@ export default function Success() {
   const homeHref = sellerCode ? `/${encodeURIComponent(sellerCode)}` : "/";
 
   useEffect(() => {
+    clearStoredFlashOffer();
     clearCart();
     const raw = localStorage.getItem("successOrder");
     if (raw) {

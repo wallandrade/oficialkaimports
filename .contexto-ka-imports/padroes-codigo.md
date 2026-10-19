@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-10-15
+> **Última atualização:** 2026-10-19
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-19 | Anti-padrão: promoção relâmpago só no modal ou no `promoPrice` | O preço da reserva entra no create do PIX/WhatsApp. IP sozinho não é a chave; o id do navegador é | Catálogo e cupom |
 | 2026-10-15 | Anti-padrão: gravar extravio da Yury em `carrier_loss_incidents` ou repetir o mesmo token nos dois envs | Espelho em `carrier_loss_peer_incidents`. `LOSS_SYNC_TOKEN` ≠ `YURY_LOSS_SYNC_TOKEN` | Cotação local e o GET da lista nossa |
 | 2026-10-04 | Anti-padrão: sortear o valor da etiqueta no GET ou mandar o preço do catálogo no create | Baralho e faixa só no create EnvioEcom; a linha gravada fica | Cotação R$ 5 |
 | 2026-10-04 | Home farmácia em cinco vitrines | `pharma-home-showcases.ts` monta os cortes; `?vitrine=vendidos` e `?vitrine=lancamentos` voltam para a grade | `sortCatalogProducts` dos outros temas e de `/categoria/:nome` |
@@ -184,6 +185,7 @@ Código > memória > suposições.
 
 ## Anti-padrões (não reintroduzir)
 
+- Montar promoção relâmpago só no modal, no `promoPrice` do catálogo ou num cupom compartilhado. A vaga fica em `flash_reservations` e o PIX/WhatsApp recalcula com esse preço. O IP do dia é apoio; a chave é o id do navegador.
 - Ordenar a categoria da home `pharma_compact` com `sortCatalogProducts`. Nessa lista a ordem manual vem antes de `soldQty`; a marca BIOGENESIS do peptídeo vem depois do `sortOrder`. A home dos outros temas e `/categoria/:nome` continuam no sorter antigo.
 - Colocar `@import` do Google Fonts dentro de `index.css`. Se o navegador recusa esse import, ele joga fora o CSS do Tailwind inteiro. A fonte fica no `<link>` de `index.html`.
 - Aplicar `shipping_queue_manual_hours` em `findForecast` ou `allocateOrderLogistics`. O número manual só substitui `promisedHours` em `GET /api/shipping-logistics/forecast`. A vaga, as cópias e o card usam o prazo da fila.

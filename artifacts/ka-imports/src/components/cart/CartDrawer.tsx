@@ -162,6 +162,9 @@ export function CartDrawer() {
                           </button>
                         </div>
                         )}
+                        {(item as { isFlash?: boolean }).isFlash === true && (
+                          <p className="text-[11px] font-semibold text-orange-600">Oferta relâmpago · 1 un</p>
+                        )}
                         {Boolean((item as { variantLabel?: string }).variantLabel) && !String(item.name || "").includes(String((item as { variantLabel?: string }).variantLabel)) && (
                           <p className="text-[11px] text-muted-foreground mt-0.5">{(item as { variantLabel?: string }).variantLabel}</p>
                         )}
@@ -183,7 +186,8 @@ export function CartDrawer() {
                             <span className="ka-cart-qty-value text-sm font-medium w-4 text-center">{totalQty}</span>
                             <button 
                               onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                              className="ka-cart-qty-btn w-6 h-6 flex items-center justify-center rounded-md hover:bg-muted text-foreground transition-colors"
+                              disabled={(item as { isFlash?: boolean }).isFlash === true}
+                              className="ka-cart-qty-btn w-6 h-6 flex items-center justify-center rounded-md hover:bg-muted text-foreground transition-colors disabled:opacity-30"
                             >
                               <Plus className="w-3 h-3" />
                             </button>
