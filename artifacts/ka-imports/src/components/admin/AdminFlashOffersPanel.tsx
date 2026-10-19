@@ -63,19 +63,38 @@ export function AdminFlashOffersPanel() {
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [errorText, setErrorText] = useState("");
+
+  const readApiError = async (response: Response, fallback: string) => {
+    try {
+      const data = await response.json() as { message?: string; error?: string };
+      if (data.message) return data.message;
+      if (response.status === 404) return "A API ainda não tem a rota de promoções. Publique a API de novo e tente outra vez.";
+      return data.error || fallback;
+    } catch {
+      return `${fallback} (resposta ${response.status})`;
+    }
+  };
 
   const load = async () => {
-    const [campaignRes, productRes] = await Promise.all([
-      fetch(`${BASE}/api/admin/flash-campaigns`, { headers: authHeaders() }),
-      fetch(`${BASE}/api/admin/products`, { headers: authHeaders() }),
-    ]);
-    if (campaignRes.ok) {
+    try {
+      const [campaignRes, productRes] = await Promise.all([
+        fetch(`${BASE}/api/admin/flash-campaigns`, { headers: authHeaders() }),
+        fetch(`${BASE}/api/admin/products`, { headers: authHeaders() }),
+      ]);
+      if (!campaignRes.ok) {
+        setErrorText(await readApiError(campaignRes, "Não foi possível carregar as promoções."));
+        return;
+      }
       const data = await campaignRes.json() as { campaigns?: Campaign[] };
       setCampaigns(data.campaigns || []);
-    }
-    if (productRes.ok) {
-      const data = await productRes.json() as { products?: CatalogProduct[] };
-      setProducts(data.products || []);
+      setErrorText("");
+      if (productRes.ok) {
+        const productData = await productRes.json() as { products?: CatalogProduct[] };
+        setProducts(productData.products || []);
+      }
+    } catch (err) {
+      setErrorText(err instanceof Error ? err.message : "Não foi possível carregar as promoções.");
     }
   };
 
@@ -132,20 +151,26 @@ export function AdminFlashOffersPanel() {
       return;
     }
     setSaving(true);
+    setErrorText("");
     try {
       const response = await fetch(`${BASE}/api/admin/flash-campaigns${editingId ? `/${editingId}` : ""}`, {
         method: editingId ? "PATCH" : "POST",
         headers: authHeaders(),
         body: JSON.stringify(payload),
       });
-      const data = await response.json() as { message?: string };
       if (!response.ok) {
-        toast.error(data.message || "Não foi possível salvar.");
+        const message = await readApiError(response, "Não foi possível salvar.");
+        setErrorText(message);
+        toast.error(message);
         return;
       }
       toast.success(editingId ? "Promoção atualizada." : "Promoção criada.");
       reset();
       await load();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Não foi possível salvar.";
+      setErrorText(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -250,6 +275,10 @@ export function AdminFlashOffersPanel() {
             </div>
           ))}
         </div>
+
+        {errorText && (
+          <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">{errorText}</p>
+        )}
 
         <div className="flex gap-2">
           <button type="button" disabled={saving} onClick={() => void save()} className="h-11 rounded-xl bg-primary px-4 text-sm font-bold text-primary-foreground disabled:opacity-60">

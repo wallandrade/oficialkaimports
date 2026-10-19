@@ -1620,6 +1620,10 @@ async function ensureCustomerWalletLedgerTable(databaseName: string): Promise<vo
   `);
 }
 
+export async function ensureFlashOfferSchema(): Promise<void> {
+  await ensureFlashOfferTables(getDatabaseName());
+}
+
 async function ensureFlashOfferTables(databaseName: string): Promise<void> {
   if (!(await tableExists("flash_campaigns", databaseName))) {
     await pool.query(`
@@ -1632,8 +1636,8 @@ async function ensureFlashOfferTables(databaseName: string): Promise<void> {
         draw_percent INT NOT NULL DEFAULT 25,
         active_from_hour INT NULL,
         active_until_hour INT NULL,
-        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NULL
       )
     `);
   }
@@ -1645,7 +1649,7 @@ async function ensureFlashOfferTables(databaseName: string): Promise<void> {
         tenant_id VARCHAR(255) NULL,
         product_id VARCHAR(255) NOT NULL,
         flash_price DECIMAL(10,2) NOT NULL,
-        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         KEY flash_campaign_items_campaign_idx (campaign_id)
       )
     `);
@@ -1660,7 +1664,7 @@ async function ensureFlashOfferTables(databaseName: string): Promise<void> {
         customer_user_id VARCHAR(255) NULL,
         ip_hash VARCHAR(64) NULL,
         outcome VARCHAR(16) NOT NULL,
-        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY flash_visits_campaign_visitor_uq (campaign_id, visitor_key),
         KEY flash_visits_campaign_ip_idx (campaign_id, ip_hash)
       )
@@ -1678,9 +1682,9 @@ async function ensureFlashOfferTables(databaseName: string): Promise<void> {
         unit_price DECIMAL(10,2) NOT NULL,
         status VARCHAR(16) NOT NULL,
         order_id VARCHAR(255) NULL,
-        expires_at TIMESTAMP NOT NULL,
-        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        expires_at DATETIME NOT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NULL,
         KEY flash_reservations_campaign_status_idx (campaign_id, status)
       )
     `);
@@ -1757,5 +1761,10 @@ export async function ensureRuntimeSchema(): Promise<void> {
     console.log("[RuntimeSchema] Schema sync completed.");
   } catch (error) {
     console.error("[RuntimeSchema] Schema sync failed:", error);
+  }
+  try {
+    await ensureFlashOfferSchema();
+  } catch (error) {
+    console.error("[RuntimeSchema] Flash offer tables failed:", error);
   }
 }

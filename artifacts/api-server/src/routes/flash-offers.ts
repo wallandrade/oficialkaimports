@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Response } from "express";
 import crypto from "crypto";
 import {
   db,
@@ -20,6 +20,7 @@ import {
   releaseFlashReservation,
 } from "../lib/flash-offers";
 import { normalizeHour, normalizeVisitorKey } from "../lib/flash-offers-core";
+import { ensureFlashOfferSchema } from "../runtime-schema";
 
 const router: IRouter = Router();
 
@@ -28,6 +29,28 @@ function requestIp(req: { ip?: string; headers?: Record<string, unknown> }): str
   const raw = Array.isArray(forwarded) ? forwarded[0] : forwarded;
   const first = String(raw || "").split(",")[0]?.trim();
   return first || String(req.ip || "").trim();
+}
+
+function flashErrorMessage(err: unknown, fallback: string): string {
+  const error = err as { code?: string; message?: string } | null;
+  const code = String(error?.code || "");
+  const message = String(error?.message || "");
+  if (code === "ER_NO_SUCH_TABLE" || message.toLowerCase().includes("doesn't exist")) {
+    return "A tabela da promoção ainda não existe no banco. Clique de novo. Se continuar, reinicie a API.";
+  }
+  if (message) return `${fallback} ${message}`.slice(0, 240);
+  return fallback;
+}
+
+async function readyFlashSchema(res: Response): Promise<boolean> {
+  try {
+    await ensureFlashOfferSchema();
+    return true;
+  } catch (err) {
+    console.error("[FlashOffer] schema:", err);
+    res.status(500).json({ error: "SCHEMA", message: flashErrorMessage(err, "Não foi possível preparar a promoção.") });
+    return false;
+  }
 }
 
 function canManageFlash(scope: ReturnType<typeof getAdminScope>): boolean {
@@ -141,6 +164,7 @@ function normalizeItems(raw: unknown): Array<{ productId: string; flashPrice: nu
 
 router.get("/admin/flash-campaigns", requireAdminAuth, async (req, res) => {
   try {
+    if (!(await readyFlashSchema(res))) return;
     const scope = getAdminScope(req);
     if (!canManageFlash(scope)) {
       res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para promoções." });
@@ -204,12 +228,13 @@ router.get("/admin/flash-campaigns", requireAdminAuth, async (req, res) => {
     });
   } catch (err) {
     console.error("[FlashOffer] list:", err);
-    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao listar promoções." });
+    res.status(500).json({ error: "INTERNAL_ERROR", message: flashErrorMessage(err, "Erro ao listar promoções.") });
   }
 });
 
 router.post("/admin/flash-campaigns", requireAdminAuth, async (req, res) => {
   try {
+    if (!(await readyFlashSchema(res))) return;
     const scope = getAdminScope(req);
     if (!canManageFlash(scope)) {
       res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para promoções." });
@@ -254,12 +279,13 @@ router.post("/admin/flash-campaigns", requireAdminAuth, async (req, res) => {
     res.json({ id });
   } catch (err) {
     console.error("[FlashOffer] create:", err);
-    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao salvar a promoção." });
+    res.status(500).json({ error: "INTERNAL_ERROR", message: flashErrorMessage(err, "Erro ao salvar a promoção.") });
   }
 });
 
 router.patch("/admin/flash-campaigns/:id", requireAdminAuth, async (req, res) => {
   try {
+    if (!(await readyFlashSchema(res))) return;
     const scope = getAdminScope(req);
     if (!canManageFlash(scope)) {
       res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para promoções." });
@@ -311,12 +337,13 @@ router.patch("/admin/flash-campaigns/:id", requireAdminAuth, async (req, res) =>
     res.json({ ok: true });
   } catch (err) {
     console.error("[FlashOffer] update:", err);
-    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao atualizar a promoção." });
+    res.status(500).json({ error: "INTERNAL_ERROR", message: flashErrorMessage(err, "Erro ao atualizar a promoção.") });
   }
 });
 
 router.delete("/admin/flash-campaigns/:id", requireAdminAuth, async (req, res) => {
   try {
+    if (!(await readyFlashSchema(res))) return;
     const scope = getAdminScope(req);
     if (!canManageFlash(scope)) {
       res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para promoções." });
@@ -340,7 +367,7 @@ router.delete("/admin/flash-campaigns/:id", requireAdminAuth, async (req, res) =
     res.json({ ok: true });
   } catch (err) {
     console.error("[FlashOffer] delete:", err);
-    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao apagar a promoção." });
+    res.status(500).json({ error: "INTERNAL_ERROR", message: flashErrorMessage(err, "Erro ao apagar a promoção.") });
   }
 });
 
