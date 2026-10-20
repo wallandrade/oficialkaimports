@@ -30,6 +30,17 @@ type Campaign = {
   activeReservations: number;
   usedReservations: number;
   seenCount: number;
+  reservations?: Array<{
+    id: string;
+    name: string;
+    productName: string;
+    unitPrice: number;
+    status: string;
+    statusLabel: string;
+    expiresAt: string;
+    orderId: string | null;
+    orderNumber: number | null;
+  }>;
 };
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -44,6 +55,19 @@ function authHeaders(): Record<string, string> {
 
 function money(value: number): string {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function remainingLabel(expiresAt: string): string {
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  if (ms <= 0) return "";
+  const minutes = Math.ceil(ms / 60000);
+  return minutes <= 1 ? " · falta menos de 1 min" : ` · faltam ${minutes} min`;
+}
+
+function reservationTone(status: string): string {
+  if (status === "waiting_checkout" || status === "waiting_payment") return "text-orange-700 bg-orange-50";
+  if (status === "paid") return "text-green-700 bg-green-50";
+  return "text-neutral-500 bg-neutral-100";
 }
 
 const emptyForm = {
@@ -318,6 +342,26 @@ export function AdminFlashOffersPanel() {
                   <span className="font-semibold text-orange-600">{money(item.flashPrice)}</span>
                 </div>
               ))}
+            </div>
+            <div className="mt-4 border-t border-border pt-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Quem aceitou</p>
+              {(campaign.reservations || []).length === 0 ? (
+                <p className="mt-2 text-sm text-muted-foreground">Ninguém aceitou ainda.</p>
+              ) : (
+                <div className="mt-2 space-y-2">
+                  {(campaign.reservations || []).map((row) => (
+                    <div key={row.id} className="flex flex-wrap items-center gap-2 text-sm">
+                      <span className="min-w-0 flex-1 truncate font-medium">{row.name}</span>
+                      <span className="truncate text-muted-foreground">{row.productName}</span>
+                      <span className="font-semibold text-orange-600">{money(row.unitPrice)}</span>
+                      {row.orderNumber != null && <span className="text-muted-foreground">#{row.orderNumber}</span>}
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${reservationTone(row.status)}`}>
+                        {row.statusLabel}{row.status === "waiting_checkout" ? remainingLabel(row.expiresAt) : ""}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         ))}

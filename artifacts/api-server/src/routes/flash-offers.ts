@@ -2,10 +2,12 @@ import { Router, type IRouter, type Response } from "express";
 import crypto from "crypto";
 import {
   db,
+  customerUsersTable,
   flashCampaignItemsTable,
   flashCampaignsTable,
   flashReservationsTable,
   flashVisitsTable,
+  ordersTable,
   productsTable,
 } from "@workspace/db";
 import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
@@ -52,6 +54,29 @@ async function readyFlashSchema(res: Response): Promise<boolean> {
     return false;
   }
 }
+
+function flashReservationView(input: {
+  status: string;
+  expiresAt: Date;
+  orderStatus: string | null;
+}): { status: string; label: string } {
+  const expired = input.status === "expired" || (input.status === "active" && input.expiresAt.getTime() <= Date.now());
+  if (input.status === "released") return { status: "released", label: "Tirou do carrinho" };
+  if (expired) return { status: "expired", label: "Perdeu a hora" };
+  if (input.status === "active") return { status: "waiting_checkout", label: "Aguardando finalizar" };
+  if (input.orderStatus === "paid" || input.orderStatus === "completed") return { status: "paid", label: "Pago" };
+  if (input.orderStatus === "cancelled") return { status: "cancelled", label: "Pedido cancelado" };
+  return { status: "waiting_payment", label: "Aguardando pagamento" };
+}
+
+const FLASH_RESERVATION_RANK: Record<string, number> = {
+  waiting_checkout: 0,
+  waiting_payment: 1,
+  paid: 2,
+  cancelled: 3,
+  expired: 4,
+  released: 5,
+};
 
 function canManageFlash(scope: ReturnType<typeof getAdminScope>): boolean {
   if (!scope) return false;
@@ -187,6 +212,26 @@ router.get("/admin/flash-campaigns", requireAdminAuth, async (req, res) => {
     const reservations = campaignIds.length
       ? await db.select().from(flashReservationsTable).where(inArray(flashReservationsTable.campaignId, campaignIds))
       : [];
+    const orderIds = [...new Set(reservations.map((row) => row.orderId).filter((id): id is string => Boolean(id)))];
+    const orders = orderIds.length
+      ? await db.select({
+        id: ordersTable.id,
+        orderNumber: ordersTable.orderNumber,
+        clientName: ordersTable.clientName,
+        status: ordersTable.status,
+      }).from(ordersTable).where(inArray(ordersTable.id, orderIds))
+      : [];
+    const orderById = new Map(orders.map((order) => [order.id, order]));
+    const userIds = [...new Set(reservations.map((row) => row.customerUserId).filter((id): id is string => Boolean(id)))];
+    const customers = userIds.length
+      ? await db.select({ id: customerUsersTable.id, name: customerUsersTable.name }).from(customerUsersTable).where(inArray(customerUsersTable.id, userIds))
+      : [];
+    const customerById = new Map(customers.map((customer) => [customer.id, customer.name]));
+    const reservationProductIds = reservations.map((row) => row.productId).filter((id) => !productById.has(id));
+    if (reservationProductIds.length > 0) {
+      const extraProducts = await db.select().from(productsTable).where(and(productTenantWhere(tenantId), inArray(productsTable.id, [...new Set(reservationProductIds)])));
+      for (const product of extraProducts) productById.set(product.id, product);
+    }
     const visits = campaignIds.length
       ? await db
         .select({
@@ -224,6 +269,26 @@ router.get("/admin/flash-campaigns", requireAdminAuth, async (req, res) => {
         activeReservations: reservations.filter((row) => row.campaignId === campaign.id && row.status === "active" && row.expiresAt > new Date()).length,
         usedReservations: reservations.filter((row) => row.campaignId === campaign.id && row.status === "used").length,
         seenCount: Number(visits.find((row) => row.campaignId === campaign.id && row.outcome === "seen")?.n || 0),
+        reservations: reservations
+          .filter((row) => row.campaignId === campaign.id)
+          .map((row) => {
+            const order = row.orderId ? orderById.get(row.orderId) : undefined;
+            const view = flashReservationView({ status: row.status, expiresAt: row.expiresAt, orderStatus: order?.status ?? null });
+            const product = productById.get(row.productId);
+            return {
+              id: row.id,
+              name: order?.clientName || (row.customerUserId ? customerById.get(row.customerUserId) : "") || "Visitante",
+              productName: product?.name || "Produto",
+              unitPrice: Number(row.unitPrice),
+              status: view.status,
+              statusLabel: view.label,
+              expiresAt: row.expiresAt.toISOString(),
+              orderId: row.orderId,
+              orderNumber: order?.orderNumber ?? null,
+              createdAt: row.createdAt.toISOString(),
+            };
+          })
+          .sort((a, b) => (FLASH_RESERVATION_RANK[a.status] ?? 9) - (FLASH_RESERVATION_RANK[b.status] ?? 9) || b.createdAt.localeCompare(a.createdAt)),
       })),
     });
   } catch (err) {
