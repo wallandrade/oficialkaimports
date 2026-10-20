@@ -7041,7 +7041,8 @@ export default function Admin() {
   const shipQueueParaEnviarPorAtraso = [...shipQueueParaEnviar].sort((a, b) => {
     return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
   });
-  const shipQueueParaEnviarCount = ordersParaEnviarDedupForCopy(shipQueueParaEnviar).length;
+  const shipQueueNormalPorAtraso = shipQueueParaEnviarPorAtraso.filter((order) => !isMotoboyShippingOrder(order));
+  const shipQueueMotoboyPorAtraso = shipQueueParaEnviarPorAtraso.filter((order) => isMotoboyShippingOrder(order));
   const logisticsCopyGroups = (() => {
     const byPromisedHours = new Map<number, { promisedHours: number; orders: AdminOrder[] }>();
     const otherOrders: AdminOrder[] = [];
@@ -7346,33 +7347,38 @@ export default function Admin() {
     }
   };
 
-  const copyShipQueueTxt = async (event?: React.MouseEvent<HTMLButtonElement>) => {
+  const copyShipQueueTxt = async (kind: "normal" | "motoboy", event?: React.MouseEvent<HTMLButtonElement>) => {
     event?.preventDefault();
     event?.stopPropagation();
     if (!shipQueueReady) return;
-    if (shipQueueParaEnviarPorAtraso.length === 0) {
-      toast.info("Nenhum pedido faltando enviar.");
+    const rows = kind === "motoboy" ? shipQueueMotoboyPorAtraso : shipQueueNormalPorAtraso;
+    if (rows.length === 0) {
+      toast.info(kind === "motoboy" ? "Nenhum motoboy faltando enviar." : "Nenhum pedido faltando enviar.");
       return;
     }
-    const blocks = shipQueueParaEnviarPorAtraso.map((order) => {
+    const blocks = rows.map((order) => {
       const pending = getPendingShipmentCopy(order);
-      if (isMotoboyShippingOrder(order) && !pending.isPartialSplit) return motoboyOrderBlock(order);
+      if (kind === "motoboy" && !pending.isPartialSplit) return motoboyOrderBlock(order);
       return logisticsOrderBlock(order);
     });
+    const heading = kind === "motoboy" ? "MOTOBOY PARA ENVIAR" : "PEDIDOS PARA ENVIAR";
     const text = [
       copyStoreLabel ? `Loja: ${copyStoreLabel}` : null,
-      `PEDIDOS PARA ENVIAR: ${shipQueueParaEnviarPorAtraso.length}`,
+      `${heading}: ${rows.length}`,
       "",
       blocks.join("\n\n"),
     ].filter((line) => line != null).join("\n");
     try {
       const mode = await copyText(text);
-      const count = shipQueueParaEnviarPorAtraso.length;
+      const count = rows.length;
+      const noun = kind === "motoboy" ? "motoboy" : "pedido";
       toast.success(mode === "manual"
         ? "Texto aberto para copia manual."
-        : `${count} pedido${count !== 1 ? "s" : ""} para enviar copiado${count !== 1 ? "s" : ""}.`);
+        : `${count} ${noun}${count !== 1 ? "s" : ""} para enviar copiado${count !== 1 ? "s" : ""}.`);
     } catch {
-      toast.error("Nao foi possivel copiar os pedidos para enviar.");
+      toast.error(kind === "motoboy"
+        ? "Nao foi possivel copiar os motoboys para enviar."
+        : "Nao foi possivel copiar os pedidos para enviar.");
     }
   };
 
@@ -7462,6 +7468,143 @@ export default function Admin() {
       .filter(Boolean),
   ));
   const availableWhatsappGroups = Array.from(new Set([...ORDER_WHATSAPP_GROUP_OPTIONS, ...orderGroups]));
+
+  const renderShipQueueCard = (input: {
+    title: string;
+    kind: "normal" | "motoboy";
+    rows: AdminOrder[];
+    emptyLabel: string;
+    loadingLabel: string;
+  }) => {
+    const box = "mt-3 rounded-xl border p-4 bg-amber-50 border-amber-300 cursor-pointer hover:bg-amber-100 transition";
+    const titleClass = "text-xs font-semibold text-amber-700 uppercase tracking-wide flex items-center gap-1.5";
+    const buttonClass = "inline-flex items-center gap-1 h-7 px-2 rounded-lg border border-amber-300 bg-white text-[11px] font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50";
+    const badgeClass = "text-[10px] bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-bold";
+    const muted = "text-sm text-amber-700/80";
+    const rowIdle = "bg-white/70 border-amber-100";
+    const nameClass = "text-sm font-medium text-amber-900 truncate";
+    const metaClass = "text-xs text-amber-700/80";
+    const amountClass = "text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full whitespace-nowrap";
+    const moreClass = "ml-1 text-[10px] font-semibold text-amber-800";
+    const zoomClass = "pointer-events-none absolute -bottom-1 -right-1 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-amber-300 bg-white shadow-sm";
+    const zoomIcon = "h-2 w-2 text-amber-800";
+    const Icon = input.kind === "motoboy" ? Bike : Truck;
+    return (
+      <div
+        className={box}
+        onClick={() => setTab("orders")}
+        title={input.kind === "motoboy" ? "Ver pedidos de motoboy" : "Ver pedidos para enviar"}
+      >
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <p className={titleClass}>
+            <Icon className="w-4 h-4" /> {input.title}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className={buttonClass}
+              disabled={!shipQueueReady || input.rows.length === 0}
+              title={input.kind === "motoboy" ? "Copiar só os motoboys que ainda faltam enviar" : "Copiar só os pedidos normais que ainda faltam enviar"}
+              onClick={(event) => { void copyShipQueueTxt(input.kind, event); }}
+            >
+              <Copy className="w-3.5 h-3.5" />
+              Copiar TXT
+            </button>
+            <span className={badgeClass}>
+              {shipQueueReady ? input.rows.length : "…"}
+            </span>
+          </div>
+        </div>
+        {!shipQueueReady ? (
+          <p className={muted}>{input.loadingLabel}</p>
+        ) : input.rows.length === 0 ? (
+          <p className={`${muted} flex items-center gap-1.5`}>
+            <CheckCircle className="w-4 h-4 text-green-500" /> {input.emptyLabel}
+          </p>
+        ) : (
+          <div className="space-y-1.5 max-h-80 overflow-y-auto">
+            {input.rows.map((o) => {
+              const waitingDays = daysSince(o.createdAt);
+              const lateToShip = waitingDays > 3;
+              const pendingShipment = getPendingShipmentCopy(o);
+              const lineProducts = pendingShipment.isPartialSplit
+                ? pendingShipment.items
+                : getOrderProducts(o.products);
+              const previewProducts = lineProducts.slice(0, 4);
+              const hiddenProducts = Math.max(0, lineProducts.length - previewProducts.length);
+              return (
+                <div
+                  key={o.id}
+                  className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-1.5 ${lateToShip ? "bg-red-50 border-red-300" : rowIdle}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    goToOrder(o.id, o.createdAt);
+                  }}
+                >
+                  <div className="flex items-center gap-2 min-w-0 pr-2">
+                    <div className="flex items-center shrink-0">
+                      {previewProducts.map((product, index) => {
+                        const image = catalogImageForItem(products.length > 0 ? products : statsProductsData, product);
+                        return (
+                          <div
+                            key={`${product.id || product.name}-${index}`}
+                            className={`relative hover:z-20 ${index > 0 ? "-ml-2" : ""}`}
+                            onMouseEnter={(event) => {
+                              if (!image) return;
+                              const rect = event.currentTarget.getBoundingClientRect();
+                              setShipQueuePhotoHover({
+                                src: image,
+                                name: product.name,
+                                top: rect.top + rect.height / 2,
+                                left: rect.right + 10,
+                              });
+                            }}
+                            onMouseLeave={() => setShipQueuePhotoHover(null)}
+                          >
+                            <InventoryProductThumb
+                              name={product.name}
+                              image={image}
+                              size="h-8 w-8"
+                              onPreview={image ? () => {
+                                setShipQueuePhotoHover(null);
+                                setShipQueuePhotoPreview({ src: image, name: product.name });
+                              } : undefined}
+                            />
+                            {image && (
+                              <span className={zoomClass}>
+                                <Search className={zoomIcon} />
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {hiddenProducts > 0 && (
+                        <span className={moreClass}>+{hiddenProducts}</span>
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className={nameClass}>{o.clientName}</p>
+                      <p className={metaClass}>#{getOrderDisplayId(o)} · {formatDateBR(o.createdAt)}</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    {lateToShip && (
+                      <span className="text-[10px] font-bold text-red-700 bg-red-100 border border-red-200 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                        {waitingDays} dias sem enviar
+                      </span>
+                    )}
+                    <span className={amountClass}>
+                      {formatCurrency(Number(o.total) || 0)}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   // =========================================================================
   // RENDER
@@ -7716,120 +7859,20 @@ export default function Admin() {
             </div>
           </div>
 
-          {/* Card Pedidos para Enviar */}
-          <div
-            className="mt-3 rounded-xl border p-4 bg-amber-50 border-amber-300 cursor-pointer hover:bg-amber-100 transition"
-            onClick={() => setTab("orders")}
-            title="Ver pedidos para enviar"
-          >
-            <div className="flex items-center justify-between gap-2 mb-2">
-              <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide flex items-center gap-1.5">
-                <Truck className="w-4 h-4" /> Pedidos para Enviar
-              </p>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 h-7 px-2 rounded-lg border border-amber-300 bg-white text-[11px] font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
-                  disabled={!shipQueueReady}
-                  title="Copiar só os pedidos que ainda faltam enviar"
-                  onClick={(event) => { void copyShipQueueTxt(event); }}
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                  Copiar TXT
-                </button>
-                <span className="text-[10px] bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-bold">
-                  {shipQueueReady ? shipQueueParaEnviarCount : "…"}
-                </span>
-              </div>
-            </div>
-            {!shipQueueReady ? (
-              <p className="text-sm text-amber-700/80">Carregando pedidos para enviar...</p>
-            ) : shipQueueParaEnviar.length === 0 ? (
-              <p className="text-sm text-amber-700/80 flex items-center gap-1.5">
-                <CheckCircle className="w-4 h-4 text-green-500" /> Todos os pedidos pagos já foram enviados!
-              </p>
-            ) : (
-              <div className="space-y-1.5 max-h-80 overflow-y-auto">
-                {shipQueueParaEnviarPorAtraso.map((o) => {
-                  const waitingDays = daysSince(o.createdAt);
-                  const lateToShip = waitingDays > 3;
-                  const pendingShipment = getPendingShipmentCopy(o);
-                  const lineProducts = pendingShipment.isPartialSplit
-                    ? pendingShipment.items
-                    : getOrderProducts(o.products);
-                  const previewProducts = lineProducts.slice(0, 4);
-                  const hiddenProducts = Math.max(0, lineProducts.length - previewProducts.length);
-                  return (
-                    <div
-                      key={o.id}
-                      className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-1.5 ${lateToShip ? "bg-red-50 border-red-300" : "bg-white/70 border-amber-100"}`}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        goToOrder(o.id, o.createdAt);
-                      }}
-                    >
-                      <div className="flex items-center gap-2 min-w-0 pr-2">
-                        <div className="flex items-center shrink-0">
-                          {previewProducts.map((product, index) => {
-                            const image = catalogImageForItem(products.length > 0 ? products : statsProductsData, product);
-                            return (
-                              <div
-                                key={`${product.id || product.name}-${index}`}
-                                className={`relative hover:z-20 ${index > 0 ? "-ml-2" : ""}`}
-                                onMouseEnter={(event) => {
-                                  if (!image) return;
-                                  const rect = event.currentTarget.getBoundingClientRect();
-                                  setShipQueuePhotoHover({
-                                    src: image,
-                                    name: product.name,
-                                    top: rect.top + rect.height / 2,
-                                    left: rect.right + 10,
-                                  });
-                                }}
-                                onMouseLeave={() => setShipQueuePhotoHover(null)}
-                              >
-                                <InventoryProductThumb
-                                  name={product.name}
-                                  image={image}
-                                  size="h-8 w-8"
-                                  onPreview={image ? () => {
-                                    setShipQueuePhotoHover(null);
-                                    setShipQueuePhotoPreview({ src: image, name: product.name });
-                                  } : undefined}
-                                />
-                                {image && (
-                                  <span className="pointer-events-none absolute -bottom-1 -right-1 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-amber-300 bg-white shadow-sm">
-                                    <Search className="h-2 w-2 text-amber-800" />
-                                  </span>
-                                )}
-                              </div>
-                            );
-                          })}
-                          {hiddenProducts > 0 && (
-                            <span className="ml-1 text-[10px] font-semibold text-amber-800">+{hiddenProducts}</span>
-                          )}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-amber-900 truncate">{o.clientName}</p>
-                          <p className="text-xs text-amber-700/80">#{getOrderDisplayId(o)} · {formatDateBR(o.createdAt)}</p>
-                        </div>
-                      </div>
-                      <div className="flex flex-col items-end gap-1 shrink-0">
-                        {lateToShip && (
-                          <span className="text-[10px] font-bold text-red-700 bg-red-100 border border-red-200 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                            {waitingDays} dias sem enviar
-                          </span>
-                        )}
-                        <span className="text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full whitespace-nowrap">
-                          {formatCurrency(Number(o.total) || 0)}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          {renderShipQueueCard({
+            title: "Pedidos para Enviar",
+            kind: "normal",
+            rows: shipQueueNormalPorAtraso,
+            emptyLabel: "Nenhum pedido normal faltando enviar.",
+            loadingLabel: "Carregando pedidos para enviar...",
+          })}
+          {renderShipQueueCard({
+            title: "Motoboy para Enviar",
+            kind: "motoboy",
+            rows: shipQueueMotoboyPorAtraso,
+            emptyLabel: "Nenhum motoboy faltando enviar.",
+            loadingLabel: "Carregando motoboys para enviar...",
+          })}
           <InventoryImageLightbox preview={shipQueuePhotoPreview} onClose={() => setShipQueuePhotoPreview(null)} />
           {shipQueuePhotoHover && !shipQueuePhotoPreview && (
             <div
