@@ -130,7 +130,7 @@ export function FlashOfferHost() {
   return (
     <>
       {!isAdmin && offer && (
-        <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/60 p-4 sm:items-center">
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-md rounded-3xl bg-white p-5 shadow-2xl">
             <p className="text-center text-xs font-bold uppercase tracking-wide text-orange-600">Promoção relâmpago</p>
             <h2 className="mt-1 text-center text-2xl font-black text-neutral-950">Essa oferta é sua</h2>
