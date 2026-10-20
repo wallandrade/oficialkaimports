@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { useCart } from "@/store/use-cart";
@@ -39,8 +40,10 @@ export function FlashOfferHost() {
   const addItem = useCart((state) => state.addItem);
   const items = useCart((state) => state.items);
   const clearExpiredFlash = useCart((state) => state.clearExpiredFlash);
-  const [offer, setOffer] = useState<FlashDrawOffer | null>(null);
+  const [offers, setOffers] = useState<FlashDrawOffer[]>([]);
+  const [index, setIndex] = useState(0);
   const [claiming, setClaiming] = useState(false);
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const [clock, setClock] = useState("");
   const attempted = useRef(false);
   const released = useRef("");
@@ -89,7 +92,10 @@ export function FlashOfferHost() {
         if (attempted.current || !pageCanDraw(window.location.pathname)) return;
         attempted.current = true;
         void drawFlashOffer().then((drawn) => {
-          if (drawn) setOffer(drawn);
+          if (drawn.length > 0) {
+            setIndex(0);
+            setOffers(drawn);
+          }
         }).catch(() => undefined);
       }, seconds * 1000);
     }).catch(() => undefined);
@@ -99,12 +105,38 @@ export function FlashOfferHost() {
     };
   }, [location]);
 
+  const visibleOffer = (): FlashDrawOffer | null => {
+    if (offers.length === 0) return null;
+    const el = scrollerRef.current;
+    if (!el) return offers[index] ?? offers[0] ?? null;
+    const width = el.clientWidth || 1;
+    const current = Math.min(offers.length - 1, Math.max(0, Math.round(el.scrollLeft / width)));
+    return offers[current] ?? null;
+  };
+
+  const scrollToIndex = (next: number) => {
+    const el = scrollerRef.current;
+    if (!el || offers.length === 0) return;
+    const clamped = Math.min(offers.length - 1, Math.max(0, next));
+    el.scrollTo({ left: clamped * el.clientWidth, behavior: "smooth" });
+    setIndex(clamped);
+  };
+
+  const syncIndex = () => {
+    const el = scrollerRef.current;
+    if (!el || offers.length === 0) return;
+    const width = el.clientWidth || 1;
+    const next = Math.min(offers.length - 1, Math.max(0, Math.round(el.scrollLeft / width)));
+    setIndex((current) => (current === next ? current : next));
+  };
+
   const accept = async () => {
+    const offer = visibleOffer();
     if (!offer || claiming) return;
     setClaiming(true);
     try {
       const claimed: StoredFlashOffer = await claimFlashOffer(offer);
-      setOffer(null);
+      setOffers([]);
       if (claimed.needsVariants) {
         toast.success("Oferta reservada por 1 hora. Escolha as opções e adicione ao carrinho.");
         setLocation(productHref(claimed.productId));
@@ -119,30 +151,85 @@ export function FlashOfferHost() {
       toast.success("Oferta no carrinho. Você tem 1 hora para finalizar.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Essa oferta não está mais disponível.");
-      setOffer(null);
+      setOffers([]);
     } finally {
       setClaiming(false);
     }
   };
 
   const isAdmin = location.startsWith("/admin");
+  const several = offers.length > 1;
 
   return (
     <>
-      {!isAdmin && offer && (
+      {!isAdmin && offers.length > 0 && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-md rounded-3xl bg-white p-5 shadow-2xl">
             <p className="text-center text-xs font-bold uppercase tracking-wide text-orange-600">Promoção relâmpago</p>
             <h2 className="mt-1 text-center text-2xl font-black text-neutral-950">Essa oferta é sua</h2>
-            <p className="mt-1 text-center text-sm text-neutral-600">Aparece uma vez. Se aceitar, tem 1 hora para pagar no PIX ou no WhatsApp.</p>
-            <div className="mt-4 flex gap-3 rounded-2xl border border-orange-100 bg-orange-50 p-3">
-              {offer.image && <img src={offer.image} alt="" className="h-20 w-20 rounded-xl object-cover" />}
-              <div className="min-w-0">
-                <p className="font-semibold leading-tight text-neutral-950">{offer.name}</p>
-                <p className="mt-1 text-sm text-neutral-400 line-through">{formatCurrency(offer.regularPrice)}</p>
-                <p className="text-2xl font-black text-orange-600">{formatCurrency(offer.flashPrice)}</p>
+            <p className="mt-1 text-center text-sm text-neutral-600">
+              {several
+                ? "Arraste para o lado para ver as outras. Se aceitar a da frente, tem 1 hora para pagar no PIX ou no WhatsApp."
+                : "Aparece uma vez. Se aceitar, tem 1 hora para pagar no PIX ou no WhatsApp."}
+            </p>
+            <div className="relative mt-4">
+              {several && (
+                <button
+                  type="button"
+                  aria-label="Oferta anterior"
+                  disabled={claiming || index === 0}
+                  onClick={() => scrollToIndex(index - 1)}
+                  className="absolute left-1 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-white text-neutral-800 shadow disabled:opacity-40"
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                </button>
+              )}
+              <div
+                ref={scrollerRef}
+                onScroll={syncIndex}
+                className="flex snap-x snap-mandatory overflow-x-auto scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              >
+                {offers.map((item) => (
+                  <div key={`${item.campaignId}-${item.productId}`} className={`w-full shrink-0 snap-center ${several ? "px-9" : ""}`}>
+                    <div className="flex gap-3 rounded-2xl border border-orange-100 bg-orange-50 p-3">
+                      {item.image && <img src={item.image} alt="" className="h-20 w-20 rounded-xl object-cover" />}
+                      <div className="min-w-0">
+                        <p className="font-semibold leading-tight text-neutral-950">{item.name}</p>
+                        <p className="mt-1 text-sm text-neutral-400 line-through">{formatCurrency(item.regularPrice)}</p>
+                        <p className="text-2xl font-black text-orange-600">{formatCurrency(item.flashPrice)}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
+              {several && (
+                <button
+                  type="button"
+                  aria-label="Próxima oferta"
+                  disabled={claiming || index >= offers.length - 1}
+                  onClick={() => scrollToIndex(index + 1)}
+                  className="absolute right-1 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-white text-neutral-800 shadow disabled:opacity-40"
+                >
+                  <ChevronRight className="h-5 w-5" />
+                </button>
+              )}
             </div>
+            {several && (
+              <div className="mt-3 flex items-center justify-center gap-2">
+                <div className="flex items-center gap-1.5">
+                  {offers.map((item, dot) => (
+                    <button
+                      key={`${item.campaignId}-${item.productId}-dot`}
+                      type="button"
+                      aria-label={`Oferta ${dot + 1} de ${offers.length}`}
+                      onClick={() => scrollToIndex(dot)}
+                      className={`h-2 w-2 rounded-full ${dot === index ? "bg-orange-500" : "bg-neutral-300"}`}
+                    />
+                  ))}
+                </div>
+                <span className="text-xs font-semibold text-neutral-500">{index + 1} de {offers.length}</span>
+              </div>
+            )}
             <button
               type="button"
               disabled={claiming}
@@ -154,7 +241,7 @@ export function FlashOfferHost() {
             <button
               type="button"
               disabled={claiming}
-              onClick={() => setOffer(null)}
+              onClick={() => setOffers([])}
               className="mt-2 h-10 w-full text-sm font-medium text-neutral-500"
             >
               Agora não

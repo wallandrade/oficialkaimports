@@ -131,25 +131,29 @@ async function activeReservationCount(campaignId: string, now: Date): Promise<nu
   return Number(row?.n || 0);
 }
 
+export type DrawnFlashOffer = {
+  campaignId: string;
+  productId: string;
+  name: string;
+  image: string | null;
+  regularPrice: number;
+  flashPrice: number;
+  needsVariants: boolean;
+};
+
+function emptyFlashDraw(): { offers: DrawnFlashOffer[]; offer: DrawnFlashOffer | null } {
+  return { offers: [], offer: null };
+}
+
 export async function drawFlashOffer(input: {
   tenantId: string;
   visitorKey: string;
   customerUserId: string | null;
   ipHash: string | null;
   random?: number;
-}): Promise<{
-  offer: null | {
-    campaignId: string;
-    productId: string;
-    name: string;
-    image: string | null;
-    regularPrice: number;
-    flashPrice: number;
-    needsVariants: boolean;
-  };
-}> {
+}): Promise<{ offers: DrawnFlashOffer[]; offer: DrawnFlashOffer | null }> {
   const visitorKey = normalizeVisitorKey(input.visitorKey);
-  if (!visitorKey) return { offer: null };
+  if (!visitorKey) return emptyFlashDraw();
 
   const now = new Date();
   const clock = saoPauloClock(now);
@@ -159,100 +163,106 @@ export async function drawFlashOffer(input: {
     .from(flashCampaignsTable)
     .where(and(eq(flashCampaignsTable.tenantId, input.tenantId), eq(flashCampaignsTable.isActive, true)));
 
-  const open = campaigns.filter((campaign) => isCampaignHourOpen(campaign.activeFromHour, campaign.activeUntilHour, clock.hour));
-  if (open.length === 0) return { offer: null };
+  const open = campaigns
+    .filter((campaign) => isCampaignHourOpen(campaign.activeFromHour, campaign.activeUntilHour, clock.hour))
+    .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime());
+  if (open.length === 0) return emptyFlashDraw();
 
-  const picked = open[Math.floor((input.random ?? Math.random()) * open.length)] ?? open[0];
-  if (!picked) return { offer: null };
+  const offers: DrawnFlashOffer[] = [];
+  for (const picked of open) {
+    if (await activeReservationCount(picked.id, now) >= picked.slotLimit) continue;
 
-  if (await activeReservationCount(picked.id, now) >= picked.slotLimit) return { offer: null };
+    const visitorVisit = await findVisit(picked.id, visitorKey);
+    if (visitBlocks(visitorVisit, dayStart, now, picked.repeatAfterHours)) continue;
 
-  const visitorVisit = await findVisit(picked.id, visitorKey);
-  if (visitBlocks(visitorVisit, dayStart, now, picked.repeatAfterHours)) return { offer: null };
+    if (input.customerUserId) {
+      const userVisits = await db
+        .select()
+        .from(flashVisitsTable)
+        .where(and(
+          eq(flashVisitsTable.campaignId, picked.id),
+          eq(flashVisitsTable.customerUserId, input.customerUserId),
+        ))
+        .limit(8);
+      if (userVisits.some((visit) => visitBlocks(visit, dayStart, now, picked.repeatAfterHours))) continue;
+    }
 
-  if (input.customerUserId) {
-    const userVisits = await db
+    if (input.ipHash) {
+      const ipSince = picked.repeatAfterHours > 0
+        ? new Date(now.getTime() - picked.repeatAfterHours * 60 * 60 * 1000)
+        : dayStart;
+      const [ipVisit] = await db
+        .select()
+        .from(flashVisitsTable)
+        .where(and(
+          eq(flashVisitsTable.campaignId, picked.id),
+          eq(flashVisitsTable.ipHash, input.ipHash),
+          gte(flashVisitsTable.createdAt, ipSince),
+        ))
+        .limit(1);
+      if (ipVisit) continue;
+    }
+
+    const items = await db
       .select()
-      .from(flashVisitsTable)
-      .where(and(
-        eq(flashVisitsTable.campaignId, picked.id),
-        eq(flashVisitsTable.customerUserId, input.customerUserId),
-      ))
-      .limit(8);
-    if (userVisits.some((visit) => visitBlocks(visit, dayStart, now, picked.repeatAfterHours))) return { offer: null };
-  }
+      .from(flashCampaignItemsTable)
+      .where(eq(flashCampaignItemsTable.campaignId, picked.id));
+    if (items.length === 0) continue;
 
-  if (input.ipHash) {
-    const ipSince = picked.repeatAfterHours > 0
-      ? new Date(now.getTime() - picked.repeatAfterHours * 60 * 60 * 1000)
-      : dayStart;
-    const [ipVisit] = await db
+    if (!rollDraw(picked.drawPercent, input.random ?? Math.random())) {
+      await saveVisit({
+        tenantId: input.tenantId,
+        campaignId: picked.id,
+        visitorKey,
+        customerUserId: input.customerUserId,
+        ipHash: input.ipHash,
+        outcome: "miss",
+      });
+      continue;
+    }
+
+    const productIds = items.map((item) => item.productId);
+    const products = await db
       .select()
-      .from(flashVisitsTable)
-      .where(and(
-        eq(flashVisitsTable.campaignId, picked.id),
-        eq(flashVisitsTable.ipHash, input.ipHash),
-        gte(flashVisitsTable.createdAt, ipSince),
-      ))
-      .limit(1);
-    if (ipVisit) return { offer: null };
-  }
+      .from(productsTable)
+      .where(and(productTenantWhere(input.tenantId), inArray(productsTable.id, productIds)));
+    const byId = new Map(products.map((product) => [product.id, product]));
+    const eligible = items
+      .filter((item) => {
+        const product = byId.get(item.productId);
+        if (!product || product.isActive === false || product.isSoldOut === true) return false;
+        const flashPrice = Number(item.flashPrice);
+        const current = sellingPrice(product);
+        return Number.isFinite(flashPrice) && flashPrice > 0 && flashPrice < current;
+      })
+      .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime());
+    if (eligible.length === 0) continue;
 
-  const items = await db
-    .select()
-    .from(flashCampaignItemsTable)
-    .where(eq(flashCampaignItemsTable.campaignId, picked.id));
-  if (items.length === 0) return { offer: null };
-
-  if (!rollDraw(picked.drawPercent, input.random ?? Math.random())) {
     await saveVisit({
       tenantId: input.tenantId,
       campaignId: picked.id,
       visitorKey,
       customerUserId: input.customerUserId,
       ipHash: input.ipHash,
-      outcome: "miss",
+      outcome: "seen",
     });
-    return { offer: null };
+
+    for (const item of eligible) {
+      const product = byId.get(item.productId);
+      if (!product) continue;
+      offers.push({
+        campaignId: picked.id,
+        productId: product.id,
+        name: product.name,
+        image: product.image ?? null,
+        regularPrice: sellingPrice(product),
+        flashPrice: Number(item.flashPrice),
+        needsVariants: parseVariantGroups(product.variantGroups).length > 0,
+      });
+    }
   }
 
-  const productIds = items.map((item) => item.productId);
-  const products = await db
-    .select()
-    .from(productsTable)
-    .where(and(productTenantWhere(input.tenantId), inArray(productsTable.id, productIds)));
-  const byId = new Map(products.map((product) => [product.id, product]));
-  const eligible = items.filter((item) => {
-    const product = byId.get(item.productId);
-    if (!product || product.isActive === false || product.isSoldOut === true) return false;
-    const flashPrice = Number(item.flashPrice);
-    const current = sellingPrice(product);
-    return Number.isFinite(flashPrice) && flashPrice > 0 && flashPrice < current;
-  });
-  if (eligible.length === 0) return { offer: null };
-
-  const item = eligible[Math.floor(Math.random() * eligible.length)]!;
-  const product = byId.get(item.productId)!;
-  await saveVisit({
-    tenantId: input.tenantId,
-    campaignId: picked.id,
-    visitorKey,
-    customerUserId: input.customerUserId,
-    ipHash: input.ipHash,
-    outcome: "seen",
-  });
-
-  return {
-    offer: {
-      campaignId: picked.id,
-      productId: product.id,
-      name: product.name,
-      image: product.image ?? null,
-      regularPrice: sellingPrice(product),
-      flashPrice: Number(item.flashPrice),
-      needsVariants: parseVariantGroups(product.variantGroups).length > 0,
-    },
-  };
+  return { offers, offer: offers[0] ?? null };
 }
 
 export async function claimFlashOffer(input: {

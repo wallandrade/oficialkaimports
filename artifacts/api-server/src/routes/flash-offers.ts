@@ -115,7 +115,7 @@ router.post("/flash-offers/draw", async (req, res) => {
     const tenantId = await resolvePublicTenantId(req);
     const visitorKey = readVisitor(req.body);
     if (!visitorKey) {
-      res.json({ offer: null });
+      res.json({ offers: [], offer: null });
       return;
     }
     const session = getCustomerSession(req);
@@ -128,7 +128,7 @@ router.post("/flash-offers/draw", async (req, res) => {
     res.json(drawn);
   } catch (err) {
     console.error("[FlashOffer] draw:", err);
-    res.json({ offer: null });
+    res.json({ offers: [], offer: null });
   }
 });
 

@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-20 | `POST /api/flash-offers/draw` devolve `offers[]` | O modal da loja arrasta entre os produtos das campanhas abertas. `offer` continua o primeiro da lista | `/claim` segue um produto; visita, vaga e horário iguais |
 | 2026-10-20 | `DELETE /admin/orders/:id/shipments` | Desfaz o split. Com etiqueta, solta o vínculo local no pedido. `mergeOrderPatch` só zera `packages[]` com `splitCleared` | `POST` realoca e continua exigindo 2 origens; não cancela na EnvioEcom |
 | 2026-10-19 | Tabelas `flash_campaigns`, `flash_campaign_items`, `flash_visits`, `flash_reservations` | Criadas no `runtime-schema`. Rotas públicas `/api/flash-offers/*` e admin `/api/admin/flash-campaigns`. Job em `flash-expiry.ts` | `promoPrice`; cupons |
 | 2026-10-04 | `/frete` (`FreightLookup`) sem `AppLayout minimal` | Menu da loja no topo; grade Tirzepatida via `useGetProducts` abaixo do CEP | Rota continua só `/frete`; cotação e Motoboy iguais |

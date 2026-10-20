@@ -79,15 +79,18 @@ export async function fetchFlashWaitSeconds(): Promise<number | null> {
   return Math.min(300, Math.max(0, Math.round(seconds)));
 }
 
-export async function drawFlashOffer(): Promise<FlashDrawOffer | null> {
+export async function drawFlashOffer(): Promise<FlashDrawOffer[]> {
   const response = await fetch(`${baseUrl()}/api/flash-offers/draw`, {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify({ visitorId: getFlashVisitorId() }),
   });
-  if (!response.ok) return null;
-  const data = await response.json() as { offer?: FlashDrawOffer | null };
-  return data.offer || null;
+  if (!response.ok) return [];
+  const data = await response.json() as { offers?: FlashDrawOffer[] | null; offer?: FlashDrawOffer | null };
+  if (Array.isArray(data.offers) && data.offers.length > 0) {
+    return data.offers.filter((offer) => offer?.campaignId && offer?.productId);
+  }
+  return data.offer?.campaignId && data.offer.productId ? [data.offer] : [];
 }
 
 export async function claimFlashOffer(offer: FlashDrawOffer): Promise<StoredFlashOffer> {
