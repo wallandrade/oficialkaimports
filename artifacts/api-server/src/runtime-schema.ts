@@ -1634,6 +1634,7 @@ async function ensureFlashOfferTables(databaseName: string): Promise<void> {
         is_active BOOLEAN NOT NULL DEFAULT TRUE,
         slot_limit INT NOT NULL DEFAULT 5,
         draw_percent INT NOT NULL DEFAULT 25,
+        show_after_seconds INT NOT NULL DEFAULT 8,
         active_from_hour INT NULL,
         active_until_hour INT NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1688,6 +1689,9 @@ async function ensureFlashOfferTables(databaseName: string): Promise<void> {
         KEY flash_reservations_campaign_status_idx (campaign_id, status)
       )
     `);
+  }
+  if (await tableExists("flash_campaigns", databaseName) && !(await columnExists("flash_campaigns", "show_after_seconds", databaseName))) {
+    await pool.query("ALTER TABLE flash_campaigns ADD COLUMN show_after_seconds INT NOT NULL DEFAULT 8");
   }
 }
 

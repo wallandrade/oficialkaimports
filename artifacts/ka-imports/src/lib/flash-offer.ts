@@ -69,6 +69,16 @@ function authHeaders(): Record<string, string> {
   return headers;
 }
 
+export async function fetchFlashWaitSeconds(): Promise<number | null> {
+  const response = await fetch(`${baseUrl()}/api/flash-offers/wait`);
+  if (!response.ok) return 8;
+  const data = await response.json() as { seconds?: number | null };
+  if (data.seconds == null) return null;
+  const seconds = Number(data.seconds);
+  if (!Number.isFinite(seconds)) return 8;
+  return Math.min(300, Math.max(0, Math.round(seconds)));
+}
+
 export async function drawFlashOffer(): Promise<FlashDrawOffer | null> {
   const response = await fetch(`${baseUrl()}/api/flash-offers/draw`, {
     method: "POST",

@@ -62,6 +62,13 @@ export function normalizeHour(raw: unknown): number | null {
   return hour;
 }
 
+export function normalizeShowAfterSeconds(raw: unknown, fallback = 8): number {
+  if (raw == null || raw === "") return fallback;
+  const value = Math.round(Number(raw));
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(300, Math.max(0, value));
+}
+
 export type FlashPriceHit = {
   productId: string;
   unitPrice: number;

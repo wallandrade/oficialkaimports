@@ -21,7 +21,7 @@ import {
   hashFlashIp,
   releaseFlashReservation,
 } from "../lib/flash-offers";
-import { normalizeHour, normalizeVisitorKey } from "../lib/flash-offers-core";
+import { isCampaignHourOpen, normalizeHour, normalizeShowAfterSeconds, normalizeVisitorKey, saoPauloClock } from "../lib/flash-offers-core";
 import { ensureFlashOfferSchema } from "../runtime-schema";
 
 const router: IRouter = Router();
@@ -87,6 +87,28 @@ function readVisitor(body: unknown): string {
   const record = body && typeof body === "object" ? body as { visitorId?: unknown } : {};
   return normalizeVisitorKey(record.visitorId);
 }
+
+router.get("/flash-offers/wait", async (req, res) => {
+  try {
+    await ensureFlashOfferSchema();
+    const tenantId = await resolvePublicTenantId(req);
+    const campaigns = await db
+      .select()
+      .from(flashCampaignsTable)
+      .where(and(eq(flashCampaignsTable.tenantId, tenantId), eq(flashCampaignsTable.isActive, true)));
+    const hour = saoPauloClock(new Date()).hour;
+    const open = campaigns.filter((campaign) => isCampaignHourOpen(campaign.activeFromHour, campaign.activeUntilHour, hour));
+    if (open.length === 0) {
+      res.json({ seconds: null });
+      return;
+    }
+    const seconds = Math.min(...open.map((campaign) => normalizeShowAfterSeconds(campaign.showAfterSeconds, 8)));
+    res.json({ seconds });
+  } catch (err) {
+    console.error("[FlashOffer] wait:", err);
+    res.json({ seconds: 8 });
+  }
+});
 
 router.post("/flash-offers/draw", async (req, res) => {
   try {
@@ -251,6 +273,7 @@ router.get("/admin/flash-campaigns", requireAdminAuth, async (req, res) => {
         isActive: campaign.isActive,
         slotLimit: campaign.slotLimit,
         drawPercent: campaign.drawPercent,
+        showAfterSeconds: normalizeShowAfterSeconds(campaign.showAfterSeconds, 8),
         activeFromHour: campaign.activeFromHour,
         activeUntilHour: campaign.activeUntilHour,
         items: items
@@ -309,6 +332,7 @@ router.post("/admin/flash-campaigns", requireAdminAuth, async (req, res) => {
     const name = String(req.body?.name || "").trim() || "Promoção relâmpago";
     const slotLimit = Math.min(500, Math.max(1, Math.round(Number(req.body?.slotLimit) || 5)));
     const drawPercent = Math.min(100, Math.max(1, Math.round(Number(req.body?.drawPercent) || 25)));
+    const showAfterSeconds = normalizeShowAfterSeconds(req.body?.showAfterSeconds, 8);
     const items = normalizeItems(req.body?.items);
     if (items.length === 0) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Escolha ao menos um produto com preço." });
@@ -328,6 +352,7 @@ router.post("/admin/flash-campaigns", requireAdminAuth, async (req, res) => {
       isActive: req.body?.isActive !== false,
       slotLimit,
       drawPercent,
+      showAfterSeconds,
       activeFromHour: normalizeHour(req.body?.activeFromHour),
       activeUntilHour: normalizeHour(req.body?.activeUntilHour),
       createdAt: now,
@@ -384,6 +409,7 @@ router.patch("/admin/flash-campaigns/:id", requireAdminAuth, async (req, res) =>
       isActive: req.body?.isActive == null ? current.isActive : req.body.isActive !== false,
       slotLimit: req.body?.slotLimit == null ? current.slotLimit : Math.min(500, Math.max(1, Math.round(Number(req.body.slotLimit) || 1))),
       drawPercent: req.body?.drawPercent == null ? current.drawPercent : Math.min(100, Math.max(1, Math.round(Number(req.body.drawPercent) || 1))),
+      showAfterSeconds: req.body?.showAfterSeconds == null ? normalizeShowAfterSeconds(current.showAfterSeconds, 8) : normalizeShowAfterSeconds(req.body.showAfterSeconds, 8),
       activeFromHour: req.body?.activeFromHour === undefined ? current.activeFromHour : normalizeHour(req.body.activeFromHour),
       activeUntilHour: req.body?.activeUntilHour === undefined ? current.activeUntilHour : normalizeHour(req.body.activeUntilHour),
       updatedAt: new Date(),

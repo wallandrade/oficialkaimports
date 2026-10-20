@@ -7,6 +7,7 @@ import {
   claimFlashOffer,
   clearStoredFlashOffer,
   drawFlashOffer,
+  fetchFlashWaitSeconds,
   readActiveFlashOffer,
   releaseFlashOffer,
   type FlashDrawOffer,
@@ -80,14 +81,22 @@ export function FlashOfferHost() {
 
   useEffect(() => {
     if (attempted.current || !pageCanDraw(location) || readActiveFlashOffer()) return;
-    const timer = window.setTimeout(() => {
-      if (attempted.current || !pageCanDraw(window.location.pathname)) return;
-      attempted.current = true;
-      void drawFlashOffer().then((drawn) => {
-        if (drawn) setOffer(drawn);
-      }).catch(() => undefined);
-    }, 8000);
-    return () => window.clearTimeout(timer);
+    let timer = 0;
+    let cancelled = false;
+    void fetchFlashWaitSeconds().then((seconds) => {
+      if (cancelled || seconds == null || attempted.current || !pageCanDraw(window.location.pathname)) return;
+      timer = window.setTimeout(() => {
+        if (attempted.current || !pageCanDraw(window.location.pathname)) return;
+        attempted.current = true;
+        void drawFlashOffer().then((drawn) => {
+          if (drawn) setOffer(drawn);
+        }).catch(() => undefined);
+      }, seconds * 1000);
+    }).catch(() => undefined);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [location]);
 
   const accept = async () => {

@@ -5,6 +5,8 @@ type CatalogProduct = {
   id: string;
   name: string;
   price: number;
+  promoPrice?: number | null;
+  promoEndsAt?: string | null;
   image?: string | null;
   isActive?: boolean;
   isSoldOut?: boolean;
@@ -24,6 +26,7 @@ type Campaign = {
   isActive: boolean;
   slotLimit: number;
   drawPercent: number;
+  showAfterSeconds: number;
   activeFromHour: number | null;
   activeUntilHour: number | null;
   items: Array<{ productId: string; name: string; image: string | null; regularPrice: number | null; flashPrice: number }>;
@@ -53,6 +56,12 @@ function authHeaders(): Record<string, string> {
   };
 }
 
+function promoStillOn(product: CatalogProduct): boolean {
+  if (product.promoPrice == null || !(product.promoPrice < product.price)) return false;
+  if (!product.promoEndsAt) return true;
+  return new Date() < new Date(product.promoEndsAt);
+}
+
 function money(value: number): string {
   return value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -74,6 +83,7 @@ const emptyForm = {
   name: "Promoção relâmpago",
   slotLimit: "5",
   drawPercent: "25",
+  showAfterSeconds: "8",
   activeFromHour: "",
   activeUntilHour: "",
   isActive: true,
@@ -132,7 +142,7 @@ export function AdminFlashOffersPanel() {
 
   const matches = useMemo(() => {
     const text = query.trim().toLowerCase();
-    if (text.length < 2) return [];
+    if (!text) return [];
     return products
       .filter((product) => product.name.toLowerCase().includes(text) && !items.some((item) => item.productId === product.id))
       .slice(0, 8);
@@ -151,6 +161,7 @@ export function AdminFlashOffersPanel() {
       name: campaign.name,
       slotLimit: String(campaign.slotLimit),
       drawPercent: String(campaign.drawPercent),
+      showAfterSeconds: String(campaign.showAfterSeconds ?? 8),
       activeFromHour: campaign.activeFromHour == null ? "" : String(campaign.activeFromHour),
       activeUntilHour: campaign.activeUntilHour == null ? "" : String(campaign.activeUntilHour),
       isActive: campaign.isActive,
@@ -169,6 +180,7 @@ export function AdminFlashOffersPanel() {
       name: form.name,
       slotLimit: Number(form.slotLimit),
       drawPercent: Number(form.drawPercent),
+      showAfterSeconds: Number(form.showAfterSeconds),
       activeFromHour: form.activeFromHour === "" ? null : Number(form.activeFromHour),
       activeUntilHour: form.activeUntilHour === "" ? null : Number(form.activeUntilHour),
       isActive: form.isActive,
@@ -238,6 +250,10 @@ export function AdminFlashOffersPanel() {
             Chance de aparecer (%)
             <input value={form.drawPercent} onChange={(event) => setForm({ ...form, drawPercent: event.target.value })} inputMode="numeric" className="mt-1 h-11 w-full rounded-xl border-2 border-border px-3" />
           </label>
+          <label className="text-sm font-medium">
+            Aparece depois de (segundos)
+            <input value={form.showAfterSeconds} onChange={(event) => setForm({ ...form, showAfterSeconds: event.target.value })} inputMode="numeric" className="mt-1 h-11 w-full rounded-xl border-2 border-border px-3" />
+          </label>
           <label className="flex items-end gap-2 text-sm font-medium">
             <input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} />
             Campanha ligada
@@ -252,34 +268,54 @@ export function AdminFlashOffersPanel() {
           </label>
         </div>
 
-        <div>
+        <div className="relative">
           <label className="text-sm font-medium">
             Produto
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Digite o nome" className="mt-1 h-11 w-full rounded-xl border-2 border-border px-3" />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Digite o nome do produto" className="mt-1 h-11 w-full rounded-xl border-2 border-border px-3" />
           </label>
-          {matches.length > 0 && (
-            <div className="mt-2 overflow-hidden rounded-xl border border-border">
-              {matches.map((product) => (
-                <button
-                  key={product.id}
-                  type="button"
-                  onClick={() => {
-                    setItems((current) => [...current, {
-                      productId: product.id,
-                      name: product.name,
-                      image: product.image || null,
-                      regularPrice: product.price,
-                      flashPrice: "",
-                    }]);
-                    setQuery("");
-                  }}
-                  className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-muted"
-                >
-                  {product.image && <img src={product.image} alt="" className="h-10 w-10 rounded-lg object-cover" />}
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{product.name}</span>
-                  <span className="text-sm text-muted-foreground">{money(product.price)}</span>
-                </button>
-              ))}
+          {query.trim() && (
+            <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-64 overflow-y-auto rounded-xl border border-border bg-white shadow-lg">
+              {matches.length === 0 ? (
+                <p className="px-3 py-2 text-sm text-muted-foreground">Nenhum produto encontrado</p>
+              ) : matches.map((product) => {
+                const onPromo = promoStillOn(product);
+                return (
+                  <button
+                    key={product.id}
+                    type="button"
+                    onClick={() => {
+                      setItems((current) => [...current, {
+                        productId: product.id,
+                        name: product.name,
+                        image: product.image || null,
+                        regularPrice: product.price,
+                        flashPrice: "",
+                      }]);
+                      setQuery("");
+                    }}
+                    className="flex w-full items-center gap-3 border-b border-border/60 px-3 py-2 text-left last:border-b-0 hover:bg-muted"
+                  >
+                    {product.image ? (
+                      <img src={product.image} alt="" className="h-10 w-10 shrink-0 rounded-lg border border-border object-cover" />
+                    ) : (
+                      <div className="h-10 w-10 shrink-0 rounded-lg border border-border bg-muted" />
+                    )}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold">{product.name}</span>
+                      <span className="mt-0.5 block text-xs">
+                        {onPromo ? (
+                          <>
+                            <span className="text-muted-foreground line-through">{money(product.price)}</span>{" "}
+                            <span className="font-semibold text-amber-600">{money(product.promoPrice || 0)}</span>
+                          </>
+                        ) : (
+                          <span className="text-muted-foreground">{money(product.price)}</span>
+                        )}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
@@ -324,7 +360,7 @@ export function AdminFlashOffersPanel() {
               <div>
                 <p className="font-bold">{campaign.name}</p>
                 <p className="text-sm text-muted-foreground">
-                  {campaign.isActive ? "Ligada" : "Desligada"} · {campaign.slotLimit} vagas · {campaign.drawPercent}% de chance
+                  {campaign.isActive ? "Ligada" : "Desligada"} · {campaign.slotLimit} vagas · {campaign.drawPercent}% de chance · depois de {campaign.showAfterSeconds ?? 8}s
                   {campaign.activeFromHour != null ? ` · a partir das ${campaign.activeFromHour}h` : " · o dia todo"}
                 </p>
                 <p className="text-xs text-muted-foreground">Viram a oferta: {campaign.seenCount} · Reservadas agora: {campaign.activeReservations} · Viraram pedido: {campaign.usedReservations}</p>

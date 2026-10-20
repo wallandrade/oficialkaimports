@@ -7,6 +7,7 @@ export const flashCampaignsTable = mysqlTable("flash_campaigns", {
   isActive: boolean("is_active").notNull().default(true),
   slotLimit: int("slot_limit").notNull().default(5),
   drawPercent: int("draw_percent").notNull().default(25),
+  showAfterSeconds: int("show_after_seconds").notNull().default(8),
   activeFromHour: int("active_from_hour"),
   activeUntilHour: int("active_until_hour"),
   createdAt: timestamp("created_at").notNull().defaultNow(),

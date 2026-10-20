@@ -7,6 +7,8 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-19 | Busca de produto na promoção mostra foto e os dois preços | A lista flutua no campo. Promoção do catálogo fica riscada e o preço atual em destaque | O preço relâmpago continua o que o admin digita |
+| 2026-10-19 | Campanha escolhe em quantos segundos o modal aparece | Campo **Aparece depois de (segundos)**. 0 mostra na hora. Campanha já gravada fica em 8 até editar | Sorteio, vaga e o preço |
 | 2026-10-19 | Aba Promoções lista quem aceitou | Nome (ou Visitante), produto, preço, pedido e situação: aguardando finalizar, aguardando pagamento, pago, perdeu a hora ou tirou do carrinho | Sorteio, vaga de 1 h e o preço no checkout |
 | 2026-10-19 | Promoção relâmpago | Aba **Promoções** (primary e filial). Modal na loja, uma vez por campanha. Aceite reserva 1 h e o preço no PIX/WhatsApp. Vaga volta se expirar ou sair do carrinho. Cartão fica no preço normal. Cupom não entra | `promoPrice` do catálogo; cupom comum |
 | 2026-10-16 | Saldo de comissão no WhatsApp e no cartão | `POST /api/orders` com `useAffiliateCredit` debita o saldo, grava `affiliate_credit_used` e baixa `orders.total` para o que falta pagar. Detalhe do pedido, cópia, PDF e Minha conta mostram **Saldo de comissão**. Se o saldo cobre tudo, o pedido fica `paid` | PIX já fazia isso. Pedido antigo sem o campo gravado não muda. Cupom e carteira do seguro continuam linhas separadas |
