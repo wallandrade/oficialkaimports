@@ -296,6 +296,30 @@ export function packageHasOwnEnvioEcomRef(pkg: {
   return Boolean(String(pkg.envioecomBarcode || "").trim());
 }
 
+/** Código do corpo que já está em outro pacote do mesmo pedido. A linha clicada não herda esse envio. */
+export function shipmentRefBelongsToOtherPackage(
+  packages: Array<{
+    id?: string | null;
+    envioecomShipmentId?: number | null;
+    envioecomBarcode?: string | null;
+  }>,
+  packageId: string,
+  ref: { shipmentId?: number | null; barcode?: string | null },
+): boolean {
+  const current = String(packageId || "").trim();
+  if (!current) return false;
+  const shipmentId = Number(ref.shipmentId || 0);
+  const hasId = Number.isFinite(shipmentId) && shipmentId > 0;
+  const barcode = String(ref.barcode || "").trim();
+  if (!hasId && !barcode) return false;
+  return packages.some((pkg) => {
+    if (String(pkg.id || "").trim() === current) return false;
+    if (hasId && Number(pkg.envioecomShipmentId) === shipmentId) return true;
+    const pkgBarcode = String(pkg.envioecomBarcode || "").trim();
+    return Boolean(barcode && pkgBarcode && pkgBarcode === barcode);
+  });
+}
+
 export function shipmentPoolLabel(pool?: string | null): string {
   const normalized = String(pool || "").trim().toLowerCase();
   if (normalized === "motoboy") return "Motoboy";

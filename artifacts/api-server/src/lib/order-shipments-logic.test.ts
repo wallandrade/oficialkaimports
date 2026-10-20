@@ -12,6 +12,7 @@ import {
   leastAdvancedShipmentStatus,
   packageHasOwnEnvioEcomRef,
   packageInventoryReferenceId,
+  shipmentRefBelongsToOtherPackage,
   pickInheritPackageIndex,
   pickUnboundPackageId,
   rollupParentLabelUrl,
@@ -150,6 +151,18 @@ test("bind do pacote nao herda rastreio/etiqueta do pedido irmao", () => {
   assert.equal(own.trackingCode, "888030900000001");
   assert.equal(own.trackingLabelUrl, "https://foz.pdf");
   assert.equal(packageHasOwnEnvioEcomRef(own), true);
+});
+
+test("codigo de outro pacote do mesmo pedido nao vale para a linha clicada", () => {
+  const packages = [
+    { id: "foz", envioecomShipmentId: 11, envioecomBarcode: "888030999646160" },
+    { id: "minas", envioecomShipmentId: 22, envioecomBarcode: "888031000015326" },
+  ];
+  assert.equal(shipmentRefBelongsToOtherPackage(packages, "minas", { shipmentId: 11 }), true);
+  assert.equal(shipmentRefBelongsToOtherPackage(packages, "minas", { barcode: "888030999646160" }), true);
+  assert.equal(shipmentRefBelongsToOtherPackage(packages, "minas", { shipmentId: 22, barcode: "888031000015326" }), false);
+  assert.equal(shipmentRefBelongsToOtherPackage(packages, "minas", { barcode: "888039999999999" }), false);
+  assert.equal(shipmentRefBelongsToOtherPackage(packages, "minas", {}), false);
 });
 
 test("pickUnboundPackageId escolhe o pacote sem envio proprio", () => {

@@ -72,7 +72,7 @@ import {
   shipmentEventMatchesOrder,
   unlinkEnvioEcomBinding,
 } from "../lib/envioecom-order";
-import { bindEnvioEcomFieldsToPackage, buildPackageExternalOrderNumber, packageHasOwnEnvioEcomRef } from "../lib/order-shipments-logic";
+import { bindEnvioEcomFieldsToPackage, buildPackageExternalOrderNumber, packageHasOwnEnvioEcomRef, shipmentRefBelongsToOtherPackage } from "../lib/order-shipments-logic";
 import {
   findPackageForEnvioEcomWebhook,
   isSplitShipments,
@@ -1391,8 +1391,16 @@ router.post("/admin/envioecom/orders/:id/sync", requireAdminAuth, async (req, re
     const bound = target.pkg ? orderBoundFromPackage(order, target.pkg) : order;
     const parsed = parseEnvioEcomLinkRef(body.ref);
     const shipmentIdRaw = Number(body.shipment_id || body.shipmentId || parsed.shipmentId);
-    const shipmentId = Number.isFinite(shipmentIdRaw) && shipmentIdRaw > 0 ? Math.trunc(shipmentIdRaw) : undefined;
-    const barcode = String(body.barcode || parsed.barcode || "").trim() || undefined;
+    const bodyShipmentId = Number.isFinite(shipmentIdRaw) && shipmentIdRaw > 0 ? Math.trunc(shipmentIdRaw) : undefined;
+    const bodyBarcode = String(body.barcode || parsed.barcode || "").trim() || undefined;
+    const foreignRef = target.pkg
+      ? shipmentRefBelongsToOtherPackage(target.packages, target.pkg.id, {
+        shipmentId: bodyShipmentId,
+        barcode: bodyBarcode,
+      })
+      : false;
+    const shipmentId = foreignRef ? undefined : bodyShipmentId;
+    const barcode = foreignRef ? undefined : bodyBarcode;
     const hasExplicitRef = Boolean(shipmentId || barcode);
     if (target.pkg && !hasExplicitRef && !packageHasOwnEnvioEcomRef(target.pkg)) {
       res.status(400).json({
@@ -1401,7 +1409,7 @@ router.post("/admin/envioecom/orders/:id/sync", requireAdminAuth, async (req, re
       });
       return;
     }
-    const preferred = String(body.accountId || bound.envioecomAccountId || "").trim() || undefined;
+    const preferred = String((foreignRef ? "" : body.accountId) || bound.envioecomAccountId || "").trim() || undefined;
 
     const found = await withEnvioEcomAccountFallback(
       admin.tenantId,
