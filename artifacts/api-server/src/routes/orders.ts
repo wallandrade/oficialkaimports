@@ -39,6 +39,7 @@ import {
   listOrderShipmentsByOrderIds,
   mappedPackagesForOrder,
   persistEnvioEcomPackage,
+  undoOrderShipments,
   OrderShipmentError,
 } from "../lib/order-shipments";
 import { pickUnboundPackageId, parseOrderShipmentItems } from "../lib/order-shipments-logic";
@@ -3881,6 +3882,50 @@ router.post("/admin/orders/:id/shipments", requireAdminAuth, async (req, res) =>
     }
     console.error("Allocate order shipments error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao dividir o envio." });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /api/admin/orders/:id/shipments  (protected) — Desfazer divisão
+// ---------------------------------------------------------------------------
+router.delete("/admin/orders/:id/shipments", requireAdminAuth, async (req, res) => {
+  try {
+    const adminScope = ensureSellerScopeOnOrderQuery(req, res);
+    if (!adminScope) return;
+    if (!adminScope.hasGlobalAccess) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para desfazer a divisão." });
+      return;
+    }
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
+    const existing = await db.select().from(ordersTable).where(buildAdminOrderWhere(id, adminScope)).limit(1);
+    if (!existing[0]) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
+    const order = await undoOrderShipments(existing[0]);
+    await addOrderEvent({
+      orderId: id,
+      tenantId: adminScope.tenantId,
+      action: "split_cleared",
+      ...actorFromAdminRequest(req),
+    });
+    res.json({
+      ok: true,
+      splitCleared: true,
+      packages: [],
+      order: { ...mapOrder(order, { packages: [] }), splitCleared: true },
+    });
+  } catch (err) {
+    if (err instanceof OrderShipmentError || err instanceof OrderEnviadoError) {
+      const status = err.code === "ALREADY_SHIPPED" || err.code === "SPLIT_LOCKED" || err.code === "INVENTORY_MUST_REVERSE" || err.code === "SPLIT_HAS_LABEL"
+        ? 409
+        : 400;
+      res.status(status).json({ error: err.code, message: err.message });
+      return;
+    }
+    console.error("Undo order shipments error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao desfazer a divisão." });
   }
 });
 

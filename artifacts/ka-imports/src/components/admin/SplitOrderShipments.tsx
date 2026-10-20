@@ -118,7 +118,7 @@ export function SplitOrderShipmentsButton({
   onYuryAuthError,
 }: {
   order: EnvioEcomOrderFields & { products?: unknown; enviado?: boolean };
-  onPatched: (patch: Partial<EnvioEcomOrderFields> & { id: string }) => void;
+  onPatched: (patch: Partial<EnvioEcomOrderFields> & { id: string; splitCleared?: boolean }) => void;
   inventoryByProduct?: Record<string, number>;
   yuryByProduct?: Record<string, { motoboy: number; minas: number }>;
   productImageById?: Record<string, string>;
@@ -201,6 +201,31 @@ export function SplitOrderShipmentsButton({
     }
   }
 
+  async function undoSplit() {
+    if (labeledPools.length) {
+      const names = labeledPools.map((pkg) => poolLabel(String(pkg.inventoryPool || ""))).join(", ");
+      toast.error(`${names} já tem etiqueta EnvioEcom. Desvincule antes de desfazer a divisão.`);
+      return;
+    }
+    if (!window.confirm("Desfazer a divisão? O pedido volta a um envio só.")) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/orders/${order.id}/shipments`, {
+        method: "DELETE",
+        headers: adminHeaders(),
+      });
+      const data = await res.json() as { order?: EnvioEcomOrderFields & { splitCleared?: boolean }; message?: string; error?: string };
+      if (!res.ok) throw new Error(data.message || data.error || "Falha ao desfazer a divisão.");
+      if (data.order) onPatched({ ...data.order, packages: [], splitCleared: true });
+      toast.success("Divisão desfeita.");
+      setOpen(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Falha ao desfazer a divisão.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const modal = open ? (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setOpen(false)}>
       <div className="bg-white rounded-[28px] max-w-xl w-full shadow-xl max-h-[88vh] overflow-auto p-5 sm:p-6" onClick={(event) => event.stopPropagation()}>
@@ -262,7 +287,19 @@ export function SplitOrderShipmentsButton({
             </tbody>
           </table>
         </div>
-        <div className="flex justify-end gap-2 mt-4">
+        <div className="flex flex-wrap items-center justify-end gap-2 mt-4">
+          {split ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="mr-auto text-rose-700 border-rose-200 hover:bg-rose-50"
+              disabled={busy || labeledPools.length > 0 || splitLocked}
+              title={labeledPools.length > 0 ? "Desvincule a etiqueta antes de desfazer a divisão." : undefined}
+              onClick={() => void undoSplit()}
+            >
+              Desfazer divisão
+            </Button>
+          ) : null}
           <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
           <Button type="button" disabled={busy} onClick={() => void submit()}>
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : (split ? "Salvar divisão" : "Confirmar divisão")}

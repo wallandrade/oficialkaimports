@@ -29,6 +29,7 @@ import {
   pickInheritPackageIndex,
   rollupParentLabelUrl,
   shipmentPoolLabel,
+  splitUndoBlock,
   validateOrderShipmentAllocation,
   type OrderShipmentAllocationInput,
 } from "./order-shipments-logic";
@@ -417,6 +418,20 @@ export async function allocateOrderShipments(input: {
 
   const order = await rollupOrderFromPackages(input.order, inserted);
   return { order, packages: inserted };
+}
+
+/** Apaga os pacotes e o pedido volta ao envio único. Não mexe em etiqueta, postagem nem baixa. */
+export async function undoOrderShipments(
+  order: typeof ordersTable.$inferSelect,
+): Promise<typeof ordersTable.$inferSelect> {
+  const existing = await listOrderShipments(order.id);
+  const block = splitUndoBlock(existing, order);
+  if (!block.ok) {
+    throw new OrderShipmentError(block.error.code, block.error.message);
+  }
+  await db.delete(orderShipmentsTable).where(eq(orderShipmentsTable.orderId, order.id));
+  const refreshed = await db.select().from(ordersTable).where(eq(ordersTable.id, order.id)).limit(1);
+  return refreshed[0] || order;
 }
 
 export async function findPackageForEnvioEcomWebhook(input: {

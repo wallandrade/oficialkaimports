@@ -284,15 +284,18 @@ function isClosedReshipmentStatus(status?: string | null): boolean {
   return ["reenvio_enviado", "reenvio_resolvido_sem_entrada", "reenvio_cancelado"].includes(String(status || ""));
 }
 
-function mergeOrderPatch<T extends { packages?: unknown[] | null }>(current: T, incoming: T): T {
+function mergeOrderPatch<T extends { packages?: unknown[] | null; splitCleared?: boolean }>(current: T, incoming: T): T {
   const incomingPackages = Array.isArray(incoming.packages) ? incoming.packages : null;
   const previousPackages = Array.isArray(current.packages) ? current.packages : [];
-  const keepPackages = (!incomingPackages || incomingPackages.length === 0) && previousPackages.length >= 2;
-  return {
+  const clearPackages = incoming.splitCleared === true;
+  const keepPackages = !clearPackages && (!incomingPackages || incomingPackages.length === 0) && previousPackages.length >= 2;
+  const next = {
     ...current,
     ...incoming,
-    packages: keepPackages ? previousPackages : (incomingPackages ?? previousPackages),
+    packages: clearPackages ? [] : (keepPackages ? previousPackages : (incomingPackages ?? previousPackages)),
   };
+  delete next.splitCleared;
+  return next;
 }
 
 function isPaymentProofPdf(url: string): boolean {

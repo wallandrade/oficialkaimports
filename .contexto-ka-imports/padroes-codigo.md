@@ -1,6 +1,6 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-10-19
+> **Última atualização:** 2026-10-20
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
@@ -36,6 +36,7 @@
 | 2026-09-21 | Anti-padrão: `<select>` no modal Reenvio do chamado (sem foto) | `ProductSelect` + `products[].image`; thumbnail na lista | Payload do `POST .../reenviar` |
 | 2026-09-21 | Anti-padrão: `readOnly` só no `onFocus` da busca (iOS não abre teclado) ou `focus()` da lupa com `setTimeout` | `OrdersSearchInput` destrava no toque; Header usa `flushSync` + lupa sem pointer | Autofill Chrome; filtro local |
 | 2026-09-21 | Anti-padrão: abrir a lista de envios do CPF em todos os cards da fila | Linha fechada; expande no clique; fetch só ao abrir | Alerta no modal EE |
+| 2026-10-20 | Anti-padrão: desfazer split devolvendo `packages: []` sem `splitCleared` | `mergeOrderPatch` mantém o split se o patch vier vazio. O DELETE manda `splitCleared` | Realocar com `POST` |
 | 2026-09-21 | Anti-padrão: apagar `order_shipments` na realocação sem copiar `envioecom_*` do mesmo pool, ou tirar origem com etiqueta | Preserva vínculo; 409 `SPLIT_HAS_LABEL` | Unlink / Cancelar EE |
 | 2026-09-21 | Anti-padrão: misturar Desvincular com Cancelar EE, ou reatachar webhook pelo orderId antigo | Unlink só local; cancel chama a EE; matcher exige ID/barcode atuais | Token; `enviado`/estoque |
 | 2026-09-19 | Anti-padrão: cashback do completo sempre ligado (sem `checkout_insurance_cashback_enabled`) | Default off; loja fica com o seguro; checkout só fala de Receita | Estorno no sinistro; reduzido |
@@ -235,7 +236,7 @@ Código > memória > suposições.
 - Gravar OCR **Etiqueta/Rastreio** ou `PATCH .../tracking-code` só em `orders.trackingCode` quando o pedido está dividido; usar `packageId` + `persistEnvioEcomPackage`. Não devolver `mapOrder()` sem `packages[]` (some o split no card). Não toastar “vinculado” se `resolved === false`. Não preencher o código do Motoboy com o 8880 de Minas.
 - Trocar o SKU do cliente pelo **Editar pedido** (o PATCH puxa preço de catálogo e some o “X → Y”). Usar `POST /admin/orders/:id/replace-product` com `keep_price` ou `pass_difference`. Não trocar depois de `enviado`/baixa. Não esconder a troca do cliente.
 - Fazer o 2º volume virando reenvio, pedido filho (`parent_order_id`) ou duplicando o pedido. Split é `order_shipments` no **mesmo** pedido; reenvio de suporte continua outro domínio.
-- Realocar split apagando pacotes sem copiar `envioecom_*` da **mesma** origem, ou remover pool que ainda tem etiqueta. Use **Editar divisão**; 409 `SPLIT_HAS_LABEL` se a origem com EE sair — Desvincular antes.
+- Realocar split apagando pacotes sem copiar `envioecom_*` da **mesma** origem, ou remover pool que ainda tem etiqueta. Use **Editar divisão**; 409 `SPLIT_HAS_LABEL` se a origem com EE sair — Desvincular antes. Desfazer a divisão é `DELETE /admin/orders/:id/shipments` com `splitCleared`; `packages: []` sozinho não limpa o card.
 - Esperar a EnvioEcom ir para **Cancelado** antes de cotar de novo, ou criar outro envio sem **Desvincular** / **Cancelar EE** (409 `SHIPMENT_EXISTS` / `DUPLICATE_ORDER`). **Desvincular** só solta o vínculo no KA (o PDF na EE continua); **Cancelar EE** pede cancel na API e também solta aqui. Create gera orderId novo se estiver solto (`unlinked && prev`) ou status cancelado. No split o orderId inclui o pool (`{n}-{8chars}-{pool}`).
 - Casar webhook EnvioEcom por prefixo `{n}-` do orderId, por `orderNumber`, por UUID do pedido, **ou só pelo `external_order_number` antigo** depois de desvincular. Match exige barcode/`shipment_id` **exatos** do envio atual. No split: casar o **pacote** primeiro (`findPackageForEnvioEcomWebhook`); não gravar o 2º envio em `orders.envioecom_*` com `persistEnvioEcomShipment`. Pedido/pacote sem ID e sem barcode não reatacha o 8880 velho.
 - Baixar estoque do pedido inteiro (`orders.id` / `POST .../inventory-exit`) depois do split; usar `pkg:{id}` e os itens do JSON do pacote. 409 `ORDER_SPLIT_USE_PACKAGE`. Seletor único Loja/Motoboy/Minas some no card dividido.

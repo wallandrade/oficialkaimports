@@ -16,6 +16,7 @@ import {
   pickInheritPackageIndex,
   pickUnboundPackageId,
   rollupParentLabelUrl,
+  splitUndoBlock,
   validateOrderShipmentAllocation,
 } from "./order-shipments-logic";
 
@@ -174,6 +175,27 @@ test("pickUnboundPackageId escolhe o pacote sem envio proprio", () => {
     { id: "minas", envioecomBarcode: "8880" },
     { id: "motoboy", envioecomBarcode: "8881" },
   ]), null);
+});
+
+test("desfazer divisao bloqueia etiqueta, postagem e baixa", () => {
+  const open = [
+    { inventoryPool: "loja", enviado: false, inventoryReserved: false },
+    { inventoryPool: "motoboy", enviado: false, inventoryReserved: false },
+  ];
+  assert.equal(splitUndoBlock(open).ok, true);
+  const labeled = splitUndoBlock([
+    { inventoryPool: "loja" },
+    { inventoryPool: "motoboy", envioecomShipmentId: 22, envioecomBarcode: "888031000015326" },
+  ]);
+  assert.equal(labeled.ok, false);
+  if (!labeled.ok) assert.equal(labeled.error.code, "SPLIT_HAS_LABEL");
+  const posted = splitUndoBlock([
+    { inventoryPool: "loja", enviado: true },
+    { inventoryPool: "minas" },
+  ]);
+  assert.equal(posted.ok, false);
+  if (!posted.ok) assert.equal(posted.error.code, "SPLIT_LOCKED");
+  assert.equal(splitUndoBlock([{ inventoryPool: "loja" }]).ok, false);
 });
 
 test("realocar split nao deixa remover origem com etiqueta EE", () => {

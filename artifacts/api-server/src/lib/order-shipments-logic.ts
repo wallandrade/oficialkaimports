@@ -328,6 +328,63 @@ export function shipmentPoolLabel(pool?: string | null): string {
   return pool || "pacote";
 }
 
+export function packageHasEnvioEcomBinding(pkg: {
+  envioecomShipmentId?: number | null;
+  envioecomBarcode?: string | null;
+  envioecomLabelUrl?: string | null;
+  envioecomStatus?: string | null;
+}): boolean {
+  return Boolean(
+    Number(pkg.envioecomShipmentId) > 0
+    || String(pkg.envioecomBarcode || "").trim()
+    || String(pkg.envioecomLabelUrl || "").trim()
+    || String(pkg.envioecomStatus || "").trim()
+  );
+}
+
+/** Desfazer a divisão só com o pedido ainda sem postagem, baixa ou etiqueta. */
+export function splitUndoBlock(
+  packages: Array<{
+    inventoryPool?: string | null;
+    enviado?: boolean | null;
+    inventoryReserved?: boolean | null;
+    envioecomShipmentId?: number | null;
+    envioecomBarcode?: string | null;
+    envioecomLabelUrl?: string | null;
+    envioecomStatus?: string | null;
+  }>,
+  order?: { enviado?: boolean | null; inventoryReserved?: boolean | null } | null,
+): { ok: true } | { ok: false; error: OrderShipmentLogicError } {
+  if (!isSplitShipments(packages)) {
+    return { ok: false, error: { code: "NOT_SPLIT", message: "Este pedido não está dividido." } };
+  }
+  if (
+    order?.enviado
+    || order?.inventoryReserved
+    || packages.some((pkg) => pkg.enviado || pkg.inventoryReserved || shouldMarkEnviadoFromStatus(pkg.envioecomStatus))
+  ) {
+    return {
+      ok: false,
+      error: {
+        code: "SPLIT_LOCKED",
+        message: "Já existe pacote postado ou com estoque baixado neste pedido. Não dá para desfazer a divisão.",
+      },
+    };
+  }
+  const labeled = packages.filter(packageHasEnvioEcomBinding);
+  if (labeled.length) {
+    const names = labeled.map((pkg) => shipmentPoolLabel(pkg.inventoryPool)).join(", ");
+    return {
+      ok: false,
+      error: {
+        code: "SPLIT_HAS_LABEL",
+        message: `${names} já tem etiqueta EnvioEcom. Desvincule antes de desfazer a divisão.`,
+      },
+    };
+  }
+  return { ok: true };
+}
+
 /** Pacotes com envio EE cuja origem some na nova alocação. */
 export function labeledPoolsMissingFromAllocation(
   existing: Array<{

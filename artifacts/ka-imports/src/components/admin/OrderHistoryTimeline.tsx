@@ -41,6 +41,8 @@ const ACTION_LABELS: Record<string, string> = {
   reshipment: "Lançou reenvio",
   difference_charge: "Gerou cobrança de diferença",
   product_swap: "Trocou produto do pedido",
+  split_shipment: "Dividiu o envio",
+  split_cleared: "Desfez a divisão",
   motoboy: "Marcou Motoboy",
 };
 

@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-10-19
+> **Última atualização:** 2026-10-20
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-20 | `DELETE /admin/orders/:id/shipments` | Desfaz o split. `mergeOrderPatch` só zera `packages[]` com `splitCleared` | `POST` realoca e continua exigindo 2 origens |
 | 2026-10-19 | Tabelas `flash_campaigns`, `flash_campaign_items`, `flash_visits`, `flash_reservations` | Criadas no `runtime-schema`. Rotas públicas `/api/flash-offers/*` e admin `/api/admin/flash-campaigns`. Job em `flash-expiry.ts` | `promoPrice`; cupons |
 | 2026-10-04 | `/frete` (`FreightLookup`) sem `AppLayout minimal` | Menu da loja no topo; grade Tirzepatida via `useGetProducts` abaixo do CEP | Rota continua só `/frete`; cotação e Motoboy iguais |
 | 2026-10-03 | Tabela `affiliate_credit_adjustments` | `POST /api/admin/affiliates/:userId/balance` soma no disponível do afiliado | `affiliate_commissions`; `affiliate_credit_uses`; carteira `customer_wallet_ledger` |
