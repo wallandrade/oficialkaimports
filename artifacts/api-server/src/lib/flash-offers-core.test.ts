@@ -9,6 +9,7 @@ import {
   saoPauloClock,
   saoPauloDayStart,
   unitPriceWithFlash,
+  visitStillBlocks,
 } from "./flash-offers-core";
 
 test("relógio de São Paulo lê hora e dia", () => {
@@ -52,4 +53,30 @@ test("visitante e preço da reserva", () => {
     flashProductId: "p1",
     lines: [{ id: "p1", quantity: 2 }],
   }), "A promoção relâmpago vale para 1 unidade.");
+});
+
+test("bloqueio da oferta libera depois das horas da campanha", () => {
+  const seenAt = new Date("2026-10-19T21:00:00-03:00");
+  const dayStart = new Date("2026-10-19T00:00:00-03:00");
+  assert.equal(visitStillBlocks({
+    outcome: "seen",
+    createdAt: seenAt,
+    now: new Date("2026-10-20T20:00:00-03:00"),
+    repeatAfterHours: 0,
+    dayStart,
+  }), true);
+  assert.equal(visitStillBlocks({
+    outcome: "seen",
+    createdAt: seenAt,
+    now: new Date("2026-10-20T22:00:00-03:00"),
+    repeatAfterHours: 24,
+    dayStart,
+  }), false);
+  assert.equal(visitStillBlocks({
+    outcome: "seen",
+    createdAt: seenAt,
+    now: new Date("2026-10-20T20:00:00-03:00"),
+    repeatAfterHours: 48,
+    dayStart,
+  }), true);
 });

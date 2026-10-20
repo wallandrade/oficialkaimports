@@ -18,6 +18,7 @@ import {
   saoPauloClock,
   saoPauloDayStart,
   unitPriceWithFlash,
+  visitStillBlocks,
   type FlashPriceHit,
 } from "./flash-offers-core";
 
@@ -64,10 +65,15 @@ function sellingPrice(product: { price: string; promoPrice: string | null; promo
   return promo;
 }
 
-function visitBlocks(visit: { outcome: string; createdAt: Date } | undefined, dayStart: Date): boolean {
+function visitBlocks(visit: { outcome: string; createdAt: Date } | undefined, dayStart: Date, now: Date, repeatAfterHours: number): boolean {
   if (!visit) return false;
-  if (visit.outcome === "seen") return true;
-  return visit.createdAt >= dayStart;
+  return visitStillBlocks({
+    outcome: visit.outcome,
+    createdAt: visit.createdAt,
+    now,
+    repeatAfterHours,
+    dayStart,
+  });
 }
 
 async function findVisit(campaignId: string, visitorKey: string) {
@@ -162,7 +168,7 @@ export async function drawFlashOffer(input: {
   if (await activeReservationCount(picked.id, now) >= picked.slotLimit) return { offer: null };
 
   const visitorVisit = await findVisit(picked.id, visitorKey);
-  if (visitBlocks(visitorVisit, dayStart)) return { offer: null };
+  if (visitBlocks(visitorVisit, dayStart, now, picked.repeatAfterHours)) return { offer: null };
 
   if (input.customerUserId) {
     const userVisits = await db
@@ -173,17 +179,20 @@ export async function drawFlashOffer(input: {
         eq(flashVisitsTable.customerUserId, input.customerUserId),
       ))
       .limit(8);
-    if (userVisits.some((visit) => visitBlocks(visit, dayStart))) return { offer: null };
+    if (userVisits.some((visit) => visitBlocks(visit, dayStart, now, picked.repeatAfterHours))) return { offer: null };
   }
 
   if (input.ipHash) {
+    const ipSince = picked.repeatAfterHours > 0
+      ? new Date(now.getTime() - picked.repeatAfterHours * 60 * 60 * 1000)
+      : dayStart;
     const [ipVisit] = await db
       .select()
       .from(flashVisitsTable)
       .where(and(
         eq(flashVisitsTable.campaignId, picked.id),
         eq(flashVisitsTable.ipHash, input.ipHash),
-        gte(flashVisitsTable.createdAt, dayStart),
+        gte(flashVisitsTable.createdAt, ipSince),
       ))
       .limit(1);
     if (ipVisit) return { offer: null };

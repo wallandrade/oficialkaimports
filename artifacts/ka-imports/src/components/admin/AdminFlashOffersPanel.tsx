@@ -27,6 +27,7 @@ type Campaign = {
   slotLimit: number;
   drawPercent: number;
   showAfterSeconds: number;
+  repeatAfterHours: number;
   activeFromHour: number | null;
   activeUntilHour: number | null;
   items: Array<{ productId: string; name: string; image: string | null; regularPrice: number | null; flashPrice: number }>;
@@ -84,6 +85,7 @@ const emptyForm = {
   slotLimit: "5",
   drawPercent: "25",
   showAfterSeconds: "8",
+  repeatAfterHours: "0",
   activeFromHour: "",
   activeUntilHour: "",
   isActive: true,
@@ -162,6 +164,7 @@ export function AdminFlashOffersPanel() {
       slotLimit: String(campaign.slotLimit),
       drawPercent: String(campaign.drawPercent),
       showAfterSeconds: String(campaign.showAfterSeconds ?? 8),
+      repeatAfterHours: String(campaign.repeatAfterHours ?? 0),
       activeFromHour: campaign.activeFromHour == null ? "" : String(campaign.activeFromHour),
       activeUntilHour: campaign.activeUntilHour == null ? "" : String(campaign.activeUntilHour),
       isActive: campaign.isActive,
@@ -181,6 +184,7 @@ export function AdminFlashOffersPanel() {
       slotLimit: Number(form.slotLimit),
       drawPercent: Number(form.drawPercent),
       showAfterSeconds: Number(form.showAfterSeconds),
+      repeatAfterHours: Number(form.repeatAfterHours),
       activeFromHour: form.activeFromHour === "" ? null : Number(form.activeFromHour),
       activeUntilHour: form.activeUntilHour === "" ? null : Number(form.activeUntilHour),
       isActive: form.isActive,
@@ -253,6 +257,10 @@ export function AdminFlashOffersPanel() {
           <label className="text-sm font-medium">
             Aparece depois de (segundos)
             <input value={form.showAfterSeconds} onChange={(event) => setForm({ ...form, showAfterSeconds: event.target.value })} inputMode="numeric" className="mt-1 h-11 w-full rounded-xl border-2 border-border px-3" />
+          </label>
+          <label className="text-sm font-medium">
+            Mostrar de novo depois de (horas)
+            <input value={form.repeatAfterHours} onChange={(event) => setForm({ ...form, repeatAfterHours: event.target.value })} inputMode="numeric" placeholder="0 = não mostra de novo" className="mt-1 h-11 w-full rounded-xl border-2 border-border px-3" />
           </label>
           <label className="flex items-end gap-2 text-sm font-medium">
             <input type="checkbox" checked={form.isActive} onChange={(event) => setForm({ ...form, isActive: event.target.checked })} />
@@ -361,6 +369,7 @@ export function AdminFlashOffersPanel() {
                 <p className="font-bold">{campaign.name}</p>
                 <p className="text-sm text-muted-foreground">
                   {campaign.isActive ? "Ligada" : "Desligada"} · {campaign.slotLimit} vagas · {campaign.drawPercent}% de chance · depois de {campaign.showAfterSeconds ?? 8}s
+                  {(campaign.repeatAfterHours ?? 0) > 0 ? ` · de novo em ${campaign.repeatAfterHours}h` : " · não repete"}
                   {campaign.activeFromHour != null ? ` · a partir das ${campaign.activeFromHour}h` : " · o dia todo"}
                 </p>
                 <p className="text-xs text-muted-foreground">Viram a oferta: {campaign.seenCount} · Reservadas agora: {campaign.activeReservations} · Viraram pedido: {campaign.usedReservations}</p>

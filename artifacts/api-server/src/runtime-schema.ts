@@ -1635,6 +1635,7 @@ async function ensureFlashOfferTables(databaseName: string): Promise<void> {
         slot_limit INT NOT NULL DEFAULT 5,
         draw_percent INT NOT NULL DEFAULT 25,
         show_after_seconds INT NOT NULL DEFAULT 8,
+        repeat_after_hours INT NOT NULL DEFAULT 0,
         active_from_hour INT NULL,
         active_until_hour INT NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1692,6 +1693,9 @@ async function ensureFlashOfferTables(databaseName: string): Promise<void> {
   }
   if (await tableExists("flash_campaigns", databaseName) && !(await columnExists("flash_campaigns", "show_after_seconds", databaseName))) {
     await pool.query("ALTER TABLE flash_campaigns ADD COLUMN show_after_seconds INT NOT NULL DEFAULT 8");
+  }
+  if (await tableExists("flash_campaigns", databaseName) && !(await columnExists("flash_campaigns", "repeat_after_hours", databaseName))) {
+    await pool.query("ALTER TABLE flash_campaigns ADD COLUMN repeat_after_hours INT NOT NULL DEFAULT 0");
   }
 }
 

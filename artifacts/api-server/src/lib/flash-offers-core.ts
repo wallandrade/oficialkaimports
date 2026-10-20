@@ -69,6 +69,28 @@ export function normalizeShowAfterSeconds(raw: unknown, fallback = 8): number {
   return Math.min(300, Math.max(0, value));
 }
 
+export function normalizeRepeatAfterHours(raw: unknown, fallback = 0): number {
+  if (raw == null || raw === "") return fallback;
+  const value = Math.round(Number(raw));
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(2160, Math.max(0, value));
+}
+
+export function visitStillBlocks(input: {
+  outcome: string;
+  createdAt: Date;
+  now: Date;
+  repeatAfterHours: number;
+  dayStart: Date;
+}): boolean {
+  const hours = normalizeRepeatAfterHours(input.repeatAfterHours, 0);
+  if (hours > 0) {
+    return input.now.getTime() < input.createdAt.getTime() + hours * 60 * 60 * 1000;
+  }
+  if (input.outcome === "seen") return true;
+  return input.createdAt >= input.dayStart;
+}
+
 export type FlashPriceHit = {
   productId: string;
   unitPrice: number;

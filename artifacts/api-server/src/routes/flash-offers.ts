@@ -21,7 +21,7 @@ import {
   hashFlashIp,
   releaseFlashReservation,
 } from "../lib/flash-offers";
-import { isCampaignHourOpen, normalizeHour, normalizeShowAfterSeconds, normalizeVisitorKey, saoPauloClock } from "../lib/flash-offers-core";
+import { isCampaignHourOpen, normalizeHour, normalizeRepeatAfterHours, normalizeShowAfterSeconds, normalizeVisitorKey, saoPauloClock } from "../lib/flash-offers-core";
 import { ensureFlashOfferSchema } from "../runtime-schema";
 
 const router: IRouter = Router();
@@ -274,6 +274,7 @@ router.get("/admin/flash-campaigns", requireAdminAuth, async (req, res) => {
         slotLimit: campaign.slotLimit,
         drawPercent: campaign.drawPercent,
         showAfterSeconds: normalizeShowAfterSeconds(campaign.showAfterSeconds, 8),
+        repeatAfterHours: normalizeRepeatAfterHours(campaign.repeatAfterHours, 0),
         activeFromHour: campaign.activeFromHour,
         activeUntilHour: campaign.activeUntilHour,
         items: items
@@ -333,6 +334,7 @@ router.post("/admin/flash-campaigns", requireAdminAuth, async (req, res) => {
     const slotLimit = Math.min(500, Math.max(1, Math.round(Number(req.body?.slotLimit) || 5)));
     const drawPercent = Math.min(100, Math.max(1, Math.round(Number(req.body?.drawPercent) || 25)));
     const showAfterSeconds = normalizeShowAfterSeconds(req.body?.showAfterSeconds, 8);
+    const repeatAfterHours = normalizeRepeatAfterHours(req.body?.repeatAfterHours, 0);
     const items = normalizeItems(req.body?.items);
     if (items.length === 0) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Escolha ao menos um produto com preço." });
@@ -353,6 +355,7 @@ router.post("/admin/flash-campaigns", requireAdminAuth, async (req, res) => {
       slotLimit,
       drawPercent,
       showAfterSeconds,
+      repeatAfterHours,
       activeFromHour: normalizeHour(req.body?.activeFromHour),
       activeUntilHour: normalizeHour(req.body?.activeUntilHour),
       createdAt: now,
@@ -410,6 +413,7 @@ router.patch("/admin/flash-campaigns/:id", requireAdminAuth, async (req, res) =>
       slotLimit: req.body?.slotLimit == null ? current.slotLimit : Math.min(500, Math.max(1, Math.round(Number(req.body.slotLimit) || 1))),
       drawPercent: req.body?.drawPercent == null ? current.drawPercent : Math.min(100, Math.max(1, Math.round(Number(req.body.drawPercent) || 1))),
       showAfterSeconds: req.body?.showAfterSeconds == null ? normalizeShowAfterSeconds(current.showAfterSeconds, 8) : normalizeShowAfterSeconds(req.body.showAfterSeconds, 8),
+      repeatAfterHours: req.body?.repeatAfterHours == null ? normalizeRepeatAfterHours(current.repeatAfterHours, 0) : normalizeRepeatAfterHours(req.body.repeatAfterHours, 0),
       activeFromHour: req.body?.activeFromHour === undefined ? current.activeFromHour : normalizeHour(req.body.activeFromHour),
       activeUntilHour: req.body?.activeUntilHour === undefined ? current.activeUntilHour : normalizeHour(req.body.activeUntilHour),
       updatedAt: new Date(),

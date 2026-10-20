@@ -7,7 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
-| 2026-10-19 | Busca de produto na promoção mostra foto e os dois preços | A lista flutua no campo. Promoção do catálogo fica riscada e o preço atual em destaque | O preço relâmpago continua o que o admin digita |
+| 2026-10-19 | Campanha pode liberar o cliente depois de X horas | **Mostrar de novo depois de (horas)**. 0 não repete. O prazo vale para o navegador, a conta e o IP | Quem ainda não viu continua igual |
 | 2026-10-19 | Campanha escolhe em quantos segundos o modal aparece | Campo **Aparece depois de (segundos)**. 0 mostra na hora. Campanha já gravada fica em 8 até editar | Sorteio, vaga e o preço |
 | 2026-10-19 | Aba Promoções lista quem aceitou | Nome (ou Visitante), produto, preço, pedido e situação: aguardando finalizar, aguardando pagamento, pago, perdeu a hora ou tirou do carrinho | Sorteio, vaga de 1 h e o preço no checkout |
 | 2026-10-19 | Promoção relâmpago | Aba **Promoções** (primary e filial). Modal na loja, uma vez por campanha. Aceite reserva 1 h e o preço no PIX/WhatsApp. Vaga volta se expirar ou sair do carrinho. Cartão fica no preço normal. Cupom não entra | `promoPrice` do catálogo; cupom comum |
