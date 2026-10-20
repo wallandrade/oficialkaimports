@@ -342,7 +342,7 @@ export function packageHasEnvioEcomBinding(pkg: {
   );
 }
 
-/** Desfazer a divisão só com o pedido ainda sem postagem, baixa ou etiqueta. */
+/** Desfazer a divisão bloqueia postagem e baixa. Etiqueta não impede: o vínculo local sai junto. */
 export function splitUndoBlock(
   packages: Array<{
     inventoryPool?: string | null;
@@ -368,17 +368,6 @@ export function splitUndoBlock(
       error: {
         code: "SPLIT_LOCKED",
         message: "Já existe pacote postado ou com estoque baixado neste pedido. Não dá para desfazer a divisão.",
-      },
-    };
-  }
-  const labeled = packages.filter(packageHasEnvioEcomBinding);
-  if (labeled.length) {
-    const names = labeled.map((pkg) => shipmentPoolLabel(pkg.inventoryPool)).join(", ");
-    return {
-      ok: false,
-      error: {
-        code: "SPLIT_HAS_LABEL",
-        message: `${names} já tem etiqueta EnvioEcom. Desvincule antes de desfazer a divisão.`,
       },
     };
   }

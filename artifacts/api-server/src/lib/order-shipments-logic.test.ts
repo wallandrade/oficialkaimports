@@ -177,7 +177,7 @@ test("pickUnboundPackageId escolhe o pacote sem envio proprio", () => {
   ]), null);
 });
 
-test("desfazer divisao bloqueia etiqueta, postagem e baixa", () => {
+test("desfazer divisao aceita etiqueta e bloqueia postagem ou baixa", () => {
   const open = [
     { inventoryPool: "loja", enviado: false, inventoryReserved: false },
     { inventoryPool: "motoboy", enviado: false, inventoryReserved: false },
@@ -187,8 +187,7 @@ test("desfazer divisao bloqueia etiqueta, postagem e baixa", () => {
     { inventoryPool: "loja" },
     { inventoryPool: "motoboy", envioecomShipmentId: 22, envioecomBarcode: "888031000015326" },
   ]);
-  assert.equal(labeled.ok, false);
-  if (!labeled.ok) assert.equal(labeled.error.code, "SPLIT_HAS_LABEL");
+  assert.equal(labeled.ok, true);
   const posted = splitUndoBlock([
     { inventoryPool: "loja", enviado: true },
     { inventoryPool: "minas" },

@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { db, orderShipmentsTable, ordersTable } from "@workspace/db";
 import { desc, eq, inArray } from "drizzle-orm";
-import type { EnvioEcomShipmentPatch } from "./envioecom-order";
+import { unlinkEnvioEcomBinding, type EnvioEcomShipmentPatch } from "./envioecom-order";
 import {
   grantInsuranceCashbackIfEligible,
 } from "./customer-wallet";
@@ -27,6 +27,7 @@ import {
   mapOrderShipmentPackage,
   parseOrderShipmentItems,
   pickInheritPackageIndex,
+  packageHasEnvioEcomBinding,
   rollupParentLabelUrl,
   shipmentPoolLabel,
   splitUndoBlock,
@@ -429,9 +430,11 @@ export async function undoOrderShipments(
   if (!block.ok) {
     throw new OrderShipmentError(block.error.code, block.error.message);
   }
+  const hadLabel = existing.some(packageHasEnvioEcomBinding);
   await db.delete(orderShipmentsTable).where(eq(orderShipmentsTable.orderId, order.id));
-  const refreshed = await db.select().from(ordersTable).where(eq(ordersTable.id, order.id)).limit(1);
-  return refreshed[0] || order;
+  const refreshed = (await db.select().from(ordersTable).where(eq(ordersTable.id, order.id)).limit(1))[0] || order;
+  if (!hadLabel) return refreshed;
+  return unlinkEnvioEcomBinding(refreshed);
 }
 
 export async function findPackageForEnvioEcomWebhook(input: {

@@ -202,12 +202,11 @@ export function SplitOrderShipmentsButton({
   }
 
   async function undoSplit() {
-    if (labeledPools.length) {
-      const names = labeledPools.map((pkg) => poolLabel(String(pkg.inventoryPool || ""))).join(", ");
-      toast.error(`${names} já tem etiqueta EnvioEcom. Desvincule antes de desfazer a divisão.`);
-      return;
-    }
-    if (!window.confirm("Desfazer a divisão? O pedido volta a um envio só.")) return;
+    const names = labeledPools.map((pkg) => poolLabel(String(pkg.inventoryPool || ""))).join(", ");
+    const confirmed = labeledPools.length
+      ? window.confirm(`${names} já tem etiqueta. Desfazer a divisão solta essa etiqueta neste pedido. A EnvioEcom não é cancelada. Continuar?`)
+      : window.confirm("Desfazer a divisão? O pedido volta a um envio só.");
+    if (!confirmed) return;
     setBusy(true);
     try {
       const res = await fetch(`${BASE}/api/admin/orders/${order.id}/shipments`, {
@@ -293,8 +292,7 @@ export function SplitOrderShipmentsButton({
               type="button"
               variant="outline"
               className="mr-auto text-rose-700 border-rose-200 hover:bg-rose-50"
-              disabled={busy || labeledPools.length > 0 || splitLocked}
-              title={labeledPools.length > 0 ? "Desvincule a etiqueta antes de desfazer a divisão." : undefined}
+              disabled={busy || splitLocked}
               onClick={() => void undoSplit()}
             >
               Desfazer divisão
