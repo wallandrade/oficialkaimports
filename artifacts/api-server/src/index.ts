@@ -45,6 +45,7 @@ async function bootstrap(): Promise<void> {
 
   app.listen(port, "0.0.0.0", () => {
     console.log(`Server listening on port ${port}`);
+    console.log("[FlashOffer] rota /api/admin/flash-campaigns incluida neste build");
     startReconciliationJob();
     startRaffleExpiryJob();
     startFlashExpiryJob();
