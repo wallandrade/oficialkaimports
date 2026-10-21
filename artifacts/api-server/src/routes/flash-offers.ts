@@ -301,7 +301,11 @@ router.get("/admin/flash-campaigns", requireAdminAuth, async (req, res) => {
             };
           }),
         activeReservations: reservations.filter((row) => row.campaignId === campaign.id && row.status === "active" && row.expiresAt > new Date()).length,
-        usedReservations: reservations.filter((row) => row.campaignId === campaign.id && row.status === "used").length,
+        usedReservations: reservations.filter((row) => {
+          if (row.campaignId !== campaign.id || row.status !== "used" || !row.orderId) return false;
+          const orderStatus = String(orderById.get(row.orderId)?.status || "");
+          return orderStatus === "paid" || orderStatus === "completed";
+        }).length,
         seenCount: Number(visits.find((row) => row.campaignId === campaign.id && row.outcome === "seen")?.n || 0),
         reservations: reservations
           .filter((row) => row.campaignId === campaign.id)
@@ -311,7 +315,7 @@ router.get("/admin/flash-campaigns", requireAdminAuth, async (req, res) => {
             const product = productById.get(row.productId);
             return {
               id: row.id,
-              name: order?.clientName || (row.customerUserId ? customerById.get(row.customerUserId) : "") || "Visitante",
+              name: (row.customerUserId ? customerById.get(row.customerUserId) : "") || order?.clientName || "Visitante",
               productName: product?.name || "Produto",
               unitPrice: Number(row.unitPrice),
               status: view.status,
