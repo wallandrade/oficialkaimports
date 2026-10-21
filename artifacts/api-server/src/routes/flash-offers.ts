@@ -19,6 +19,7 @@ import {
   drawFlashOffer,
   FlashOfferError,
   hashFlashIp,
+  isFlashForceFirstVisit,
   releaseFlashReservation,
 } from "../lib/flash-offers";
 import { isCampaignHourOpen, normalizeHour, normalizeRepeatAfterHours, normalizeShowAfterSeconds, normalizeVisitorKey, saoPauloClock } from "../lib/flash-offers-core";
@@ -92,6 +93,15 @@ router.get("/flash-offers/wait", async (req, res) => {
   try {
     await ensureFlashOfferSchema();
     const tenantId = await resolvePublicTenantId(req);
+    if (await isFlashForceFirstVisit(tenantId)) {
+      const [active] = await db
+        .select({ id: flashCampaignsTable.id })
+        .from(flashCampaignsTable)
+        .where(and(eq(flashCampaignsTable.tenantId, tenantId), eq(flashCampaignsTable.isActive, true)))
+        .limit(1);
+      res.json({ seconds: active ? 8 : null });
+      return;
+    }
     const campaigns = await db
       .select()
       .from(flashCampaignsTable)
@@ -314,6 +324,7 @@ router.get("/admin/flash-campaigns", requireAdminAuth, async (req, res) => {
           })
           .sort((a, b) => (FLASH_RESERVATION_RANK[a.status] ?? 9) - (FLASH_RESERVATION_RANK[b.status] ?? 9) || b.createdAt.localeCompare(a.createdAt)),
       })),
+      forceFirstVisit: await isFlashForceFirstVisit(tenantId),
     });
   } catch (err) {
     console.error("[FlashOffer] list:", err);

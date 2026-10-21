@@ -76,6 +76,7 @@ const ALLOWED_KEYS = [
   CHECKOUT_CARRIER_PRIORITY_KEY,
   SHIPPING_QUEUE_MANUAL_ENABLED_KEY,
   SHIPPING_QUEUE_MANUAL_HOURS_KEY,
+  "flash_force_first_visit",
 ];
 
 const IMAGE_SETTING_KEYS = new Set([
@@ -304,6 +305,16 @@ router.put("/admin/settings/:key", requireAdminAuth, async (req, res) => {
       return;
     }
     const { value } = req.body as { value?: string };
+    if (key === "flash_force_first_visit") {
+      if (!scope?.isPrimary) {
+        res.status(403).json({ error: "FORBIDDEN", message: "Só o admin principal grava essa opção." });
+        return;
+      }
+      const stored = String(value || "").trim() === "1" ? "1" : "0";
+      await upsertTenantSetting(tenantId, key, stored);
+      res.json({ ok: true, value: stored });
+      return;
+    }
     if (
       key === "store_theme_preset"
       && tenantId !== DEFAULT_TENANT_ID

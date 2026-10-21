@@ -8241,7 +8241,7 @@ export default function Admin() {
             setPaymentNotes={setCommissionPaymentNotes}
           />
         ) : tab === "flashOffers" && canManageProductsTab ? (
-          <AdminFlashOffersPanel />
+          <AdminFlashOffersPanel isPrimary={isPrimary} />
         ) : tab === "coupons" ? (
           <CouponsPanel
             coupons={coupons}

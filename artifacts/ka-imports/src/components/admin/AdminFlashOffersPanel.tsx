@@ -91,8 +91,10 @@ const emptyForm = {
   isActive: true,
 };
 
-export function AdminFlashOffersPanel() {
+export function AdminFlashOffersPanel({ isPrimary = false }: { isPrimary?: boolean }) {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [forceFirstVisit, setForceFirstVisit] = useState(false);
+  const [savingForce, setSavingForce] = useState(false);
   const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<DraftItem[]>([]);
@@ -127,8 +129,9 @@ export function AdminFlashOffersPanel() {
         notes.push(await readApiError(productRes, "Não foi possível carregar os produtos."));
       }
       if (campaignRes.ok) {
-        const data = await campaignRes.json() as { campaigns?: Campaign[] };
+        const data = await campaignRes.json() as { campaigns?: Campaign[]; forceFirstVisit?: boolean };
         setCampaigns(data.campaigns || []);
+        setForceFirstVisit(data.forceFirstVisit === true);
       } else {
         notes.push(await readApiError(campaignRes, "Não foi possível carregar as promoções."));
       }
@@ -231,8 +234,50 @@ export function AdminFlashOffersPanel() {
     await load();
   };
 
+  const toggleForceFirstVisit = async () => {
+    if (!isPrimary || savingForce) return;
+    const next = !forceFirstVisit;
+    setSavingForce(true);
+    try {
+      const response = await fetch(`${BASE}/api/admin/settings/flash_force_first_visit`, {
+        method: "PUT",
+        headers: authHeaders(),
+        body: JSON.stringify({ value: next ? "1" : "0" }),
+      });
+      if (!response.ok) {
+        toast.error(await readApiError(response, "Não foi possível salvar."));
+        return;
+      }
+      setForceFirstVisit(next);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Não foi possível salvar.");
+    } finally {
+      setSavingForce(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
+      {isPrimary && (
+        <div className="flex items-center justify-between gap-4 rounded-2xl border border-border bg-white p-4">
+          <div>
+            <p className="font-bold">Mostrar na primeira visita</p>
+            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+              {forceFirstVisit
+                ? "Ligado: ignora chance, horário, vaga e repetição. Cada cliente vê as campanhas ligadas uma vez, na primeira entrada."
+                : "Desligado: cada promoção segue a própria chance, horário, vaga e repetição."}
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={savingForce}
+            onClick={() => void toggleForceFirstVisit()}
+            className={`h-9 shrink-0 rounded-lg px-4 text-sm font-bold text-white disabled:opacity-60 ${forceFirstVisit ? "bg-green-600" : "bg-neutral-400"}`}
+          >
+            {forceFirstVisit ? "Ligado" : "Desligado"}
+          </button>
+        </div>
+      )}
       <div>
         <h2 className="text-xl font-bold">Promoções relâmpago</h2>
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">

@@ -8,6 +8,7 @@ import {
   productsTable,
 } from "@workspace/db";
 import { and, eq, gt, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { getTenantSettingsMap } from "./envioecom-config";
 import { DEFAULT_TENANT_ID } from "./tenant-context";
 import { parseVariantGroups } from "./product-variants";
 import {
@@ -23,6 +24,8 @@ import {
 } from "./flash-offers-core";
 
 const RESERVATION_MS = 60 * 60 * 1000;
+export const FLASH_FORCE_FIRST_VISIT_KEY = "flash_force_first_visit";
+const FLASH_FIRST_VISIT_CAMPAIGN_ID = "flash-first-visit";
 
 type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -145,6 +148,151 @@ function emptyFlashDraw(): { offers: DrawnFlashOffer[]; offer: DrawnFlashOffer |
   return { offers: [], offer: null };
 }
 
+export async function isFlashForceFirstVisit(tenantId: string): Promise<boolean> {
+  const settings = await getTenantSettingsMap(tenantId);
+  return String(settings[FLASH_FORCE_FIRST_VISIT_KEY] || "").trim() === "1";
+}
+
+function visitTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(eq(flashVisitsTable.tenantId, tenantId), isNull(flashVisitsTable.tenantId), eq(flashVisitsTable.tenantId, ""));
+  }
+  return eq(flashVisitsTable.tenantId, tenantId);
+}
+
+async function hasFirstVisitMark(tenantId: string, visitorKey: string, customerUserId: string | null): Promise<boolean> {
+  const [byVisitor] = await db
+    .select({ id: flashVisitsTable.id })
+    .from(flashVisitsTable)
+    .where(and(
+      eq(flashVisitsTable.campaignId, FLASH_FIRST_VISIT_CAMPAIGN_ID),
+      eq(flashVisitsTable.visitorKey, visitorKey),
+      visitTenantWhere(tenantId),
+    ))
+    .limit(1);
+  if (byVisitor) return true;
+  if (!customerUserId) return false;
+  const [byAccount] = await db
+    .select({ id: flashVisitsTable.id })
+    .from(flashVisitsTable)
+    .where(and(
+      eq(flashVisitsTable.campaignId, FLASH_FIRST_VISIT_CAMPAIGN_ID),
+      eq(flashVisitsTable.customerUserId, customerUserId),
+      visitTenantWhere(tenantId),
+    ))
+    .limit(1);
+  return Boolean(byAccount);
+}
+
+async function campaignOffers(tenantId: string, campaignId: string): Promise<DrawnFlashOffer[]> {
+  const items = await db
+    .select()
+    .from(flashCampaignItemsTable)
+    .where(eq(flashCampaignItemsTable.campaignId, campaignId));
+  if (items.length === 0) return [];
+  const products = await db
+    .select()
+    .from(productsTable)
+    .where(and(productTenantWhere(tenantId), inArray(productsTable.id, items.map((item) => item.productId))));
+  const byId = new Map(products.map((product) => [product.id, product]));
+  const eligible = items
+    .filter((item) => {
+      const product = byId.get(item.productId);
+      if (!product || product.isActive === false || product.isSoldOut === true) return false;
+      const flashPrice = Number(item.flashPrice);
+      const current = sellingPrice(product);
+      return Number.isFinite(flashPrice) && flashPrice > 0 && flashPrice < current;
+    })
+    .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime());
+  const offers: DrawnFlashOffer[] = [];
+  for (const item of eligible) {
+    const product = byId.get(item.productId);
+    if (!product) continue;
+    offers.push({
+      campaignId,
+      productId: product.id,
+      name: product.name,
+      image: product.image ?? null,
+      regularPrice: sellingPrice(product),
+      flashPrice: Number(item.flashPrice),
+      needsVariants: parseVariantGroups(product.variantGroups).length > 0,
+    });
+  }
+  return offers;
+}
+
+async function drawFirstVisitOffers(input: {
+  tenantId: string;
+  visitorKey: string;
+  customerUserId: string | null;
+  ipHash: string | null;
+}): Promise<{ offers: DrawnFlashOffer[]; offer: DrawnFlashOffer | null }> {
+  if (await hasFirstVisitMark(input.tenantId, input.visitorKey, input.customerUserId)) return emptyFlashDraw();
+
+  const campaigns = await db
+    .select()
+    .from(flashCampaignsTable)
+    .where(and(eq(flashCampaignsTable.tenantId, input.tenantId), eq(flashCampaignsTable.isActive, true)));
+  const ordered = campaigns.sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime());
+  const offers: DrawnFlashOffer[] = [];
+  for (const campaign of ordered) {
+    const built = await campaignOffers(input.tenantId, campaign.id);
+    if (built.length === 0) continue;
+    await saveVisit({
+      tenantId: input.tenantId,
+      campaignId: campaign.id,
+      visitorKey: input.visitorKey,
+      customerUserId: input.customerUserId,
+      ipHash: input.ipHash,
+      outcome: "seen",
+    });
+    offers.push(...built);
+  }
+  if (offers.length === 0) return emptyFlashDraw();
+  await saveFirstVisitMark(input);
+  return { offers, offer: offers[0] ?? null };
+}
+
+async function saveFirstVisitMark(input: {
+  tenantId: string;
+  visitorKey: string;
+  customerUserId: string | null;
+  ipHash: string | null;
+}): Promise<void> {
+  const now = new Date();
+  const [existing] = await db
+    .select()
+    .from(flashVisitsTable)
+    .where(and(
+      eq(flashVisitsTable.campaignId, FLASH_FIRST_VISIT_CAMPAIGN_ID),
+      eq(flashVisitsTable.visitorKey, input.visitorKey),
+      visitTenantWhere(input.tenantId),
+    ))
+    .limit(1);
+  if (existing) {
+    await db
+      .update(flashVisitsTable)
+      .set({
+        outcome: "seen",
+        customerUserId: input.customerUserId || existing.customerUserId,
+        ipHash: input.ipHash || existing.ipHash,
+        createdAt: now,
+      })
+      .where(eq(flashVisitsTable.id, existing.id));
+    return;
+  }
+  await db.insert(flashVisitsTable).values({
+    id: newId(),
+    tenantId: input.tenantId,
+    campaignId: FLASH_FIRST_VISIT_CAMPAIGN_ID,
+    visitorKey: input.visitorKey,
+    customerUserId: input.customerUserId,
+    ipHash: input.ipHash,
+    outcome: "seen",
+    createdAt: now,
+  });
+}
+
 export async function drawFlashOffer(input: {
   tenantId: string;
   visitorKey: string;
@@ -154,6 +302,14 @@ export async function drawFlashOffer(input: {
 }): Promise<{ offers: DrawnFlashOffer[]; offer: DrawnFlashOffer | null }> {
   const visitorKey = normalizeVisitorKey(input.visitorKey);
   if (!visitorKey) return emptyFlashDraw();
+  if (await isFlashForceFirstVisit(input.tenantId)) {
+    return drawFirstVisitOffers({
+      tenantId: input.tenantId,
+      visitorKey,
+      customerUserId: input.customerUserId,
+      ipHash: input.ipHash,
+    });
+  }
 
   const now = new Date();
   const clock = saoPauloClock(now);
@@ -221,22 +377,8 @@ export async function drawFlashOffer(input: {
       continue;
     }
 
-    const productIds = items.map((item) => item.productId);
-    const products = await db
-      .select()
-      .from(productsTable)
-      .where(and(productTenantWhere(input.tenantId), inArray(productsTable.id, productIds)));
-    const byId = new Map(products.map((product) => [product.id, product]));
-    const eligible = items
-      .filter((item) => {
-        const product = byId.get(item.productId);
-        if (!product || product.isActive === false || product.isSoldOut === true) return false;
-        const flashPrice = Number(item.flashPrice);
-        const current = sellingPrice(product);
-        return Number.isFinite(flashPrice) && flashPrice > 0 && flashPrice < current;
-      })
-      .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime());
-    if (eligible.length === 0) continue;
+    const built = await campaignOffers(input.tenantId, picked.id);
+    if (built.length === 0) continue;
 
     await saveVisit({
       tenantId: input.tenantId,
@@ -246,20 +388,7 @@ export async function drawFlashOffer(input: {
       ipHash: input.ipHash,
       outcome: "seen",
     });
-
-    for (const item of eligible) {
-      const product = byId.get(item.productId);
-      if (!product) continue;
-      offers.push({
-        campaignId: picked.id,
-        productId: product.id,
-        name: product.name,
-        image: product.image ?? null,
-        regularPrice: sellingPrice(product),
-        flashPrice: Number(item.flashPrice),
-        needsVariants: parseVariantGroups(product.variantGroups).length > 0,
-      });
-    }
+    offers.push(...built);
   }
 
   return { offers, offer: offers[0] ?? null };
@@ -286,7 +415,8 @@ export async function claimFlashOffer(input: {
     ))
     .limit(1);
   if (!campaign) throw new FlashOfferError("FLASH_UNAVAILABLE", "Essa oferta não está mais disponível.");
-  if (!isCampaignHourOpen(campaign.activeFromHour, campaign.activeUntilHour, saoPauloClock(now).hour)) {
+  const forceFirstVisit = await isFlashForceFirstVisit(input.tenantId);
+  if (!forceFirstVisit && !isCampaignHourOpen(campaign.activeFromHour, campaign.activeUntilHour, saoPauloClock(now).hour)) {
     throw new FlashOfferError("FLASH_UNAVAILABLE", "Essa oferta não está mais disponível.");
   }
 
@@ -338,7 +468,7 @@ export async function claimFlashOffer(input: {
     };
   }
 
-  if (await activeReservationCount(campaign.id, now) >= campaign.slotLimit) {
+  if (!forceFirstVisit && await activeReservationCount(campaign.id, now) >= campaign.slotLimit) {
     throw new FlashOfferError("SLOT_TAKEN", "Essa vaga já foi para outro cliente.");
   }
 
@@ -358,7 +488,7 @@ export async function claimFlashOffer(input: {
     updatedAt: now,
   });
 
-  if (await activeReservationCount(campaign.id, now) > campaign.slotLimit) {
+  if (!forceFirstVisit && await activeReservationCount(campaign.id, now) > campaign.slotLimit) {
     await db
       .update(flashReservationsTable)
       .set({ status: "released", updatedAt: new Date() })
