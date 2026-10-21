@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-20 | Checkout aceita `flashReservationIds` | PIX e `POST /api/orders` aplicam o preço de cada reserva que está no carrinho e consomem todas | Cartão segue sem preço relâmpago; `flashReservationId` único ainda entra na lista |
 | 2026-10-20 | Setting `flash_force_first_visit` | Fora de `PUBLIC_KEYS`. O draw e o `/claim` leem no servidor. A marca fica em `flash_visits` com `campaign_id` `flash-first-visit` | Campanhas, reserva e o carrossel |
 | 2026-10-20 | `POST /api/flash-offers/draw` devolve `offers[]` | O modal da loja arrasta entre os produtos das campanhas abertas. `offer` continua o primeiro da lista | `/claim` segue um produto; visita, vaga e horário iguais |
 | 2026-10-20 | `DELETE /admin/orders/:id/shipments` | Desfaz o split. Com etiqueta, solta o vínculo local no pedido. `mergeOrderPatch` só zera `packages[]` com `splitCleared` | `POST` realoca e continua exigindo 2 origens; não cancela na EnvioEcom |

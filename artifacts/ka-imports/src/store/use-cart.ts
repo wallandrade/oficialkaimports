@@ -12,7 +12,7 @@ import {
   variantSelectionMessage,
   type SelectedVariant,
 } from "@/lib/product-variants";
-import { readActiveFlashOffer } from "@/lib/flash-offer";
+import { readActiveFlashOffers } from "@/lib/flash-offer";
 
 type BulkDiscountTier = {
   minQty: number;
@@ -198,8 +198,7 @@ export const useCart = create<CartState>()(
 
           const existingItem = state.items.find((item) => item.id === lineId && item.isBump !== true);
           const regularPrice = product.price;
-          const storedFlash = readActiveFlashOffer();
-          const flash = storedFlash && storedFlash.productId === product.id ? storedFlash : null;
+          const flash = readActiveFlashOffers().find((offer) => offer.productId === product.id) ?? null;
           const flashPrice = flash ? flash.unitPrice : options?.unitPrice;
 
           if (flash && existingItem) {

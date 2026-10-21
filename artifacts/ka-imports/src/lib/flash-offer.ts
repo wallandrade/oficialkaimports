@@ -1,5 +1,6 @@
 const VISITOR_KEY = "flashVisitorId";
-const OFFER_KEY = "flashOffer";
+const OFFER_KEY = "flashOffers";
+const LEGACY_OFFER_KEY = "flashOffer";
 
 export type StoredFlashOffer = {
   reservationId: string;
@@ -35,31 +36,60 @@ export function getFlashVisitorId(): string {
   return created;
 }
 
-export function readStoredFlashOffer(): StoredFlashOffer | null {
+function isStoredFlashOffer(value: unknown): value is StoredFlashOffer {
+  const offer = value as StoredFlashOffer | null;
+  return Boolean(offer?.reservationId && offer.productId && offer.expiresAt);
+}
+
+export function readStoredFlashOffers(): StoredFlashOffer[] {
   try {
     const raw = sessionStorage.getItem(OFFER_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as StoredFlashOffer;
-    if (!parsed?.reservationId || !parsed.productId || !parsed.expiresAt) return null;
-    return parsed;
+    const parsed = raw ? JSON.parse(raw) as unknown : [];
+    const list = Array.isArray(parsed) ? parsed.filter(isStoredFlashOffer) : [];
+    if (list.length > 0) return list;
+    const legacyRaw = sessionStorage.getItem(LEGACY_OFFER_KEY);
+    if (!legacyRaw) return [];
+    const legacy = JSON.parse(legacyRaw) as unknown;
+    return isStoredFlashOffer(legacy) ? [legacy] : [];
   } catch {
-    return null;
+    return [];
   }
 }
 
+function writeStoredFlashOffers(offers: StoredFlashOffer[]): void {
+  if (offers.length === 0) {
+    sessionStorage.removeItem(OFFER_KEY);
+    sessionStorage.removeItem(LEGACY_OFFER_KEY);
+    return;
+  }
+  sessionStorage.setItem(OFFER_KEY, JSON.stringify(offers));
+  sessionStorage.removeItem(LEGACY_OFFER_KEY);
+}
+
+export function readStoredFlashOffer(): StoredFlashOffer | null {
+  return readStoredFlashOffers()[0] ?? null;
+}
+
+export function readActiveFlashOffers(): StoredFlashOffer[] {
+  const now = Date.now();
+  return readStoredFlashOffers().filter((offer) => new Date(offer.expiresAt).getTime() > now);
+}
+
 export function readActiveFlashOffer(): StoredFlashOffer | null {
-  const offer = readStoredFlashOffer();
-  if (!offer) return null;
-  if (new Date(offer.expiresAt).getTime() <= Date.now()) return null;
-  return offer;
+  return readActiveFlashOffers()[0] ?? null;
 }
 
 export function saveFlashOffer(offer: StoredFlashOffer): void {
-  sessionStorage.setItem(OFFER_KEY, JSON.stringify(offer));
+  const next = readStoredFlashOffers().filter((item) => item.reservationId !== offer.reservationId && item.productId !== offer.productId);
+  writeStoredFlashOffers([...next, offer]);
+}
+
+export function removeStoredFlashOffer(reservationId: string): void {
+  writeStoredFlashOffers(readStoredFlashOffers().filter((offer) => offer.reservationId !== reservationId));
 }
 
 export function clearStoredFlashOffer(): void {
-  sessionStorage.removeItem(OFFER_KEY);
+  writeStoredFlashOffers([]);
 }
 
 function authHeaders(): Record<string, string> {
@@ -143,12 +173,16 @@ export async function releaseFlashOffer(reservationId: string): Promise<void> {
 
 export function flashCheckoutFields(items: Array<{ isFlash?: boolean; flashReservationId?: string; flashExpiresAt?: string }>): {
   flashReservationId?: string;
+  flashReservationIds?: string[];
   flashVisitorId?: string;
 } {
-  const item = items.find((entry) => entry.isFlash && entry.flashReservationId && entry.flashExpiresAt && new Date(entry.flashExpiresAt).getTime() > Date.now());
-  if (!item?.flashReservationId) return {};
+  const ids = [...new Set(items
+    .filter((entry) => entry.isFlash && entry.flashReservationId && entry.flashExpiresAt && new Date(entry.flashExpiresAt).getTime() > Date.now())
+    .map((entry) => String(entry.flashReservationId)))];
+  if (ids.length === 0) return {};
   return {
-    flashReservationId: item.flashReservationId,
+    flashReservationId: ids[0],
+    flashReservationIds: ids,
     flashVisitorId: getFlashVisitorId(),
   };
 }

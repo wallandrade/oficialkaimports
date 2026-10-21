@@ -98,13 +98,15 @@ export type FlashPriceHit = {
 
 export function unitPriceWithFlash(input: {
   catalogUnitPrice: number;
-  flash: FlashPriceHit | null;
+  flash: FlashPriceHit | FlashPriceHit[] | null;
   productId: string;
   isBump: boolean;
 }): number {
-  if (!input.flash || input.isBump) return input.catalogUnitPrice;
-  if (input.productId !== input.flash.productId) return input.catalogUnitPrice;
-  return input.flash.unitPrice;
+  if (input.isBump || !input.flash) return input.catalogUnitPrice;
+  const hits = Array.isArray(input.flash) ? input.flash : [input.flash];
+  const hit = hits.find((entry) => entry.productId === input.productId);
+  if (!hit) return input.catalogUnitPrice;
+  return hit.unitPrice;
 }
 
 export function flashLineQuantityError(input: {

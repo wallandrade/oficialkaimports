@@ -1330,6 +1330,7 @@ router.post("/orders", async (req, res) => {
     const flashDecision = await resolveCheckoutFlash({
       tenantId,
       reservationId: req.body?.flashReservationId,
+      reservationIds: req.body?.flashReservationIds,
       visitorKey: req.body?.flashVisitorId,
       customerUserId: customerSession?.userId ?? null,
       paymentMethod: method,
@@ -1340,7 +1341,7 @@ router.post("/orders", async (req, res) => {
       res.status(flashDecision.status).json({ error: flashDecision.error, message: flashDecision.message });
       return;
     }
-    const flashHit = flashDecision.hit;
+    const flashHits = flashDecision.hits;
 
     const unavailableProducts: string[] = [];
     const priceChanges: Array<{ id: string; name: string; sentPrice: number; currentPrice: number }> = [];
@@ -1361,7 +1362,7 @@ router.post("/orders", async (req, res) => {
         const catalogUnitPrice = isBump ? sentUnitPrice : resolveUnitPriceForQuantity(current, quantity);
         const serverUnitPrice = unitPriceWithFlash({
           catalogUnitPrice,
-          flash: flashHit,
+          flash: flashHits,
           productId,
           isBump,
         });
@@ -1390,7 +1391,7 @@ router.post("/orders", async (req, res) => {
           quantity,
           price: serverUnitPrice,
           costPrice: Number(current.costPrice || 0),
-          ...(flashHit && !isBump && flashHit.productId === productId ? { flashOffer: true } : {}),
+          ...(flashHits.some((hit) => !isBump && hit.productId === productId) ? { flashOffer: true } : {}),
           ...(applied.selectedVariants && applied.selectedVariants.length > 0
             ? {
                 selectedVariants: applied.selectedVariants,
@@ -1510,8 +1511,8 @@ router.post("/orders", async (req, res) => {
         }
       }
       assignedOrderNumber = await reserveNextOrderNumber(tx, tenantId);
-      if (flashHit) {
-        const consumed = await consumeFlashReservation(tx, flashHit.reservationId, id);
+      for (const hit of flashHits) {
+        const consumed = await consumeFlashReservation(tx, hit.reservationId, id);
         if (!consumed) {
           throw new FlashOfferError("FLASH_EXPIRED", "A promoção relâmpago expirou. O preço voltou ao normal.");
         }

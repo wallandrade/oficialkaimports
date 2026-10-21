@@ -6,11 +6,13 @@ import { useCart } from "@/store/use-cart";
 import { formatCurrency } from "@/lib/utils";
 import {
   claimFlashOffer,
-  clearStoredFlashOffer,
   drawFlashOffer,
   fetchFlashWaitSeconds,
   readActiveFlashOffer,
+  readActiveFlashOffers,
+  readStoredFlashOffers,
   releaseFlashOffer,
+  removeStoredFlashOffer,
   type FlashDrawOffer,
   type StoredFlashOffer,
 } from "@/lib/flash-offer";
@@ -43,43 +45,49 @@ export function FlashOfferHost() {
   const [offers, setOffers] = useState<FlashDrawOffer[]>([]);
   const [index, setIndex] = useState(0);
   const [claiming, setClaiming] = useState(false);
+  const [holdOffers, setHoldOffers] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [clock, setClock] = useState("");
   const attempted = useRef(false);
-  const released = useRef("");
+  const reservationIdsInCart = useRef<Set<string> | null>(null);
 
-  const active = readActiveFlashOffer();
-  const cartFlash = items.find((item) => item.isFlash && item.flashExpiresAt && new Date(item.flashExpiresAt).getTime() > Date.now());
-  const countdownUntil = cartFlash?.flashExpiresAt || active?.expiresAt || "";
+  const activeOffers = readActiveFlashOffers();
+  const cartFlashes = items.filter((item) => item.isFlash && item.flashExpiresAt && new Date(item.flashExpiresAt).getTime() > Date.now());
+  const countdownUntil = [...cartFlashes.map((item) => item.flashExpiresAt || ""), ...activeOffers.map((offer) => offer.expiresAt)]
+    .filter(Boolean)
+    .sort()[0] || "";
 
-  const reservationInCart = useRef("");
+  useEffect(() => {
+    if (holdOffers && !location.includes("/produto/")) setHoldOffers(false);
+  }, [location, holdOffers]);
 
   useEffect(() => {
     if (!countdownUntil) return;
-    setClock(formatRemaining(countdownUntil));
-    const timer = window.setInterval(() => {
-      if (new Date(countdownUntil).getTime() <= Date.now()) {
-        const reservationId = cartFlash?.flashReservationId || active?.reservationId || "";
-        if (reservationId && released.current !== reservationId) {
-          released.current = reservationId;
-          void releaseFlashOffer(reservationId);
-        }
-        clearStoredFlashOffer();
-        clearExpiredFlash();
+    const releaseExpired = () => {
+      const now = Date.now();
+      for (const offer of readStoredFlashOffers()) {
+        if (new Date(offer.expiresAt).getTime() > now) continue;
+        removeStoredFlashOffer(offer.reservationId);
+        void releaseFlashOffer(offer.reservationId);
       }
+      clearExpiredFlash();
       setClock(formatRemaining(countdownUntil));
-    }, 1000);
+    };
+    releaseExpired();
+    const timer = window.setInterval(releaseExpired, 1000);
     return () => window.clearInterval(timer);
-  }, [countdownUntil, cartFlash?.flashReservationId, active?.reservationId, clearExpiredFlash]);
+  }, [countdownUntil, clearExpiredFlash]);
 
   useEffect(() => {
-    const current = items.find((item) => item.flashReservationId)?.flashReservationId || "";
-    const previous = reservationInCart.current;
-    reservationInCart.current = current;
-    if (!previous || previous === current || released.current === previous) return;
-    released.current = previous;
-    clearStoredFlashOffer();
-    void releaseFlashOffer(previous);
+    const current = new Set(items.map((item) => item.flashReservationId).filter((id): id is string => Boolean(id)));
+    const previous = reservationIdsInCart.current;
+    reservationIdsInCart.current = current;
+    if (!previous) return;
+    for (const id of previous) {
+      if (current.has(id)) continue;
+      removeStoredFlashOffer(id);
+      void releaseFlashOffer(id);
+    }
   }, [items]);
 
   useEffect(() => {
@@ -136,8 +144,17 @@ export function FlashOfferHost() {
     setClaiming(true);
     try {
       const claimed: StoredFlashOffer = await claimFlashOffer(offer);
-      setOffers([]);
+      const nextOffers = offers.filter((item) => !(item.campaignId === offer.campaignId && item.productId === offer.productId));
+      const nextIndex = Math.min(index, Math.max(0, nextOffers.length - 1));
+      setOffers(nextOffers);
+      setIndex(nextIndex);
+      requestAnimationFrame(() => {
+        const el = scrollerRef.current;
+        if (!el) return;
+        el.scrollTo({ left: nextIndex * el.clientWidth });
+      });
       if (claimed.needsVariants) {
+        setHoldOffers(true);
         toast.success("Oferta reservada por 1 hora. Escolha as opções e adicione ao carrinho.");
         setLocation(productHref(claimed.productId));
         return;
@@ -148,10 +165,12 @@ export function FlashOfferHost() {
         price: claimed.regularPrice,
         image: claimed.image,
       } as Parameters<typeof addItem>[0], { quantity: 1, unitPrice: claimed.unitPrice });
-      toast.success("Oferta no carrinho. Você tem 1 hora para finalizar.");
+      toast.success(offers.length > 1 ? "Oferta no carrinho. As outras continuam aqui." : "Oferta no carrinho. Você tem 1 hora para finalizar.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Essa oferta não está mais disponível.");
-      setOffers([]);
+      if (offer) {
+        setOffers((current) => current.filter((item) => !(item.campaignId === offer.campaignId && item.productId === offer.productId)));
+      }
     } finally {
       setClaiming(false);
     }
@@ -162,14 +181,14 @@ export function FlashOfferHost() {
 
   return (
     <>
-      {!isAdmin && offers.length > 0 && (
+      {!isAdmin && !holdOffers && offers.length > 0 && (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-md rounded-3xl bg-white p-5 shadow-2xl">
             <p className="text-center text-xs font-bold uppercase tracking-wide text-orange-600">Promoção relâmpago</p>
             <h2 className="mt-1 text-center text-2xl font-black text-neutral-950">Essa oferta é sua</h2>
             <p className="mt-1 text-center text-sm text-neutral-600">
               {several
-                ? "Arraste para o lado para ver as outras. Se aceitar a da frente, tem 1 hora para pagar no PIX ou no WhatsApp."
+                ? "Arraste para o lado. Cada oferta que você aceitar entra no carrinho e sai da lista. O preço vale por 1 hora no PIX ou no WhatsApp."
                 : "Aparece uma vez. Se aceitar, tem 1 hora para pagar no PIX ou no WhatsApp."}
             </p>
             <div className="relative mt-4">

@@ -539,48 +539,56 @@ function reservationMatches(row: { visitorKey: string; customerUserId: string | 
   return !!customerUserId && row.customerUserId === customerUserId;
 }
 
+function readReservationIds(reservationId: unknown, reservationIds: unknown): string[] {
+  const many = Array.isArray(reservationIds) ? reservationIds : [];
+  const ids = [...many, reservationId].map((value) => String(value || "").trim()).filter(Boolean);
+  return [...new Set(ids)];
+}
+
 export async function resolveCheckoutFlash(input: {
   tenantId: string;
   reservationId: unknown;
+  reservationIds?: unknown;
   visitorKey: unknown;
   customerUserId: string | null;
   paymentMethod: string;
   couponCode: unknown;
   lines: Array<{ id?: string; quantity?: number; isBump?: boolean }>;
-}): Promise<{ ok: true; hit: CheckoutFlashHit | null } | { ok: false; status: number; error: string; message: string }> {
-  if (input.paymentMethod === "card_simulation") return { ok: true, hit: null };
-  const reservationId = String(input.reservationId || "").trim();
-  if (!reservationId) return { ok: true, hit: null };
-
-  const now = new Date();
-  const [row] = await db
-    .select()
-    .from(flashReservationsTable)
-    .where(and(
-      eq(flashReservationsTable.id, reservationId),
-      eq(flashReservationsTable.tenantId, input.tenantId),
-    ))
-    .limit(1);
-  const visitorKey = normalizeVisitorKey(input.visitorKey);
-  if (!row || row.status !== "active" || row.expiresAt <= now || !reservationMatches(row, visitorKey, input.customerUserId)) {
-    return { ok: false, status: 409, error: "FLASH_EXPIRED", message: "A promoção relâmpago expirou. O preço voltou ao normal." };
-  }
+}): Promise<{ ok: true; hits: CheckoutFlashHit[] } | { ok: false; status: number; error: string; message: string }> {
+  if (input.paymentMethod === "card_simulation") return { ok: true, hits: [] };
+  const reservationIds = readReservationIds(input.reservationId, input.reservationIds);
+  if (reservationIds.length === 0) return { ok: true, hits: [] };
 
   const coupon = String(input.couponCode || "").trim();
   if (coupon) {
     return { ok: false, status: 400, error: "FLASH_NO_COUPON", message: "A promoção relâmpago não combina com cupom." };
   }
 
-  const quantityError = flashLineQuantityError({ flashProductId: row.productId, lines: input.lines });
-  if (quantityError) return { ok: false, status: 400, error: "FLASH_QTY", message: quantityError };
+  const now = new Date();
+  const visitorKey = normalizeVisitorKey(input.visitorKey);
+  const hits: CheckoutFlashHit[] = [];
+  for (const reservationId of reservationIds) {
+    const [row] = await db
+      .select()
+      .from(flashReservationsTable)
+      .where(and(
+        eq(flashReservationsTable.id, reservationId),
+        eq(flashReservationsTable.tenantId, input.tenantId),
+      ))
+      .limit(1);
+    if (!row || row.status !== "active" || row.expiresAt <= now || !reservationMatches(row, visitorKey, input.customerUserId)) {
+      return { ok: false, status: 409, error: "FLASH_EXPIRED", message: "A promoção relâmpago expirou. O preço voltou ao normal." };
+    }
 
-  const inCart = input.lines.some((line) => line.isBump !== true && String(line.id || "").trim() === row.productId);
-  if (!inCart) return { ok: true, hit: null };
+    const quantityError = flashLineQuantityError({ flashProductId: row.productId, lines: input.lines });
+    if (quantityError) return { ok: false, status: 400, error: "FLASH_QTY", message: quantityError };
 
-  return {
-    ok: true,
-    hit: { reservationId: row.id, productId: row.productId, unitPrice: Number(row.unitPrice) },
-  };
+    const inCart = input.lines.some((line) => line.isBump !== true && String(line.id || "").trim() === row.productId);
+    if (!inCart) continue;
+    hits.push({ reservationId: row.id, productId: row.productId, unitPrice: Number(row.unitPrice) });
+  }
+
+  return { ok: true, hits };
 }
 
 export { unitPriceWithFlash };
