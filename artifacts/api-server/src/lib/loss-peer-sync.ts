@@ -1,6 +1,6 @@
 import { and, eq, gte, inArray, isNull } from "drizzle-orm";
 import { carrierLossPeerIncidentsTable, db } from "@workspace/db";
-import { type CarrierLossAlertIncident } from "./carrier-loss";
+import { foldPlace, lossIncidentMatchesDestination, lossLookupCityKeys, stateCode, type CarrierLossAlertIncident } from "./carrier-loss";
 import {
   getYuryLossSyncToken,
   LOSS_SNAPSHOT_PATH,
@@ -96,18 +96,25 @@ export async function listPeerLossAlerts(
   regionKey: string,
   since: Date,
 ): Promise<CarrierLossAlertIncident[]> {
+  const keys = lossLookupCityKeys(cityKey, state);
+  const uf = stateCode(state);
+  if (!keys.length || !uf) return [];
+  const cityClause = keys.length === 1
+    ? eq(carrierLossPeerIncidentsTable.cityKey, keys[0])
+    : inArray(carrierLossPeerIncidentsTable.cityKey, keys);
   const rows = await db
     .select()
     .from(carrierLossPeerIncidentsTable)
     .where(and(
       eq(carrierLossPeerIncidentsTable.source, YURY_LOSS_SOURCE),
-      eq(carrierLossPeerIncidentsTable.cityKey, cityKey),
-      eq(carrierLossPeerIncidentsTable.state, state),
+      cityClause,
+      eq(carrierLossPeerIncidentsTable.state, uf),
       isNull(carrierLossPeerIncidentsTable.removedAt),
       gte(carrierLossPeerIncidentsTable.occurredAt, since),
     ));
+  const destination = { city: foldPlace(cityKey), state: uf, regionKey };
   return rows
-    .filter((row) => row.regionKey === regionKey)
+    .filter((row) => lossIncidentMatchesDestination(row, destination))
     .map((row) => ({
       carrierKey: row.carrierKey,
       carrierName: row.carrierName,

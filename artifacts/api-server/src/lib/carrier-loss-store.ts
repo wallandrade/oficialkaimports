@@ -12,6 +12,8 @@ import {
   classifyCarrierLoss,
   foldPlace,
   lossAlertForCarrier,
+  lossIncidentMatchesDestination,
+  lossLookupCityKeys,
   lossRegionKey,
   nextOccurredAt,
   stateCode,
@@ -415,22 +417,27 @@ export async function attachLossAlerts<T extends Record<string, unknown>>(
   const state = stateCode(destination.state);
   const cep = cepDigits(destination.cep);
   const region = lossRegionKey(cityName, state, cep);
-  if (!city || !state || cep.length !== 8) {
+  const cityKeys = lossLookupCityKeys(cityName, state);
+  if (!city || !state || cep.length !== 8 || cityKeys.length === 0) {
     return quotes.map((quote) => ({ ...quote, lossAlert: null }));
   }
   const since = new Date(Date.now() - CARRIER_LOSS_WINDOW_MS);
+  const cityClause = cityKeys.length === 1
+    ? eq(carrierLossIncidentsTable.cityKey, cityKeys[0])
+    : inArray(carrierLossIncidentsTable.cityKey, cityKeys);
   const rows = await db
     .select()
     .from(carrierLossIncidentsTable)
     .where(and(
       eq(carrierLossIncidentsTable.tenantId, tenantKey(tenantId)),
-      eq(carrierLossIncidentsTable.cityKey, city),
+      cityClause,
       eq(carrierLossIncidentsTable.state, state),
       isNull(carrierLossIncidentsTable.removedAt),
       gte(carrierLossIncidentsTable.occurredAt, since),
     ));
+  const lossPlace = { city: cityName, state, regionKey: region };
   const ownIncidents: CarrierLossAlertIncident[] = rows
-    .filter((row) => row.regionKey === region)
+    .filter((row) => lossIncidentMatchesDestination(row, lossPlace))
     .map((row) => ({
       carrierKey: row.carrierKey,
       carrierName: row.carrierName,

@@ -48,6 +48,10 @@ const SP_ZONE_LABELS: Record<string, string> = {
   "sp-extremo-leste": "Extremo Leste",
 };
 
+/** Carga da Grande Vitória passa por Viana. A cotação avisa as cinco cidades juntas. */
+const ES_GRANDE_VITORIA_KEYS = ["cariacica", "serra", "viana", "vila velha", "vitoria"];
+const ES_GRANDE_VITORIA = new Set(ES_GRANDE_VITORIA_KEYS);
+
 const CAPITALS = new Set([
   "rio de janeiro|RJ",
   "belo horizonte|MG",
@@ -111,6 +115,29 @@ export function cepDigits(value: unknown): string {
 export function stateCode(value: unknown): string {
   const uf = String(value || "").trim().toUpperCase();
   return /^[A-Z]{2}$/.test(uf) ? uf : "";
+}
+
+export function lossLookupCityKeys(city: unknown, state: unknown): string[] {
+  const cityKey = foldPlace(city);
+  if (!cityKey) return [];
+  if (stateCode(state) === "ES" && ES_GRANDE_VITORIA.has(cityKey)) {
+    return [...ES_GRANDE_VITORIA_KEYS];
+  }
+  return [cityKey];
+}
+
+export function lossIncidentMatchesDestination(
+  row: { cityKey: string; state: string; regionKey: string },
+  destination: { city: unknown; state: unknown; regionKey: string },
+): boolean {
+  const rowCity = foldPlace(row.cityKey);
+  const rowState = stateCode(row.state);
+  const destState = stateCode(destination.state);
+  if (!rowCity || !rowState || rowState !== destState) return false;
+  if (!lossLookupCityKeys(destination.city, destState).includes(rowCity)) return false;
+  const destCity = foldPlace(destination.city);
+  if (destState === "ES" && ES_GRANDE_VITORIA.has(destCity)) return true;
+  return String(row.regionKey || "") === destination.regionKey;
 }
 
 export function lossRegionKey(city: unknown, state: unknown, cep: unknown): string {

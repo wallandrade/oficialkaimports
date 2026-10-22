@@ -7,6 +7,8 @@ import {
   classifyCarrierLoss,
   foldPlace,
   lossAlertForCarrier,
+  lossIncidentMatchesDestination,
+  lossLookupCityKeys,
   lossRegionKey,
   nextOccurredAt,
   type CarrierLossAlertIncident,
@@ -46,6 +48,68 @@ test("a primeira frase com extravio, roubo, furto ou sinistro classifica", () =>
     }),
     { type: "furto", raw: "Furto a transportadora" },
   );
+});
+
+test("Grande Vitória avisa as cinco cidades e o restante segue a cidade", () => {
+  const group = ["cariacica", "serra", "viana", "vila velha", "vitoria"];
+  assert.deepEqual(lossLookupCityKeys("Vila Velha", "ES"), group);
+  assert.deepEqual(lossLookupCityKeys("Vitória", "es"), group);
+  assert.deepEqual(lossLookupCityKeys("Cariacica", "ES"), group);
+  assert.deepEqual(lossLookupCityKeys("Serra", "ES"), group);
+  assert.deepEqual(lossLookupCityKeys("Viana", "ES"), group);
+  assert.deepEqual(lossLookupCityKeys("Guarapari", "ES"), ["guarapari"]);
+  assert.deepEqual(lossLookupCityKeys("Vila Velha", "SP"), ["vila velha"]);
+  assert.equal(lossRegionKey("Vila Velha", "ES", "29102020"), "city");
+  assert.equal(lossRegionKey("Cariacica", "ES", "29151000"), "city");
+  assert.equal(lossRegionKey("Vitória", "ES", "29010001"), "es-cep-290");
+
+  const cariacica = { cityKey: "cariacica", state: "ES", regionKey: "city" };
+  const vitoria = { cityKey: "vitoria", state: "ES", regionKey: "es-cep-290" };
+  const vilaVelha = { city: "Vila Velha", state: "ES", regionKey: "city" };
+  assert.equal(lossIncidentMatchesDestination(cariacica, vilaVelha), true);
+  assert.equal(lossIncidentMatchesDestination(vitoria, vilaVelha), true);
+  assert.equal(
+    lossIncidentMatchesDestination(
+      { cityKey: "guarapari", state: "ES", regionKey: "city" },
+      vilaVelha,
+    ),
+    false,
+  );
+  assert.equal(
+    lossIncidentMatchesDestination(
+      { cityKey: "vila velha", state: "SP", regionKey: "city" },
+      vilaVelha,
+    ),
+    false,
+  );
+  assert.equal(
+    lossIncidentMatchesDestination(
+      { cityKey: "sao paulo", state: "SP", regionKey: "sp-leste" },
+      { city: "São Paulo", state: "SP", regionKey: "sp-centro" },
+    ),
+    false,
+  );
+});
+
+test("caso de Cariacica na J&T avisa outro bairro com a cidade do caso", () => {
+  const alert = lossAlertForCarrier("J&T Express envioEcom", "Praia de Itaparica", [
+    incident({
+      carrierKey: "j&t express",
+      carrierName: "J&T Express",
+      regionKey: "city",
+      cityName: "Cariacica",
+      state: "ES",
+      neighborhoodKey: "alto lage",
+      neighborhoodName: "Alto Lage",
+      incidentType: "manual",
+      orderNumber: 1761,
+      occurredAt: new Date("2026-10-07T21:49:00.000Z"),
+    }),
+  ]);
+  assert.equal(alert?.level, "warn");
+  assert.match(alert?.message || "", /Cariacica\/ES teve um caso na J&T Express/);
+  assert.match(alert?.message || "", /bairro Alto Lage/);
+  assert.match(alert?.message || "", /pedido #1761/);
 });
 
 test("região de São Paulo, capital e demais cidades", () => {
