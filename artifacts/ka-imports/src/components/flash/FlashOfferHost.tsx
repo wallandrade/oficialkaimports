@@ -182,8 +182,8 @@ export function FlashOfferHost() {
   return (
     <>
       {!isAdmin && !holdOffers && offers.length > 0 && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-md rounded-3xl bg-white p-5 shadow-2xl">
+        <div className="fixed inset-0 z-[80] flex h-dvh max-h-dvh overflow-y-auto overscroll-contain bg-black/60 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <div className="m-auto w-full max-w-md rounded-3xl bg-white p-5 shadow-2xl">
             <p className="text-center text-xs font-bold uppercase tracking-wide text-orange-600">Promoção relâmpago</p>
             <h2 className="mt-1 text-center text-2xl font-black text-neutral-950">Essa oferta é sua</h2>
             <p className="mt-1 text-center text-sm text-neutral-600">
