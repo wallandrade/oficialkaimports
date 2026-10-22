@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-10-20
+> **Última atualização:** 2026-10-22
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-22 | `manual_tracking_code` em `orders` e `order_shipments` | `PATCH /api/admin/orders/:id/manual-tracking`. Coluna no boot (`runtime-schema`). O código não entra em `envioecom_barcode` nem em `tracking_code` | Create, webhook, sync e **Vincular EE** |
 | 2026-10-20 | Checkout aceita `flashReservationIds` | PIX e `POST /api/orders` aplicam o preço de cada reserva que está no carrinho e consomem todas | Cartão segue sem preço relâmpago; `flashReservationId` único ainda entra na lista |
 | 2026-10-20 | Setting `flash_force_first_visit` | Fora de `PUBLIC_KEYS`. O draw e o `/claim` leem no servidor. A marca fica em `flash_visits` com `campaign_id` `flash-first-visit` | Campanhas, reserva e o carrossel |
 | 2026-10-20 | `POST /api/flash-offers/draw` devolve `offers[]` | O modal da loja arrasta entre os produtos das campanhas abertas. `offer` continua o primeiro da lista | `/claim` segue um produto; visita, vaga e horário iguais |
@@ -97,7 +98,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 ### Tabelas principais (não exaustivo)
 
 - `tenants`, `admin_users`, `admin_user_tenants`, `admin_sessions`
-- `orders` (incl. `envioecom_*`, `enviado`, `inventory_exit_pool`, `inventory_exited_pools`, `inventory_reserved`, `is_prioridade`, `is_procurando_produto`, `is_aguardando_estoque`, `tracking_*`, `bank_deposit_*`, `insurance_plan`, `insurance_keep_amount`, `insurance_cashback_amount`, `insurance_claim_status`, `insurance_reship_count`, `insurance_cashback_granted`, `parent_order_id`, `store_credit_used`, `observation`, `observation_visible_to_customer`), `order_shipments` (N envios EE por pedido; unique `(order_id, inventory_pool)`), `order_events` (auditoria do pedido), `order_bank_deposits` (vários PIX OFX por pedido), `custom_charges`, `products`, `coupons`, `sellers`
+- `orders` (incl. `envioecom_*`, `enviado`, `manual_tracking_code`, `inventory_exit_pool`, `inventory_exited_pools`, `inventory_reserved`, `is_prioridade`, `is_procurando_produto`, `is_aguardando_estoque`, `tracking_*`, `bank_deposit_*`, `insurance_plan`, `insurance_keep_amount`, `insurance_cashback_amount`, `insurance_claim_status`, `insurance_reship_count`, `insurance_cashback_granted`, `parent_order_id`, `store_credit_used`, `observation`, `observation_visible_to_customer`), `order_shipments` (N envios EE por pedido; `manual_tracking_code`; unique `(order_id, inventory_pool)`), `order_events` (auditoria do pedido), `order_bank_deposits` (vários PIX OFX por pedido), `custom_charges`, `products`, `coupons`, `sellers`
 - `customer_users`, `customer_wallet_ledger` (carteira da loja; não é afiliado), `affiliates` (+ referrals/commissions/credit uses/credit adjustments)
 - `kyc_documents`, `site_settings` / `tenant_settings`
 - `shipping_options`, `motoboy_*` (incl. `yury_id` na cobertura), `yury_webhook_events_processed`, `order_logistics_allocations`
@@ -116,7 +117,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 - Webhook cobertura Motoboy: `POST /api/webhooks/yury/motoboy-coverage` (body cru + HMAC) **antes** de `express.json()`.
 - Webhook estoque Yury: `POST /api/webhooks/yury/inventory` (mesmo HMAC; grava `balances`, não o delta).
 - Baixa no pedido: `POST /api/admin/orders/:id/inventory-exit` (Fóz local ou Yury Motoboy/Minas) a partir do card (1:1); após split a baixa é por pacote (`debitPackageInventory`, `referenceId = pkg:{id}`). `ensureOrderMarkedEnviado` no split debita cada pacote. `GET/POST /admin/orders/:id/shipments` aloca/lista `packages[]`. Motoboy/Minas: `GET /admin/yury-inventory/exit-status` proxy do `GET /api/integrations/inventory/exit-status`; senha no body da baixa (unlock + `password` no `exit`).
-- EnvioEcom: `artifacts/api-server/src/routes/envioecom.ts` + webhook em `webhooks.ts`. Contas em `lib/envioecom-accounts.ts` (env + tenant + JSON `envioecom_accounts`). Client cacheia token por `tenantId:accountId`. Coluna `orders.envioecom_account_id`. Split: `packageId` em quote/create/labels/sync/cancel/unlink/bind e no `PATCH /admin/orders/:id/tracking-code`; persistência em `order_shipments` + rollup no pai (`lib/order-shipments.ts`). Pedido sem linhas = colunas `envioecom_*` do pedido. `GET /admin/orders/:id/related-shipments` (auth do pedido; busca CPF em toda a loja) usa `related-cpf-shipments.ts` + `order_shipments`; **não** chama a EnvioEcom. Cada produto traz `image` (snapshot do JSON ou `products.image`).
+- EnvioEcom: `artifacts/api-server/src/routes/envioecom.ts` + webhook em `webhooks.ts`. Contas em `lib/envioecom-accounts.ts` (env + tenant + JSON `envioecom_accounts`). Client cacheia token por `tenantId:accountId`. Coluna `orders.envioecom_account_id`. Split: `packageId` em quote/create/labels/sync/cancel/unlink/bind e no `PATCH /admin/orders/:id/tracking-code`; persistência em `order_shipments` + rollup no pai (`lib/order-shipments.ts`). Rastreio de balcão: `PATCH /admin/orders/:id/manual-tracking` grava `manual_tracking_code` no pacote ou, sem divisão, em `orders`; não chama a EnvioEcom. Pedido sem linhas = colunas `envioecom_*` do pedido. `GET /admin/orders/:id/related-shipments` (auth do pedido; busca CPF em toda a loja) usa `related-cpf-shipments.ts` + `order_shipments`; **não** chama a EnvioEcom. Cada produto traz `image` (snapshot do JSON ou `products.image`).
 - APPCNPay: `gateway.ts` + `lib/pix-gateway-credentials.ts`. Par por tenant (`gateway_appcnpay_public_key` / `_secret_key`); fallback env. Webhook PIX resolve tenant pelo `transactionId`.
 - Extrato OFX: `artifacts/api-server/src/routes/bank-statement.ts` (`analyze`/`apply`/`clear`/`bank-deposits`) + `order_bank_deposits`. Painéis FE: `AdminBankStatementPanel.tsx` (sessão) e `AdminBankDepositsPanel.tsx` (histórico + Desfazer por FITID).
 - Lista admin: `GET /admin/orders` em modo leve (sem `data:`/OCR); `GET /admin/orders/:id` devolve mídia completa. `mapOrder` inclui `packages[]` (vazio = 1:1). Histórico de gestão: `order_events` + `history` na lista/`GET :id` + `GET /admin/orders/:id/events`. `mapOrder` no admin inclui `observation` + `observationVisibleToCustomer`; rotas de cliente/guest passam `{ forCustomer: true }` (`order-observation-visibility.ts`). PATCH observação: `/admin/orders/:id/observation`.

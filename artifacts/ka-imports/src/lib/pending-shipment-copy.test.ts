@@ -73,6 +73,37 @@ test("pacote ja enviado conta como etiqueta pronta mesmo sem status reconhecido"
   }), true);
 });
 
+test("codigo manual tira so esse pacote da copia e da fila", () => {
+  const split = {
+    products: order2124.products,
+    packages: [
+      {
+        inventoryPool: "minas",
+        envioecomStatus: null,
+        envioecomLabelUrl: null,
+        manualTrackingCode: "AA123456789BR",
+        items: order2124.packages[0].items,
+      },
+      {
+        inventoryPool: "loja",
+        envioecomStatus: null,
+        envioecomLabelUrl: null,
+        items: order2124.packages[1].items,
+      },
+    ],
+  };
+  assert.equal(hasEnvioEcomLabelReady(split), false);
+  const copy = getPendingShipmentCopy(split);
+  assert.equal(copy.isPartialSplit, true);
+  assert.deepEqual(copy.remainingPools, ["Fóz Guaçu"]);
+  assert.deepEqual(copy.items.map((item) => item.name), ["OXYGEN SEMAX 18MG NASAL"]);
+  assert.equal(hasEnvioEcomLabelReady({
+    manualTrackingCode: "AA123456789BR",
+    enviado: false,
+    packages: [],
+  }), true);
+});
+
 test("pedido sem split continua com todos os itens", () => {
   const copy = getPendingShipmentCopy({
     products: order2124.products,

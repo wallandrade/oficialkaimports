@@ -1,12 +1,13 @@
 # Integrações externas — KA Imports
 
-> **Última atualização:** 2026-10-20
+> **Última atualização:** 2026-10-22
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-22 | Rastreio de balcão não chama a EnvioEcom | `PATCH /admin/orders/:id/manual-tracking` só grava `manual_tracking_code` | Quote, create, etiqueta, webhook, sync e **Vincular EE** |
 | 2026-10-20 | Sync do pacote ignora código que já é de outro pacote do mesmo pedido | `POST .../sync` com `packageId` usa o envio, o barcode e a conta da linha. Código novo continua vinculando | Etiqueta EE, pedido sem divisão e `bind-id` |
 | 2026-10-15 | Aba Lista negra separa esta loja e a outra | `GET /admin/envioecom/loss-blacklist` devolve `origin` `store` ou `peer` e `peer.enabled`/`ok`. A tela divide depois. Falha da leitura esconde o bloco da Yury | Cotação continua somando as duas listas. Tirar da lista segue só no caso nosso |
 | 2026-10-15 | Lista negra compartilhada com a Yury | `GET /api/integrations/loss-blacklist/snapshot` publica só os casos nossos. Job de 10 min grava a lista deles em `carrier_loss_peer_incidents`. A cotação soma as duas | Webhook de extravio. Aba Lista negra e o botão de tirar da lista continuam só no pedido nosso |

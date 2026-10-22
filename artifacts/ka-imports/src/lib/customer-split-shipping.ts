@@ -8,6 +8,7 @@ export type CustomerSplitPackage = {
   id: string;
   enviado?: boolean;
   inventoryReserved?: boolean;
+  manualTrackingCode?: string | null;
   envioecomStatus?: string | null;
   envioecomBarcode?: string | null;
   envioecomShipmentId?: number | null;
@@ -15,6 +16,16 @@ export type CustomerSplitPackage = {
   envioecomStatusHistory?: Array<{ at?: string; status?: string; location?: string | null; description?: string | null }>;
   items?: CustomerSplitPackageItem[];
 };
+
+export function customerVisibleTrackingCode(input: {
+  manualTrackingCode?: string | null;
+  envioecomBarcode?: string | null;
+  trackingCode?: string | null;
+}): string {
+  return String(input.manualTrackingCode || "").trim()
+    || String(input.envioecomBarcode || "").trim()
+    || String(input.trackingCode || "").trim();
+}
 
 export type CustomerPackageKind = "delivered" | "shipped" | "packing" | "waiting";
 
@@ -120,6 +131,7 @@ function packageHasCustomerTracking(pkg: CustomerSplitPackage): boolean {
   return Boolean(
     pkg.envioecomShipmentId
     || String(pkg.envioecomBarcode || "").trim()
+    || String(pkg.manualTrackingCode || "").trim()
     || isCustomerPackageShipped(pkg),
   );
 }

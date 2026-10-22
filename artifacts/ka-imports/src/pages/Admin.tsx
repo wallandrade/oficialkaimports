@@ -926,6 +926,7 @@ import { generateChargePdf, generateOrderPdf } from "@/lib/generateOrderPdf";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import { EnvioEcomOrderActions, hasEnvioEcomLabelReady, preserveEnvioEcomLabelFields } from "@/components/admin/EnvioEcomOrderActions";
 import { SplitOrderShipmentsButton, isSplitOrder } from "@/components/admin/SplitOrderShipments";
+import { ManualTrackingButton } from "@/components/admin/ManualTrackingButton";
 import { RelatedCpfShipments } from "@/components/admin/RelatedCpfShipments";
 import { ReplaceOrderProductButton } from "@/components/admin/ReplaceOrderProductModal";
 import { OrderHistoryTimeline } from "@/components/admin/OrderHistoryTimeline";
@@ -16704,6 +16705,16 @@ function OrdersPanel({
                     {trackingUploading[order.id] ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
                     {trackingUploading[order.id] ? "Lendo Etiqueta..." : "Etiqueta/Rastreio"}
                   </Button>
+                  <ManualTrackingButton
+                    orderId={order.id}
+                    trackingCode={(order as { manualTrackingCode?: string | null }).manualTrackingCode}
+                    onSaved={(next) => {
+                      onSetOrderPatched({ ...order, ...next } as AdminOrder);
+                      if (typeof next.enviado === "boolean") {
+                        setEnviados((prev) => ({ ...prev, [order.id]: next.enviado as boolean }));
+                      }
+                    }}
+                  />
                   </>
                   )}
                   {(order.proofUrls && order.proofUrls.length > 0) && (

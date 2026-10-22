@@ -7,6 +7,7 @@ export const orderShipmentsTable = mysqlTable("order_shipments", {
   inventoryPool: varchar("inventory_pool", { length: 16 }).notNull(),
   items: json("items").notNull(),
   enviado: boolean("enviado").notNull().default(false),
+  manualTrackingCode: varchar("manual_tracking_code", { length: 64 }),
   inventoryReserved: boolean("inventory_reserved").notNull().default(false),
   envioecomShipmentId: int("envioecom_shipment_id"),
   envioecomBarcode: varchar("envioecom_barcode", { length: 255 }),

@@ -295,6 +295,7 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
     { name: "ip_is_proxy", sql: "ALTER TABLE orders ADD COLUMN ip_is_proxy TINYINT(1) NULL" },
     // Campos de rastreio por etiqueta
     { name: "tracking_code", sql: "ALTER TABLE orders ADD COLUMN tracking_code VARCHAR(255) NULL" },
+    { name: "manual_tracking_code", sql: "ALTER TABLE orders ADD COLUMN manual_tracking_code VARCHAR(64) NULL" },
     { name: "tracking_label_url", sql: "ALTER TABLE orders ADD COLUMN tracking_label_url MEDIUMTEXT NULL" },
     { name: "tracking_label_text", sql: "ALTER TABLE orders ADD COLUMN tracking_label_text MEDIUMTEXT NULL" },
     { name: "tracking_detected_name", sql: "ALTER TABLE orders ADD COLUMN tracking_detected_name VARCHAR(255) NULL" },
@@ -1217,6 +1218,7 @@ async function ensureOrderShipmentsTable(databaseName: string): Promise<void> {
       inventory_pool VARCHAR(16) NOT NULL,
       items JSON NOT NULL,
       enviado TINYINT(1) NOT NULL DEFAULT 0,
+      manual_tracking_code VARCHAR(64) NULL,
       inventory_reserved TINYINT(1) NOT NULL DEFAULT 0,
       envioecom_shipment_id INT NULL,
       envioecom_barcode VARCHAR(255) NULL,
@@ -1238,6 +1240,13 @@ async function ensureOrderShipmentsTable(databaseName: string): Promise<void> {
       KEY order_shipments_external_idx (envioecom_external_order_number)
     )
   `);
+}
+
+async function ensureOrderShipmentColumns(databaseName: string): Promise<void> {
+  if (!(await tableExists("order_shipments", databaseName))) return;
+  if (!(await columnExists("order_shipments", "manual_tracking_code", databaseName))) {
+    await pool.query("ALTER TABLE order_shipments ADD COLUMN manual_tracking_code VARCHAR(64) NULL");
+  }
 }
 
 async function ensureCarrierLossIncidentsTable(databaseName: string): Promise<void> {
@@ -1747,6 +1756,7 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureCarrierLossIncidentsTable(databaseName);
     await ensureCarrierLossPeerIncidentsTable(databaseName);
     await ensureOrderShipmentsTable(databaseName);
+    await ensureOrderShipmentColumns(databaseName);
     await ensureAdminSessionsTenantColumn(databaseName);
     await ensureTenantColumns(databaseName);
     await ensureTenantSettingsTable(databaseName);

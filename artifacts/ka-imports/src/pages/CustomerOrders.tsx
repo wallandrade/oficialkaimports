@@ -7,6 +7,7 @@ import { formatMotoboyHomePeriod, MOTOBOY_HOME_REMINDER } from "@/lib/motoboy-sl
 import {
   collapseCustomerPackagesForOrder,
   customerTransitBadgeLabel,
+  customerVisibleTrackingCode,
   formatCustomerPackageItems,
   getCustomerPackageSituation,
   getCustomerPartialHint,
@@ -35,6 +36,7 @@ type CustomerPackage = {
   inventoryPool?: string;
   enviado?: boolean;
   inventoryReserved?: boolean;
+  manualTrackingCode?: string | null;
   envioecomShipmentId?: number | null;
   envioecomStatus?: string | null;
   envioecomBarcode?: string | null;
@@ -65,6 +67,7 @@ type CustomerOrder = {
   motoboyDeliveryTime?: string | null;
   motoboyDeliveryDurationHours?: number | null;
   trackingCode?: string | null;
+  manualTrackingCode?: string | null;
   envioecomShipmentId?: number | null;
   envioecomStatus?: string | null;
   envioecomDeliveryMode?: string | null;
@@ -791,10 +794,16 @@ export default function CustomerOrders() {
                           : null;
                         const observationUnread = Boolean(order.observation) && unreadObservationIds.includes(order.id);
                         const thumbs = (order.products || []).map((product) => String(product.image || "").trim()).filter(Boolean).slice(0, 4);
-                        const showTracking = !hideParentTracking && (isSplit || hasEnvioEcomTracking(order));
                         const collapsedPkg = !isSplit && visiblePackages.length === 1 && rawPackages.length >= 2
                           ? visiblePackages[0]
                           : null;
+                        const headerCode = customerVisibleTrackingCode(collapsedPkg
+                          ? {
+                              manualTrackingCode: collapsedPkg.manualTrackingCode,
+                              envioecomBarcode: collapsedPkg.envioecomBarcode,
+                            }
+                          : order);
+                        const showTracking = !hideParentTracking && (isSplit || hasEnvioEcomTracking(order) || Boolean(headerCode));
 
                         return (
                         <div key={order.id} className="border border-border rounded-2xl p-5 bg-white hover:shadow-md transition-shadow">
@@ -869,7 +878,7 @@ export default function CustomerOrders() {
                               {visiblePackages.map((pkg, index) => {
                                 const situation = getCustomerPackageSituation(pkg);
                                 const itemLines = formatCustomerPackageItems(pkg);
-                                const showCode = situation.kind !== "waiting" && pkg.envioecomBarcode;
+                                const packageCode = customerVisibleTrackingCode(pkg);
                                 const showTimeline = situation.kind !== "waiting" && (pkg.envioecomStatusHistory || []).length > 0;
                                 return (
                                   <div key={pkg.id} className={`rounded-xl border p-3 ${packageKindClass(situation.kind)}`}>
@@ -886,8 +895,8 @@ export default function CustomerOrders() {
                                         ))}
                                       </ul>
                                     )}
-                                    {showCode && (
-                                      <p className="text-xs font-mono text-muted-foreground mt-2">{pkg.envioecomBarcode}</p>
+                                    {packageCode && (
+                                      <p className="text-xs font-mono text-muted-foreground mt-2">Código: {packageCode}</p>
                                     )}
                                     {situation.kind !== "waiting" && pkg.envioecomDeliveryMode && (
                                       <p className="text-xs text-muted-foreground mt-1">{pkg.envioecomDeliveryMode}</p>
@@ -908,8 +917,8 @@ export default function CustomerOrders() {
                             <div className="mb-4 pb-4 border-t border-border/50 pt-4">
                               <div className="flex items-center justify-between gap-2">
                                 <p className="text-xs uppercase tracking-wide text-muted-foreground font-medium">Rastreio</p>
-                                {(collapsedPkg?.envioecomBarcode || order.envioecomBarcode || order.trackingCode) && (
-                                  <p className="text-xs font-mono text-muted-foreground">{collapsedPkg?.envioecomBarcode || order.envioecomBarcode || order.trackingCode}</p>
+                                {headerCode && (
+                                  <p className="text-xs font-mono text-muted-foreground">Código: {headerCode}</p>
                                 )}
                               </div>
                               {(collapsedPkg?.envioecomDeliveryMode || order.envioecomDeliveryMode) && (
@@ -1061,7 +1070,7 @@ export default function CustomerOrders() {
                                 </div>
                               )}
 
-                              {!isSplit && !hideParentTracking && (order.envioecomStatus || order.envioecomBarcode || order.trackingCode) && (
+                              {!isSplit && !hideParentTracking && (order.envioecomStatus || headerCode) && (
                                 <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-100">
                                   <p className="text-sm font-semibold text-emerald-900 mb-1">Envio / Rastreio</p>
                                   <p className="text-sm font-semibold text-emerald-900">
@@ -1069,8 +1078,8 @@ export default function CustomerOrders() {
                                   </p>
                                   {packingHint && <p className="text-xs text-emerald-800 mt-1">{packingHint}</p>}
                                   {order.envioecomDeliveryMode && <p className="text-xs text-emerald-800">{order.envioecomDeliveryMode}</p>}
-                                  {(order.envioecomBarcode || order.trackingCode) && (
-                                    <p className="text-xs font-mono text-emerald-800 mt-1">{order.envioecomBarcode || order.trackingCode}</p>
+                                  {headerCode && (
+                                    <p className="text-xs font-mono text-emerald-800 mt-1">Código: {headerCode}</p>
                                   )}
                                 </div>
                               )}

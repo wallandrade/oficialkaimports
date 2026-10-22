@@ -2,10 +2,12 @@ export type LabelReadyInput = {
   envioecomStatus?: string | null;
   envioecomLabelUrl?: string | null;
   enviado?: boolean | null;
+  manualTrackingCode?: string | null;
   packages?: Array<{
     envioecomStatus?: string | null;
     envioecomLabelUrl?: string | null;
     enviado?: boolean | null;
+    manualTrackingCode?: string | null;
   }> | null;
 };
 
@@ -35,6 +37,7 @@ export type PendingShipmentCopyOrder = {
     envioecomStatus?: string | null;
     envioecomLabelUrl?: string | null;
     enviado?: boolean | null;
+    manualTrackingCode?: string | null;
   }> | null;
 };
 
@@ -63,9 +66,11 @@ export function hasEnvioEcomLabelReady(order: LabelReadyInput): boolean {
       envioecomStatus: pkg.envioecomStatus,
       envioecomLabelUrl: pkg.envioecomLabelUrl,
       enviado: pkg.enviado,
+      manualTrackingCode: pkg.manualTrackingCode,
       packages: [],
     }));
   }
+  if (String(order.manualTrackingCode || "").trim()) return true;
   const normalized = String(order.envioecomStatus || "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -164,6 +169,7 @@ export function getPendingShipmentCopy(order: PendingShipmentCopyOrder): Pending
     envioecomStatus: pkg.envioecomStatus,
     envioecomLabelUrl: pkg.envioecomLabelUrl,
     enviado: pkg.enviado,
+    manualTrackingCode: pkg.manualTrackingCode,
     packages: [],
   }));
 

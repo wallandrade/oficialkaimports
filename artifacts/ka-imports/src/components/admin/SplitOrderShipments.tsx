@@ -3,6 +3,7 @@ import { Loader2, Pencil, Split, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EnvioEcomOrderActions, type EnvioEcomOrderFields, type EnvioEcomPackageFields } from "@/components/admin/EnvioEcomOrderActions";
+import { ManualTrackingButton } from "@/components/admin/ManualTrackingButton";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -379,6 +380,12 @@ export function SplitOrderShipmentsButton({
                   </Button>
                 </>
               ) : null}
+              <ManualTrackingButton
+                orderId={order.id}
+                packageId={pkg.id}
+                trackingCode={pkg.manualTrackingCode}
+                onSaved={(next) => onPatched(next)}
+              />
             </div>
           </div>
         ))}

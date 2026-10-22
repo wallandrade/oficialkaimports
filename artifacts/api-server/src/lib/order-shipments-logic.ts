@@ -451,6 +451,7 @@ export function mapOrderShipmentPackage(row: {
   envioecomFreightCost?: string | number | null;
   envioecomExternalOrderNumber?: string | null;
   envioecomAccountId?: string | null;
+  manualTrackingCode?: string | null;
 }, options?: { light?: boolean }) {
   const light = Boolean(options?.light);
   const labelUrl = String(row.envioecomLabelUrl || "").trim() || null;
@@ -460,6 +461,7 @@ export function mapOrderShipmentPackage(row: {
     inventoryPool: parseKaInventoryExitPool(row.inventoryPool) || row.inventoryPool,
     items: parseOrderShipmentItems(row.items),
     enviado: Boolean(row.enviado),
+    manualTrackingCode: String(row.manualTrackingCode || "").trim() || null,
     inventoryReserved: Boolean(row.inventoryReserved),
     envioecomShipmentId: row.envioecomShipmentId ?? null,
     envioecomBarcode: row.envioecomBarcode ?? null,

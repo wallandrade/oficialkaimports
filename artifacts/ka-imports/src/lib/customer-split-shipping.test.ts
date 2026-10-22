@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   collapseCustomerPackagesForOrder,
+  customerVisibleTrackingCode,
   getCustomerPackageSituation,
   getCustomerPartialHint,
   getCustomerSplitBadgeStatus,
@@ -13,6 +14,19 @@ const packages = [
   { id: "a", enviado: true, envioecomStatus: "Em trânsito", items: [{ productName: "Retatrutida", quantity: 1 }] },
   { id: "b", enviado: false, envioecomStatus: null, items: [{ productName: "Tesamorelin", quantity: 1 }] },
 ];
+
+test("conta mostra o código manual antes do da EnvioEcom", () => {
+  assert.equal(customerVisibleTrackingCode({
+    manualTrackingCode: "AA123456789BR",
+    envioecomBarcode: "888030900000001",
+    trackingCode: "888030900000001",
+  }), "AA123456789BR");
+  assert.equal(customerVisibleTrackingCode({
+    manualTrackingCode: "  ",
+    envioecomBarcode: "888030900000001",
+  }), "888030900000001");
+  assert.equal(customerVisibleTrackingCode({ trackingCode: "LEGADO1" }), "LEGADO1");
+});
 
 test("pedido dividido mostra enviado vs aguardando envio", () => {
   assert.equal(isCustomerSplitOrder(packages, false), true);

@@ -25,6 +25,7 @@ export type EnvioEcomPackageFields = {
   items?: Array<{ productId?: string | null; productName?: string; quantity?: number }>;
   enviado?: boolean;
   inventoryReserved?: boolean;
+  manualTrackingCode?: string | null;
   envioecomShipmentId?: number | null;
   envioecomBarcode?: string | null;
   envioecomDeliveryMode?: string | null;
@@ -42,6 +43,7 @@ export type EnvioEcomOrderFields = {
   shippingType?: string;
   enviado?: boolean;
   trackingCode?: string | null;
+  manualTrackingCode?: string | null;
   trackingLabelUrl?: string | null;
   envioecomShipmentId?: number | null;
   envioecomBarcode?: string | null;

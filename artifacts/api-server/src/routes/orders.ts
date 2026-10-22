@@ -43,6 +43,7 @@ import {
   OrderShipmentError,
 } from "../lib/order-shipments";
 import { pickUnboundPackageId, parseOrderShipmentItems } from "../lib/order-shipments-logic";
+import { ManualTrackingError, saveManualTrackingCode } from "../lib/manual-tracking";
 import {
   applyProductSwap,
   applySwapToShipmentItems,
@@ -3466,6 +3467,7 @@ function mapOrder(o: typeof ordersTable.$inferSelect, options?: { light?: boolea
     inventoryExitPool:      parseKaInventoryExitPool((o as { inventoryExitPool?: unknown }).inventoryExitPool),
     inventoryExitedPools:   parseKaInventoryExitedPools((o as { inventoryExitedPools?: unknown }).inventoryExitedPools),
     trackingCode:           o.trackingCode ?? null,
+    manualTrackingCode:     (o as { manualTrackingCode?: string | null }).manualTrackingCode ?? null,
     trackingLabelUrl:       light ? slimExternalUrl(o.trackingLabelUrl) : (o.trackingLabelUrl ?? null),
     trackingLabelText:      light ? null : (o.trackingLabelText ?? null),
     trackingDetectedName:   o.trackingDetectedName ?? null,
@@ -4349,6 +4351,63 @@ router.patch("/admin/orders/:id/tracking-code", requireAdminAuth, async (req, re
   } catch (err) {
     console.error("Update order tracking code error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao atualizar código de rastreio." });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/admin/orders/:id/manual-tracking  (protected)
+// Código pago no balcão. Não grava barcode da EnvioEcom, não cria envio e não baixa estoque.
+// ---------------------------------------------------------------------------
+router.patch("/admin/orders/:id/manual-tracking", requireAdminAuth, async (req, res) => {
+  try {
+    const adminScope = ensureSellerScopeOnOrderQuery(req, res);
+    if (!adminScope) return;
+
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
+    const body = req.body as { trackingCode?: unknown; packageId?: string };
+
+    const existing = await db
+      .select()
+      .from(ordersTable)
+      .where(buildAdminOrderWhere(id, adminScope))
+      .limit(1);
+    const current = existing[0];
+    if (!current) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
+
+    const saved = await saveManualTrackingCode({
+      order: current,
+      packageId: body.packageId,
+      rawCode: body.trackingCode,
+    });
+
+    await addOrderEvent({
+      orderId: id,
+      tenantId: adminScope.tenantId,
+      action: "manual_tracking",
+      ...actorFromAdminRequest(req),
+      payload: {
+        trackingCode: saved.code,
+        packageId: saved.packageId,
+        cleared: !saved.code,
+      },
+    });
+
+    res.json({
+      ok: true,
+      order: await mapOrderWithPackages(saved.order),
+      packageId: saved.packageId,
+    });
+  } catch (err) {
+    if (err instanceof ManualTrackingError) {
+      res.status(400).json({ error: err.code, message: err.message });
+      return;
+    }
+    console.error("Update manual tracking error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao salvar rastreio manual." });
   }
 });
 

@@ -75,6 +75,7 @@ export const ordersTable = mysqlTable("orders", {
   isProcurandoProduto: boolean("is_procurando_produto").notNull().default(false),
   isAguardandoEstoque: boolean("is_aguardando_estoque").notNull().default(false),
   trackingCode: varchar("tracking_code", { length: 255 }),
+  manualTrackingCode: varchar("manual_tracking_code", { length: 64 }),
   trackingLabelUrl: mediumtext("tracking_label_url"),
   trackingLabelText: mediumtext("tracking_label_text"),
   trackingDetectedName: varchar("tracking_detected_name", { length: 255 }),

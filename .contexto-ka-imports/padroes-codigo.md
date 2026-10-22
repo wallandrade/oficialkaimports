@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-10-20
+> **Última atualização:** 2026-10-22
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-22 | Anti-padrão: colar o código do balcão em `envioecom_barcode` ou no PATCH de tracking da EnvioEcom | `manual_tracking_code` + `PATCH .../manual-tracking`. Não baixa estoque | **Vincular EE**, OCR **Etiqueta/Rastreio** e o sync |
 | 2026-10-19 | Anti-padrão: promoção relâmpago só no modal ou no `promoPrice` | O preço da reserva entra no create do PIX/WhatsApp. IP sozinho não é a chave; o id do navegador é | Catálogo e cupom |
 | 2026-10-15 | Anti-padrão: gravar extravio da Yury em `carrier_loss_incidents` ou repetir o mesmo token nos dois envs | Espelho em `carrier_loss_peer_incidents`. `LOSS_SYNC_TOKEN` ≠ `YURY_LOSS_SYNC_TOKEN` | Cotação local e o GET da lista nossa |
 | 2026-10-04 | Anti-padrão: sortear o valor da etiqueta no GET ou mandar o preço do catálogo no create | Baralho e faixa só no create EnvioEcom; a linha gravada fica | Cotação R$ 5 |
@@ -234,6 +235,7 @@ Código > memória > suposições.
 - Copiar o PDF/status do 1º pacote para `orders.envioecom_label_url` quando ainda falta URL noutro pacote (some da lista 48h cedo demais). Rollup só promove PDF no pai se **todos** têm URL.
 - Gerar **Etiqueta EE** / Sync / Cancelar do pacote B com o `trackingCode` (8880) ou PDF do pedido/pacote A. No split, bind só com `envioecom_*` daquele pacote; pacote sem envio próprio não herda o irmão.
 - Gravar OCR **Etiqueta/Rastreio** ou `PATCH .../tracking-code` só em `orders.trackingCode` quando o pedido está dividido; usar `packageId` + `persistEnvioEcomPackage`. Não devolver `mapOrder()` sem `packages[]` (some o split no card). Não toastar “vinculado” se `resolved === false`. Não preencher o código do Motoboy com o 8880 de Minas.
+- Colar o código do balcão (`AA123456789BR`) em `envioecom_barcode`, `orders.tracking_code` ou no `PATCH .../tracking-code`. O sync tenta um envio que não existe. Usar `manual_tracking_code` e `PATCH .../manual-tracking`. Esse caminho marca `enviado` sem `ensureOrderMarkedEnviado` (não baixa estoque). **Vincular EE** continua só para envio que já existe no painel.
 - Trocar o SKU do cliente pelo **Editar pedido** (o PATCH puxa preço de catálogo e some o “X → Y”). Usar `POST /admin/orders/:id/replace-product` com `keep_price` ou `pass_difference`. Não trocar depois de `enviado`/baixa. Não esconder a troca do cliente.
 - Fazer o 2º volume virando reenvio, pedido filho (`parent_order_id`) ou duplicando o pedido. Split é `order_shipments` no **mesmo** pedido; reenvio de suporte continua outro domínio.
 - Realocar split apagando pacotes sem copiar `envioecom_*` da **mesma** origem, ou remover pool que ainda tem etiqueta. Use **Editar divisão**; 409 `SPLIT_HAS_LABEL` se a origem com EE sair — Desvincular antes. Desfazer a divisão é `DELETE /admin/orders/:id/shipments` com `splitCleared`; etiqueta no pacote solta o vínculo local e não cancela na EnvioEcom. `packages: []` sozinho não limpa o card.

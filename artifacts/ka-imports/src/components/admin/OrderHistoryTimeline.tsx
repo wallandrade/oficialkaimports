@@ -37,6 +37,7 @@ const ACTION_LABELS: Record<string, string> = {
   observation: "Alterou observações",
   whatsapp_group: "Alterou grupo WhatsApp",
   tracking: "Vinculou rastreio",
+  manual_tracking: "Rastreio manual",
   tracking_label: "Enviou etiqueta/rastreio",
   reshipment: "Lançou reenvio",
   difference_charge: "Gerou cobrança de diferença",
@@ -78,6 +79,7 @@ function payloadText(event: OrderHistoryEvent): string {
   if (fromStatus && toStatus) parts.push(`De ${fromStatus} para ${toStatus}`);
   else if (toStatus) parts.push(toStatus);
   if (barcode) parts.push(barcode);
+  if (event.action === "manual_tracking" && !barcode) parts.push("Código apagado");
   if (carrier) parts.push(carrier);
   if (pool && POOL_LABELS[pool]) parts.push(POOL_LABELS[pool]);
   else if (pool) parts.push(pool);
