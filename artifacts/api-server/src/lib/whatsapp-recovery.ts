@@ -38,6 +38,15 @@ export function recoveryMessage(template: string, name: string): string {
   return text.replaceAll("{nome}", recoveryFirstName(name));
 }
 
+const RECOVERY_RESEND_GAP_MS = 24 * 60 * 60 * 1000;
+
+/** Telefone já marcado fica de fora. Uma compra pelo menos 1 dia mais nova pode entrar de novo. */
+export function recoveryAlreadySent(sentForOrderAt: number | undefined, lastAtMs: number): boolean {
+  if (sentForOrderAt == null) return false;
+  if (!Number.isFinite(sentForOrderAt) || sentForOrderAt <= 0) return true;
+  return lastAtMs < sentForOrderAt + RECOVERY_RESEND_GAP_MS;
+}
+
 export function pickRecoveryCandidate(input: {
   customers: RecoveryCustomer[];
   sent: RecoverySent[];
@@ -45,14 +54,13 @@ export function pickRecoveryCandidate(input: {
   now: Date;
   days: number;
 }): RecoveryCustomer | null {
-  const cutoff = input.now.getTime() - Math.max(1, input.days) * 24 * 60 * 60 * 1000;
+  const cutoff = input.now.getTime() - Math.max(1, input.days) * RECOVERY_RESEND_GAP_MS;
   const sentByPhone = new Map(input.sent.map((row) => [row.phone, row.lastOrderAt?.getTime() || 0]));
   const ordered = [...input.customers].sort((a, b) => a.lastAt.getTime() - b.lastAt.getTime());
   for (const customer of ordered) {
     if (input.ignored.has(customer.phone)) continue;
     if (customer.lastAt.getTime() > cutoff) continue;
-    const sentForOrderAt = sentByPhone.get(customer.phone);
-    if (sentForOrderAt != null && sentForOrderAt >= customer.lastAt.getTime()) continue;
+    if (recoveryAlreadySent(sentByPhone.get(customer.phone), customer.lastAt.getTime())) continue;
     return customer;
   }
   return null;
@@ -65,14 +73,13 @@ export function countRecoveryWaiting(input: {
   now: Date;
   days: number;
 }): number {
-  const cutoff = input.now.getTime() - Math.max(1, input.days) * 24 * 60 * 60 * 1000;
+  const cutoff = input.now.getTime() - Math.max(1, input.days) * RECOVERY_RESEND_GAP_MS;
   const sentByPhone = new Map(input.sent.map((row) => [row.phone, row.lastOrderAt?.getTime() || 0]));
   let count = 0;
   for (const customer of input.customers) {
     if (input.ignored.has(customer.phone)) continue;
     if (customer.lastAt.getTime() > cutoff) continue;
-    const sentForOrderAt = sentByPhone.get(customer.phone);
-    if (sentForOrderAt != null && sentForOrderAt >= customer.lastAt.getTime()) continue;
+    if (recoveryAlreadySent(sentByPhone.get(customer.phone), customer.lastAt.getTime())) continue;
     count += 1;
   }
   return count;
@@ -207,17 +214,23 @@ export async function recoverySnapshot(tenantId = DEFAULT_TENANT_ID) {
 }
 
 async function claimSend(customer: RecoveryCustomer, tenantId: string): Promise<boolean> {
-  const [result] = await pool.query(
-    `INSERT INTO whatsapp_recovery_sends (phone, tenant_id, customer_name, last_order_at, sent_at)
-     VALUES (?, ?, ?, ?, NOW())
-     ON DUPLICATE KEY UPDATE
-       tenant_id = VALUES(tenant_id),
-       customer_name = VALUES(customer_name),
-       last_order_at = VALUES(last_order_at),
-       sent_at = NOW()`,
-    [customer.phone, tenantId, customer.name.slice(0, 255), customer.lastAt],
+  const name = customer.name.slice(0, 255);
+  const [inserted] = await pool.query(
+    `INSERT IGNORE INTO whatsapp_recovery_sends (phone, tenant_id, customer_name, last_order_at, sent_at)
+     VALUES (?, ?, ?, ?, NOW())`,
+    [customer.phone, tenantId, name, customer.lastAt],
   ) as unknown as [ResultSetHeader, unknown];
-  return result.affectedRows > 0;
+  if (inserted.affectedRows === 1) return true;
+
+  const [updated] = await pool.query(
+    `UPDATE whatsapp_recovery_sends
+     SET tenant_id = ?, customer_name = ?, last_order_at = ?, sent_at = NOW()
+     WHERE phone = ?
+       AND last_order_at IS NOT NULL
+       AND ? >= DATE_ADD(last_order_at, INTERVAL 1 DAY)`,
+    [tenantId, name, customer.lastAt, customer.phone, customer.lastAt],
+  ) as unknown as [ResultSetHeader, unknown];
+  return updated.affectedRows === 1;
 }
 
 async function releaseSend(phone: string): Promise<void> {

@@ -19,6 +19,20 @@ test("recuperação começa pelo cliente mais antigo e pula quem já recebeu", (
   assert.equal(picked?.phone, old.phone);
 });
 
+test("recuperação não repete o mesmo telefone quando a data gravada volta um pouco menor", () => {
+  const now = new Date("2026-10-23T15:00:00.000Z");
+  const first = { phone: "5535991111111", name: "Ana", lastAt: new Date(now.getTime() - 80 * day) };
+  const next = { phone: "5535992222222", name: "Bia", lastAt: new Date(now.getTime() - 70 * day) };
+  const picked = pickRecoveryCandidate({
+    customers: [first, next],
+    sent: [{ phone: first.phone, lastOrderAt: new Date(first.lastAt.getTime() - 3 * 60 * 60 * 1000) }],
+    ignored: new Set(),
+    now,
+    days: 40,
+  });
+  assert.equal(picked?.phone, next.phone);
+});
+
 test("mensagem troca o primeiro nome", () => {
   const text = recoveryMessage("Oi, {nome}.", "Maria Silva");
   assert.equal(text, "Oi, Maria.");
