@@ -80,6 +80,7 @@ type QuoteOption = {
   delivery_time?: string | number;
   delivery_days?: string | number;
   lossAlert?: { level: "warn" | "danger"; message: string } | null;
+  deliveryHint?: { message: string } | null;
   [key: string]: unknown;
 };
 
@@ -864,11 +865,14 @@ export function EnvioEcomOrderActions({
               ) : (
                 quotes.map((quoteOption, index) => {
                   const alert = quoteOption.lossAlert;
+                  const hint = quoteOption.deliveryHint;
                   const tone = alert?.level === "danger"
                     ? "border-red-300 bg-red-50 hover:bg-red-100"
                     : alert?.level === "warn"
                       ? "border-amber-300 bg-amber-50 hover:bg-amber-100"
-                      : "border-neutral-200 hover:border-neutral-400 hover:bg-neutral-50";
+                      : hint?.message
+                        ? "border-emerald-300 bg-emerald-50 hover:bg-emerald-100"
+                        : "border-neutral-200 hover:border-neutral-400 hover:bg-neutral-50";
                   return (
                   <button
                     key={`${quoteCarrier(quoteOption)}-${index}`}
@@ -889,6 +893,9 @@ export function EnvioEcomOrderActions({
                       <p className={`text-xs mt-1 ${alert.level === "danger" ? "text-red-800" : "text-amber-900"}`}>
                         {alert.message}
                       </p>
+                    ) : null}
+                    {hint?.message ? (
+                      <p className="text-xs mt-1 text-emerald-800">{hint.message}</p>
                     ) : null}
                   </button>
                   );

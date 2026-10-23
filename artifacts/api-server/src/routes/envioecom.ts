@@ -14,6 +14,7 @@ import {
   removeCarrierLoss,
   upsertCarrierLoss,
 } from "../lib/carrier-loss-store";
+import { attachDeliveryHints } from "../lib/carrier-delivery-hint-store";
 import { isStandardShipping } from "../lib/order-logistics-calendar";
 import { buildCallbackUrl } from "../gateway";
 import { getR2MissingConfig, isR2Configured, readStoredShipmentLabelPdf, uploadShipmentLabelPdfToR2 } from "../lib/r2";
@@ -799,15 +800,22 @@ router.post("/admin/envioecom/orders/:id/quote", requireAdminAuth, async (req, r
     const quoted = await scoped.client.quote(payload);
     const rawQuotes = Array.isArray(quoted.quotes) ? quoted.quotes as Array<Record<string, unknown>> : [];
     let quotes: Array<Record<string, unknown>> = rawQuotes;
+    const quotePlace = {
+      city: order.addressCity,
+      state: order.addressState,
+      neighborhood: order.addressNeighborhood,
+      cep: order.addressCep,
+    };
     try {
-      quotes = await attachLossAlerts(admin.tenantId, {
-        city: order.addressCity,
-        state: order.addressState,
-        neighborhood: order.addressNeighborhood,
-        cep: order.addressCep,
-      }, rawQuotes);
+      quotes = await attachLossAlerts(admin.tenantId, quotePlace, rawQuotes);
     } catch (err) {
       console.warn("[CarrierLoss] Falha ao montar aviso da cotação:", err);
+    }
+    try {
+      quotes = await attachDeliveryHints(admin.tenantId, order.id, quotePlace, quotes);
+    } catch (err) {
+      console.warn("[CarrierDelivery] Falha ao montar o sinal de entrega:", err);
+      quotes = quotes.map((quote) => ({ ...quote, deliveryHint: null }));
     }
     res.json({
       originZipcode: quoted.origin_zipcode || quoted.origin_zip || scoped.account.originCep,
