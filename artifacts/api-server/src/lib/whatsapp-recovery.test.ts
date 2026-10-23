@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addRecoverySpend, canonicalRecoveryPhone, pickRecoveryCandidate, recoveryMessage, recoveryOrderAmount } from "./whatsapp-recovery";
+import { addRecoverySpend, canonicalRecoveryPhone, pickRecoveryCandidate, recoveryAnswerId, recoveryMessage, recoveryOptionList, recoveryOrderAmount, recoverySurveyStats } from "./whatsapp-recovery";
 
 const day = 24 * 60 * 60 * 1000;
 
@@ -50,6 +50,19 @@ test("pedido antigo sem total usa o valor pago ou os produtos", () => {
     shippingCost: "20.00",
     discountAmount: 0,
   }), 90);
+});
+
+test("pesquisa reconhece o clique e calcula a porcentagem", () => {
+  assert.equal(recoveryAnswerId("preco"), "preco");
+  assert.equal(recoveryAnswerId("2"), "objetivo");
+  assert.equal(recoveryAnswerId("outro"), null);
+  const list = recoveryOptionList();
+  assert.equal(list.options.length, 4);
+  assert.ok(list.options.every((option) => option.title.length <= 24));
+  const stats = recoverySurveyStats(new Map([["preco", 5], ["vendas", 5], ["", 30]]));
+  assert.equal(stats.answered, 10);
+  assert.equal(stats.unanswered, 30);
+  assert.equal(stats.options[0].percent, 50);
 });
 
 test("mensagem troca o primeiro nome", () => {

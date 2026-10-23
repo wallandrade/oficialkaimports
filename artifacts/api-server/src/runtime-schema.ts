@@ -1745,17 +1745,23 @@ async function ensureWhatsappSupportSessionsTable(databaseName: string): Promise
 }
 
 async function ensureWhatsappRecoverySendsTable(databaseName: string): Promise<void> {
-  if (await tableExists("whatsapp_recovery_sends", databaseName)) return;
-  await pool.query(`
-    CREATE TABLE whatsapp_recovery_sends (
-      phone VARCHAR(32) NOT NULL,
-      tenant_id VARCHAR(255) NULL,
-      customer_name VARCHAR(255) NULL,
-      last_order_at TIMESTAMP NULL,
-      sent_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      PRIMARY KEY (phone)
-    )
-  `);
+  if (!(await tableExists("whatsapp_recovery_sends", databaseName))) {
+    await pool.query(`
+      CREATE TABLE whatsapp_recovery_sends (
+        phone VARCHAR(32) NOT NULL,
+        tenant_id VARCHAR(255) NULL,
+        customer_name VARCHAR(255) NULL,
+        last_order_at TIMESTAMP NULL,
+        sent_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        answer VARCHAR(32) NULL,
+        PRIMARY KEY (phone)
+      )
+    `);
+    return;
+  }
+  if (!(await columnExists("whatsapp_recovery_sends", "answer", databaseName))) {
+    await pool.query("ALTER TABLE whatsapp_recovery_sends ADD COLUMN answer VARCHAR(32) NULL");
+  }
 }
 
 export async function ensureRuntimeSchema(): Promise<void> {

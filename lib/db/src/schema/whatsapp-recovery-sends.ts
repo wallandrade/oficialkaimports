@@ -6,6 +6,7 @@ export const whatsappRecoverySendsTable = mysqlTable("whatsapp_recovery_sends", 
   customerName: varchar("customer_name", { length: 255 }),
   lastOrderAt: timestamp("last_order_at"),
   sentAt: timestamp("sent_at").notNull().defaultNow(),
+  answer: varchar("answer", { length: 32 }),
 });
 
 export type WhatsappRecoverySend = typeof whatsappRecoverySendsTable.$inferSelect;

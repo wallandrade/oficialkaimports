@@ -1,5 +1,5 @@
 import { db, ordersTable, pool, sellersTable, tenantSettingsTable, whatsappRecoverySendsTable } from "@workspace/db";
-import { and, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { ResultSetHeader } from "mysql2";
 import { DEFAULT_TENANT_ID } from "./tenant-context";
 import { normalizeWhatsappPhone } from "./whatsapp-notices";
@@ -9,13 +9,32 @@ export const RECOVERY_DEFAULT_DAYS = 40;
 export const RECOVERY_DEFAULT_DAILY_LIMIT = 40;
 export const RECOVERY_REPLY_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 
-export const RECOVERY_DEFAULT_MESSAGE = [
+const RECOVERY_OLD_MESSAGE = [
   "Oi, {nome}. Aqui é da KA Imports.",
   "",
   "Faz um tempo que você não compra com a gente. Posso te perguntar o que te levou a não comprar mais?",
   "",
   "Pode responder por aqui, do seu jeito. Quero entender para melhorar.",
 ].join("\n");
+
+export const RECOVERY_DEFAULT_MESSAGE = [
+  "Oi, {nome}. Aqui é da KA Imports.",
+  "",
+  "Faz um tempo que você não compra com a gente. Posso te perguntar o que te levou a não comprar mais?",
+  "",
+  "Pode responder nossa pesquisa e escolher uma das opções.",
+].join("\n");
+
+export const RECOVERY_THANKS = "Obrigado por responder. Isso ajuda a gente a melhorar.";
+
+export const RECOVERY_SURVEY = [
+  { id: "preco", title: "Achei preço melhor", description: "Preço em outro lugar" },
+  { id: "objetivo", title: "Já atingi meu objetivo", description: "Já comprei o que precisava" },
+  { id: "condicoes", title: "Estou sem condições", description: "No momento não dá" },
+  { id: "vendas", title: "As vendas caíram", description: "O movimento diminuiu" },
+] as const;
+
+export type RecoveryAnswerId = (typeof RECOVERY_SURVEY)[number]["id"];
 
 export type RecoveryCustomer = {
   phone: string;
@@ -34,8 +53,67 @@ export function recoveryFirstName(name: string): string {
 }
 
 export function recoveryMessage(template: string, name: string): string {
-  const text = String(template || "").trim() || RECOVERY_DEFAULT_MESSAGE;
+  const raw = String(template || "").trim();
+  const text = !raw || raw === RECOVERY_OLD_MESSAGE ? RECOVERY_DEFAULT_MESSAGE : raw;
   return text.replaceAll("{nome}", recoveryFirstName(name));
+}
+
+export function recoveryAnswerId(raw: string): RecoveryAnswerId | null {
+  const value = String(raw || "").trim().toLowerCase();
+  if (!value) return null;
+  const byId = RECOVERY_SURVEY.find((option) => option.id === value);
+  if (byId) return byId.id;
+  const number = Number(value);
+  if (Number.isInteger(number) && number >= 1 && number <= RECOVERY_SURVEY.length) {
+    return RECOVERY_SURVEY[number - 1].id;
+  }
+  return RECOVERY_SURVEY.find((option) => option.title.toLowerCase() === value)?.id ?? null;
+}
+
+export function recoveryOptionList() {
+  return {
+    title: "Por que parou",
+    buttonLabel: "Escolher",
+    options: RECOVERY_SURVEY.map((option) => ({
+      id: option.id,
+      title: option.title,
+      description: option.description,
+    })),
+  };
+}
+
+export function recoverySurveyStats(counts: Map<string, number>) {
+  const options = RECOVERY_SURVEY.map((option) => ({
+    id: option.id,
+    title: option.title,
+    count: counts.get(option.id) || 0,
+  }));
+  const answered = options.reduce((sum, option) => sum + option.count, 0);
+  return {
+    answered,
+    unanswered: counts.get("") || 0,
+    options: options.map((option) => ({
+      ...option,
+      percent: answered > 0 ? Math.round((option.count * 1000) / answered) / 10 : 0,
+    })),
+  };
+}
+
+export function recoveryAnswerTitle(answer: string | null | undefined): string {
+  return RECOVERY_SURVEY.find((option) => option.id === answer)?.title || "";
+}
+
+export function recoveryPhoneKeys(phone: string): string[] {
+  const keys = new Set<string>();
+  const normalized = normalizeWhatsappPhone(phone);
+  if (normalized) keys.add(normalized);
+  const canonical = canonicalRecoveryPhone(phone);
+  if (canonical) keys.add(canonical);
+  if (canonical && canonical.length === 13) {
+    const national = canonical.slice(2);
+    if (national[2] === "9") keys.add(`55${national.slice(0, 2)}${national.slice(3)}`);
+  }
+  return [...keys];
 }
 
 const RECOVERY_RESEND_GAP_MS = 24 * 60 * 60 * 1000;
@@ -133,7 +211,7 @@ export async function recoverySettings(tenantId = DEFAULT_TENANT_ID) {
     enabled: enabledRaw === "1",
     days,
     dailyLimit,
-    message: message || RECOVERY_DEFAULT_MESSAGE,
+    message: !message || message === RECOVERY_OLD_MESSAGE ? RECOVERY_DEFAULT_MESSAGE : message,
     webhookConfigured: Boolean(webhook),
   };
 }
@@ -269,14 +347,25 @@ export async function recoverySnapshot(tenantId = DEFAULT_TENANT_ID) {
     .from(whatsappRecoverySendsTable)
     .orderBy(desc(whatsappRecoverySendsTable.sentAt))
     .limit(30);
+  const answerRows = await db
+    .select({
+      answer: whatsappRecoverySendsTable.answer,
+      count: sql<number>`count(*)`,
+    })
+    .from(whatsappRecoverySendsTable)
+    .groupBy(whatsappRecoverySendsTable.answer);
+  const counts = new Map<string, number>();
+  for (const row of answerRows) counts.set(String(row.answer || ""), Number(row.count) || 0);
   return {
     ...settings,
     waiting,
     sentToday: sentTodayRows.length,
+    survey: recoverySurveyStats(counts),
     recent: recent.map((row) => ({
       phone: row.phone,
       name: row.customerName || "",
       spent: (paid.spentCents.get(canonicalRecoveryPhone(row.phone) || "") || 0) / 100,
+      answer: recoveryAnswerTitle(row.answer),
       sentAt: row.sentAt ? new Date(row.sentAt).toISOString() : null,
       lastOrderAt: row.lastOrderAt ? new Date(row.lastOrderAt).toISOString() : null,
     })),
@@ -331,11 +420,15 @@ export async function sendNextRecovery(input: { tenantId?: string; ignoreHours?:
 
   const claimed = await claimSend(customer, tenantId);
   if (!claimed) return { sent: false, reason: "ja_marcado" };
-  const url = await resolveWhatsappWebhookUrl({ event: "recovery", tenantId, secondInstance: false });
-  const ok = url ? await postWhatsappWebhook(url, {
-    phone: customer.phone,
-    message: recoveryMessage(settings.message, customer.name),
-  }) : false;
+  const message = recoveryMessage(settings.message, customer.name);
+  const optionList = recoveryOptionList();
+  const menuUrl = await resolveWhatsappWebhookUrl({ event: "support_menu", tenantId, secondInstance: false });
+  const recoveryUrl = await resolveWhatsappWebhookUrl({ event: "recovery", tenantId, secondInstance: false });
+  const ok = menuUrl
+    ? await postWhatsappWebhook(menuUrl, { phone: customer.phone, message, optionList })
+    : recoveryUrl
+      ? await postWhatsappWebhook(recoveryUrl, { phone: customer.phone, message, optionList })
+      : false;
   if (!ok) {
     await releaseSend(customer.phone);
     return { sent: false, reason: "n8n_falhou", phone: customer.phone };
@@ -343,11 +436,27 @@ export async function sendNextRecovery(input: { tenantId?: string; ignoreHours?:
   return { sent: true, reason: "enviado", phone: customer.phone };
 }
 
+export async function recordRecoveryAnswer(phone: string, answerId: string): Promise<boolean> {
+  const answer = recoveryAnswerId(answerId);
+  const keys = recoveryPhoneKeys(phone);
+  if (!answer || keys.length === 0) return false;
+  const [result] = await pool.query(
+    `UPDATE whatsapp_recovery_sends
+     SET answer = ?
+     WHERE phone IN (${keys.map(() => "?").join(",")})
+       AND (answer IS NULL OR answer = '')`,
+    [answer, ...keys],
+  ) as unknown as [ResultSetHeader, unknown];
+  return result.affectedRows > 0;
+}
+
 export async function phoneHasRecentRecovery(phone: string, now = new Date()): Promise<boolean> {
+  const keys = recoveryPhoneKeys(phone);
+  if (keys.length === 0) return false;
   const rows = await db
     .select({ sentAt: whatsappRecoverySendsTable.sentAt })
     .from(whatsappRecoverySendsTable)
-    .where(eq(whatsappRecoverySendsTable.phone, phone))
+    .where(inArray(whatsappRecoverySendsTable.phone, keys))
     .limit(1);
   const sentAt = rows[0]?.sentAt;
   if (!sentAt) return false;
