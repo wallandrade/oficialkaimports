@@ -24,9 +24,26 @@ type MenuOption = { id: string; title: string; description: string };
 const DEFAULT_MENU: MenuOption[] = [
   { id: "meu-pedido", title: "Meu pedido", description: "Status, prazo e rastreio" },
   { id: "quero-comprar", title: "Quero comprar", description: "Ver produtos e preços" },
+  { id: "chave-pix", title: "Chave Pix", description: "Dados da conta Inter" },
   { id: "problemas", title: "Problemas com pedido", description: "Atraso, falta ou extravio" },
   { id: "atendente", title: "Falar com atendente", description: "Falar com uma pessoa" },
 ];
+
+const PIX_ACCOUNT_MESSAGE = [
+  "Esses são os dados da minha",
+  "",
+  "conta no Inter:",
+  "INTER - 077",
+  "ALBERT MACHADO BARROS",
+  "",
+  "Agência: 0001",
+  "Conta: 31816632-1",
+  "",
+  "",
+  "Chave pix aleatório 👇",
+].join("\n");
+
+const PIX_KEY_MESSAGE = "3b2946fe-b3e1-4683-baa0-4dae6336ccdc";
 
 const PROBLEM_MENU: MenuOption[] = [
   { id: "atrasado", title: "Pedido atrasado", description: "Passou do prazo" },
@@ -441,6 +458,20 @@ export async function handleWhatsappSupportInbound(rawBody: unknown, token: stri
         secondInstance,
         phone,
         message: link ? `Você pode comprar aqui:\n${link}` : "Acesse o site da loja pelo endereço que você já usa.",
+      });
+      state = { step: "menu", problem: null, pendingOrder: null };
+    } else if (picked.id === "chave-pix") {
+      await sendText({
+        tenantId: auth.tenantId,
+        secondInstance,
+        phone,
+        message: PIX_ACCOUNT_MESSAGE,
+      });
+      await sendText({
+        tenantId: auth.tenantId,
+        secondInstance,
+        phone,
+        message: PIX_KEY_MESSAGE,
       });
       state = { step: "menu", problem: null, pendingOrder: null };
     } else if (picked.id === "problemas") {

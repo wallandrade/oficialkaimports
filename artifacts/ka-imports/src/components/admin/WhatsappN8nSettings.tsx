@@ -196,7 +196,7 @@ export function WhatsappN8nSettings({
         />
         <span className="mt-2 flex items-center justify-between gap-3">
           <span className="text-xs text-muted-foreground">
-            IDs usados pelo bot: meu-pedido, quero-comprar, problemas, atendente. Vazio usa o menu padrão.
+            IDs usados pelo bot: meu-pedido, quero-comprar, chave-pix, problemas, atendente. Vazio usa o menu padrão.
           </span>
           <Button size="sm" onClick={saveMenu}>Salvar menu</Button>
         </span>
