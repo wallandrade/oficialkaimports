@@ -270,12 +270,14 @@ async function summaryForOrder(order: typeof ordersTable.$inferSelect): Promise<
   return lines.filter((line) => line !== undefined).join("\n");
 }
 
+const MAIN_STORE_LINK = "https://www.ka-imports.com/kaique";
+
 async function storeLink(tenantId: string, secondInstance: boolean): Promise<string> {
+  if (!secondInstance) return MAIN_STORE_LINK;
   const rows = await db.select({ domain: tenantsTable.domain }).from(tenantsTable).where(eq(tenantsTable.id, tenantId)).limit(1);
   const host = String(rows[0]?.domain || "").trim().replace(/^https?:\/\//, "").split("/")[0] || "";
   if (!host) return "";
   const base = `https://${host}`;
-  if (!secondInstance) return base;
   const slugs = await readSecondInstanceSlugs(tenantId);
   return slugs[0] ? `${base}/${slugs[0]}` : base;
 }
