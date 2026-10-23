@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { formatCurrency } from "@/lib/utils";
 
 type Snapshot = {
   enabled: boolean;
@@ -9,7 +10,7 @@ type Snapshot = {
   webhookConfigured: boolean;
   waiting: number;
   sentToday: number;
-  recent: Array<{ phone: string; name: string; sentAt: string | null; lastOrderAt: string | null }>;
+  recent: Array<{ phone: string; name: string; spent: number; sentAt: string | null; lastOrderAt: string | null }>;
 };
 
 function authHeaders(): Record<string, string> {
@@ -132,7 +133,7 @@ export function WhatsappRecoveryPanel() {
         <p className="mb-2 text-sm font-medium">Últimos envios</p>
         <ul className="space-y-1 text-sm text-muted-foreground">
           {(data?.recent || []).map((row) => (
-            <li key={`${row.phone}-${row.sentAt}`}>{row.name || "Cliente"} · {row.phone} · {row.sentAt ? new Date(row.sentAt).toLocaleString("pt-BR") : ""}</li>
+            <li key={`${row.phone}-${row.sentAt}`}>{row.name || "Cliente"} · {row.phone} · {formatCurrency(Number(row.spent) || 0)} · {row.sentAt ? new Date(row.sentAt).toLocaleString("pt-BR") : ""}</li>
           ))}
         </ul>
       </div>

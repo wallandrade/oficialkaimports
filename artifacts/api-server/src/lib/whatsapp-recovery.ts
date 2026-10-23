@@ -157,25 +157,39 @@ async function ignoredPhones(): Promise<Set<string>> {
   return phones;
 }
 
-async function loadCustomers(): Promise<RecoveryCustomer[]> {
+export function addRecoverySpend(spentCents: Map<string, number>, phone: string, total: unknown): void {
+  const amount = Number(total);
+  if (!Number.isFinite(amount)) return;
+  spentCents.set(phone, (spentCents.get(phone) || 0) + Math.round(amount * 100));
+}
+
+async function loadPaidOrders(): Promise<{ customers: RecoveryCustomer[]; spentCents: Map<string, number> }> {
   const rows = await db
     .select({
       phone: ordersTable.clientPhone,
       name: ordersTable.clientName,
       createdAt: ordersTable.createdAt,
+      total: ordersTable.total,
     })
     .from(ordersTable)
     .where(inArray(ordersTable.status, ["paid", "completed"]));
   const byPhone = new Map<string, RecoveryCustomer>();
+  const spentCents = new Map<string, number>();
   for (const row of rows) {
     const phone = normalizeWhatsappPhone(row.phone);
-    if (!phone || !row.createdAt) continue;
+    if (!phone) continue;
+    addRecoverySpend(spentCents, phone, row.total);
+    if (!row.createdAt) continue;
     const current = byPhone.get(phone);
     if (!current || row.createdAt.getTime() > current.lastAt.getTime()) {
       byPhone.set(phone, { phone, name: String(row.name || ""), lastAt: row.createdAt });
     }
   }
-  return [...byPhone.values()];
+  return { customers: [...byPhone.values()], spentCents };
+}
+
+async function loadCustomers(): Promise<RecoveryCustomer[]> {
+  return (await loadPaidOrders()).customers;
 }
 
 async function loadSends(): Promise<RecoverySent[]> {
@@ -188,7 +202,8 @@ async function loadSends(): Promise<RecoverySent[]> {
 
 export async function recoverySnapshot(tenantId = DEFAULT_TENANT_ID) {
   const settings = await recoverySettings(tenantId);
-  const [customers, sent, ignored] = await Promise.all([loadCustomers(), loadSends(), ignoredPhones()]);
+  const [paid, sent, ignored] = await Promise.all([loadPaidOrders(), loadSends(), ignoredPhones()]);
+  const customers = paid.customers;
   const now = new Date();
   const waiting = countRecoveryWaiting({ customers, sent, ignored, now, days: settings.days });
   const sentTodayRows = await db
@@ -207,6 +222,7 @@ export async function recoverySnapshot(tenantId = DEFAULT_TENANT_ID) {
     recent: recent.map((row) => ({
       phone: row.phone,
       name: row.customerName || "",
+      spent: (paid.spentCents.get(row.phone) || 0) / 100,
       sentAt: row.sentAt ? new Date(row.sentAt).toISOString() : null,
       lastOrderAt: row.lastOrderAt ? new Date(row.lastOrderAt).toISOString() : null,
     })),
