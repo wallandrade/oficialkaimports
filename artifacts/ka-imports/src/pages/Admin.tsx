@@ -1,6 +1,7 @@
 import { getPendingShipmentCopy, pendingShipmentResumoHeading } from "@/lib/pending-shipment-copy";
 import { AdminFlashOffersPanel } from "@/components/admin/AdminFlashOffersPanel";
 import { WhatsappN8nSettings } from "@/components/admin/WhatsappN8nSettings";
+import { WhatsappRecoveryPanel } from "@/components/admin/WhatsappRecoveryPanel";
 import { orderToPostPaymentText } from "@/lib/post-payment-message";
 import {
   emptyVariantGroupDraft,
@@ -1422,7 +1423,7 @@ function OrderBumpsPanel({ bumps, products, form, setForm, creating, toggling, d
   );
 }
 
-type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "flashOffers" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "affiliates" | "recurringCustomers" | "support" | "inventory" | "webhook" | "configuracoes" | "despesas" | "checkout" | "seguro" | "socialProof" | "raffles" | "lojas" | "supplierPurchases" | "envioecom" | "listaNegra" | "extrato" | "depositos";
+type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "flashOffers" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "affiliates" | "recurringCustomers" | "support" | "recuperacao" | "inventory" | "webhook" | "configuracoes" | "despesas" | "checkout" | "seguro" | "socialProof" | "raffles" | "lojas" | "supplierPurchases" | "envioecom" | "listaNegra" | "extrato" | "depositos";
 type LojasSubTab = "criar" | "pedidos" | "cadastradas";
 type FilialScopeSubTab = "pedidos" | "produtos" | "estoque";
 
@@ -7950,6 +7951,7 @@ export default function Admin() {
             { key: "charges", label: "Links Pagamento", icon: "LinkIcon", count: charges.length },
             { key: "kyc", label: "KYC", icon: "ShieldCheck", count: kycList.length > 0 ? kycList.filter((k) => k.status === "submitted").length : undefined },
             { key: "support", label: "Suporte", icon: "MessageCircle", count: supportTickets.filter((t) => t.status === "open").length || undefined },
+            { key: "recuperacao", label: "Recuperação", icon: "MessageCircle" },
             ...(canManageRafflesTab ? [
               { key: "raffles" as TabType, label: "Rifas", icon: "Ticket", count: rafflesList.length || undefined },
             ] : []),
@@ -8306,6 +8308,8 @@ export default function Admin() {
             loading={recurringCustomersLoading}
             onRefresh={fetchRecurringCustomers}
           />
+        ) : tab === "recuperacao" ? (
+          <WhatsappRecoveryPanel />
         ) : tab === "support" ? (
           <SupportTicketsPanel
             tickets={supportTickets}

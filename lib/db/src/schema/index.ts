@@ -38,3 +38,4 @@ export * from "./seller-commission-payments";
 export * from "./filial-purchase-requests";
 export * from "./flash-offers";
 export * from "./whatsapp-support-sessions";
+export * from "./whatsapp-recovery-sends";

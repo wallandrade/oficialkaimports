@@ -3,6 +3,7 @@ import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { DEFAULT_TENANT_ID } from "./tenant-context";
 import { isUsableLabelBarcode } from "./envioecom-status";
 import { listOrderShipments } from "./order-shipments";
+import { phoneHasRecentRecovery } from "./whatsapp-recovery";
 import { inboundTypeShouldIgnore, normalizeWhatsappPhone } from "./whatsapp-notices";
 import {
   instanceMatchesPoly,
@@ -421,6 +422,16 @@ export async function handleWhatsappSupportInbound(rawBody: unknown, token: stri
   const menu = await loadMenu(auth.tenantId);
   const text = readText(body);
   let session = await readSession(phone);
+  if (!session && await phoneHasRecentRecovery(phone)) {
+    await sendText({
+      tenantId: auth.tenantId,
+      secondInstance,
+      phone,
+      message: "Obrigado por responder. Uma pessoa vai ler sua mensagem por aqui.",
+    });
+    await saveSession(phone, { step: "human", problem: "recuperacao", pendingOrder: null });
+    return { status: 200 };
+  }
   let state: SessionState = session || { step: "menu", problem: null, pendingOrder: null };
 
   if (!session) {

@@ -30,6 +30,7 @@ const EVENTS = {
   delivered: { env: "N8N_DELIVERED_WEBHOOK_URL", setting: "n8n_delivered_webhook_url" },
   support: { env: "N8N_SUPPORT_WEBHOOK_URL", setting: "n8n_support_webhook_url" },
   support_menu: { env: "N8N_SUPPORT_MENU_WEBHOOK_URL", setting: "n8n_support_menu_webhook_url" },
+  recovery: { env: "N8N_RECOVERY_WEBHOOK_URL", setting: "n8n_recovery_webhook_url" },
 } as const;
 
 export type WhatsappWebhookEvent = keyof typeof EVENTS;

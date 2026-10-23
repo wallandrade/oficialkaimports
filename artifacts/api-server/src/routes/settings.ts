@@ -87,6 +87,11 @@ const ALLOWED_KEYS = [
   "n8n_whatsapp_support_token",
   "n8n_support_attendant_phone",
   "n8n_support_ignore_phones",
+  "n8n_recovery_webhook_url",
+  "n8n_recovery_enabled",
+  "n8n_recovery_days",
+  "n8n_recovery_daily_limit",
+  "n8n_recovery_message",
   "whatsapp_support_menu",
   // Admin helpers
   "admin_saved_brands",

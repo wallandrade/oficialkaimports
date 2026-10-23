@@ -19,6 +19,7 @@ const FIELDS: Array<{ key: string; label: string; placeholder?: string }> = [
   { key: "n8n_support_webhook_url_poly", label: "Atendimento texto (segunda instância)", placeholder: "https://" },
   { key: "n8n_support_menu_webhook_url", label: "Atendimento (lista)", placeholder: "https://" },
   { key: "n8n_support_menu_webhook_url_poly", label: "Atendimento lista (segunda instância)", placeholder: "https://" },
+  { key: "n8n_recovery_webhook_url", label: "Recuperação", placeholder: "https://" },
 ];
 
 export function WhatsappN8nSettings({
