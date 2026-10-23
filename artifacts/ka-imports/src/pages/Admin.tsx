@@ -1,5 +1,6 @@
 import { getPendingShipmentCopy, pendingShipmentResumoHeading } from "@/lib/pending-shipment-copy";
 import { AdminFlashOffersPanel } from "@/components/admin/AdminFlashOffersPanel";
+import { WhatsappN8nSettings } from "@/components/admin/WhatsappN8nSettings";
 import { orderToPostPaymentText } from "@/lib/post-payment-message";
 import {
   emptyVariantGroupDraft,
@@ -22508,6 +22509,8 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
           <Button variant="outline" onClick={onTestOutboundWebhook}>Enviar teste</Button>
         </div>
       </div>
+
+      <WhatsappN8nSettings settings={settings} loading={loading} onSave={onSave} onDelete={onDelete} />
 
       {/* ── Integração Brevo ─────────────────────────────────────────────── */}
       <div className="max-w-3xl bg-card border border-border/60 rounded-2xl p-5 shadow-sm space-y-4">

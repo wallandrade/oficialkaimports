@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { db, orderShipmentsTable, ordersTable } from "@workspace/db";
 import { desc, eq, inArray } from "drizzle-orm";
 import { unlinkEnvioEcomBinding, type EnvioEcomShipmentPatch } from "./envioecom-order";
+import { dispatchShipmentWhatsapp } from "./whatsapp-n8n";
 import {
   grantInsuranceCashbackIfEligible,
 } from "./customer-wallet";
@@ -272,6 +273,15 @@ export async function persistEnvioEcomPackage(
   } catch (err) {
     console.warn("[CarrierLoss] Falha ao registrar extravio:", err);
   }
+  dispatchShipmentWhatsapp({
+    order,
+    packageKey: pkg.id,
+    previousStatus: pkg.envioecomStatus,
+    nextStatus: status,
+    previousCode: pkg.envioecomBarcode,
+    nextCode: barcode,
+    skipTracking: patch.skipTrackingWhatsapp,
+  });
   return { order: refreshedOrder, pkg: refreshedPkg };
 }
 

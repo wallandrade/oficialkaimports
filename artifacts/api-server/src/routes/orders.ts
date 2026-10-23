@@ -25,6 +25,7 @@ import { createOrRefreshReshipment, getReshipmentByOrderIds, registerInventoryEn
 import { lookupIpGeo } from "../lib/ip-geo";
 import { getR2MissingConfig, isR2Configured, uploadOrderTrackingLabelToR2 } from "../lib/r2";
 import { sendOutboundWebhook } from "../lib/outbound-webhook";
+import { scheduleOrderPaidWhatsapp, notifyOrderTrackingWhatsapp } from "../lib/whatsapp-n8n";
 import { parseFreeShippingMinSubtotalSetting, pickFreeShippingMinSubtotal, resolveShippingCostWithFreeThreshold } from "../lib/free-shipping";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 import { reserveNextOrderNumber } from "../lib/order-number";
@@ -1691,6 +1692,8 @@ router.post("/orders", async (req, res) => {
       broadcastNotification({ type: "order_paid", data: { id, status: "paid", tenantId } });
     }
 
+    if (payableAmount <= 0) scheduleOrderPaidWhatsapp(id);
+
     res.status(201).json({
       id,
       orderNumber: assignedOrderNumber,
@@ -2273,6 +2276,7 @@ router.patch("/admin/orders/:id/status", requireAdminAuth, async (req, res) => {
       await allocateOrderLogistics(id);
       if (!wasAlreadyPaid) {
         await enqueueFilialOrderPurchaseRequest(id);
+        scheduleOrderPaidWhatsapp(id);
       }
     }
 
@@ -2452,6 +2456,7 @@ router.patch("/admin/orders/:id/proof", requireAdminAuth, async (req, res) => {
     const priorStatus = String(existing[0]?.status || "").trim().toLowerCase();
     if (priorStatus !== "paid" && priorStatus !== "completed") {
       await enqueueFilialOrderPurchaseRequest(id);
+      scheduleOrderPaidWhatsapp(id);
     }
 
     const actor = actorFromAdminRequest(req);
@@ -4337,6 +4342,7 @@ router.patch("/admin/orders/:id/tracking-code", requireAdminAuth, async (req, re
         .where(buildAdminOrderWhere(id, adminScope))
         .limit(1);
       persistedOrder = updated[0] || current;
+      notifyOrderTrackingWhatsapp({ orderId: id, code: normalized });
     }
 
     broadcastNotification({ type: "order_tracking_updated", data: { id, trackingCode: normalized, tenantId: adminScope.tenantId } });

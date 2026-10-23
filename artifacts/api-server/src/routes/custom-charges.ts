@@ -13,6 +13,7 @@ import {
   isPaymentConfirmed,
 } from "../gateway";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
+import { scheduleOrderPaidWhatsapp } from "../lib/whatsapp-n8n";
 
 const router: IRouter = Router();
 
@@ -520,6 +521,10 @@ router.patch("/admin/custom-charges/:id/status", requireAdminAuth, async (req, r
             type: newOrderStatus === "paid" || newOrderStatus === "completed" ? "order_paid" : "order_status_updated",
             data: { id: existing.orderId, status: newOrderStatus, tenantId: scoped.scope.tenantId },
           });
+          const parentWasPaid = parentOrder[0].status === "paid" || parentOrder[0].status === "completed";
+          if (!parentWasPaid && (newOrderStatus === "paid" || newOrderStatus === "completed")) {
+            scheduleOrderPaidWhatsapp(existing.orderId);
+          }
         }
       }
     }
@@ -592,6 +597,10 @@ router.patch("/admin/custom-charges/:id/proof", requireAdminAuth, async (req, re
           type: newOrderStatus === "paid" || newOrderStatus === "completed" ? "order_paid" : "order_status_updated",
           data: { id: existing.orderId, status: newOrderStatus, tenantId: scoped.scope.tenantId },
         });
+        const parentWasPaid = parentOrder[0].status === "paid" || parentOrder[0].status === "completed";
+        if (!parentWasPaid && (newOrderStatus === "paid" || newOrderStatus === "completed")) {
+          scheduleOrderPaidWhatsapp(existing.orderId);
+        }
       }
     }
 

@@ -37,3 +37,4 @@ export * from "./marketing-expenses";
 export * from "./seller-commission-payments";
 export * from "./filial-purchase-requests";
 export * from "./flash-offers";
+export * from "./whatsapp-support-sessions";

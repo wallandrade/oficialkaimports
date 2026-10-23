@@ -9,6 +9,7 @@
 |------|--------|---------|-----------------|
 | 2026-10-23 | Cotação verde sem prazo de 180 dias | `deliveryHint` lê toda entrega da cidade. Nome curto da transportadora entra. “Correios” sozinho não une Sedex e Pac | Lista negra e a Yury |
 | 2026-10-23 | Cotação avisa entrega já feita na cidade | `POST /admin/envioecom/orders/:id/quote` devolve `deliveryHint` além de `lossAlert`. Lê `orders` e `order_shipments` da loja | Lista negra, snapshot da Yury, checkout e create |
+| 2026-10-23 | WhatsApp do cliente via n8n | Pedido pago, filmagem, rastreio, postado, saiu e entregue fazem POST `{ phone, message }` ou `{ phone, caption }`. Atendimento entra em `POST /api/whatsapp/support/inbound`. URL https vem do ambiente e, se vazio, da setting. Falha do n8n desfaz a marca | Pushcut continua em `sendOutboundWebhook`. Sem SuperFrete. IA e grupos não chamam a Z-API. `manual-tracking` não avisa rastreio |
 | 2026-10-22 | Cotação de extravio junta a Grande Vitória | `POST .../quote` lê Vitória, Vila Velha, Serra, Cariacica e Viana juntas, no caso nosso e no espelho da Yury. Região gravada (`city` ou `es-cep-290`) não separa essas cinco | Snapshot `loss-blacklist`, aba Lista negra e o DELETE |
 | 2026-10-22 | Rastreio de balcão não chama a EnvioEcom | `PATCH /admin/orders/:id/manual-tracking` só grava `manual_tracking_code` | Quote, create, etiqueta, webhook, sync e **Vincular EE** |
 | 2026-10-20 | Sync do pacote ignora código que já é de outro pacote do mesmo pedido | `POST .../sync` com `packageId` usa o envio, o barcode e a conta da linha. Código novo continua vinculando | Etiqueta EE, pedido sem divisão e `bind-id` |
@@ -94,6 +95,14 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 - **Rifa:** reserva e refresh do PIX usam o mesmo callback `/api/webhook/pix` (com `whsec` quando `WEBHOOK_SHARED_SECRET` existe). `handleCallback` grava `raffle_reservations.status = paid` pelo `transactionId` (ou `metadata.reservationId`). Recusa se a reserva expirou ou o número já está em outra reserva ativa/paga. `POST /api/webhook/raffle-pix` continua só para cobrança antiga. A página `/rifas/pix/:id` consulta `GET /api/raffles/reservations/lookup` no banco a cada 8s.
 - **Não** depender de GET transactions para confirmação (polling bloqueado no APPCNPay).
 - Status local: endpoints de status leem BD.
+
+## WhatsApp (n8n / Z-API)
+
+- A loja não chama a Z-API nos avisos. `lib/whatsapp-n8n.ts` faz POST https, 8 s, 2 tentativas. Sem 2xx, a marca sai. Filmagem sem URL não grava marca e não usa webhook de outro sistema.
+- Pago e filmagem: `paid_whatsapp_sent_at` e `filmagem_whatsapp_sent_at`. Frete: JSON em `orders` (`tracking_whatsapp_codes`, `posted_whatsapp_keys`, `out_for_delivery_whatsapp_keys`, `delivered_whatsapp_keys`). Chave do pacote é o id de `order_shipments`; envio único usa `order`.
+- Rastreio, postado, saiu e entregue saem de `persistEnvioEcomShipment` e `persistEnvioEcomPackage`. O create passa `skipTrackingWhatsapp` e avisa o rastreio uma vez no fim. Código `EC`, aguardando coleta e etiqueta pronta não avisam. “Saiu para entrega” também dispara a filmagem de entrega, uma vez por pedido.
+- Segunda instância: slugs em `n8n_second_instance_seller_slugs`. Sem a URL `*_poly`, o aviso de pedido usa a URL principal. No atendimento, `instanceId` compara com `n8n_poly_instance_id` (só o ID). Sem URL de lista dessa instância, o menu não responde.
+- Sessão `whatsapp_support_sessions`: `phone`, `step`, `problem`, `pending_order`, `updated_at`. As 2 horas são `agora - updated_at`. Senha `n8n_whatsapp_support_token` fica fora de `PUBLIC_KEYS`. `type` vazio segue.
 
 ## Storage
 

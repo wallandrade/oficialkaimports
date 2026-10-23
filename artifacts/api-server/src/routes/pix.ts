@@ -14,6 +14,7 @@ import {
 } from "../gateway";
 import { ensureOrderCommission } from "../lib/affiliates";
 import { sendOutboundWebhook } from "../lib/outbound-webhook";
+import { scheduleOrderPaidWhatsapp } from "../lib/whatsapp-n8n";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 import { enqueueFilialOrderPurchaseRequest } from "../lib/filial-purchase-queue";
 import { allocateOrderLogistics } from "../lib/order-logistics";
@@ -263,6 +264,7 @@ router.post("/pix/callback/:token", async (req, res) => {
       if (existing[0] && existing[0].status !== "paid" && existing[0].status !== "completed") {
         await ensureOrderCommission(existing[0].id);
         await enqueueFilialOrderPurchaseRequest(existing[0].id);
+        scheduleOrderPaidWhatsapp(existing[0].id);
       }
       if (existing[0]) await allocateOrderLogistics(existing[0].id);
 

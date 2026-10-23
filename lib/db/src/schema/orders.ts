@@ -97,6 +97,13 @@ export const ordersTable = mysqlTable("orders", {
   bankDepositPayerName: varchar("bank_deposit_payer_name", { length: 255 }),
   bankDepositPostedAt: varchar("bank_deposit_posted_at", { length: 10 }),
   bankDepositMatchedAt: timestamp("bank_deposit_matched_at"),
+  paidWhatsappSentAt: timestamp("paid_whatsapp_sent_at"),
+  filmagemWhatsappSentAt: timestamp("filmagem_whatsapp_sent_at"),
+  filmagemDeliveryWhatsappSentAt: timestamp("filmagem_delivery_whatsapp_sent_at"),
+  trackingWhatsappCodes: json("tracking_whatsapp_codes"),
+  postedWhatsappKeys: json("posted_whatsapp_keys"),
+  outForDeliveryWhatsappKeys: json("out_for_delivery_whatsapp_keys"),
+  deliveredWhatsappKeys: json("delivered_whatsapp_keys"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

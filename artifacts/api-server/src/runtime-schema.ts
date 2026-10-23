@@ -333,6 +333,13 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
     { name: "reshipment_covered_amount", sql: "ALTER TABLE orders ADD COLUMN reshipment_covered_amount DECIMAL(10,2) NULL" },
     { name: "store_credit_used", sql: "ALTER TABLE orders ADD COLUMN store_credit_used DECIMAL(10,2) NULL" },
     { name: "observation_visible_to_customer", sql: "ALTER TABLE orders ADD COLUMN observation_visible_to_customer TINYINT(1) NOT NULL DEFAULT 0" },
+    { name: "paid_whatsapp_sent_at", sql: "ALTER TABLE orders ADD COLUMN paid_whatsapp_sent_at TIMESTAMP NULL" },
+    { name: "filmagem_whatsapp_sent_at", sql: "ALTER TABLE orders ADD COLUMN filmagem_whatsapp_sent_at TIMESTAMP NULL" },
+    { name: "filmagem_delivery_whatsapp_sent_at", sql: "ALTER TABLE orders ADD COLUMN filmagem_delivery_whatsapp_sent_at TIMESTAMP NULL" },
+    { name: "tracking_whatsapp_codes", sql: "ALTER TABLE orders ADD COLUMN tracking_whatsapp_codes JSON NULL" },
+    { name: "posted_whatsapp_keys", sql: "ALTER TABLE orders ADD COLUMN posted_whatsapp_keys JSON NULL" },
+    { name: "out_for_delivery_whatsapp_keys", sql: "ALTER TABLE orders ADD COLUMN out_for_delivery_whatsapp_keys JSON NULL" },
+    { name: "delivered_whatsapp_keys", sql: "ALTER TABLE orders ADD COLUMN delivered_whatsapp_keys JSON NULL" },
   ];
 
   for (const definition of definitions) {
@@ -1723,6 +1730,20 @@ async function ensureYuryInventoryBalancesTable(databaseName: string): Promise<v
   `);
 }
 
+async function ensureWhatsappSupportSessionsTable(databaseName: string): Promise<void> {
+  if (await tableExists("whatsapp_support_sessions", databaseName)) return;
+  await pool.query(`
+    CREATE TABLE whatsapp_support_sessions (
+      phone VARCHAR(32) NOT NULL,
+      step VARCHAR(32) NOT NULL DEFAULT 'menu',
+      problem VARCHAR(64) NULL,
+      pending_order VARCHAR(64) NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (phone)
+    )
+  `);
+}
+
 export async function ensureRuntimeSchema(): Promise<void> {
   try {
     const databaseName = getDatabaseName();
@@ -1733,6 +1754,7 @@ export async function ensureRuntimeSchema(): Promise<void> {
 
     await ensureTenantsTables(databaseName);
     await ensureOrdersColumns(databaseName);
+    await ensureWhatsappSupportSessionsTable(databaseName);
     await ensureOrderBankDepositsTable(databaseName);
     await ensureProductsColumns(databaseName);
     await ensureSellersColumns(databaseName);

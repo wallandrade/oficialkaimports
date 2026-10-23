@@ -14,6 +14,7 @@ import {
 import { getCustomerSession } from "../middlewares/customer-auth";
 import { applyAffiliateCreditToOrder, ensureOrderCommission, normalizeAffiliateCode, registerAffiliateLead, resolveAffiliateByCode } from "../lib/affiliates";
 import { sendOutboundWebhook } from "../lib/outbound-webhook";
+import { scheduleOrderPaidWhatsapp } from "../lib/whatsapp-n8n";
 import { lookupIpGeo } from "../lib/ip-geo";
 import { parseFreeShippingMinSubtotalSetting, pickFreeShippingMinSubtotal, resolveShippingCostWithFreeThreshold } from "../lib/free-shipping";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
@@ -712,6 +713,7 @@ router.post("/checkout/pix", async (req, res) => {
         coveredByAffiliateCredit: affiliateCreditUsed > 0,
         coveredByStoreCredit: storeCreditUsed > 0,
       }, { tenantId });
+      scheduleOrderPaidWhatsapp(orderId);
       res.json({
         orderId,
         affiliateCode: affiliateUserId ? normalizedAffiliateCode : null,

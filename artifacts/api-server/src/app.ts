@@ -434,7 +434,7 @@ app.use("/webhooks/yury/motoboy-coverage", express.raw({ type: () => true, limit
 app.use("/api/webhooks/yury/inventory", express.raw({ type: () => true, limit: "1mb" }), yuryInventoryWebhookRouter);
 app.use("/webhooks/yury/inventory", express.raw({ type: () => true, limit: "1mb" }), yuryInventoryWebhookRouter);
 
-app.use(cors({
+const apiCors = cors({
   origin: async (origin, callback) => {
     if (await isOriginAllowedAsync(origin)) {
       callback(null, true);
@@ -444,8 +444,25 @@ app.use(cors({
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Yury-Signature", "X-Yury-Timestamp", "X-Yury-Event-Id"],
-}));
+  allowedHeaders: ["Content-Type", "Authorization", "X-Yury-Signature", "X-Yury-Timestamp", "X-Yury-Event-Id", "x-whatsapp-support-token"],
+});
+
+app.use((req, res, next) => {
+  if (req.path !== "/api/whatsapp/support/inbound") {
+    apiCors(req, res, next);
+    return;
+  }
+  const origin = req.get("origin");
+  res.setHeader("Access-Control-Allow-Origin", origin || "*");
+  res.setHeader("Vary", "Origin");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-whatsapp-support-token");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  if (req.method === "OPTIONS") {
+    res.sendStatus(204);
+    return;
+  }
+  next();
+});
 
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");

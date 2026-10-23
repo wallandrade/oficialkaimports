@@ -20,6 +20,7 @@ import { ensureOrderMarkedEnviado } from "./order-enviado";
 import { markOpenReshipmentSentIfLabeled } from "./reshipments";
 import { grantInsuranceCashbackIfEligible } from "./customer-wallet";
 import { recordAutomaticCarrierLoss } from "./carrier-loss-store";
+import { dispatchShipmentWhatsapp, SINGLE_SHIPMENT_WHATSAPP_KEY } from "./whatsapp-n8n";
 
 export type EnvioEcomShipmentPatch = {
   shipmentId?: number | null;
@@ -37,6 +38,8 @@ export type EnvioEcomShipmentPatch = {
   reshipmentPassword?: string;
   /** A rota de etiqueta fecha o reenvio depois, com a senha. */
   skipReshipmentClose?: boolean;
+  /** Create avisa o rastreio uma vez no fim. O persist dessa chamada não avisa. */
+  skipTrackingWhatsapp?: boolean;
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -223,6 +226,15 @@ export async function persistEnvioEcomShipment(order: typeof ordersTable.$inferS
   }
 
   const refreshed = await db.select().from(ordersTable).where(eq(ordersTable.id, order.id)).limit(1);
+  dispatchShipmentWhatsapp({
+    order,
+    packageKey: SINGLE_SHIPMENT_WHATSAPP_KEY,
+    previousStatus: order.envioecomStatus,
+    nextStatus: status,
+    previousCode: order.envioecomBarcode || order.trackingCode,
+    nextCode: barcode,
+    skipTracking: patch.skipTrackingWhatsapp,
+  });
   return refreshed[0] || order;
 }
 

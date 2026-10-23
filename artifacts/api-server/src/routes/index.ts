@@ -41,6 +41,7 @@ import lossBlacklistSyncRouter from "./loss-blacklist-sync";
 import bankStatementRouter from "./bank-statement";
 import walletRouter from "./wallet";
 import flashOffersRouter from "./flash-offers";
+import whatsappSupportRouter from "./whatsapp-support";
 const router: IRouter = Router();
 
 router.use(healthRouter);
@@ -84,5 +85,6 @@ router.use(lossBlacklistSyncRouter);
 router.use(bankStatementRouter);
 router.use(walletRouter);
 router.use(flashOffersRouter);
+router.use(whatsappSupportRouter);
 
 export default router;

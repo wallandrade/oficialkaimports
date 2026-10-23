@@ -21,6 +21,7 @@ import { findTenantIdByPixTransactionId } from "../lib/pix-gateway-credentials";
 import { incrementCouponUse } from "./coupons";
 import { ensureOrderCommission } from "../lib/affiliates";
 import { sendOutboundWebhook } from "../lib/outbound-webhook";
+import { scheduleOrderPaidWhatsapp } from "../lib/whatsapp-n8n";
 import { requirePrimaryAdmin } from "./admin-auth";
 import { enqueueFilialOrderPurchaseRequest } from "../lib/filial-purchase-queue";
 import { allocateOrderLogistics, releaseOrderLogistics } from "../lib/order-logistics";
@@ -135,6 +136,7 @@ async function handleCallback(body: GatewayCallback) {
               transactionId,
               status: newStatus,
             }, { tenantId: row.tenantId || "tenant_loja1" });
+            scheduleOrderPaidWhatsapp(row.id);
           }
 
           console.log(`[WEBHOOK] Order ${row.id} updated to ${newStatus}`);
@@ -223,6 +225,8 @@ async function handleCallback(body: GatewayCallback) {
                   status: newOrderStatus,
                   source: "difference_charge",
                 }, { tenantId: row.tenantId || "tenant_loja1" });
+                const parentWasPaid = parentOrder[0].status === "paid" || parentOrder[0].status === "completed";
+                if (!parentWasPaid) scheduleOrderPaidWhatsapp(row.orderId);
               }
 
               if (newOrderStatus === "paid" || newOrderStatus === "completed") {
@@ -487,6 +491,7 @@ router.post("/webhook", async (req, res) => {
             status: newStatus,
             source: "universal_webhook",
           }, { tenantId: rows[0]!.tenantId || "tenant_loja1" });
+          scheduleOrderPaidWhatsapp(rawOrderId);
         }
         console.log(`[WEBHOOK/universal] Order ${rawOrderId} → ${newStatus}`);
         res.json({ ok: true, matched: true, updated: "order", id: rawOrderId, status: newStatus });
@@ -552,6 +557,7 @@ router.post("/webhook/pix/order/:token/:orderId", async (req, res) => {
           status: "paid",
           source: "direct_order_webhook",
         }, { tenantId: rows[0]!.tenantId || "tenant_loja1" });
+        scheduleOrderPaidWhatsapp(orderId);
         console.log(`[WEBHOOK] Order ${orderId} paid via direct URL`);
       }
       if (rows.length > 0) await allocateOrderLogistics(orderId);
@@ -628,6 +634,8 @@ router.post("/webhook/pix/charge/:token/:chargeId", async (req, res) => {
                 status: newOrderStatus,
                 source: "direct_charge_webhook",
               }, { tenantId: rows[0]!.tenantId || "tenant_loja1" });
+              const parentWasPaid = parentOrder[0].status === "paid" || parentOrder[0].status === "completed";
+              if (!parentWasPaid) scheduleOrderPaidWhatsapp(rows[0]!.orderId);
             }
             console.log(`[WEBHOOK] Order ${rows[0]!.orderId} auto-updated to ${newOrderStatus} after diff charge (direct URL)`);
 

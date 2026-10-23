@@ -5,6 +5,7 @@ import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { getCustomerSession, requireCustomerAuth } from "../middlewares/customer-auth";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 import { actorFromAdminRequest, addOrderEvent } from "../lib/order-events";
+import { notifyOrderTrackingWhatsapp } from "../lib/whatsapp-n8n";
 import { carrierDisplayName, isAllowedManualCarrier } from "../lib/carrier-loss";
 import {
   attachLossAlerts,
@@ -349,10 +350,14 @@ async function refreshShipment(
   client: EnvioEcomClient,
   order: typeof ordersTable.$inferSelect,
   account?: EnvioEcomAccountAuth,
+  options?: { skipTrackingWhatsapp?: boolean },
 ) {
   const details = await resolveLiveShipmentRefs(client, order, {});
   if (!details) return order;
-  return persistShipmentForAccount(order, parseShipmentDetails(details), account);
+  return persistShipmentForAccount(order, {
+    ...parseShipmentDetails(details),
+    skipTrackingWhatsapp: options?.skipTrackingWhatsapp,
+  }, account);
 }
 
 async function softRefreshPackagesWithFallback(tenantId: string, order: typeof ordersTable.$inferSelect) {
@@ -1116,19 +1121,26 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       ...parseCreatedShipment(created),
       deliveryMode: shippingCompany,
       externalOrderNumber,
+      skipTrackingWhatsapp: true,
     };
     let persistedOrder = workingOrder;
+    let trackingCodeForWhatsapp = "";
     if (workingPkg) {
       const persisted = await persistEnvioEcomPackage(workingOrder, workingPkg, {
         ...createdPatch,
         accountId: scoped.account.accountId,
       });
       persistedOrder = persisted.order;
+      trackingCodeForWhatsapp = String(persisted.pkg.envioecomBarcode || "").trim();
       try {
         const live = await resolveLiveShipmentRefs(scoped.client, orderBoundFromPackage(persisted.order, persisted.pkg), {});
         if (live) {
-          const refreshed = await persistEnvioEcomPackage(persisted.order, persisted.pkg, parseShipmentDetails(live));
+          const refreshed = await persistEnvioEcomPackage(persisted.order, persisted.pkg, {
+            ...parseShipmentDetails(live),
+            skipTrackingWhatsapp: true,
+          });
           persistedOrder = refreshed.order;
+          trackingCodeForWhatsapp = String(refreshed.pkg.envioecomBarcode || trackingCodeForWhatsapp).trim();
         }
       } catch (err) {
         console.warn("[EnvioEcom] Sync pós-create falhou:", err);
@@ -1136,11 +1148,17 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
     } else {
       persistedOrder = await persistShipmentForAccount(workingOrder, createdPatch, scoped.account);
       try {
-        persistedOrder = await refreshShipment(scoped.client, persistedOrder, scoped.account);
+        persistedOrder = await refreshShipment(scoped.client, persistedOrder, scoped.account, { skipTrackingWhatsapp: true });
       } catch (err) {
         console.warn("[EnvioEcom] Sync pós-create falhou:", err);
       }
+      trackingCodeForWhatsapp = String(persistedOrder.envioecomBarcode || persistedOrder.trackingCode || "").trim();
     }
+    notifyOrderTrackingWhatsapp({
+      orderId: order.id,
+      packageKey: workingPkg?.id || null,
+      code: trackingCodeForWhatsapp,
+    });
     await addOrderEvent({
       orderId: order.id,
       tenantId: admin.tenantId,
