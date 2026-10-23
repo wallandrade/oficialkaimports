@@ -14,7 +14,7 @@ import {
   whatsappSupportTokenMatches,
 } from "./whatsapp-n8n";
 
-const SESSION_MS = 2 * 60 * 60 * 1000;
+const SESSION_MS = 60 * 1000;
 const RATE_WINDOW_MS = 10 * 60 * 1000;
 const RATE_MAX = 20;
 const MENU_BUTTON = "Ver opções";
