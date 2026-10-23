@@ -157,10 +157,60 @@ async function ignoredPhones(): Promise<Set<string>> {
   return phones;
 }
 
+export function parseRecoveryMoney(raw: unknown): number {
+  if (typeof raw === "number") return Number.isFinite(raw) ? raw : 0;
+  const text = String(raw ?? "").trim();
+  if (!text) return 0;
+  const cleaned = text.replace(/[^\d,.-]/g, "");
+  if (!cleaned) return 0;
+  const normalized = cleaned.includes(",") ? cleaned.replace(/\./g, "").replace(",", ".") : cleaned;
+  const value = Number(normalized);
+  return Number.isFinite(value) ? value : 0;
+}
+
+/** Celular antigo sem o 9 e o número atual caem na mesma chave. */
+export function canonicalRecoveryPhone(value: unknown): string | null {
+  const normalized = normalizeWhatsappPhone(value);
+  if (!normalized) return null;
+  const national = normalized.startsWith("55") ? normalized.slice(2) : normalized;
+  if (national.length === 10 && /^[6-9]/.test(national.slice(2))) {
+    return `55${national.slice(0, 2)}9${national.slice(2)}`;
+  }
+  if (national.length === 11) return `55${national}`;
+  return normalized;
+}
+
+export function recoveryOrderAmount(input: {
+  total: unknown;
+  paidAmount?: unknown;
+  products?: unknown;
+  shippingCost?: unknown;
+  discountAmount?: unknown;
+}): number {
+  const total = parseRecoveryMoney(input.total);
+  if (total > 0) return total;
+  const paid = parseRecoveryMoney(input.paidAmount);
+  if (paid > 0) return paid;
+  const products = Array.isArray(input.products) ? input.products : [];
+  let lines = 0;
+  for (const item of products) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as { quantity?: unknown; price?: unknown; lineDiscount?: unknown };
+    const quantity = Math.max(0, parseRecoveryMoney(row.quantity));
+    if (quantity <= 0) continue;
+    const gross = quantity * Math.max(0, parseRecoveryMoney(row.price));
+    const discount = Math.min(gross, Math.max(0, parseRecoveryMoney(row.lineDiscount)));
+    lines += gross - discount;
+  }
+  return Math.max(0, lines + parseRecoveryMoney(input.shippingCost) - parseRecoveryMoney(input.discountAmount));
+}
+
 export function addRecoverySpend(spentCents: Map<string, number>, phone: string, total: unknown): void {
-  const amount = Number(total);
-  if (!Number.isFinite(amount)) return;
-  spentCents.set(phone, (spentCents.get(phone) || 0) + Math.round(amount * 100));
+  const key = canonicalRecoveryPhone(phone);
+  if (!key) return;
+  const amount = typeof total === "number" ? total : parseRecoveryMoney(total);
+  if (!Number.isFinite(amount) || amount === 0) return;
+  spentCents.set(key, (spentCents.get(key) || 0) + Math.round(amount * 100));
 }
 
 async function loadPaidOrders(): Promise<{ customers: RecoveryCustomer[]; spentCents: Map<string, number> }> {
@@ -170,6 +220,10 @@ async function loadPaidOrders(): Promise<{ customers: RecoveryCustomer[]; spentC
       name: ordersTable.clientName,
       createdAt: ordersTable.createdAt,
       total: ordersTable.total,
+      paidAmount: ordersTable.paidAmount,
+      products: ordersTable.products,
+      shippingCost: ordersTable.shippingCost,
+      discountAmount: ordersTable.discountAmount,
     })
     .from(ordersTable)
     .where(inArray(ordersTable.status, ["paid", "completed"]));
@@ -178,7 +232,7 @@ async function loadPaidOrders(): Promise<{ customers: RecoveryCustomer[]; spentC
   for (const row of rows) {
     const phone = normalizeWhatsappPhone(row.phone);
     if (!phone) continue;
-    addRecoverySpend(spentCents, phone, row.total);
+    addRecoverySpend(spentCents, phone, recoveryOrderAmount(row));
     if (!row.createdAt) continue;
     const current = byPhone.get(phone);
     if (!current || row.createdAt.getTime() > current.lastAt.getTime()) {
@@ -222,7 +276,7 @@ export async function recoverySnapshot(tenantId = DEFAULT_TENANT_ID) {
     recent: recent.map((row) => ({
       phone: row.phone,
       name: row.customerName || "",
-      spent: (paid.spentCents.get(row.phone) || 0) / 100,
+      spent: (paid.spentCents.get(canonicalRecoveryPhone(row.phone) || "") || 0) / 100,
       sentAt: row.sentAt ? new Date(row.sentAt).toISOString() : null,
       lastOrderAt: row.lastOrderAt ? new Date(row.lastOrderAt).toISOString() : null,
     })),

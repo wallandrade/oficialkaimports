@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addRecoverySpend, pickRecoveryCandidate, recoveryMessage } from "./whatsapp-recovery";
+import { addRecoverySpend, canonicalRecoveryPhone, pickRecoveryCandidate, recoveryMessage, recoveryOrderAmount } from "./whatsapp-recovery";
 
 const day = 24 * 60 * 60 * 1000;
 
@@ -36,10 +36,20 @@ test("recuperação não repete o mesmo telefone quando a data gravada volta um 
 test("gasto soma só os pedidos pagos do mesmo telefone", () => {
   const spent = new Map<string, number>();
   addRecoverySpend(spent, "5511986747851", "80.50");
-  addRecoverySpend(spent, "5511986747851", 19.5);
+  addRecoverySpend(spent, "11986747851", 19.5);
   addRecoverySpend(spent, "5561996250634", "10.00");
   assert.equal(spent.get("5511986747851"), 10000);
-  assert.equal((spent.get("5511986747851") || 0) / 100, 100);
+  assert.equal(canonicalRecoveryPhone("556196250634"), "5561996250634");
+});
+
+test("pedido antigo sem total usa o valor pago ou os produtos", () => {
+  assert.equal(recoveryOrderAmount({ total: "0.00", paidAmount: "150,00" }), 150);
+  assert.equal(recoveryOrderAmount({
+    total: 0,
+    products: [{ quantity: 2, price: "40.00", lineDiscount: 10 }],
+    shippingCost: "20.00",
+    discountAmount: 0,
+  }), 90);
 });
 
 test("mensagem troca o primeiro nome", () => {
