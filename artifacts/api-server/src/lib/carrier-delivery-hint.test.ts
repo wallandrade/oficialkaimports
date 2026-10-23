@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  carrierKeysMatch,
   collectDeliveryHits,
   deliveryHintForCarrier,
   isDeliveredHintStatus,
   type CarrierDeliverySource,
 } from "./carrier-delivery-hint";
 
-const since = new Date("2026-04-26T12:00:00.000Z");
 const recent = new Date("2026-10-12T15:00:00.000Z");
 const older = new Date("2026-10-01T15:00:00.000Z");
 
@@ -32,13 +32,22 @@ test("só conta status de entrega, sem devolução e sem não entregue", () => {
   assert.equal(isDeliveredHintStatus("Devolvido ao remetente"), false);
   assert.equal(isDeliveredHintStatus("Não entregue"), false);
   assert.equal(isDeliveredHintStatus("Cancelado"), false);
+  assert.equal(isDeliveredHintStatus("Entrega realizada"), true);
+  assert.equal(isDeliveredHintStatus("Saiu para entrega"), false);
+});
+
+test("Sedex casa com Correios Sedex e Loggi com Ponto Loggi", () => {
+  assert.equal(carrierKeysMatch("Correios Sedex", "SEDEX"), true);
+  assert.equal(carrierKeysMatch("Ponto Loggi envioEcom", "Loggi"), true);
+  assert.equal(carrierKeysMatch("Correios Pac", "Correios Sedex"), false);
+  assert.equal(carrierKeysMatch("Correios", "Correios Sedex"), false);
+  assert.equal(carrierKeysMatch("J&T Express", "Total Express"), false);
 });
 
 test("a mesma cidade e a mesma transportadora citam o pedido mais recente", () => {
   const hits = collectDeliveryHits(
     { city: "Vitoria", state: "es" },
     "order-atual",
-    since,
     [
       row({ orderId: "a", orderNumber: 2401, deliveredAt: older, cityName: "Vitoria" }),
       row({ orderId: "b", orderNumber: 2500, deliveredAt: recent, carrierName: "J&T Express" }),
@@ -53,13 +62,21 @@ test("a mesma cidade e a mesma transportadora citam o pedido mais recente", () =
   assert.equal(hint?.message, "Vitória/ES já recebeu pela J&T Express (pedido #2500, 12/10).");
   assert.equal(deliveryHintForCarrier("Jadlog envioEcom", hits)?.message, "Vitória/ES já recebeu pela Jadlog (pedido #2700, 12/10).");
   assert.equal(deliveryHintForCarrier("Correios Pac", hits), null);
+  const oldOnly = collectDeliveryHits(
+    { city: "Vitória", state: "ES" },
+    "",
+    [row({ orderId: "old", orderNumber: 900, deliveredAt: new Date("2024-03-02T15:00:00.000Z"), carrierName: "SEDEX" })],
+  );
+  assert.equal(
+    deliveryHintForCarrier("Correios Sedex", oldOnly)?.message,
+    "Vitória/ES já recebeu pela SEDEX (pedido #900, 02/03).",
+  );
 });
 
 test("pedido dividido entra pelo pacote e o pai fica de fora", () => {
   const hits = collectDeliveryHits(
     { city: "Vitória", state: "ES" },
     "",
-    since,
     [
       row({ orderId: "split", fromPackage: false, packageCount: 2, carrierName: "Jadlog", orderNumber: 1 }),
       row({

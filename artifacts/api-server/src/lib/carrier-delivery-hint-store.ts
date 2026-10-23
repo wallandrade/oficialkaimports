@@ -1,6 +1,6 @@
-import { and, eq, gte, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { db, orderShipmentsTable, ordersTable } from "@workspace/db";
-import { CARRIER_LOSS_WINDOW_MS, foldPlace, stateCode } from "./carrier-loss";
+import { foldPlace, stateCode } from "./carrier-loss";
 import {
   collectDeliveryHits,
   deliveryHintForCarrier,
@@ -53,7 +53,6 @@ export async function attachDeliveryHints<T extends Record<string, unknown>>(
   if (!city || !state) {
     return quotes.map((quote) => ({ ...quote, deliveryHint: null }));
   }
-  const since = new Date(Date.now() - CARRIER_LOSS_WINDOW_MS);
   const skipId = String(excludeOrderId || "").trim() || "__none__";
   const place = () => and(
     orderTenantWhere(tenantId),
@@ -72,11 +71,7 @@ export async function attachDeliveryHints<T extends Record<string, unknown>>(
       state: ordersTable.addressState,
     }).from(ordersTable).where(and(
       place(),
-      sql`lower(${ordersTable.envioecomStatus}) like '%entregue%'`,
-      or(
-        gte(ordersTable.envioecomStatusUpdatedAt, since),
-        and(isNull(ordersTable.envioecomStatusUpdatedAt), gte(ordersTable.updatedAt, since)),
-      ),
+      deliveredStatusSql(ordersTable.envioecomStatus),
     )),
     db.select({
       orderId: orderShipmentsTable.orderId,
@@ -92,11 +87,7 @@ export async function attachDeliveryHints<T extends Record<string, unknown>>(
       eq(orderShipmentsTable.orderId, ordersTable.id),
     ).where(and(
       place(),
-      sql`lower(${orderShipmentsTable.envioecomStatus}) like '%entregue%'`,
-      or(
-        gte(orderShipmentsTable.envioecomStatusUpdatedAt, since),
-        and(isNull(orderShipmentsTable.envioecomStatusUpdatedAt), gte(orderShipmentsTable.updatedAt, since)),
-      ),
+      deliveredStatusSql(orderShipmentsTable.envioecomStatus),
     )),
   ]);
   const counts = await packageCounts([
@@ -107,11 +98,19 @@ export async function attachDeliveryHints<T extends Record<string, unknown>>(
     ...orderRows.map((row) => toSource(row, false, counts)),
     ...packageRows.map((row) => toSource(row, true, counts)),
   ];
-  const hits = collectDeliveryHits(destination, excludeOrderId, since, sources);
+  const hits = collectDeliveryHits(destination, excludeOrderId, sources);
   return quotes.map((quote) => ({
     ...quote,
     deliveryHint: deliveryHintForCarrier(quote.carrier || quote.shipping_company, hits),
   }));
+}
+
+function deliveredStatusSql(status: typeof ordersTable.envioecomStatus | typeof orderShipmentsTable.envioecomStatus) {
+  return sql`(
+    lower(${status}) like '%entregue%'
+    or lower(${status}) like '%entrega realizada%'
+    or lower(${status}) like '%entrega efetuada%'
+  )`;
 }
 
 function toSource(

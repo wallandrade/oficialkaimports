@@ -22,6 +22,8 @@ export type CarrierDeliverySource = {
   fromPackage: boolean;
 };
 
+const GENERIC_CARRIER_WORDS = new Set(["correios", "express", "envio", "envios", "entrega"]);
+
 export function isDeliveredHintStatus(status: unknown): boolean {
   const normalized = String(status || "")
     .normalize("NFD")
@@ -29,13 +31,28 @@ export function isDeliveredHintStatus(status: unknown): boolean {
     .trim()
     .toLowerCase();
   if (!normalized || normalized.includes("nao entregue")) return false;
+  if (normalized.includes("cancelad") || normalized.includes("cancelamento")) return false;
+  if (normalized.includes("devolucao") || normalized.includes("devolvido")) return false;
+  if (normalized.includes("entrega realizada") || normalized.includes("entrega efetuada")) return true;
   return shouldMarkCompletedFromStatus(status);
+}
+
+export function carrierKeysMatch(left: unknown, right: unknown): boolean {
+  const a = carrierKey(left);
+  const b = carrierKey(right);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const [shorter, longer] = a.length <= b.length ? [a, b] : [b, a];
+  if (GENERIC_CARRIER_WORDS.has(shorter)) return false;
+  const shortWords = shorter.split(" ").filter(Boolean);
+  const longWords = longer.split(" ");
+  if (!shortWords.length || shortWords.every((word) => GENERIC_CARRIER_WORDS.has(word))) return false;
+  return shortWords.every((word) => longWords.includes(word));
 }
 
 export function collectDeliveryHits(
   destination: { city?: string | null; state?: string | null },
   excludeOrderId: string,
-  since: Date,
   rows: CarrierDeliverySource[],
 ): CarrierDeliveryHit[] {
   const city = foldPlace(destination.city);
@@ -47,7 +64,7 @@ export function collectDeliveryHits(
     if (skipOrderId && row.orderId === skipOrderId) continue;
     if (row.fromPackage ? row.packageCount < 2 : row.packageCount >= 2) continue;
     if (foldPlace(row.cityName) !== city || stateCode(row.state) !== state) continue;
-    if (!row.deliveredAt || row.deliveredAt.getTime() < since.getTime()) continue;
+    if (!row.deliveredAt) continue;
     if (!isDeliveredHintStatus(row.status)) continue;
     const key = carrierKey(row.carrierName);
     if (!key) continue;
@@ -67,10 +84,9 @@ export function deliveryHintForCarrier(
   carrierRaw: unknown,
   hits: CarrierDeliveryHit[],
 ): { message: string } | null {
-  const key = carrierKey(carrierRaw);
-  if (!key) return null;
+  if (!carrierKey(carrierRaw)) return null;
   const match = hits
-    .filter((hit) => hit.carrierKey === key)
+    .filter((hit) => carrierKeysMatch(carrierRaw, hit.carrierName))
     .sort((a, b) => b.deliveredAt.getTime() - a.deliveredAt.getTime())[0];
   if (!match) return null;
   return { message: deliveryHintMessage(match) };
