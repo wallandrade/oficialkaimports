@@ -91,6 +91,8 @@ const ALLOWED_KEYS = [
   "n8n_recovery_enabled",
   "n8n_recovery_days",
   "n8n_recovery_daily_limit",
+  "n8n_recovery_start_hour",
+  "n8n_recovery_end_hour",
   "n8n_recovery_message",
   "whatsapp_support_menu",
   // Admin helpers

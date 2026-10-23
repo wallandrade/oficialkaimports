@@ -7,6 +7,8 @@ import { postWhatsappWebhook, resolveWhatsappWebhookUrl } from "./whatsapp-n8n";
 
 export const RECOVERY_DEFAULT_DAYS = 40;
 export const RECOVERY_DEFAULT_DAILY_LIMIT = 40;
+export const RECOVERY_DEFAULT_START_HOUR = 10;
+export const RECOVERY_DEFAULT_END_HOUR = 19;
 export const RECOVERY_REPLY_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 
 const RECOVERY_OLD_MESSAGE = [
@@ -178,9 +180,22 @@ function saoPauloParts(now = new Date()): { ymd: string; hour: number } {
   return { ymd, hour };
 }
 
-export function recoveryQuietHours(now = new Date()): boolean {
+export function normalizeRecoveryHours(startRaw: unknown, endRaw: unknown): { startHour: number; endHour: number } | null {
+  const start = Math.trunc(Number(startRaw));
+  const end = Math.trunc(Number(endRaw));
+  if (!Number.isInteger(start) || start < 0 || start > 23) return null;
+  if (!Number.isInteger(end) || end < 1 || end > 24) return null;
+  if (end <= start) return null;
+  return { startHour: start, endHour: end };
+}
+
+export function recoveryQuietHours(now = new Date(), startHour = RECOVERY_DEFAULT_START_HOUR, endHour = RECOVERY_DEFAULT_END_HOUR): boolean {
+  const hours = normalizeRecoveryHours(startHour, endHour) || {
+    startHour: RECOVERY_DEFAULT_START_HOUR,
+    endHour: RECOVERY_DEFAULT_END_HOUR,
+  };
   const { hour } = saoPauloParts(now);
-  return hour < 10 || hour >= 19;
+  return hour < hours.startHour || hour >= hours.endHour;
 }
 
 function saoPauloDayStart(now = new Date()): Date {
@@ -198,19 +213,27 @@ async function settingValue(tenantId: string, key: string): Promise<string> {
 }
 
 export async function recoverySettings(tenantId = DEFAULT_TENANT_ID) {
-  const [enabledRaw, daysRaw, limitRaw, message, webhook] = await Promise.all([
+  const [enabledRaw, daysRaw, limitRaw, startRaw, endRaw, message, webhook] = await Promise.all([
     settingValue(tenantId, "n8n_recovery_enabled"),
     settingValue(tenantId, "n8n_recovery_days"),
     settingValue(tenantId, "n8n_recovery_daily_limit"),
+    settingValue(tenantId, "n8n_recovery_start_hour"),
+    settingValue(tenantId, "n8n_recovery_end_hour"),
     settingValue(tenantId, "n8n_recovery_message"),
     resolveWhatsappWebhookUrl({ event: "recovery", tenantId, secondInstance: false }),
   ]);
   const days = Math.min(365, Math.max(1, Number(daysRaw) || RECOVERY_DEFAULT_DAYS));
   const dailyLimit = Math.min(200, Math.max(1, Number(limitRaw) || RECOVERY_DEFAULT_DAILY_LIMIT));
+  const hours = normalizeRecoveryHours(startRaw || RECOVERY_DEFAULT_START_HOUR, endRaw || RECOVERY_DEFAULT_END_HOUR) || {
+    startHour: RECOVERY_DEFAULT_START_HOUR,
+    endHour: RECOVERY_DEFAULT_END_HOUR,
+  };
   return {
     enabled: enabledRaw === "1",
     days,
     dailyLimit,
+    startHour: hours.startHour,
+    endHour: hours.endHour,
     message: !message || message === RECOVERY_OLD_MESSAGE ? RECOVERY_DEFAULT_MESSAGE : message,
     webhookConfigured: Boolean(webhook),
   };
@@ -401,7 +424,7 @@ export async function sendNextRecovery(input: { tenantId?: string; ignoreHours?:
   const settings = await recoverySettings(tenantId);
   if (!settings.enabled) return { sent: false, reason: "desligada" };
   if (!settings.webhookConfigured) return { sent: false, reason: "sem_url" };
-  if (!input.ignoreHours && recoveryQuietHours()) return { sent: false, reason: "fora_do_horario" };
+  if (!input.ignoreHours && recoveryQuietHours(new Date(), settings.startHour, settings.endHour)) return { sent: false, reason: "fora_do_horario" };
   const sentToday = await db
     .select({ phone: whatsappRecoverySendsTable.phone })
     .from(whatsappRecoverySendsTable)

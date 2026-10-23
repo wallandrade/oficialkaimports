@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addRecoverySpend, canonicalRecoveryPhone, pickRecoveryCandidate, recoveryAnswerId, recoveryMessage, recoveryOptionList, recoveryOrderAmount, recoverySurveyStats } from "./whatsapp-recovery";
+import { addRecoverySpend, canonicalRecoveryPhone, pickRecoveryCandidate, recoveryAnswerId, recoveryMessage, recoveryOptionList, recoveryOrderAmount, recoveryQuietHours, recoverySurveyStats } from "./whatsapp-recovery";
 
 const day = 24 * 60 * 60 * 1000;
 
@@ -63,6 +63,13 @@ test("pesquisa reconhece o clique e calcula a porcentagem", () => {
   assert.equal(stats.answered, 10);
   assert.equal(stats.unanswered, 30);
   assert.equal(stats.options[0].percent, 50);
+});
+
+test("horário salvo libera o envio dentro da faixa", () => {
+  const night = new Date("2026-10-23T23:30:00.000Z");
+  assert.equal(recoveryQuietHours(night, 10, 19), true);
+  assert.equal(recoveryQuietHours(night, 10, 22), false);
+  assert.equal(recoveryQuietHours(new Date("2026-10-23T14:30:00.000Z"), 10, 19), false);
 });
 
 test("mensagem troca o primeiro nome", () => {

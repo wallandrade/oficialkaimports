@@ -3,7 +3,7 @@ import { db, tenantSettingsTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-context";
-import { recoverySnapshot, sendNextRecovery } from "../lib/whatsapp-recovery";
+import { normalizeRecoveryHours, recoverySnapshot, sendNextRecovery } from "../lib/whatsapp-recovery";
 
 const router: IRouter = Router();
 
@@ -45,13 +45,21 @@ router.put("/admin/whatsapp-recovery", requireAdminAuth, async (req, res) => {
     res.status(403).json({ error: "FORBIDDEN" });
     return;
   }
-  const body = req.body as { enabled?: boolean; days?: number; dailyLimit?: number; message?: string };
+  const body = req.body as { enabled?: boolean; days?: number; dailyLimit?: number; startHour?: number; endHour?: number; message?: string };
   const days = Math.min(365, Math.max(1, Number(body.days) || 40));
   const dailyLimit = Math.min(200, Math.max(1, Number(body.dailyLimit) || 40));
+  const hours = normalizeRecoveryHours(body.startHour, body.endHour);
+  if (!hours) {
+    res.status(400).json({ error: "INVALID_INPUT", message: "O horário de parar precisa ser depois do de começar." });
+    return;
+  }
   await saveSetting(scope.tenantId, "n8n_recovery_enabled", body.enabled ? "1" : "0");
   await saveSetting(scope.tenantId, "n8n_recovery_days", String(days));
   await saveSetting(scope.tenantId, "n8n_recovery_daily_limit", String(dailyLimit));
+  await saveSetting(scope.tenantId, "n8n_recovery_start_hour", String(hours.startHour));
+  await saveSetting(scope.tenantId, "n8n_recovery_end_hour", String(hours.endHour));
   await saveSetting(scope.tenantId, "n8n_recovery_message", String(body.message || "").trim());
+  if (body.enabled) await sendNextRecovery({ tenantId: scope.tenantId });
   res.json(await recoverySnapshot(scope.tenantId));
 });
 

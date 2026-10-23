@@ -6,6 +6,8 @@ type Snapshot = {
   enabled: boolean;
   days: number;
   dailyLimit: number;
+  startHour: number;
+  endHour: number;
   message: string;
   webhookConfigured: boolean;
   waiting: number;
@@ -30,6 +32,8 @@ export function WhatsappRecoveryPanel() {
   const [message, setMessage] = useState("");
   const [days, setDays] = useState("40");
   const [dailyLimit, setDailyLimit] = useState("40");
+  const [startHour, setStartHour] = useState("10");
+  const [endHour, setEndHour] = useState("19");
   const [enabled, setEnabled] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -45,6 +49,8 @@ export function WhatsappRecoveryPanel() {
     setMessage(json.message || "");
     setDays(String(json.days || 40));
     setDailyLimit(String(json.dailyLimit || 40));
+    setStartHour(String(json.startHour ?? 10));
+    setEndHour(String(json.endHour ?? 19));
     setEnabled(json.enabled);
     setError("");
   }
@@ -63,14 +69,19 @@ export function WhatsappRecoveryPanel() {
           enabled,
           days: Number(days),
           dailyLimit: Number(dailyLimit),
+          startHour: Number(startHour),
+          endHour: Number(endHour),
           message,
         }),
       });
+      const json = await res.json() as Snapshot & { message?: string };
       if (!res.ok) {
-        setError("Não foi possível salvar.");
+        setError(json.message || "Não foi possível salvar.");
         return;
       }
-      setData(await res.json() as Snapshot);
+      setData(json);
+      setStartHour(String(json.startHour ?? startHour));
+      setEndHour(String(json.endHour ?? endHour));
       setError("");
     } finally {
       setBusy(false);
@@ -101,7 +112,7 @@ export function WhatsappRecoveryPanel() {
       <div>
         <h2 className="text-lg font-bold">Recuperação</h2>
         <p className="text-sm text-muted-foreground">
-          Pergunta, no WhatsApp, o que levou o cliente a parar de comprar. Começa pelos mais antigos. Entre 10h e 19h, no horário de São Paulo, até o limite do dia.
+          Pergunta, no WhatsApp, o que levou o cliente a parar de comprar. Começa pelos mais antigos. Entre {data?.startHour ?? 10}h e {data?.endHour ?? 19}h, no horário de São Paulo, até o limite do dia.
         </p>
       </div>
       {data && !data.webhookConfigured ? (
@@ -115,7 +126,7 @@ export function WhatsappRecoveryPanel() {
         <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
         Ligada
       </label>
-      <div className="flex gap-3">
+      <div className="flex flex-wrap gap-3">
         <label className="text-sm">
           Dias sem comprar
           <input value={days} onChange={(event) => setDays(event.target.value)} className="mt-1 block h-10 w-24 rounded-xl border-2 border-border px-3" />
@@ -123,6 +134,14 @@ export function WhatsappRecoveryPanel() {
         <label className="text-sm">
           Limite por dia
           <input value={dailyLimit} onChange={(event) => setDailyLimit(event.target.value)} className="mt-1 block h-10 w-24 rounded-xl border-2 border-border px-3" />
+        </label>
+        <label className="text-sm">
+          Começa
+          <input type="number" min={0} max={23} value={startHour} onChange={(event) => setStartHour(event.target.value)} className="mt-1 block h-10 w-24 rounded-xl border-2 border-border px-3" />
+        </label>
+        <label className="text-sm">
+          Para
+          <input type="number" min={1} max={24} value={endHour} onChange={(event) => setEndHour(event.target.value)} className="mt-1 block h-10 w-24 rounded-xl border-2 border-border px-3" />
         </label>
       </div>
       <label className="block text-sm">
