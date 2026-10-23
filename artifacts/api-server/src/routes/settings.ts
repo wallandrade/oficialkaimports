@@ -86,6 +86,7 @@ const ALLOWED_KEYS = [
   "n8n_poly_instance_id",
   "n8n_whatsapp_support_token",
   "n8n_support_attendant_phone",
+  "n8n_support_ignore_phones",
   "whatsapp_support_menu",
   // Admin helpers
   "admin_saved_brands",

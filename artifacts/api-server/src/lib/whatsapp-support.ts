@@ -213,6 +213,22 @@ async function ignorePhones(tenantId: string): Promise<Set<string>> {
   if (legacyPhone) phones.add(legacyPhone);
   const attendant = await readSupportAttendantPhone(tenantId);
   if (attendant) phones.add(attendant);
+  const fromEnv = String(process.env.N8N_SUPPORT_IGNORE_PHONES || "");
+  const ignoreRows = await db
+    .select({ value: tenantSettingsTable.value })
+    .from(tenantSettingsTable)
+    .where(eq(tenantSettingsTable.key, "n8n_support_ignore_phones"));
+  const legacyIgnore = await db.select().from(siteSettingsTable).where(eq(siteSettingsTable.key, "n8n_support_ignore_phones")).limit(1);
+  const ignoreText = [
+    fromEnv,
+    BUILTIN_IGNORED_PHONES.join("\n"),
+    ...ignoreRows.map((row) => row.value),
+    legacyIgnore[0]?.value || "",
+  ].join("\n");
+  for (const part of ignoreText.split(/[^0-9]+/)) {
+    const phone = normalizeWhatsappPhone(part);
+    if (phone) phones.add(phone);
+  }
   ignoreCache = { at: now, phones };
   return phones;
 }
@@ -287,6 +303,7 @@ async function summaryForOrder(order: typeof ordersTable.$inferSelect): Promise<
   return lines.filter((line) => line !== undefined).join("\n");
 }
 
+const BUILTIN_IGNORED_PHONES = ["11992790531", "35991490820", "35991738862"];
 const MAIN_STORE_LINK = "https://www.ka-imports.com/kaique";
 
 async function storeLink(tenantId: string, secondInstance: boolean): Promise<string> {

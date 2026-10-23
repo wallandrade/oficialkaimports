@@ -42,6 +42,7 @@ export function WhatsappN8nSettings({
     next.n8n_poly_instance_id = settings.n8n_poly_instance_id ?? "";
     next.n8n_whatsapp_support_token = settings.n8n_whatsapp_support_token ?? "";
     next.n8n_support_attendant_phone = settings.n8n_support_attendant_phone ?? "";
+    next.n8n_support_ignore_phones = settings.n8n_support_ignore_phones ?? "";
     next.whatsapp_support_menu = settings.whatsapp_support_menu ?? "";
     setDrafts(next);
   }, [settings]);
@@ -180,6 +181,25 @@ export function WhatsappN8nSettings({
             className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm"
           />
           <Button size="sm" onClick={() => save("n8n_support_attendant_phone", drafts.n8n_support_attendant_phone || "")}>
+            Salvar
+          </Button>
+        </span>
+      </label>
+
+      <label className="block">
+        <span className="block text-xs font-medium mb-1">Números sem menu</span>
+        <textarea
+          value={drafts.n8n_support_ignore_phones ?? ""}
+          onChange={(event) => setDrafts((current) => ({ ...current, n8n_support_ignore_phones: event.target.value }))}
+          rows={4}
+          placeholder={"11992790531\n35991490820"}
+          className="w-full px-3 py-2 rounded-xl border-2 border-border outline-none focus:border-primary text-sm"
+        />
+        <span className="mt-2 flex items-center justify-between gap-3">
+          <span className="text-xs text-muted-foreground">
+            Um número por linha. Esses celulares não recebem o menu nem as respostas do bot. 11992790531, 35991490820 e 35991738862 já ficam de fora.
+          </span>
+          <Button size="sm" onClick={() => save("n8n_support_ignore_phones", drafts.n8n_support_ignore_phones || "")}>
             Salvar
           </Button>
         </span>
