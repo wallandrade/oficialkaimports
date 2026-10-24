@@ -8,7 +8,6 @@ import {
   claimFlashOffer,
   drawFlashOffer,
   fetchFlashWaitSeconds,
-  readActiveFlashOffer,
   readActiveFlashOffers,
   readStoredFlashOffers,
   releaseFlashOffer,
@@ -48,7 +47,6 @@ export function FlashOfferHost() {
   const [holdOffers, setHoldOffers] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [clock, setClock] = useState("");
-  const attempted = useRef(false);
   const reservationIdsInCart = useRef<Set<string> | null>(null);
 
   const activeOffers = readActiveFlashOffers();
@@ -91,19 +89,17 @@ export function FlashOfferHost() {
   }, [items]);
 
   useEffect(() => {
-    if (attempted.current || !pageCanDraw(location) || readActiveFlashOffer()) return;
+    if (!pageCanDraw(location)) return;
     let timer = 0;
     let cancelled = false;
     void fetchFlashWaitSeconds().then((seconds) => {
-      if (cancelled || seconds == null || attempted.current || !pageCanDraw(window.location.pathname)) return;
+      if (cancelled || seconds == null || !pageCanDraw(window.location.pathname)) return;
       timer = window.setTimeout(() => {
-        if (attempted.current || !pageCanDraw(window.location.pathname)) return;
-        attempted.current = true;
+        if (cancelled || !pageCanDraw(window.location.pathname)) return;
         void drawFlashOffer().then((drawn) => {
-          if (drawn.length > 0) {
-            setIndex(0);
-            setOffers(drawn);
-          }
+          if (cancelled || drawn.length === 0) return;
+          setIndex(0);
+          setOffers(drawn);
         }).catch(() => undefined);
       }, seconds * 1000);
     }).catch(() => undefined);

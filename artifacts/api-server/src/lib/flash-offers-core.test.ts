@@ -9,6 +9,7 @@ import {
   saoPauloClock,
   saoPauloDayStart,
   unitPriceWithFlash,
+  mergeFlashOffers,
   visitStillBlocks,
 } from "./flash-offers-core";
 
@@ -25,6 +26,14 @@ test("janela da campanha", () => {
   assert.equal(isCampaignHourOpen(18, null, 18), true);
   assert.equal(isCampaignHourOpen(18, 22, 22), true);
   assert.equal(isCampaignHourOpen(18, 22, 23), false);
+});
+
+test("produto habilitado entra na frente e não repete", () => {
+  const merged = mergeFlashOffers(
+    [{ productId: "sempre" }, { productId: "comum" }],
+    [{ productId: "comum" }, { productId: "outro" }],
+  );
+  assert.deepEqual(merged.map((item) => item.productId), ["sempre", "comum", "outro"]);
 });
 
 test("sorteio usa a chance configurada", () => {

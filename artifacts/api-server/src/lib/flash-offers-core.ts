@@ -76,6 +76,17 @@ export function normalizeRepeatAfterHours(raw: unknown, fallback = 0): number {
   return Math.min(2160, Math.max(0, value));
 }
 
+export function mergeFlashOffers<T extends { productId: string }>(alwaysOffers: T[], regularOffers: T[]): T[] {
+  const seen = new Set<string>();
+  const merged: T[] = [];
+  for (const offer of [...alwaysOffers, ...regularOffers]) {
+    if (seen.has(offer.productId)) continue;
+    seen.add(offer.productId);
+    merged.push(offer);
+  }
+  return merged;
+}
+
 export function visitStillBlocks(input: {
   outcome: string;
   createdAt: Date;

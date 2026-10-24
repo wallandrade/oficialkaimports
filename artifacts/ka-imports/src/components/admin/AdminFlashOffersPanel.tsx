@@ -30,7 +30,7 @@ type Campaign = {
   repeatAfterHours: number;
   activeFromHour: number | null;
   activeUntilHour: number | null;
-  items: Array<{ productId: string; name: string; image: string | null; regularPrice: number | null; flashPrice: number }>;
+  items: Array<{ productId: string; name: string; image: string | null; regularPrice: number | null; flashPrice: number; alwaysShow?: boolean }>;
   activeReservations: number;
   usedReservations: number;
   seenCount: number;
@@ -221,6 +221,23 @@ export function AdminFlashOffersPanel({ isPrimary = false }: { isPrimary?: boole
     } finally {
       setSaving(false);
     }
+  };
+
+  const toggleAlways = async (campaignId: string, productId: string, alwaysShow: boolean) => {
+    const response = await fetch(`${BASE}/api/admin/flash-campaigns/${campaignId}/items/${productId}`, {
+      method: "PATCH",
+      headers: authHeaders(),
+      body: JSON.stringify({ alwaysShow }),
+    });
+    const data = await response.json().catch(() => ({})) as { message?: string; alwaysShow?: boolean };
+    if (!response.ok) {
+      toast.error(data.message || "Não foi possível atualizar o produto.");
+      return;
+    }
+    setCampaigns((current) => current.map((campaign) => campaign.id === campaignId ? {
+      ...campaign,
+      items: campaign.items.map((item) => item.productId === productId ? { ...item, alwaysShow: data.alwaysShow === true } : item),
+    } : campaign));
   };
 
   const remove = async (id: string) => {
@@ -430,6 +447,13 @@ export function AdminFlashOffersPanel({ isPrimary = false }: { isPrimary?: boole
                   {item.image && <img src={item.image} alt="" className="h-8 w-8 rounded-md object-cover" />}
                   <span className="min-w-0 flex-1 truncate">{item.name}</span>
                   <span className="font-semibold text-orange-600">{money(item.flashPrice)}</span>
+                  <button
+                    type="button"
+                    onClick={() => void toggleAlways(campaign.id, item.productId, item.alwaysShow !== true)}
+                    className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold ${item.alwaysShow ? "bg-green-600 text-white" : "bg-neutral-200 text-neutral-700"}`}
+                  >
+                    {item.alwaysShow ? "Desabilitar" : "Habilitar"}
+                  </button>
                 </div>
               ))}
             </div>

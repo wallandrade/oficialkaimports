@@ -21,6 +21,7 @@ export const flashCampaignItemsTable = mysqlTable("flash_campaign_items", {
   tenantId: varchar("tenant_id", { length: 255 }),
   productId: varchar("product_id", { length: 255 }).notNull(),
   flashPrice: decimal("flash_price", { precision: 10, scale: 2 }).notNull(),
+  alwaysShow: boolean("always_show").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

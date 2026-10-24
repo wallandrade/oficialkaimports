@@ -298,6 +298,7 @@ router.get("/admin/flash-campaigns", requireAdminAuth, async (req, res) => {
               image: product?.image ?? null,
               regularPrice: product ? Number(product.price) : null,
               flashPrice: Number(item.flashPrice),
+              alwaysShow: Boolean(item.alwaysShow),
             };
           }),
         activeReservations: reservations.filter((row) => row.campaignId === campaign.id && row.status === "active" && row.expiresAt > new Date()).length,
@@ -382,6 +383,7 @@ router.post("/admin/flash-campaigns", requireAdminAuth, async (req, res) => {
       tenantId,
       productId: item.productId,
       flashPrice: item.flashPrice.toFixed(2),
+      alwaysShow: false,
       createdAt: now,
     })));
     res.json({ id });
@@ -434,6 +436,11 @@ router.patch("/admin/flash-campaigns/:id", requireAdminAuth, async (req, res) =>
       updatedAt: new Date(),
     }).where(eq(flashCampaignsTable.id, id));
     if (items) {
+      const previous = await db
+        .select({ productId: flashCampaignItemsTable.productId, alwaysShow: flashCampaignItemsTable.alwaysShow })
+        .from(flashCampaignItemsTable)
+        .where(eq(flashCampaignItemsTable.campaignId, id));
+      const alwaysByProduct = new Map(previous.map((item) => [item.productId, Boolean(item.alwaysShow)]));
       await db.delete(flashCampaignItemsTable).where(eq(flashCampaignItemsTable.campaignId, id));
       await db.insert(flashCampaignItemsTable).values(items.map((item) => ({
         id: crypto.randomBytes(8).toString("hex"),
@@ -441,6 +448,7 @@ router.patch("/admin/flash-campaigns/:id", requireAdminAuth, async (req, res) =>
         tenantId,
         productId: item.productId,
         flashPrice: item.flashPrice.toFixed(2),
+        alwaysShow: alwaysByProduct.get(item.productId) === true,
         createdAt: new Date(),
       })));
     }
@@ -448,6 +456,47 @@ router.patch("/admin/flash-campaigns/:id", requireAdminAuth, async (req, res) =>
   } catch (err) {
     console.error("[FlashOffer] update:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: flashErrorMessage(err, "Erro ao atualizar a promoção.") });
+  }
+});
+
+router.patch("/admin/flash-campaigns/:id/items/:productId", requireAdminAuth, async (req, res) => {
+  try {
+    if (!(await readyFlashSchema(res))) return;
+    const scope = getAdminScope(req);
+    if (!canManageFlash(scope)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para promoções." });
+      return;
+    }
+    const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
+    const id = String(req.params.id || "");
+    const productId = String(req.params.productId || "");
+    const [campaign] = await db
+      .select({ id: flashCampaignsTable.id })
+      .from(flashCampaignsTable)
+      .where(and(eq(flashCampaignsTable.id, id), eq(flashCampaignsTable.tenantId, tenantId)))
+      .limit(1);
+    if (!campaign) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Promoção não encontrada." });
+      return;
+    }
+    const [item] = await db
+      .select({ id: flashCampaignItemsTable.id })
+      .from(flashCampaignItemsTable)
+      .where(and(eq(flashCampaignItemsTable.campaignId, id), eq(flashCampaignItemsTable.productId, productId)))
+      .limit(1);
+    if (!item) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Produto não está nesta promoção." });
+      return;
+    }
+    const alwaysShow = req.body?.alwaysShow === true;
+    await db
+      .update(flashCampaignItemsTable)
+      .set({ alwaysShow })
+      .where(eq(flashCampaignItemsTable.id, item.id));
+    res.json({ campaignId: id, productId, alwaysShow });
+  } catch (err) {
+    console.error("[FlashOffer] always-show:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: flashErrorMessage(err, "Erro ao atualizar o produto.") });
   }
 });
 

@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-10-22
+> **Última atualização:** 2026-10-23
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-23 | `always_show` em `flash_campaign_items` | `PATCH /admin/flash-campaigns/:id/items/:productId`. O sorteio devolve esses produtos sem visita. O `/claim` reserva sem `seen` | Horário, vaga e preço dos outros itens |
 | 2026-10-22 | `manual_tracking_code` em `orders` e `order_shipments` | `PATCH /api/admin/orders/:id/manual-tracking`. Coluna no boot (`runtime-schema`). O código não entra em `envioecom_barcode` nem em `tracking_code` | Create, webhook, sync e **Vincular EE** |
 | 2026-10-20 | Checkout aceita `flashReservationIds` | PIX e `POST /api/orders` aplicam o preço de cada reserva que está no carrinho e consomem todas | Cartão segue sem preço relâmpago; `flashReservationId` único ainda entra na lista |
 | 2026-10-20 | Setting `flash_force_first_visit` | Fora de `PUBLIC_KEYS`. O draw e o `/claim` leem no servidor. A marca fica em `flash_visits` com `campaign_id` `flash-first-visit` | Campanhas, reserva e o carrossel |
@@ -105,7 +106,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 - `inventory_balances` / `inventory_movements`, `yury_inventory_balances` (espelho Motoboy/Minas da Yury), `reshipments`, `manual_*`
 - `raffles*`, `order_bumps`, `support_tickets` (`problem_type`, `insurance_choice`), `filial_purchase_*`
 - `marketing_expenses`, `seller_commission_payments`, `social_proof_*`, `product_cost_history`
-- `flash_campaigns`, `flash_campaign_items`, `flash_visits` (único campanha+visitante), `flash_reservations`
+- `flash_campaigns`, `flash_campaign_items` (`always_show`), `flash_visits` (único campanha+visitante), `flash_reservations`
 
 ## API
 

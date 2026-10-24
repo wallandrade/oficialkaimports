@@ -14,6 +14,7 @@ import { parseVariantGroups } from "./product-variants";
 import {
   flashLineQuantityError,
   isCampaignHourOpen,
+  mergeFlashOffers,
   normalizeVisitorKey,
   rollDraw,
   saoPauloClock,
@@ -184,18 +185,19 @@ async function hasFirstVisitMark(tenantId: string, visitorKey: string, customerU
   return Boolean(byAccount);
 }
 
-async function campaignOffers(tenantId: string, campaignId: string): Promise<DrawnFlashOffer[]> {
+async function campaignOffers(tenantId: string, campaignId: string, productIds?: ReadonlySet<string>): Promise<DrawnFlashOffer[]> {
   const items = await db
     .select()
     .from(flashCampaignItemsTable)
     .where(eq(flashCampaignItemsTable.campaignId, campaignId));
-  if (items.length === 0) return [];
+  const selected = productIds ? items.filter((item) => productIds.has(item.productId)) : items;
+  if (selected.length === 0) return [];
   const products = await db
     .select()
     .from(productsTable)
-    .where(and(productTenantWhere(tenantId), inArray(productsTable.id, items.map((item) => item.productId))));
+    .where(and(productTenantWhere(tenantId), inArray(productsTable.id, selected.map((item) => item.productId))));
   const byId = new Map(products.map((product) => [product.id, product]));
-  const eligible = items
+  const eligible = selected
     .filter((item) => {
       const product = byId.get(item.productId);
       if (!product || product.isActive === false || product.isSoldOut === true) return false;
@@ -221,13 +223,37 @@ async function campaignOffers(tenantId: string, campaignId: string): Promise<Dra
   return offers;
 }
 
+async function drawAlwaysShowOffers(input: { tenantId: string }): Promise<DrawnFlashOffer[]> {
+  const now = new Date();
+  const hour = saoPauloClock(now).hour;
+  const campaigns = await db
+    .select()
+    .from(flashCampaignsTable)
+    .where(and(eq(flashCampaignsTable.tenantId, input.tenantId), eq(flashCampaignsTable.isActive, true)));
+  const offers: DrawnFlashOffer[] = [];
+  for (const campaign of campaigns.sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime())) {
+    if (!isCampaignHourOpen(campaign.activeFromHour, campaign.activeUntilHour, hour)) continue;
+    if (await activeReservationCount(campaign.id, now) >= campaign.slotLimit) continue;
+    const items = await db
+      .select({ productId: flashCampaignItemsTable.productId })
+      .from(flashCampaignItemsTable)
+      .where(and(eq(flashCampaignItemsTable.campaignId, campaign.id), eq(flashCampaignItemsTable.alwaysShow, true)));
+    if (items.length === 0) continue;
+    offers.push(...await campaignOffers(input.tenantId, campaign.id, new Set(items.map((item) => item.productId))));
+  }
+  return offers;
+}
+
 async function drawFirstVisitOffers(input: {
   tenantId: string;
   visitorKey: string;
   customerUserId: string | null;
   ipHash: string | null;
 }): Promise<{ offers: DrawnFlashOffer[]; offer: DrawnFlashOffer | null }> {
-  if (await hasFirstVisitMark(input.tenantId, input.visitorKey, input.customerUserId)) return emptyFlashDraw();
+  const alwaysOffers = await drawAlwaysShowOffers({ tenantId: input.tenantId });
+  if (await hasFirstVisitMark(input.tenantId, input.visitorKey, input.customerUserId)) {
+    return { offers: alwaysOffers, offer: alwaysOffers[0] ?? null };
+  }
 
   const campaigns = await db
     .select()
@@ -236,7 +262,13 @@ async function drawFirstVisitOffers(input: {
   const ordered = campaigns.sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime());
   const offers: DrawnFlashOffer[] = [];
   for (const campaign of ordered) {
-    const built = await campaignOffers(input.tenantId, campaign.id);
+    const rows = await db
+      .select({ productId: flashCampaignItemsTable.productId, alwaysShow: flashCampaignItemsTable.alwaysShow })
+      .from(flashCampaignItemsTable)
+      .where(eq(flashCampaignItemsTable.campaignId, campaign.id));
+    const regularIds = new Set(rows.filter((item) => !item.alwaysShow).map((item) => item.productId));
+    if (regularIds.size === 0) continue;
+    const built = await campaignOffers(input.tenantId, campaign.id, regularIds);
     if (built.length === 0) continue;
     await saveVisit({
       tenantId: input.tenantId,
@@ -248,9 +280,10 @@ async function drawFirstVisitOffers(input: {
     });
     offers.push(...built);
   }
-  if (offers.length === 0) return emptyFlashDraw();
+  const merged = mergeFlashOffers(alwaysOffers, offers);
+  if (merged.length === 0) return emptyFlashDraw();
   await saveFirstVisitMark(input);
-  return { offers, offer: offers[0] ?? null };
+  return { offers: merged, offer: merged[0] ?? null };
 }
 
 async function saveFirstVisitMark(input: {
@@ -328,67 +361,74 @@ export async function drawFlashOffer(input: {
   for (const picked of open) {
     if (await activeReservationCount(picked.id, now) >= picked.slotLimit) continue;
 
-    const visitorVisit = await findVisit(picked.id, visitorKey);
-    if (visitBlocks(visitorVisit, dayStart, now, picked.repeatAfterHours)) continue;
-
-    if (input.customerUserId) {
-      const userVisits = await db
-        .select()
-        .from(flashVisitsTable)
-        .where(and(
-          eq(flashVisitsTable.campaignId, picked.id),
-          eq(flashVisitsTable.customerUserId, input.customerUserId),
-        ))
-        .limit(8);
-      if (userVisits.some((visit) => visitBlocks(visit, dayStart, now, picked.repeatAfterHours))) continue;
-    }
-
-    if (input.ipHash) {
-      const ipSince = picked.repeatAfterHours > 0
-        ? new Date(now.getTime() - picked.repeatAfterHours * 60 * 60 * 1000)
-        : dayStart;
-      const [ipVisit] = await db
-        .select()
-        .from(flashVisitsTable)
-        .where(and(
-          eq(flashVisitsTable.campaignId, picked.id),
-          eq(flashVisitsTable.ipHash, input.ipHash),
-          gte(flashVisitsTable.createdAt, ipSince),
-        ))
-        .limit(1);
-      if (ipVisit) continue;
-    }
-
     const items = await db
       .select()
       .from(flashCampaignItemsTable)
       .where(eq(flashCampaignItemsTable.campaignId, picked.id));
     if (items.length === 0) continue;
+    const alwaysIds = new Set(items.filter((item) => Boolean(item.alwaysShow)).map((item) => item.productId));
+    const alwaysOffers = alwaysIds.size > 0
+      ? await campaignOffers(input.tenantId, picked.id, alwaysIds)
+      : [];
 
-    if (!rollDraw(picked.drawPercent, input.random ?? Math.random())) {
-      await saveVisit({
-        tenantId: input.tenantId,
-        campaignId: picked.id,
-        visitorKey,
-        customerUserId: input.customerUserId,
-        ipHash: input.ipHash,
-        outcome: "miss",
-      });
-      continue;
+    let regularOffers: DrawnFlashOffer[] = [];
+    const hasRegular = items.some((item) => !item.alwaysShow);
+    if (hasRegular) {
+      let blocked = visitBlocks(await findVisit(picked.id, visitorKey), dayStart, now, picked.repeatAfterHours);
+      if (!blocked && input.customerUserId) {
+        const userVisits = await db
+          .select()
+          .from(flashVisitsTable)
+          .where(and(
+            eq(flashVisitsTable.campaignId, picked.id),
+            eq(flashVisitsTable.customerUserId, input.customerUserId),
+          ))
+          .limit(8);
+        blocked = userVisits.some((visit) => visitBlocks(visit, dayStart, now, picked.repeatAfterHours));
+      }
+      if (!blocked && input.ipHash) {
+        const ipSince = picked.repeatAfterHours > 0
+          ? new Date(now.getTime() - picked.repeatAfterHours * 60 * 60 * 1000)
+          : dayStart;
+        const [ipVisit] = await db
+          .select()
+          .from(flashVisitsTable)
+          .where(and(
+            eq(flashVisitsTable.campaignId, picked.id),
+            eq(flashVisitsTable.ipHash, input.ipHash),
+            gte(flashVisitsTable.createdAt, ipSince),
+          ))
+          .limit(1);
+        blocked = Boolean(ipVisit);
+      }
+      if (!blocked) {
+        if (!rollDraw(picked.drawPercent, input.random ?? Math.random())) {
+          await saveVisit({
+            tenantId: input.tenantId,
+            campaignId: picked.id,
+            visitorKey,
+            customerUserId: input.customerUserId,
+            ipHash: input.ipHash,
+            outcome: "miss",
+          });
+        } else {
+          const regularIds = new Set(items.filter((item) => !item.alwaysShow).map((item) => item.productId));
+          regularOffers = await campaignOffers(input.tenantId, picked.id, regularIds);
+          if (regularOffers.length > 0) {
+            await saveVisit({
+              tenantId: input.tenantId,
+              campaignId: picked.id,
+              visitorKey,
+              customerUserId: input.customerUserId,
+              ipHash: input.ipHash,
+              outcome: "seen",
+            });
+          }
+        }
+      }
     }
 
-    const built = await campaignOffers(input.tenantId, picked.id);
-    if (built.length === 0) continue;
-
-    await saveVisit({
-      tenantId: input.tenantId,
-      campaignId: picked.id,
-      visitorKey,
-      customerUserId: input.customerUserId,
-      ipHash: input.ipHash,
-      outcome: "seen",
-    });
-    offers.push(...built);
+    offers.push(...mergeFlashOffers(alwaysOffers, regularOffers));
   }
 
   return { offers, offer: offers[0] ?? null };
@@ -416,14 +456,6 @@ export async function claimFlashOffer(input: {
     .limit(1);
   if (!campaign) throw new FlashOfferError("FLASH_UNAVAILABLE", "Essa oferta não está mais disponível.");
   const forceFirstVisit = await isFlashForceFirstVisit(input.tenantId);
-  if (!forceFirstVisit && !isCampaignHourOpen(campaign.activeFromHour, campaign.activeUntilHour, saoPauloClock(now).hour)) {
-    throw new FlashOfferError("FLASH_UNAVAILABLE", "Essa oferta não está mais disponível.");
-  }
-
-  const visit = await findVisit(campaign.id, visitorKey);
-  if (!visit || visit.outcome !== "seen") {
-    throw new FlashOfferError("FLASH_UNAVAILABLE", "Essa oferta não está mais disponível.");
-  }
 
   const [item] = await db
     .select()
@@ -434,6 +466,17 @@ export async function claimFlashOffer(input: {
     ))
     .limit(1);
   if (!item) throw new FlashOfferError("FLASH_UNAVAILABLE", "Essa oferta não está mais disponível.");
+  const alwaysShow = Boolean(item.alwaysShow);
+  const hourOpen = isCampaignHourOpen(campaign.activeFromHour, campaign.activeUntilHour, saoPauloClock(now).hour);
+  if (alwaysShow && !hourOpen) throw new FlashOfferError("FLASH_UNAVAILABLE", "Essa oferta não está mais disponível.");
+  if (!alwaysShow && !forceFirstVisit && !hourOpen) {
+    throw new FlashOfferError("FLASH_UNAVAILABLE", "Essa oferta não está mais disponível.");
+  }
+
+  const visit = await findVisit(campaign.id, visitorKey);
+  if (!alwaysShow && (!visit || visit.outcome !== "seen")) {
+    throw new FlashOfferError("FLASH_UNAVAILABLE", "Essa oferta não está mais disponível.");
+  }
 
   const [product] = await db
     .select()
@@ -468,7 +511,7 @@ export async function claimFlashOffer(input: {
     };
   }
 
-  if (!forceFirstVisit && await activeReservationCount(campaign.id, now) >= campaign.slotLimit) {
+  if ((alwaysShow || !forceFirstVisit) && await activeReservationCount(campaign.id, now) >= campaign.slotLimit) {
     throw new FlashOfferError("SLOT_TAKEN", "Essa vaga já foi para outro cliente.");
   }
 
@@ -488,7 +531,7 @@ export async function claimFlashOffer(input: {
     updatedAt: now,
   });
 
-  if (!forceFirstVisit && await activeReservationCount(campaign.id, now) > campaign.slotLimit) {
+  if ((alwaysShow || !forceFirstVisit) && await activeReservationCount(campaign.id, now) > campaign.slotLimit) {
     await db
       .update(flashReservationsTable)
       .set({ status: "released", updatedAt: new Date() })
