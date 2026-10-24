@@ -100,6 +100,7 @@ export function AdminFlashOffersPanel({ isPrimary = false }: { isPrimary?: boole
   const [items, setItems] = useState<DraftItem[]>([]);
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [openVisitors, setOpenVisitors] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [errorText, setErrorText] = useState("");
 
@@ -458,18 +459,29 @@ export function AdminFlashOffersPanel({ isPrimary = false }: { isPrimary?: boole
               ))}
             </div>
             {(campaign.reservations || []).length > 0 && (
-              <div className="mt-4 space-y-2 border-t border-border pt-3">
-                {(campaign.reservations || []).map((row) => (
-                  <div key={row.id} className="flex items-center gap-3 text-sm">
-                    <span className="w-36 shrink-0 truncate font-medium" title={row.name}>{row.name}</span>
-                    <span className="min-w-0 flex-1 truncate text-muted-foreground">{row.productName}</span>
-                    <span className="shrink-0 font-semibold text-orange-600">{money(row.unitPrice)}</span>
-                    {row.orderNumber != null && <span className="shrink-0 text-muted-foreground">#{row.orderNumber}</span>}
-                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${reservationTone(row.status)}`}>
-                      {row.statusLabel}{row.status === "waiting_checkout" ? remainingLabel(row.expiresAt) : ""}
-                    </span>
+              <div className="mt-4 border-t border-border pt-3">
+                <button
+                  type="button"
+                  onClick={() => setOpenVisitors((current) => ({ ...current, [campaign.id]: !current[campaign.id] }))}
+                  className="text-sm font-semibold text-amber-700"
+                >
+                  {openVisitors[campaign.id] ? "▾" : "▸"} Ver visitantes ({campaign.reservations?.length || 0})
+                </button>
+                {openVisitors[campaign.id] && (
+                  <div className="mt-3 space-y-2">
+                    {(campaign.reservations || []).map((row) => (
+                      <div key={row.id} className="flex items-center gap-3 text-sm">
+                        <span className="w-36 shrink-0 truncate font-medium" title={row.name}>{row.name}</span>
+                        <span className="min-w-0 flex-1 truncate text-muted-foreground">{row.productName}</span>
+                        <span className="shrink-0 font-semibold text-orange-600">{money(row.unitPrice)}</span>
+                        {row.orderNumber != null && <span className="shrink-0 text-muted-foreground">#{row.orderNumber}</span>}
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${reservationTone(row.status)}`}>
+                          {row.statusLabel}{row.status === "waiting_checkout" ? remainingLabel(row.expiresAt) : ""}
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
             )}
           </div>
