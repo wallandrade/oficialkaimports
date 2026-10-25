@@ -1,12 +1,13 @@
 # Regras de negócio — KA Imports
 
-> **Última atualização:** 2026-10-23
+> **Última atualização:** 2026-10-25
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-25 | Tela do PIX da rifa lê o status da reserva | `GET /api/raffles/reservations/:id/status` devolve só `status`. `/rifas/pix/:id` consulta a cada 2s. Depois de copiar, mostra “Aguardando pagamento…”. Com `paid`, mostra “PIX pago” | Webhook continua gravando `paid`. Consulta por telefone, números e a expiração iguais. Sem GET na CN Pay |
 | 2026-10-23 | Produto da promo pode voltar em todo carregamento | Botão **Habilitar** grava `flash_campaign_items.always_show`. Esse produto entra na frente, sem chance e sem visita. Horário, vaga e preço válido continuam | Os outros produtos da mesma promo e o botão **Mostrar na primeira visita** |
 | 2026-10-23 | Cotação verde aceita entrega antiga e nome curto | Sem corte de 180 dias. “Sedex” conta como Correios Sedex e “Loggi” como Ponto Loggi. “Correios” sozinho não pinta Sedex e Pac juntos | Continua a mesma cidade e UF. Lista negra, Yury e a confirmação do extravio |
 | 2026-10-23 | Cotação marca em verde a transportadora que já entregou na cidade | `POST .../quote` cola `deliveryHint`. O card fica verde só sem extravio. Com lista negra, a cor de cuidado fica e a frase verde aparece embaixo | Grande Vitória, Yury, checkout e o botão de gerar mesmo assim |
@@ -292,7 +293,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 - Tabelas `raffles`, `raffle_reservations`, `raffle_results`, `raffle_promotions`. Isoladas por `tenantId`.
 - Admin: aba Rifas para primary da loja 1 **e** admin de filial (`isPrimary || tenant ≠ tenant_loja1`). Seller-scoped da loja 1 não vê. API já era `requireAdminAuth` + `buildRafflesTenantWhere`.
 - Job de expiração: `raffle-expiry.ts`.
-- PIX CN Pay/DentPeg: a confirmação entra por `POST /api/webhook/pix` e grava `raffle_reservations.status = paid`. A tela `/rifas/pix/:id` só troca para “Pagamento confirmado” quando esse status chega no lookup. Não consulta o gateway.
+- PIX CN Pay/DentPeg: a confirmação entra por `POST /api/webhook/pix` e grava `raffle_reservations.status = paid`. A tela `/rifas/pix/:id` lê `GET /api/raffles/reservations/:id/status` a cada 2s (só o status, no banco). Depois de copiar o código, o texto fica “Aguardando pagamento…”. Com `paid`, a tela mostra “PIX pago”. Não consulta o gateway. A consulta por telefone (`/reservations/lookup`) continua na rifa e em `/rifas/consulta`.
 - Páginas FE: `/rifas`, `/rifas/:id`, `/rifas/pix/:id`, `/rifas/consulta`.
 
 ## Cliente final

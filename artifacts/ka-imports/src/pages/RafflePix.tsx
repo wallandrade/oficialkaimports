@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useRoute, useLocation } from "wouter";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,7 @@ export default function RafflePix() {
 
   const [pix, setPix] = useState<StoredRafflePix | null>(null);
   const [isCopied, setIsCopied] = useState(false);
+  const [awaitingPayment, setAwaitingPayment] = useState(false);
   const [status, setStatus] = useState<ReservationStatus>(null);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
 
@@ -55,33 +56,47 @@ export default function RafflePix() {
     return () => clearInterval(id);
   }, [pix]);
 
-  // Poll payment status
-  const checkStatus = useCallback(async () => {
+  // Reads this reservation in the store DB. The webhook is what marks it paid.
+  useEffect(() => {
     if (!reservationId) return;
-    try {
-      const res = await fetch(`${BASE}/api/raffles/reservations/lookup?phone=${encodeURIComponent(pix?.clientPhone ?? "0")}`);
-      if (!res.ok) return;
-      const rows = (await res.json()) as Array<{ id: string; status: string }>;
-      const row = rows.find((r) => r.id === reservationId);
-      if (row) {
-        setStatus(row.status as ReservationStatus);
-        if (row.status === "paid") {
+    let timer = 0;
+    let stopped = false;
+
+    async function checkStatus() {
+      if (stopped) return;
+      try {
+        const res = await fetch(
+          `${BASE}/api/raffles/reservations/${encodeURIComponent(reservationId)}/status`,
+          { cache: "no-store" },
+        );
+        if (!res.ok) return;
+        const data = (await res.json()) as { status?: string };
+        const next = data.status;
+        if (next !== "paid" && next !== "reserved" && next !== "expired") return;
+        setStatus(next);
+        if (next === "paid") {
           sessionStorage.removeItem(`raffle_pix_${reservationId}`);
         }
-      }
-    } catch { /* ignore */ }
-  }, [reservationId, pix?.clientPhone]);
+        if (next === "paid" || next === "expired") {
+          stopped = true;
+          window.clearInterval(timer);
+        }
+      } catch { /* ignore */ }
+    }
 
-  useEffect(() => {
-    checkStatus();
-    const id = setInterval(checkStatus, 8_000);
-    return () => clearInterval(id);
-  }, [checkStatus]);
+    void checkStatus();
+    timer = window.setInterval(() => { void checkStatus(); }, 2_000);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [reservationId]);
 
   function copyCode() {
     if (!pix?.pixCode) return;
     navigator.clipboard.writeText(pix.pixCode).then(() => {
       setIsCopied(true);
+      setAwaitingPayment(true);
       toast.success("Código PIX copiado!");
       setTimeout(() => setIsCopied(false), 3000);
     });
@@ -109,9 +124,9 @@ export default function RafflePix() {
       <AppLayout>
         <div className="max-w-sm mx-auto px-4 py-16 text-center space-y-4">
           <CheckCircle2 className="w-16 h-16 text-green-500 mx-auto" />
-          <h2 className="text-2xl font-bold text-foreground">Pagamento confirmado!</h2>
+          <h2 className="text-2xl font-bold text-foreground">PIX pago</h2>
           <p className="text-muted-foreground">
-            Seus números estão garantidos na rifa <strong>{pix.raffleTitle}</strong>!
+            Pagamento confirmado. Seus números estão garantidos na rifa <strong>{pix.raffleTitle}</strong>!
           </p>
           <p className="text-sm text-muted-foreground">
             Números: <strong>{pix.numbers.join(", ")}</strong>
@@ -124,7 +139,7 @@ export default function RafflePix() {
     );
   }
 
-  const expired = timeLeft !== null && timeLeft === 0;
+  const expired = status === "expired" || (timeLeft !== null && timeLeft === 0);
 
   return (
     <AppLayout>
@@ -180,13 +195,18 @@ export default function RafflePix() {
           </div>
         )}
 
-        <Button
-          variant="ghost"
-          className="w-full text-sm text-muted-foreground"
-          onClick={() => setLocation(`/rifas/${pix.reservationId.split("_")[0] ?? ""}`)}
-        >
-          Aguardando confirmação automática…
-        </Button>
+        {!expired && (
+          <p className="flex items-center justify-center gap-2 text-center text-sm text-muted-foreground">
+            {awaitingPayment ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                Aguardando pagamento…
+              </>
+            ) : (
+              "Copie o código PIX e pague no app do banco"
+            )}
+          </p>
+        )}
       </div>
     </AppLayout>
   );

@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-10-23
+> **Última atualização:** 2026-10-25
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-25 | `GET /api/raffles/reservations/:id/status` | A tela `/rifas/pix/:id` lê só o status da reserva. Sem token de checkout e sem o limite do lookup | Webhook PIX, lookup por telefone e refresh do QR |
 | 2026-10-23 | `always_show` em `flash_campaign_items` | `PATCH /admin/flash-campaigns/:id/items/:productId`. O sorteio devolve esses produtos sem visita. O `/claim` reserva sem `seen` | Horário, vaga e preço dos outros itens |
 | 2026-10-22 | `manual_tracking_code` em `orders` e `order_shipments` | `PATCH /api/admin/orders/:id/manual-tracking`. Coluna no boot (`runtime-schema`). O código não entra em `envioecom_barcode` nem em `tracking_code` | Create, webhook, sync e **Vincular EE** |
 | 2026-10-20 | Checkout aceita `flashReservationIds` | PIX e `POST /api/orders` aplicam o preço de cada reserva que está no carrinho e consomem todas | Cartão segue sem preço relâmpago; `flashReservationId` único ainda entra na lista |

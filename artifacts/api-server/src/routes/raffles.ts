@@ -523,6 +523,36 @@ router.get("/raffles/reservations/lookup", async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// PUBLIC: GET /api/raffles/reservations/:reservationId/status
+// Local DB only. The PIX screen polls this. Confirmation stays on the webhook.
+// ---------------------------------------------------------------------------
+router.get("/raffles/reservations/:reservationId/status", async (req, res) => {
+  const tenantId = await resolvePublicTenantId(req as any);
+  const reservationId = String(req.params.reservationId || "").trim();
+  if (!reservationId || reservationId.length > 64) {
+    res.status(400).json({ error: "INVALID_INPUT", message: "Reserva inválida." });
+    return;
+  }
+
+  const [row] = await db
+    .select({
+      id: raffleReservationsTable.id,
+      status: raffleReservationsTable.status,
+    })
+    .from(raffleReservationsTable)
+    .where(and(buildRaffleReservationsTenantWhere(tenantId), eq(raffleReservationsTable.id, reservationId)))
+    .limit(1);
+
+  if (!row) {
+    res.status(404).json({ error: "NOT_FOUND", message: "Reserva não encontrada." });
+    return;
+  }
+
+  res.setHeader("Cache-Control", "no-store");
+  res.json({ reservationId: row.id, status: row.status });
+});
+
+// ---------------------------------------------------------------------------
 // PUBLIC: POST /api/raffles/reservations/:reservationId/refresh-pix — renew expired PIX
 // ---------------------------------------------------------------------------
 router.post("/raffles/reservations/:reservationId/refresh-pix", async (req, res) => {
