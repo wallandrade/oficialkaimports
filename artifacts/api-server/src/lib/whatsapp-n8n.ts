@@ -10,6 +10,7 @@ import {
   isHttpsWebhookUrl,
   normalizeWhatsappPhone,
   planShipmentWhatsappNotices,
+  shouldBackfillShipmentNotice,
   SINGLE_SHIPMENT_WHATSAPP_KEY,
   toWhatsappText,
   type ShipmentWhatsappNotice,
@@ -340,12 +341,12 @@ async function deliverShipmentNotices(
     for (const kind of currentStatusWhatsappNotices(input.nextStatus)) {
       if (notices.has(kind)) continue;
       const stored = await readStoredKeys(input.order.id, KEY_COLUMNS[kind]);
-      if (stored.present && !stored.keys.includes(packageKey)) notices.add(kind);
+      if (shouldBackfillShipmentNotice(kind, stored.present, stored.keys, packageKey)) notices.add(kind);
     }
   }
   if (!input.skipTracking && isUsableLabelBarcode(code) && !notices.has("tracking")) {
     const stored = await readStoredKeys(input.order.id, KEY_COLUMNS.tracking);
-    if (stored.present && !stored.keys.includes(packageKey)) notices.add("tracking");
+    if (shouldBackfillShipmentNotice("tracking", stored.present, stored.keys, packageKey)) notices.add("tracking");
   }
   if (!notices.size) return;
   const tenantId = String(input.order.tenantId || "").trim() || DEFAULT_TENANT_ID;

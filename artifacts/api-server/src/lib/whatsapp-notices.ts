@@ -18,7 +18,20 @@ function foldStatus(value: unknown): string {
 }
 
 export function isOutForDeliveryStatus(status: unknown): boolean {
-  return foldStatus(status).includes("saiu para entrega");
+  const normalized = foldStatus(status);
+  return normalized.includes("saiu para entrega") || normalized.includes("em rota");
+}
+
+/** Postado e saiu tentam de novo com a coluna ainda NULL. Entregue e rastreio só repetem depois que a coluna existe. */
+export function shouldBackfillShipmentNotice(
+  kind: ShipmentWhatsappNotice,
+  columnPresent: boolean,
+  keys: readonly string[],
+  packageKey: string,
+): boolean {
+  if (keys.includes(packageKey)) return false;
+  if (kind === "posted" || kind === "out_for_delivery") return true;
+  return columnPresent;
 }
 
 function inTransitForPosted(status: unknown): boolean {

@@ -7,6 +7,7 @@ import {
   isHttpsWebhookUrl,
   normalizeWhatsappPhone,
   planShipmentWhatsappNotices,
+  shouldBackfillShipmentNotice,
   toWhatsappText,
 } from "./whatsapp-notices";
 
@@ -43,6 +44,34 @@ test("já em trânsito só manda saiu para entrega", () => {
     nextStatus: "Saiu para entrega",
     nextCode: "AA123456789BR",
   }), ["tracking", "out_for_delivery"]);
+});
+
+test("em rota na primeira postagem manda postado e saiu", () => {
+  assert.deepEqual(planShipmentWhatsappNotices({
+    previousStatus: "Aguardando coleta",
+    nextStatus: "EM ROTA - CO SAMAMBAIA 01",
+    previousCode: "AA123456789BR",
+    nextCode: "AA123456789BR",
+  }), ["posted", "out_for_delivery"]);
+});
+
+test("em rota depois de em trânsito avisa saiu sem repetir postado", () => {
+  assert.deepEqual(planShipmentWhatsappNotices({
+    previousStatus: "Em trânsito",
+    nextStatus: "EM ROTA - CO SAMAMBAIA 01",
+    previousCode: "AA123456789BR",
+    nextCode: "AA123456789BR",
+  }), ["out_for_delivery"]);
+});
+
+test("coluna vazia repete postado e saiu; entregue e rastreio esperam a coluna existir", () => {
+  assert.equal(shouldBackfillShipmentNotice("posted", false, [], "order"), true);
+  assert.equal(shouldBackfillShipmentNotice("out_for_delivery", false, [], "pkg-1"), true);
+  assert.equal(shouldBackfillShipmentNotice("posted", true, ["order"], "order"), false);
+  assert.equal(shouldBackfillShipmentNotice("delivered", false, [], "order"), false);
+  assert.equal(shouldBackfillShipmentNotice("delivered", true, [], "order"), true);
+  assert.equal(shouldBackfillShipmentNotice("tracking", false, [], "order"), false);
+  assert.equal(shouldBackfillShipmentNotice("tracking", true, [], "order"), true);
 });
 
 test("código EC não dispara rastreio, postado, saiu nem entregue", () => {

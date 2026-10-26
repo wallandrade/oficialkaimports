@@ -1,12 +1,13 @@
 # Regras de negócio — KA Imports
 
-> **Última atualização:** 2026-10-25
+> **Última atualização:** 2026-10-26
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-26 | WhatsApp de saiu acompanha o selo `EM ROTA` | O aviso de saiu para entrega sai com a frase da transportadora ou com `em rota`. Se a marca do pacote ainda está vazia, o próximo sync manda postado e saiu | Botão Enviado, rastreio manual, rastreio e entregue. Detalhe em `integracoes.md` |
 | 2026-10-25 | Tela do PIX da rifa lê o status da reserva | `GET /api/raffles/reservations/:id/status` devolve só `status`. `/rifas/pix/:id` consulta a cada 2s. Depois de copiar, mostra “Aguardando pagamento…”. Com `paid`, mostra “PIX pago” | Webhook continua gravando `paid`. Consulta por telefone, números e a expiração iguais. Sem GET na CN Pay |
 | 2026-10-23 | Produto da promo pode voltar em todo carregamento | Botão **Habilitar** grava `flash_campaign_items.always_show`. Esse produto entra na frente, sem chance e sem visita. Horário, vaga e preço válido continuam | Os outros produtos da mesma promo e o botão **Mostrar na primeira visita** |
 | 2026-10-23 | Cotação verde aceita entrega antiga e nome curto | Sem corte de 180 dias. “Sedex” conta como Correios Sedex e “Loggi” como Ponto Loggi. “Correios” sozinho não pinta Sedex e Pac juntos | Continua a mesma cidade e UF. Lista negra, Yury e a confirmação do extravio |
@@ -197,7 +198,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 ## Pedidos e pagamento
 
 - Fluxo PIX preferencial: `POST /api/checkout/pix` cria pedido + cobrança no gateway (`artifacts/api-server/src/routes/checkout.ts`). APPCNPay usa o par de chaves da loja em `tenant_settings` quando as duas existem; senão as globais do servidor.
-- WhatsApp do cliente (não é o Pushcut): na primeira ida para `paid`/`completed` sai o mesmo texto de **Copiar pós-pagamento**, mais a filmagem se houver URL https. O frete avisa dentro do persist da EnvioEcom. Falha do n8n apaga a marca e não segura o pedido. Detalhe em `integracoes.md`.
+- WhatsApp do cliente (não é o Pushcut): na primeira ida para `paid`/`completed` sai o mesmo texto de **Copiar pós-pagamento**, mais a filmagem se houver URL https. O frete avisa dentro do persist da EnvioEcom. Saiu para entrega inclui `em rota`. Postado e saiu repetem no próximo persist se a chave do pacote ainda não foi gravada. Falha do n8n apaga a marca e não segura o pedido. Detalhe em `integracoes.md`.
 - Status observados no código: `pending`, `awaiting_payment`, `paid`, `cancelled` (e fluxos admin de marcação manual).
 - Confirmação PIX: **via webhook** (`POST /api/webhook/pix`). Job de reconciliação **não** faz polling de status no gateway — só expira pedidos/cobranças `pending`/`awaiting_payment` > 24h (`artifacts/api-server/src/reconciliation.ts`).
 - **Extrato OFX (Banco Inter):** aba **Extrato** sobe `.ofx`, analisa só créditos (`TRNAMT > 0`) e cruza valor exato + janela de data + score de nome. Se o CPF (11) ou CNPJ (14) do pedido aparecer nos dígitos de `NAME`/`MEMO` do crédito, o score vira **100%** mesmo com nome diferente. Só pedidos de **depósito Inter manual** (`whatsapp_pix`, ou PIX **sem** `transactionId`); PIX gateway (CNPay/DentPeg com `transactionId`), cartão simulado e crédito de afiliado ficam de fora. FITID já gravado em `ok`/`confirmed_100` é ignorado no próximo OFX (não 400 se todos já estiverem registrados). **Aplicar só 100%** grava `confirmed_100` no pedido (`bank_deposit_*` + FITID único). Um pedido pode ter **vários PIX** (`order_bank_deposits`); `orders.bank_deposit_amount` é a soma. O 2º PIX não desfaz o 1º. Motivo só se a soma ainda ≠ total. **Desfazer** na aba Depósitos remove um PIX (`POST /api/admin/bank-statement/clear` com `fitid`) sem mudar `paid`. Não baixa PDF/comprovante, não fala com o gateway. Conta mascarada. Seller-scoped só vê/aplica/desfaz nos próprios pedidos. O relatório da sessão some no F5; o histórico persistente é a aba **Depósitos**.

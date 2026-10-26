@@ -1,12 +1,13 @@
 # Integrações externas — KA Imports
 
-> **Última atualização:** 2026-10-25
+> **Última atualização:** 2026-10-26
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-26 | WhatsApp de saiu trata `em rota` e reenvia com a marca vazia | `EM ROTA` chama o mesmo webhook de saiu para entrega e a filmagem de entrega. Postado e saiu saem de novo no próximo persist se a chave do pacote ainda não está no JSON, mesmo com a coluna `NULL` | Rastreio e entregue só repetem se a coluna já existe. Botão Enviado e rastreio manual continuam sem aviso. Código `EC` continua sem avisar |
 | 2026-10-25 | Tela do PIX da rifa não usa mais o lookup | `GET /api/raffles/reservations/:id/status` lê `raffle_reservations.status`. A página consulta a cada 2s e mostra “PIX pago” quando o webhook gravou `paid` | `POST /api/webhook/pix`, o lookup por telefone e o `POST /webhook/raffle-pix`. Sem GET de status na CN Pay |
 | 2026-10-23 | Cotação verde sem prazo de 180 dias | `deliveryHint` lê toda entrega da cidade. Nome curto da transportadora entra. “Correios” sozinho não une Sedex e Pac | Lista negra e a Yury |
 | 2026-10-23 | Cotação avisa entrega já feita na cidade | `POST /admin/envioecom/orders/:id/quote` devolve `deliveryHint` além de `lossAlert`. Lê `orders` e `order_shipments` da loja | Lista negra, snapshot da Yury, checkout e create |
@@ -108,7 +109,7 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 
 - A loja não chama a Z-API nos avisos. `lib/whatsapp-n8n.ts` faz POST https, 8 s, 2 tentativas. Sem 2xx, a marca sai. Filmagem sem URL não grava marca e não usa webhook de outro sistema.
 - Pago e filmagem: `paid_whatsapp_sent_at` e `filmagem_whatsapp_sent_at`. Frete: JSON em `orders` (`tracking_whatsapp_codes`, `posted_whatsapp_keys`, `out_for_delivery_whatsapp_keys`, `delivered_whatsapp_keys`). Chave do pacote é o id de `order_shipments`; envio único usa `order`.
-- Rastreio, postado, saiu e entregue saem de `persistEnvioEcomShipment` e `persistEnvioEcomPackage`. O create passa `skipTrackingWhatsapp` e avisa o rastreio uma vez no fim. Código `EC`, aguardando coleta e etiqueta pronta não avisam. “Saiu para entrega” também dispara a filmagem de entrega, uma vez por pedido.
+- Rastreio, postado, saiu e entregue saem de `persistEnvioEcomShipment` e `persistEnvioEcomPackage`. O create passa `skipTrackingWhatsapp` e avisa o rastreio uma vez no fim. Código `EC`, aguardando coleta e etiqueta pronta não avisam. Saiu para entrega é a frase da transportadora ou `em rota` (o mesmo selo da Minha conta) e também dispara a filmagem de entrega, uma vez por pedido. Se `posted_whatsapp_keys` ou `out_for_delivery_whatsapp_keys` ainda não tem a chave do pacote, o próximo persist manda de novo, mesmo com a coluna `NULL`. Rastreio e entregue só repetem quando a coluna já existe.
 - Segunda instância: slugs em `n8n_second_instance_seller_slugs`. Sem a URL `*_poly`, o aviso de pedido usa a URL principal. No atendimento, `instanceId` compara com `n8n_poly_instance_id` (só o ID). Sem URL de lista dessa instância, o menu não responde.
 - **Recuperação:** aba no admin. Última compra `paid`/`completed` há mais de 40 dias. Um POST `{ phone, message }` em `n8n_recovery_webhook_url`, do mais antigo para o mais novo, um cliente a cada 3 minutos, no máximo o limite do dia, entre `n8n_recovery_start_hour` e `n8n_recovery_end_hour` (padrão 10h–19h) de São Paulo. Salvar a aba dentro dessa faixa dispara o próximo envio na hora. Telefone já gravado em `whatsapp_recovery_sends` não recebe de novo; a marca só reabre se a compra seguinte for pelo menos 1 dia mais nova. Em Últimos envios, o valor soma os pedidos `paid` e `completed` daquele telefone: `orders.total`, ou `paid_amount` se o total vier 0, ou os produtos mais o frete. Número com e sem o 9 é o mesmo cliente. O envio da pesquisa usa o webhook de lista (`optionList` com preço, objetivo, condições e vendas). O clique grava `answer` e a aba mostra quantidade e porcentagem de quem respondeu. Texto livre, por 14 dias, não abre o menu: fica para uma pessoa. Falha do n8n apaga a marca.
 
