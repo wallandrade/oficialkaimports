@@ -179,13 +179,13 @@ export function FlashOfferHost() {
     <>
       {!isAdmin && !holdOffers && offers.length > 0 && (
         <div className="fixed inset-0 z-[80] flex h-dvh max-h-dvh overflow-y-auto overscroll-contain bg-black/60 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-          <div className="m-auto w-full max-w-md rounded-3xl bg-white p-5 shadow-2xl">
-            <p className="text-center text-xs font-bold uppercase tracking-wide text-orange-600">Promoção relâmpago</p>
+          <div className="m-auto w-full max-w-sm rounded-3xl bg-white p-5 shadow-2xl">
+            <p className="text-center text-[11px] font-bold uppercase tracking-wide text-orange-500">
+              Promoção relâmpago{several ? ` · ${index + 1} de ${offers.length}` : ""}
+            </p>
             <h2 className="mt-1 text-center text-2xl font-black text-neutral-950">Essa oferta é sua</h2>
-            <p className="mt-1 text-center text-sm text-neutral-600">
-              {several
-                ? "Arraste para o lado. Cada oferta que você aceitar entra no carrinho e sai da lista. O preço vale por 1 hora no PIX ou no WhatsApp."
-                : "Aparece uma vez. Se aceitar, tem 1 hora para pagar no PIX ou no WhatsApp."}
+            <p className="mt-1 text-center text-sm leading-snug text-neutral-500">
+              Aparece uma vez. Se aceitar, tem 1 hora para pagar no PIX ou no WhatsApp.
             </p>
             <div className="relative mt-4">
               {several && (
@@ -194,7 +194,7 @@ export function FlashOfferHost() {
                   aria-label="Oferta anterior"
                   disabled={claiming || index === 0}
                   onClick={() => scrollToIndex(index - 1)}
-                  className="absolute left-1 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-white text-neutral-800 shadow disabled:opacity-40"
+                  className="absolute left-2 top-[6.25rem] z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-white text-orange-500 shadow disabled:opacity-40"
                 >
                   <ChevronLeft className="h-5 w-5" />
                 </button>
@@ -205,14 +205,16 @@ export function FlashOfferHost() {
                 className="flex snap-x snap-mandatory overflow-x-auto scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
               >
                 {offers.map((item) => (
-                  <div key={`${item.campaignId}-${item.productId}`} className={`w-full shrink-0 snap-center ${several ? "px-9" : ""}`}>
-                    <div className="flex gap-3 rounded-2xl border border-orange-100 bg-orange-50 p-3">
-                      {item.image && <img src={item.image} alt="" className="h-20 w-20 rounded-xl object-cover" />}
-                      <div className="min-w-0">
-                        <p className="font-semibold leading-tight text-neutral-950">{item.name}</p>
-                        <p className="mt-1 text-sm text-neutral-400 line-through">{formatCurrency(item.regularPrice)}</p>
-                        <p className="text-2xl font-black text-orange-600">{formatCurrency(item.flashPrice)}</p>
+                  <div key={`${item.campaignId}-${item.productId}`} className="w-full shrink-0 snap-center">
+                    <div className="rounded-2xl border border-neutral-200 bg-white px-3 pb-4 pt-3">
+                      <div className="flex h-44 items-center justify-center">
+                        {item.image
+                          ? <img src={item.image} alt="" className="h-full w-full object-contain" />
+                          : <div className="h-full w-full rounded-xl bg-neutral-100" />}
                       </div>
+                      <p className="mt-2 text-center text-sm font-medium leading-snug text-neutral-950">{item.name}</p>
+                      <p className="mt-1 text-center text-sm text-neutral-400 line-through">{formatCurrency(item.regularPrice)}</p>
+                      <p className="text-center text-[1.65rem] font-black leading-tight text-orange-500">{formatCurrency(item.flashPrice)}</p>
                     </div>
                   </div>
                 ))}
@@ -223,33 +225,30 @@ export function FlashOfferHost() {
                   aria-label="Próxima oferta"
                   disabled={claiming || index >= offers.length - 1}
                   onClick={() => scrollToIndex(index + 1)}
-                  className="absolute right-1 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-white text-neutral-800 shadow disabled:opacity-40"
+                  className="absolute right-2 top-[6.25rem] z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-white text-orange-500 shadow disabled:opacity-40"
                 >
                   <ChevronRight className="h-5 w-5" />
                 </button>
               )}
             </div>
             {several && (
-              <div className="mt-3 flex items-center justify-center gap-2">
-                <div className="flex items-center gap-1.5">
-                  {offers.map((item, dot) => (
-                    <button
-                      key={`${item.campaignId}-${item.productId}-dot`}
-                      type="button"
-                      aria-label={`Oferta ${dot + 1} de ${offers.length}`}
-                      onClick={() => scrollToIndex(dot)}
-                      className={`h-2 w-2 rounded-full ${dot === index ? "bg-orange-500" : "bg-neutral-300"}`}
-                    />
-                  ))}
-                </div>
-                <span className="text-xs font-semibold text-neutral-500">{index + 1} de {offers.length}</span>
+              <div className="mt-3 flex items-center justify-center gap-1.5">
+                {offers.map((item, dot) => (
+                  <button
+                    key={`${item.campaignId}-${item.productId}-dot`}
+                    type="button"
+                    aria-label={`Oferta ${dot + 1} de ${offers.length}`}
+                    onClick={() => scrollToIndex(dot)}
+                    className={`h-1.5 rounded-full ${dot === index ? "w-4 bg-orange-500" : "w-1.5 bg-neutral-300"}`}
+                  />
+                ))}
               </div>
             )}
             <button
               type="button"
               disabled={claiming}
               onClick={() => void accept()}
-              className="mt-4 h-12 w-full rounded-xl bg-orange-500 text-base font-bold text-white disabled:opacity-60"
+              className="mt-4 h-12 w-full rounded-full bg-orange-500 text-base font-bold text-white disabled:opacity-60"
             >
               {claiming ? "Reservando..." : "Quero essa oferta"}
             </button>
@@ -257,7 +256,7 @@ export function FlashOfferHost() {
               type="button"
               disabled={claiming}
               onClick={() => setOffers([])}
-              className="mt-2 h-10 w-full text-sm font-medium text-neutral-500"
+              className="mt-1 h-10 w-full text-sm font-medium text-neutral-400"
             >
               Agora não
             </button>
