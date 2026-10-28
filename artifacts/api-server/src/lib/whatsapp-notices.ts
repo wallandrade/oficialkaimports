@@ -22,7 +22,7 @@ export function isOutForDeliveryStatus(status: unknown): boolean {
   return normalized.includes("saiu para entrega") || normalized.includes("em rota");
 }
 
-/** Postado e saiu tentam de novo com a coluna ainda NULL. Entregue e rastreio só repetem depois que a coluna existe. */
+/** Postado, saiu e rastreio tentam de novo com a coluna ainda NULL. Entregue só repete depois que a coluna existe. */
 export function shouldBackfillShipmentNotice(
   kind: ShipmentWhatsappNotice,
   columnPresent: boolean,
@@ -30,8 +30,8 @@ export function shouldBackfillShipmentNotice(
   packageKey: string,
 ): boolean {
   if (keys.includes(packageKey)) return false;
-  if (kind === "posted" || kind === "out_for_delivery") return true;
-  return columnPresent;
+  if (kind === "delivered") return columnPresent;
+  return true;
 }
 
 function inTransitForPosted(status: unknown): boolean {
@@ -39,7 +39,8 @@ function inTransitForPosted(status: unknown): boolean {
 }
 
 export function normalizeWhatsappPhone(value: unknown): string | null {
-  const digits = String(value || "").replace(/\D/g, "");
+  let digits = String(value || "").replace(/\D/g, "");
+  while (digits.startsWith("0")) digits = digits.slice(1);
   if (!digits) return null;
   if (digits.startsWith("55") && digits.length >= 12) return digits;
   if (digits.length >= 10 && digits.length <= 11) return `55${digits}`;

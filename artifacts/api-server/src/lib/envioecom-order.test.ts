@@ -67,6 +67,26 @@ test("webhook so casa o envio atual; pedido solto ignora 8880 antigo", () => {
     shipmentId: 99,
     externalOrderNumber: "2041-abcdefgh-xyz1",
   }), true);
+  assert.equal(shipmentEventMatchesOrder({
+    envioecomShipmentId: 99,
+    envioecomBarcode: "EC123456",
+    trackingCode: "EC123456",
+    envioecomExternalOrderNumber: "2041-abcdefgh-xyz1",
+  }, {
+    barcode: "AA123456789BR",
+    shipmentId: 99,
+    externalOrderNumber: "2041-abcdefgh-xyz1",
+  }), true);
+  assert.equal(shipmentEventMatchesOrder({
+    envioecomShipmentId: 99,
+    envioecomBarcode: "EC123456",
+    trackingCode: "EC123456",
+    envioecomExternalOrderNumber: "2041-abcdefgh-xyz1",
+  }, {
+    barcode: "AA123456789BR",
+    shipmentId: 99,
+    externalOrderNumber: "outro-pedido",
+  }), false);
 });
 
 test("pedido desvinculado nao reatacha pelo external_order_number antigo", () => {

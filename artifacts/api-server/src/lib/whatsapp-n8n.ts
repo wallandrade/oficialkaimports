@@ -21,6 +21,7 @@ export { SINGLE_SHIPMENT_WHATSAPP_KEY };
 
 const TIMEOUT_MS = 8000;
 const ATTEMPTS = 2;
+const PAID_RETRY_DELAYS_MS = [15_000, 60_000];
 
 const EVENTS = {
   paid: { env: "N8N_ORDER_PAID_WEBHOOK_URL", setting: "n8n_order_paid_webhook_url" },
@@ -131,6 +132,7 @@ async function postN8n(url: string, payload: Record<string, unknown>): Promise<b
         signal: controller.signal,
       });
       if (response.ok) return true;
+      console.warn("[WHATSAPP_N8N] POST recusou", { attempt, status: response.status });
     } catch (err) {
       console.warn("[WHATSAPP_N8N] POST falhou", {
         attempt,
@@ -268,7 +270,10 @@ async function sendMarkedNotice(input: {
     tenantId: input.tenantId,
     secondInstance: input.secondInstance,
   });
-  if (!url) return;
+  if (!url) {
+    console.warn("[WHATSAPP_N8N] Sem URL https", { kind: input.kind, orderId: input.order.id });
+    return;
+  }
   const column = KEY_COLUMNS[input.kind];
   const previous = await claimKey(input.order.id, column, input.packageKey);
   if (!previous) return;
@@ -313,10 +318,10 @@ export function dispatchShipmentWhatsapp(input: {
 }): void {
   const notices = planShipmentWhatsappNotices(input);
   const code = String(input.nextCode || "").trim();
-  const retryStatus = !code || !isProvisionalBarcode(code)
-    ? currentStatusWhatsappNotices(input.nextStatus).length > 0
-    : false;
-  if (!notices.length && !retryStatus) return;
+  const provisional = Boolean(code) && isProvisionalBarcode(code);
+  const retryStatus = !provisional && currentStatusWhatsappNotices(input.nextStatus).length > 0;
+  const retryTracking = !input.skipTracking && isUsableLabelBarcode(code);
+  if (!notices.length && !retryStatus && !retryTracking) return;
   void deliverShipmentNotices(input, notices).catch((err) => {
     console.warn("[WHATSAPP_N8N] Falha ao avisar frete", input.order.id, err);
   });
@@ -333,7 +338,10 @@ async function deliverShipmentNotices(
   planned: ShipmentWhatsappNotice[],
 ): Promise<void> {
   const phone = normalizeWhatsappPhone(input.order.clientPhone);
-  if (!phone) return;
+  if (!phone) {
+    console.warn("[WHATSAPP_N8N] Frete sem telefone válido", input.order.id);
+    return;
+  }
   const code = String(input.nextCode || "").trim();
   const packageKey = input.packageKey || SINGLE_SHIPMENT_WHATSAPP_KEY;
   const notices = new Set<ShipmentWhatsappNotice>(planned);
@@ -387,7 +395,10 @@ async function deliverCreateTracking(orderId: string, packageKey: string, code: 
   const order = rows[0];
   if (!order) return;
   const phone = normalizeWhatsappPhone(order.clientPhone);
-  if (!phone) return;
+  if (!phone) {
+    console.warn("[WHATSAPP_N8N] Rastreio do create sem telefone válido", orderId);
+    return;
+  }
   const tenantId = order.tenantId || DEFAULT_TENANT_ID;
   await sendMarkedNotice({
     order,
@@ -400,25 +411,31 @@ async function deliverCreateTracking(orderId: string, packageKey: string, code: 
   });
 }
 
-export function scheduleOrderPaidWhatsapp(orderId: string): void {
+export function scheduleOrderPaidWhatsapp(orderId: string, attempt = 0): void {
   const id = String(orderId || "").trim();
   if (!id) return;
-  void deliverOrderPaid(id).catch((err) => {
+  void deliverOrderPaid(id, attempt).catch((err) => {
     console.warn("[WHATSAPP_N8N] Falha ao avisar pedido pago", id, err);
   });
 }
 
-async function deliverOrderPaid(orderId: string): Promise<void> {
+async function deliverOrderPaid(orderId: string, attempt = 0): Promise<void> {
   const rows = await db.select().from(ordersTable).where(eq(ordersTable.id, orderId)).limit(1);
   const order = rows[0];
   if (!order) return;
   const status = String(order.status || "").trim().toLowerCase();
   if (status !== "paid" && status !== "completed") return;
   const phone = normalizeWhatsappPhone(order.clientPhone);
-  if (!phone) return;
+  if (!phone) {
+    console.warn("[WHATSAPP_N8N] Pedido pago sem telefone válido", orderId);
+    return;
+  }
   const tenantId = order.tenantId || DEFAULT_TENANT_ID;
   const secondInstance = await sellerUsesSecondInstance(order.sellerCode, tenantId);
   const paidUrl = await resolveWhatsappWebhookUrl({ event: "paid", tenantId, secondInstance });
+  if (!paidUrl) {
+    console.warn("[WHATSAPP_N8N] Pedido pago sem URL https", orderId);
+  }
   if (paidUrl) {
     const claimed = await claimTimestamp(order.id, "paid_whatsapp_sent_at");
     if (claimed) {
@@ -441,7 +458,14 @@ async function deliverOrderPaid(orderId: string): Promise<void> {
           logisticsAllocation: promisedHours ? { promisedHours } : null,
         }),
       });
-      if (!ok) await releaseTimestamp(order.id, "paid_whatsapp_sent_at");
+      if (!ok) {
+        await releaseTimestamp(order.id, "paid_whatsapp_sent_at");
+        const delay = PAID_RETRY_DELAYS_MS[attempt];
+        if (delay) {
+          console.warn("[WHATSAPP_N8N] Pedido pago será tentado de novo", { orderId, attempt: attempt + 1, delayMs: delay });
+          setTimeout(() => scheduleOrderPaidWhatsapp(orderId, attempt + 1), delay);
+        }
+      }
     }
   }
   await sendFilmagem({

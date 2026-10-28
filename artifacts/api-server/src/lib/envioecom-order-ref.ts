@@ -97,11 +97,12 @@ export function shipmentEventMatchesOrder(
   const eventBarcode = String(event.barcode || "").trim();
   const eventExternal = String(event.externalOrderNumber || "").trim();
 
+  const sameShipment = Boolean(boundId && eventId && boundId === eventId);
   if (boundId && eventId && boundId !== eventId) return false;
-  if (boundBarcode && eventBarcode && boundBarcode !== eventBarcode) return false;
+  if (boundBarcode && eventBarcode && boundBarcode !== eventBarcode && !sameShipment) return false;
   if (boundExternal && eventExternal && boundExternal !== eventExternal) return false;
 
-  if (boundId && eventId && boundId === eventId) return true;
+  if (sameShipment) return true;
   if (boundBarcode && eventBarcode && boundBarcode === eventBarcode) return true;
   return false;
 }

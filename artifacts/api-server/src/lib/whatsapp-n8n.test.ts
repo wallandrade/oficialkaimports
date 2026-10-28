@@ -15,6 +15,7 @@ test("telefone ganha 55 e quem já tem 55 permanece", () => {
   assert.equal(normalizeWhatsappPhone("(11) 99999-8888"), "5511999998888");
   assert.equal(normalizeWhatsappPhone("5511999998888"), "5511999998888");
   assert.equal(normalizeWhatsappPhone("1199998888"), "551199998888");
+  assert.equal(normalizeWhatsappPhone("011999998888"), "5511999998888");
   assert.equal(normalizeWhatsappPhone("99998888"), null);
   assert.equal(normalizeWhatsappPhone("5511999"), null);
 });
@@ -64,14 +65,14 @@ test("em rota depois de em trânsito avisa saiu sem repetir postado", () => {
   }), ["out_for_delivery"]);
 });
 
-test("coluna vazia repete postado e saiu; entregue e rastreio esperam a coluna existir", () => {
+test("coluna vazia repete postado, saiu e rastreio; entregue espera a coluna existir", () => {
   assert.equal(shouldBackfillShipmentNotice("posted", false, [], "order"), true);
   assert.equal(shouldBackfillShipmentNotice("out_for_delivery", false, [], "pkg-1"), true);
   assert.equal(shouldBackfillShipmentNotice("posted", true, ["order"], "order"), false);
   assert.equal(shouldBackfillShipmentNotice("delivered", false, [], "order"), false);
   assert.equal(shouldBackfillShipmentNotice("delivered", true, [], "order"), true);
-  assert.equal(shouldBackfillShipmentNotice("tracking", false, [], "order"), false);
-  assert.equal(shouldBackfillShipmentNotice("tracking", true, [], "order"), true);
+  assert.equal(shouldBackfillShipmentNotice("tracking", false, [], "order"), true);
+  assert.equal(shouldBackfillShipmentNotice("tracking", true, ["order"], "order"), false);
 });
 
 test("código EC não dispara rastreio, postado, saiu nem entregue", () => {
