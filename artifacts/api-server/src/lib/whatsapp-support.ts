@@ -304,7 +304,7 @@ async function summaryForOrder(order: typeof ordersTable.$inferSelect): Promise<
   return lines.filter((line) => line !== undefined).join("\n");
 }
 
-const BUILTIN_IGNORED_PHONES = ["11992790531", "35991490820", "35991738862"];
+const BUILTIN_IGNORED_PHONES = ["11992790531", "35991490820", "35991738862", "19997349772", "35997190899"];
 const MAIN_STORE_LINK = "https://www.ka-imports.com/kaique";
 
 async function storeLink(tenantId: string, secondInstance: boolean): Promise<string> {

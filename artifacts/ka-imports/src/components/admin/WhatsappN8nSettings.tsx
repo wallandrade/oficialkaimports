@@ -198,7 +198,7 @@ export function WhatsappN8nSettings({
         />
         <span className="mt-2 flex items-center justify-between gap-3">
           <span className="text-xs text-muted-foreground">
-            Um número por linha. Esses celulares não recebem o menu nem as respostas do bot. 11992790531, 35991490820 e 35991738862 já ficam de fora.
+            Um número por linha. Esses celulares não recebem o menu nem as respostas do bot. 11992790531, 35991490820, 35991738862, 19997349772 e 35997190899 já ficam de fora.
           </span>
           <Button size="sm" onClick={() => save("n8n_support_ignore_phones", drafts.n8n_support_ignore_phones || "")}>
             Salvar

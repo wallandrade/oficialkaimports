@@ -239,7 +239,7 @@ export async function recoverySettings(tenantId = DEFAULT_TENANT_ID) {
   };
 }
 
-const RECOVERY_IGNORED_PHONES = ["11992790531", "35991490820", "35991738862"];
+const RECOVERY_IGNORED_PHONES = ["11992790531", "35991490820", "35991738862", "19997349772", "35997190899"];
 
 async function ignoredPhones(): Promise<Set<string>> {
   const phones = new Set<string>();
