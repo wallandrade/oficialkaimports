@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-28 | Menu de atendimento uma vez a cada 24 h | Quem escreve em vez de tocar no menu não recebe o menu de novo até passar 24 h. O clique continua abrindo a opção | Sessão de 60 segundos da conversa. Pedido, rastreio e recuperação. Detalhe em `integracoes.md` |
 | 2026-10-28 | WhatsApp automático sai do 35 99211-9139 | Pago, frete, atendimento e recuperação chamam a URL principal e mandam `sender` `5535992119139` | Link da loja no menu e o Pushcut. Detalhe em `integracoes.md` |
 | 2026-10-28 | WhatsApp de pago e rastreio tenta de novo | Pago recusado pelo n8n tenta de novo em 15 s e em 60 s. Rastreio sai no próximo persist com código utilizável, mesmo sem marca. O mesmo envio EnvioEcom aceita o código que substitui o `EC…` | Entregue, rastreio manual, botão Enviado e OFX. Detalhe em `integracoes.md` |
 | 2026-10-26 | WhatsApp de saiu acompanha o selo `EM ROTA` | O aviso de saiu para entrega sai com a frase da transportadora ou com `em rota`. Se a marca do pacote ainda está vazia, o próximo sync manda postado e saiu | Botão Enviado, rastreio manual, rastreio e entregue. Detalhe em `integracoes.md` |

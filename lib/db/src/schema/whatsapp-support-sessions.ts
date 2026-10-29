@@ -5,6 +5,7 @@ export const whatsappSupportSessionsTable = mysqlTable("whatsapp_support_session
   step: varchar("step", { length: 32 }).notNull().default("menu"),
   problem: varchar("problem", { length: 64 }),
   pendingOrder: varchar("pending_order", { length: 64 }),
+  menuSentAt: timestamp("menu_sent_at"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 

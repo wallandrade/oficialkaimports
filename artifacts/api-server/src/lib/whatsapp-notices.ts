@@ -66,6 +66,16 @@ export function filmagemShouldMark(url: unknown): boolean {
   return isHttpsWebhookUrl(url);
 }
 
+export const MENU_REPEAT_MS = 24 * 60 * 60 * 1000;
+
+/** O menu de abertura só volta depois de 24 h. Texto livre nesse intervalo não pede de novo. */
+export function menuShouldSendAgain(sentAt: Date | null, now = Date.now()): boolean {
+  if (!sentAt) return true;
+  const time = sentAt.getTime();
+  if (!Number.isFinite(time)) return true;
+  return now - time >= MENU_REPEAT_MS;
+}
+
 export function inboundTypeShouldIgnore(type: unknown): boolean {
   const value = String(type ?? "").trim();
   if (!value) return false;

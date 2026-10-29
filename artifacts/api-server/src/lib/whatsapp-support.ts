@@ -4,7 +4,7 @@ import { DEFAULT_TENANT_ID } from "./tenant-context";
 import { isUsableLabelBarcode } from "./envioecom-status";
 import { listOrderShipments } from "./order-shipments";
 import { phoneHasRecentRecovery, recordRecoveryAnswer, recoveryAnswerId, RECOVERY_THANKS } from "./whatsapp-recovery";
-import { inboundTypeShouldIgnore, normalizeWhatsappPhone } from "./whatsapp-notices";
+import { inboundTypeShouldIgnore, menuShouldSendAgain, normalizeWhatsappPhone } from "./whatsapp-notices";
 import {
   instanceMatchesPoly,
   postWhatsappWebhook,
@@ -390,6 +390,24 @@ function reminder(): string {
   return `Toque em ${MENU_BUTTON} acima e escolha sua opção.`;
 }
 
+async function readMenuSentAt(phone: string): Promise<Date | null> {
+  const [rows] = await pool.query(
+    `SELECT menu_sent_at AS menuSentAt FROM whatsapp_support_sessions WHERE phone = ? LIMIT 1`,
+    [phone],
+  ) as unknown as [Array<{ menuSentAt: Date | string | null }>, unknown];
+  const value = rows[0]?.menuSentAt;
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+async function markMenuSent(phone: string): Promise<void> {
+  await pool.query(
+    `UPDATE whatsapp_support_sessions SET menu_sent_at = NOW() WHERE phone = ?`,
+    [phone],
+  );
+}
+
 export async function handleWhatsappSupportInbound(rawBody: unknown, token: string): Promise<{ status: number }> {
   const auth = await whatsappSupportTokenMatches(token);
   if (!auth.ok) return { status: 401 };
@@ -441,18 +459,27 @@ export async function handleWhatsappSupportInbound(rawBody: unknown, token: stri
     return { status: 200 };
   }
   let state: SessionState = session || { step: "menu", problem: null, pendingOrder: null };
+  const inboundChoice = readChoice(body);
 
   if (!session) {
-    const sent = await sendMenu({
-      tenantId: auth.tenantId,
-      secondInstance,
-      phone,
-      title: "Atendimento",
-      intro: "Olá! Você entrou em contato com o atendimento.",
-      options: menu,
-    });
-    if (sent) await saveSession(phone, { step: "menu", problem: null, pendingOrder: null });
-    return { status: 200 };
+    if (!inboundChoice && !menuShouldSendAgain(await readMenuSentAt(phone))) {
+      return { status: 200 };
+    }
+    if (!inboundChoice) {
+      const sent = await sendMenu({
+        tenantId: auth.tenantId,
+        secondInstance,
+        phone,
+        title: "Atendimento",
+        intro: "Olá! Você entrou em contato com o atendimento.",
+        options: menu,
+      });
+      if (sent) {
+        await saveSession(phone, { step: "menu", problem: null, pendingOrder: null });
+        await markMenuSent(phone);
+      }
+      return { status: 200 };
+    }
   }
 
   if (state.step === "human") {
@@ -464,8 +491,6 @@ export async function handleWhatsappSupportInbound(rawBody: unknown, token: stri
     const options = state.step === "problem_menu" ? PROBLEM_MENU : menu;
     const picked = matchOption(options, readChoice(body) || text);
     if (!picked) {
-      await sendText({ tenantId: auth.tenantId, secondInstance, phone, message: reminder() });
-      await saveSession(phone, state);
       return { status: 200 };
     }
     if (state.step === "problem_menu") {
@@ -528,7 +553,7 @@ export async function handleWhatsappSupportInbound(rawBody: unknown, token: stri
         message: "Certo. Um atendente continua a conversa por aqui.",
       });
       state = { step: "human", problem: null, pendingOrder: null };
-    } else {
+    } else if (menuShouldSendAgain(await readMenuSentAt(phone))) {
       await sendText({ tenantId: auth.tenantId, secondInstance, phone, message: reminder() });
     }
     await saveSession(phone, state);

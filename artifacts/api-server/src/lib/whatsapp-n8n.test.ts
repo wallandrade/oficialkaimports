@@ -5,6 +5,8 @@ import {
   filmagemShouldMark,
   inboundTypeShouldIgnore,
   isHttpsWebhookUrl,
+  MENU_REPEAT_MS,
+  menuShouldSendAgain,
   normalizeWhatsappPhone,
   planShipmentWhatsappNotices,
   shouldBackfillShipmentNotice,
@@ -106,6 +108,14 @@ test("etiqueta pronta com código real só avisa rastreio", () => {
     nextStatus: "Etiqueta emitida",
     nextCode: "AA123456789BR",
   }), ["tracking"]);
+});
+
+test("menu de abertura só volta depois de 24 horas", () => {
+  const now = Date.parse("2026-10-28T12:00:00Z");
+  assert.equal(menuShouldSendAgain(null, now), true);
+  assert.equal(menuShouldSendAgain(new Date(now - 60 * 1000), now), false);
+  assert.equal(menuShouldSendAgain(new Date(now - MENU_REPEAT_MS + 1), now), false);
+  assert.equal(menuShouldSendAgain(new Date(now - MENU_REPEAT_MS), now), true);
 });
 
 test("type vazio segue e type sem received é ignorado", () => {
