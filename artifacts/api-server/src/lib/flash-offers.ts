@@ -12,7 +12,6 @@ import { getTenantSettingsMap } from "./envioecom-config";
 import { DEFAULT_TENANT_ID } from "./tenant-context";
 import { parseVariantGroups } from "./product-variants";
 import {
-  flashLineQuantityError,
   isCampaignHourOpen,
   mergeFlashOffers,
   normalizeVisitorKey,
@@ -622,9 +621,6 @@ export async function resolveCheckoutFlash(input: {
     if (!row || row.status !== "active" || row.expiresAt <= now || !reservationMatches(row, visitorKey, input.customerUserId)) {
       return { ok: false, status: 409, error: "FLASH_EXPIRED", message: "A promoção relâmpago expirou. O preço voltou ao normal." };
     }
-
-    const quantityError = flashLineQuantityError({ flashProductId: row.productId, lines: input.lines });
-    if (quantityError) return { ok: false, status: 400, error: "FLASH_QTY", message: quantityError };
 
     const inCart = input.lines.some((line) => line.isBump !== true && String(line.id || "").trim() === row.productId);
     if (!inCart) continue;

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  flashLineQuantityError,
   isCampaignHourOpen,
   normalizeVisitorKey,
   rollDraw,
@@ -58,10 +57,12 @@ test("visitante e preço da reserva", () => {
     productId: "p2",
     isBump: false,
   }), 100);
-  assert.equal(flashLineQuantityError({
-    flashProductId: "p1",
-    lines: [{ id: "p1", quantity: 2 }],
-  }), "A promoção relâmpago vale para 1 unidade.");
+  assert.equal(unitPriceWithFlash({
+    catalogUnitPrice: 100,
+    flash: [{ productId: "p1", unitPrice: 70 }],
+    productId: "p1",
+    isBump: false,
+  }), 70);
 });
 
 test("bloqueio da oferta libera depois das horas da campanha", () => {

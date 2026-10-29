@@ -120,17 +120,3 @@ export function unitPriceWithFlash(input: {
   return hit.unitPrice;
 }
 
-export function flashLineQuantityError(input: {
-  flashProductId: string | null;
-  lines: Array<{ id?: string; quantity?: number; isBump?: boolean }>;
-}): string | null {
-  if (!input.flashProductId) return null;
-  const line = input.lines.find((item) => {
-    if (item.isBump === true) return false;
-    return String(item.id || "").trim() === input.flashProductId;
-  });
-  if (!line) return null;
-  const quantity = Number(line.quantity) || 0;
-  if (quantity !== 1) return "A promoção relâmpago vale para 1 unidade.";
-  return null;
-}

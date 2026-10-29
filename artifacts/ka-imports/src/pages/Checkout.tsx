@@ -426,7 +426,7 @@ export default function Checkout() {
     for (const bump of checkoutBumps) {
       if (bump.discountType !== "quantity_tiers" || !bump.tiers?.length) continue;
       const cartItem = items.find((i) => !(i as { isBump?: boolean }).isBump && checkoutCatalogId(i as { id: string; productId?: string }) === bump.productId);
-      if (!cartItem) continue;
+      if (!cartItem || (cartItem as { isFlash?: boolean }).isFlash === true) continue;
       const bumpCartId = `bump_${bump.id}`;
       const bumpItem = items.find((i) => i.id === bumpCartId);
       const cartQty = cartItem.quantity;
@@ -558,6 +558,10 @@ export default function Checkout() {
 
   // Smart quantity increase — respects order bump tiers
   const handleQtyIncrease = useCallback((item: (typeof items)[0]) => {
+    if ((item as { isFlash?: boolean }).isFlash === true) {
+      updateQuantity(item.id, item.quantity + 1);
+      return;
+    }
     const catalogId = checkoutCatalogId(item as { id: string; productId?: string });
     const bump = checkoutBumps.find(
       (b) => b.productId === catalogId && b.discountType === "quantity_tiers" && b.tiers?.length
@@ -590,6 +594,11 @@ export default function Checkout() {
 
   // Smart quantity decrease — respects order bump tiers
   const handleQtyDecrease = useCallback((item: (typeof items)[0]) => {
+    if ((item as { isFlash?: boolean }).isFlash === true) {
+      if (item.quantity <= 1) removeItem(item.id);
+      else updateQuantity(item.id, item.quantity - 1);
+      return;
+    }
     const catalogId = checkoutCatalogId(item as { id: string; productId?: string });
     const bump = checkoutBumps.find(
       (b) => b.productId === catalogId && b.discountType === "quantity_tiers" && b.tiers?.length

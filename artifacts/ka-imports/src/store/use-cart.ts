@@ -209,7 +209,7 @@ export const useCart = create<CartState>()(
                     ...item,
                     productId: product.id,
                     name: displayName,
-                    quantity: 1,
+                    quantity: existingItem.quantity + addQuantity,
                     price: flash.unitPrice,
                     image: lineImage,
                     baseUnitPrice,
@@ -264,7 +264,7 @@ export const useCart = create<CartState>()(
                 price: initialPrice,
                 baseUnitPrice,
                 regularPrice,
-                quantity: flash ? 1 : addQuantity,
+                quantity: addQuantity,
                 isFlash: Boolean(flash),
                 flashReservationId: flash?.reservationId,
                 flashExpiresAt: flash?.expiresAt,
@@ -297,7 +297,7 @@ export const useCart = create<CartState>()(
           items: state.items.map((item) => {
             if (item.id !== itemId) return item;
             if (item.isFlash === true) {
-              return { ...item, quantity: 1, price: Number(item.price) };
+              return { ...item, quantity: Math.max(1, quantity), price: Number(item.price) };
             }
             const nextQuantity = Math.max(1, quantity);
             return {
