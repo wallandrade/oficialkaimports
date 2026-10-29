@@ -143,7 +143,25 @@ export function CartDrawer() {
                               </button>
                             </div>
                             <div className="mt-1 flex items-center justify-between gap-2">
-                              <p className="text-xs text-neutral-500">{totalQty} un · {formatCurrency(item.price)}</p>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                                  className="flex h-6 w-6 items-center justify-center rounded-md border border-neutral-200 text-neutral-700"
+                                  aria-label="Diminuir quantidade"
+                                >
+                                  <Minus className="h-3 w-3" />
+                                </button>
+                                <p className="px-1 text-xs text-neutral-500">{totalQty} un · {formatCurrency(item.price)}</p>
+                                <button
+                                  type="button"
+                                  onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                                  className="flex h-6 w-6 items-center justify-center rounded-md border border-neutral-200 text-neutral-700"
+                                  aria-label="Aumentar quantidade"
+                                >
+                                  <Plus className="h-3 w-3" />
+                                </button>
+                              </div>
                               <span className="shrink-0 text-sm font-bold text-[var(--pharma-green,#16a34a)]">
                                 {formatCurrency(item.price * item.quantity + (bumpItem ? bumpItem.price * bumpItem.quantity : 0))}
                               </span>
