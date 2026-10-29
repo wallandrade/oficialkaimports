@@ -76,6 +76,15 @@ export function normalizeRepeatAfterHours(raw: unknown, fallback = 0): number {
   return Math.min(2160, Math.max(0, value));
 }
 
+export function compareFlashCampaigns(
+  left: { displayOrder?: number | null; createdAt: Date },
+  right: { displayOrder?: number | null; createdAt: Date },
+): number {
+  const order = (Number(left.displayOrder) || 0) - (Number(right.displayOrder) || 0);
+  if (order !== 0) return order;
+  return left.createdAt.getTime() - right.createdAt.getTime();
+}
+
 export function mergeFlashOffers<T extends { productId: string }>(alwaysOffers: T[], regularOffers: T[]): T[] {
   const seen = new Set<string>();
   const merged: T[] = [];

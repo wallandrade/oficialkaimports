@@ -12,6 +12,7 @@ import { getTenantSettingsMap } from "./envioecom-config";
 import { DEFAULT_TENANT_ID } from "./tenant-context";
 import { parseVariantGroups } from "./product-variants";
 import {
+  compareFlashCampaigns,
   isCampaignHourOpen,
   mergeFlashOffers,
   normalizeVisitorKey,
@@ -230,7 +231,7 @@ async function drawAlwaysShowOffers(input: { tenantId: string }): Promise<DrawnF
     .from(flashCampaignsTable)
     .where(and(eq(flashCampaignsTable.tenantId, input.tenantId), eq(flashCampaignsTable.isActive, true)));
   const offers: DrawnFlashOffer[] = [];
-  for (const campaign of campaigns.sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime())) {
+  for (const campaign of campaigns.sort(compareFlashCampaigns)) {
     if (!isCampaignHourOpen(campaign.activeFromHour, campaign.activeUntilHour, hour)) continue;
     if (await activeReservationCount(campaign.id, now) >= campaign.slotLimit) continue;
     const items = await db
@@ -249,8 +250,8 @@ async function drawFirstVisitOffers(input: {
   customerUserId: string | null;
   ipHash: string | null;
 }): Promise<{ offers: DrawnFlashOffer[]; offer: DrawnFlashOffer | null }> {
-  const alwaysOffers = await drawAlwaysShowOffers({ tenantId: input.tenantId });
   if (await hasFirstVisitMark(input.tenantId, input.visitorKey, input.customerUserId)) {
+    const alwaysOffers = await drawAlwaysShowOffers({ tenantId: input.tenantId });
     return { offers: alwaysOffers, offer: alwaysOffers[0] ?? null };
   }
 
@@ -258,31 +259,37 @@ async function drawFirstVisitOffers(input: {
     .select()
     .from(flashCampaignsTable)
     .where(and(eq(flashCampaignsTable.tenantId, input.tenantId), eq(flashCampaignsTable.isActive, true)));
-  const ordered = campaigns.sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime());
+  const ordered = campaigns.sort(compareFlashCampaigns);
   const offers: DrawnFlashOffer[] = [];
   for (const campaign of ordered) {
     const rows = await db
       .select({ productId: flashCampaignItemsTable.productId, alwaysShow: flashCampaignItemsTable.alwaysShow })
       .from(flashCampaignItemsTable)
       .where(eq(flashCampaignItemsTable.campaignId, campaign.id));
+    const alwaysIds = new Set(rows.filter((item) => item.alwaysShow).map((item) => item.productId));
     const regularIds = new Set(rows.filter((item) => !item.alwaysShow).map((item) => item.productId));
-    if (regularIds.size === 0) continue;
-    const built = await campaignOffers(input.tenantId, campaign.id, regularIds);
-    if (built.length === 0) continue;
-    await saveVisit({
-      tenantId: input.tenantId,
-      campaignId: campaign.id,
-      visitorKey: input.visitorKey,
-      customerUserId: input.customerUserId,
-      ipHash: input.ipHash,
-      outcome: "seen",
-    });
-    offers.push(...built);
+    const alwaysBuilt = alwaysIds.size > 0
+      ? await campaignOffers(input.tenantId, campaign.id, alwaysIds)
+      : [];
+    let regularBuilt: DrawnFlashOffer[] = [];
+    if (regularIds.size > 0) {
+      regularBuilt = await campaignOffers(input.tenantId, campaign.id, regularIds);
+      if (regularBuilt.length > 0) {
+        await saveVisit({
+          tenantId: input.tenantId,
+          campaignId: campaign.id,
+          visitorKey: input.visitorKey,
+          customerUserId: input.customerUserId,
+          ipHash: input.ipHash,
+          outcome: "seen",
+        });
+      }
+    }
+    offers.push(...mergeFlashOffers(alwaysBuilt, regularBuilt));
   }
-  const merged = mergeFlashOffers(alwaysOffers, offers);
-  if (merged.length === 0) return emptyFlashDraw();
+  if (offers.length === 0) return emptyFlashDraw();
   await saveFirstVisitMark(input);
-  return { offers: merged, offer: merged[0] ?? null };
+  return { offers, offer: offers[0] ?? null };
 }
 
 async function saveFirstVisitMark(input: {
@@ -353,7 +360,7 @@ export async function drawFlashOffer(input: {
 
   const open = campaigns
     .filter((campaign) => isCampaignHourOpen(campaign.activeFromHour, campaign.activeUntilHour, clock.hour))
-    .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime());
+    .sort(compareFlashCampaigns);
   if (open.length === 0) return emptyFlashDraw();
 
   const offers: DrawnFlashOffer[] = [];

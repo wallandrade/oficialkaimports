@@ -22,7 +22,7 @@ import {
   isFlashForceFirstVisit,
   releaseFlashReservation,
 } from "../lib/flash-offers";
-import { isCampaignHourOpen, normalizeHour, normalizeRepeatAfterHours, normalizeShowAfterSeconds, normalizeVisitorKey, saoPauloClock } from "../lib/flash-offers-core";
+import { compareFlashCampaigns, isCampaignHourOpen, normalizeHour, normalizeRepeatAfterHours, normalizeShowAfterSeconds, normalizeVisitorKey, saoPauloClock } from "../lib/flash-offers-core";
 import { ensureFlashOfferSchema } from "../runtime-schema";
 
 const router: IRouter = Router();
@@ -276,10 +276,12 @@ router.get("/admin/flash-campaigns", requireAdminAuth, async (req, res) => {
         .groupBy(flashVisitsTable.campaignId, flashVisitsTable.outcome)
       : [];
 
+    const orderedCampaigns = [...campaigns].sort(compareFlashCampaigns);
     res.json({
-      campaigns: campaigns.map((campaign) => ({
+      campaigns: orderedCampaigns.map((campaign) => ({
         id: campaign.id,
         name: campaign.name,
+        displayOrder: campaign.displayOrder,
         isActive: campaign.isActive,
         slotLimit: campaign.slotLimit,
         drawPercent: campaign.drawPercent,
@@ -363,6 +365,11 @@ router.post("/admin/flash-campaigns", requireAdminAuth, async (req, res) => {
     }
     const id = crypto.randomBytes(8).toString("hex");
     const now = new Date();
+    const existingOrders = await db
+      .select({ displayOrder: flashCampaignsTable.displayOrder })
+      .from(flashCampaignsTable)
+      .where(eq(flashCampaignsTable.tenantId, tenantId));
+    const nextOrder = existingOrders.reduce((max, row) => Math.max(max, Number(row.displayOrder) || 0), -1) + 1;
     await db.insert(flashCampaignsTable).values({
       id,
       tenantId,
@@ -374,6 +381,7 @@ router.post("/admin/flash-campaigns", requireAdminAuth, async (req, res) => {
       repeatAfterHours,
       activeFromHour: normalizeHour(req.body?.activeFromHour),
       activeUntilHour: normalizeHour(req.body?.activeUntilHour),
+      displayOrder: nextOrder,
       createdAt: now,
       updatedAt: now,
     });
@@ -456,6 +464,41 @@ router.patch("/admin/flash-campaigns/:id", requireAdminAuth, async (req, res) =>
   } catch (err) {
     console.error("[FlashOffer] update:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: flashErrorMessage(err, "Erro ao atualizar a promoção.") });
+  }
+});
+
+router.post("/admin/flash-campaigns/:id/show-first", requireAdminAuth, async (req, res) => {
+  try {
+    if (!(await readyFlashSchema(res))) return;
+    const scope = getAdminScope(req);
+    if (!canManageFlash(scope)) {
+      res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para promoções." });
+      return;
+    }
+    const tenantId = scope?.tenantId || DEFAULT_TENANT_ID;
+    const id = String(req.params.id || "");
+    const rows = await db
+      .select()
+      .from(flashCampaignsTable)
+      .where(eq(flashCampaignsTable.tenantId, tenantId));
+    if (!rows.some((row) => row.id === id)) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Promoção não encontrada." });
+      return;
+    }
+    const ordered = [...rows].sort(compareFlashCampaigns);
+    const next = [ordered.find((row) => row.id === id)!, ...ordered.filter((row) => row.id !== id)];
+    const now = new Date();
+    for (let index = 0; index < next.length; index += 1) {
+      if (next[index]!.displayOrder === index) continue;
+      await db.update(flashCampaignsTable).set({
+        displayOrder: index,
+        updatedAt: now,
+      }).where(eq(flashCampaignsTable.id, next[index]!.id));
+    }
+    res.json({ ok: true, id });
+  } catch (err) {
+    console.error("[FlashOffer] show-first:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: flashErrorMessage(err, "Erro ao mudar a ordem.") });
   }
 });
 

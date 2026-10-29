@@ -23,6 +23,7 @@ type DraftItem = {
 type Campaign = {
   id: string;
   name: string;
+  displayOrder?: number;
   isActive: boolean;
   slotLimit: number;
   drawPercent: number;
@@ -222,6 +223,19 @@ export function AdminFlashOffersPanel({ isPrimary = false }: { isPrimary?: boole
     } finally {
       setSaving(false);
     }
+  };
+
+  const showFirst = async (campaignId: string) => {
+    const response = await fetch(`${BASE}/api/admin/flash-campaigns/${campaignId}/show-first`, {
+      method: "POST",
+      headers: authHeaders(),
+    });
+    const data = await response.json().catch(() => ({})) as { message?: string };
+    if (!response.ok) {
+      toast.error(data.message || "Não foi possível colocar esta promoção em primeiro.");
+      return;
+    }
+    await load();
   };
 
   const toggleAlways = async (campaignId: string, productId: string, alwaysShow: boolean) => {
@@ -425,11 +439,12 @@ export function AdminFlashOffersPanel({ isPrimary = false }: { isPrimary?: boole
 
       <div className="space-y-3">
         {campaigns.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma promoção cadastrada.</p>}
-        {campaigns.map((campaign) => (
+        {campaigns.map((campaign, index) => (
           <div key={campaign.id} className="rounded-2xl border border-border bg-white p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="font-bold">{campaign.name}</p>
+                {index === 0 && <p className="text-xs font-semibold text-orange-700">Primeira para o cliente</p>}
                 <p className="text-sm text-muted-foreground">
                   {campaign.isActive ? "Ligada" : "Desligada"} · {campaign.slotLimit} vagas · {campaign.drawPercent}% de chance · depois de {campaign.showAfterSeconds ?? 8}s
                   {(campaign.repeatAfterHours ?? 0) > 0 ? ` · de novo em ${campaign.repeatAfterHours}h` : " · não repete"}
@@ -438,6 +453,9 @@ export function AdminFlashOffersPanel({ isPrimary = false }: { isPrimary?: boole
                 <p className="text-xs text-muted-foreground">Viram a oferta: {campaign.seenCount} · Reservadas agora: {campaign.activeReservations} · Viraram pedido: {campaign.usedReservations}</p>
               </div>
               <div className="flex gap-2">
+                {index > 0 && (
+                  <button type="button" onClick={() => void showFirst(campaign.id)} className="rounded-lg border border-orange-300 px-3 py-1.5 text-sm font-semibold text-orange-700">Mostrar primeiro</button>
+                )}
                 <button type="button" onClick={() => edit(campaign)} className="rounded-lg border border-border px-3 py-1.5 text-sm font-semibold">Editar</button>
                 <button type="button" onClick={() => void remove(campaign.id)} className="rounded-lg px-3 py-1.5 text-sm font-semibold text-red-600">Apagar</button>
               </div>

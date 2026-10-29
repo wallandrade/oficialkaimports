@@ -11,6 +11,7 @@ export const flashCampaignsTable = mysqlTable("flash_campaigns", {
   repeatAfterHours: int("repeat_after_hours").notNull().default(0),
   activeFromHour: int("active_from_hour"),
   activeUntilHour: int("active_until_hour"),
+  displayOrder: int("display_order").notNull().default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
