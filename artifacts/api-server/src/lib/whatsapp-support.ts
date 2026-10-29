@@ -352,8 +352,7 @@ async function sendText(input: {
   const url = await resolveWhatsappWebhookUrl({
     event: "support",
     tenantId: input.tenantId,
-    secondInstance: input.secondInstance,
-    fallbackToMain: false,
+    secondInstance: false,
   });
   if (!url) return;
   await postWhatsappWebhook(url, { phone: input.phone, message: input.message });
@@ -370,8 +369,7 @@ async function sendMenu(input: {
   const menuUrl = await resolveWhatsappWebhookUrl({
     event: "support_menu",
     tenantId: input.tenantId,
-    secondInstance: input.secondInstance,
-    fallbackToMain: false,
+    secondInstance: false,
   });
   if (menuUrl) {
     await postWhatsappWebhook(menuUrl, {
@@ -381,7 +379,6 @@ async function sendMenu(input: {
     });
     return true;
   }
-  if (input.secondInstance) return false;
   await sendText({
     ...input,
     message: numberedMenu(input.intro, input.options),

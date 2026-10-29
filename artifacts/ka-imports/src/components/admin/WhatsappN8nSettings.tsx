@@ -93,7 +93,7 @@ export function WhatsappN8nSettings({
           WhatsApp (n8n)
         </h2>
         <p className="text-muted-foreground text-sm">
-          A loja manda telefone e texto para o n8n. Sem URL https, o aviso não sai. A filmagem sem URL não envia. A segunda instância usa a URL com sufixo quando o slug do vendedor está na lista.
+          A loja manda telefone, texto e o remetente 35 99211-9139 para o n8n. Sem URL https, o aviso não sai. A filmagem sem URL não envia. Pedido, rastreio, atendimento e recuperação usam só a URL principal, desse número.
         </p>
       </div>
 

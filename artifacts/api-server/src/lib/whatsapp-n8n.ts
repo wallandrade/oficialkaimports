@@ -19,6 +19,9 @@ import { isProvisionalBarcode, isUsableLabelBarcode } from "./envioecom-status";
 
 export { SINGLE_SHIPMENT_WHATSAPP_KEY };
 
+/** Todas as automações saem deste WhatsApp. O n8n usa o campo sender. */
+export const WHATSAPP_AUTOMATION_SENDER = "5535992119139";
+
 const TIMEOUT_MS = 8000;
 const ATTEMPTS = 2;
 const PAID_RETRY_DELAYS_MS = [15_000, 60_000];
@@ -151,7 +154,7 @@ export async function postWhatsappWebhook(url: string, payload: {
   caption?: string;
   optionList?: unknown;
 }): Promise<boolean> {
-  const body: Record<string, unknown> = { phone: payload.phone };
+  const body: Record<string, unknown> = { phone: payload.phone, sender: WHATSAPP_AUTOMATION_SENDER };
   if (payload.message != null) body.message = toWhatsappText(payload.message);
   if (payload.caption != null) body.caption = toWhatsappText(payload.caption);
   if (payload.optionList != null) body.optionList = payload.optionList;
@@ -358,7 +361,7 @@ async function deliverShipmentNotices(
   }
   if (!notices.size) return;
   const tenantId = String(input.order.tenantId || "").trim() || DEFAULT_TENANT_ID;
-  const secondInstance = await sellerUsesSecondInstance(input.order.sellerCode, tenantId);
+  const secondInstance = false;
   for (const kind of notices) {
     await sendMarkedNotice({
       order: input.order,
@@ -404,7 +407,7 @@ async function deliverCreateTracking(orderId: string, packageKey: string, code: 
     order,
     phone,
     tenantId,
-    secondInstance: await sellerUsesSecondInstance(order.sellerCode, tenantId),
+    secondInstance: false,
     kind: "tracking",
     packageKey,
     code,
@@ -431,7 +434,7 @@ async function deliverOrderPaid(orderId: string, attempt = 0): Promise<void> {
     return;
   }
   const tenantId = order.tenantId || DEFAULT_TENANT_ID;
-  const secondInstance = await sellerUsesSecondInstance(order.sellerCode, tenantId);
+  const secondInstance = false;
   const paidUrl = await resolveWhatsappWebhookUrl({ event: "paid", tenantId, secondInstance });
   if (!paidUrl) {
     console.warn("[WHATSAPP_N8N] Pedido pago sem URL https", orderId);
