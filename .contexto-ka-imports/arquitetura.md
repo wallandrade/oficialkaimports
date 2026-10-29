@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-10-25
+> **Última atualização:** 2026-10-28
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-28 | Card não pede senha da baixa Yury | `POST /admin/orders/:id/inventory-exit` e o `enviado` saem sem `password` | Fóz local e o exit da Yury |
 | 2026-10-25 | `GET /api/raffles/reservations/:id/status` | A tela `/rifas/pix/:id` lê só o status da reserva. Sem token de checkout e sem o limite do lookup | Webhook PIX, lookup por telefone e refresh do QR |
 | 2026-10-23 | `always_show` em `flash_campaign_items` | `PATCH /admin/flash-campaigns/:id/items/:productId`. O sorteio devolve esses produtos sem visita. O `/claim` reserva sem `seen` | Horário, vaga e preço dos outros itens |
 | 2026-10-22 | `manual_tracking_code` em `orders` e `order_shipments` | `PATCH /api/admin/orders/:id/manual-tracking`. Coluna no boot (`runtime-schema`). O código não entra em `envioecom_barcode` nem em `tracking_code` | Create, webhook, sync e **Vincular EE** |
@@ -118,7 +119,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 - Checkout Motoboy: `GET /api/motoboy-coverage/lookup` (público, por tenant). Geocode BrasilAPI só no servidor (`motoboy-geocode.ts`). Km de rua em `motoboy-route.ts` (`resolveMotoboyDistanceKm`). Settings de km em `ALLOWED_KEYS`, fora de `PUBLIC_KEYS`.
 - Webhook cobertura Motoboy: `POST /api/webhooks/yury/motoboy-coverage` (body cru + HMAC) **antes** de `express.json()`.
 - Webhook estoque Yury: `POST /api/webhooks/yury/inventory` (mesmo HMAC; grava `balances`, não o delta).
-- Baixa no pedido: `POST /api/admin/orders/:id/inventory-exit` (Fóz local ou Yury Motoboy/Minas) a partir do card (1:1); após split a baixa é por pacote (`debitPackageInventory`, `referenceId = pkg:{id}`). `ensureOrderMarkedEnviado` no split debita cada pacote. `GET/POST /admin/orders/:id/shipments` aloca/lista `packages[]`. Motoboy/Minas: `GET /admin/yury-inventory/exit-status` proxy do `GET /api/integrations/inventory/exit-status`; senha no body da baixa (unlock + `password` no `exit`).
+- Baixa no pedido: `POST /api/admin/orders/:id/inventory-exit` (Fóz local ou Yury Motoboy/Minas) a partir do card (1:1); após split a baixa é por pacote (`debitPackageInventory`, `referenceId = pkg:{id}`). `ensureOrderMarkedEnviado` no split debita cada pacote. `GET/POST /admin/orders/:id/shipments` aloca/lista `packages[]`. Motoboy/Minas chamam o exit da Yury sem senha no body.
 - EnvioEcom: `artifacts/api-server/src/routes/envioecom.ts` + webhook em `webhooks.ts`. Contas em `lib/envioecom-accounts.ts` (env + tenant + JSON `envioecom_accounts`). Client cacheia token por `tenantId:accountId`. Coluna `orders.envioecom_account_id`. Split: `packageId` em quote/create/labels/sync/cancel/unlink/bind e no `PATCH /admin/orders/:id/tracking-code`; persistência em `order_shipments` + rollup no pai (`lib/order-shipments.ts`). Rastreio de balcão: `PATCH /admin/orders/:id/manual-tracking` grava `manual_tracking_code` no pacote ou, sem divisão, em `orders`; não chama a EnvioEcom. Pedido sem linhas = colunas `envioecom_*` do pedido. `GET /admin/orders/:id/related-shipments` (auth do pedido; busca CPF em toda a loja) usa `related-cpf-shipments.ts` + `order_shipments`; **não** chama a EnvioEcom. Cada produto traz `image` (snapshot do JSON ou `products.image`).
 - APPCNPay: `gateway.ts` + `lib/pix-gateway-credentials.ts`. Par por tenant (`gateway_appcnpay_public_key` / `_secret_key`); fallback env. Webhook PIX resolve tenant pelo `transactionId`.
 - Extrato OFX: `artifacts/api-server/src/routes/bank-statement.ts` (`analyze`/`apply`/`clear`/`bank-deposits`) + `order_bank_deposits`. Painéis FE: `AdminBankStatementPanel.tsx` (sessão) e `AdminBankDepositsPanel.tsx` (histórico + Desfazer por FITID).

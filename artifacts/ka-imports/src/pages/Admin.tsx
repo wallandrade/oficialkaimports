@@ -815,28 +815,6 @@ function parseKaExitedPools(value: unknown): KaExitPool[] {
   return pools;
 }
 
-type YuryExitStatus = {
-  unlocked: boolean;
-  remainingMs: number;
-  passwordRequired: boolean;
-};
-
-const YURY_EXIT_PASSWORD_HINT = "Informe a senha para liberar a baixa. Depois fica 10 minutos e trava de novo.";
-
-function isYuryExitPool(pool: KaExitPool): boolean {
-  return pool === "motoboy" || pool === "minas";
-}
-
-function orderUsesYuryExit(
-  order: { packages?: Array<{ inventoryPool?: string | null }> | null } | null | undefined,
-  pool: KaExitPool,
-): boolean {
-  if (isYuryExitPool(pool)) return true;
-  const packages = Array.isArray(order?.packages) ? order.packages : [];
-  if (packages.length < 2) return false;
-  return packages.some((pkg) => isYuryExitPool(parseKaExitPool(pkg.inventoryPool) || "loja"));
-}
-
 function motoboyOrderBlock(order: any): string {
   const products = getOrderProducts(order?.products);
   const paid = order?.status === "paid" || order?.status === "completed";
@@ -14663,12 +14641,6 @@ function OrdersPanel({
   const [exitPoolByOrder, setExitPoolByOrder] = useState<Record<string, KaExitPool>>({});
   const [yuryBalances, setYuryBalances] = useState<YuryInventoryBalanceRecord[]>([]);
   const [yuryInventoryReady, setYuryInventoryReady] = useState(false);
-  const [yuryExitStatus, setYuryExitStatus] = useState<YuryExitStatus | null>(null);
-  const [yuryExitPassword, setYuryExitPassword] = useState("");
-  const [yuryExitPasswordVisible, setYuryExitPasswordVisible] = useState(false);
-  const [yuryExitPasswordError, setYuryExitPasswordError] = useState("");
-  const [yuryExitForcePassword, setYuryExitForcePassword] = useState(false);
-
   const withTimeout = async <T,>(promise: Promise<T>, ms: number, message: string): Promise<T> => {
     let timeoutId: number | null = null;
     const timeoutPromise = new Promise<T>((_, reject) => {
@@ -14796,58 +14768,6 @@ function OrdersPanel({
     if (pulled) return pulled;
     const fresh = await readYuryBalances();
     return fresh ?? yuryBalances;
-  };
-
-  const refreshYuryExitStatus = async () => {
-    try {
-      const res = await fetch(`${BASE}/api/admin/yury-inventory/exit-status`, { headers: authHeaders() });
-      if (!res.ok) return;
-      const data = await res.json() as Partial<YuryExitStatus>;
-      setYuryExitStatus({
-        unlocked: data.unlocked === true,
-        remainingMs: Math.max(0, Math.trunc(Number(data.remainingMs) || 0)),
-        passwordRequired: data.passwordRequired === true,
-      });
-      if (data.unlocked === true && data.passwordRequired !== true) {
-        setYuryExitForcePassword(false);
-        setYuryExitPasswordError("");
-      }
-    } catch {
-      // Sem status: o campo aparece no 403 PASSWORD_REQUIRED da baixa.
-    }
-  };
-
-  useEffect(() => {
-    void refreshYuryExitStatus();
-  }, []);
-
-  useEffect(() => {
-    if (!yuryExitStatus?.unlocked || yuryExitStatus.remainingMs <= 0) return;
-    const timer = window.setTimeout(() => {
-      setYuryExitStatus({ unlocked: false, remainingMs: 0, passwordRequired: true });
-      setYuryExitForcePassword(true);
-    }, yuryExitStatus.remainingMs);
-    return () => window.clearTimeout(timer);
-  }, [yuryExitStatus?.unlocked, yuryExitStatus?.remainingMs]);
-
-  const showYuryExitPassword = Boolean(
-    yuryExitForcePassword || yuryExitStatus?.passwordRequired,
-  );
-
-  const applyYuryExitAuthError = (data: { error?: string; message?: string; passwordRequired?: boolean }, status: number) => {
-    if (status !== 403) return false;
-    if (data.error === "INVALID_PASSWORD") {
-      setYuryExitForcePassword(true);
-      setYuryExitPasswordError(data.message || "Senha inválida. Digite novamente.");
-      return true;
-    }
-    if (data.passwordRequired === true) {
-      setYuryExitForcePassword(true);
-      setYuryExitPasswordError("");
-      setYuryExitStatus({ unlocked: false, remainingMs: 0, passwordRequired: true });
-      return true;
-    }
-    return false;
   };
 
   useEffect(() => {
@@ -15407,7 +15327,6 @@ function OrdersPanel({
 
   const selectOrderExitPool = async (order: AdminOrder, pool: KaExitPool) => {
     setExitPoolByOrder((prev) => ({ ...prev, [order.id]: pool }));
-    if (isYuryExitPool(pool)) void refreshYuryExitStatus();
     try {
       const res = await fetch(`${BASE}/api/admin/orders/${order.id}/inventory-exit-pool`, {
         method: "PATCH",
@@ -15431,36 +15350,24 @@ function OrdersPanel({
       toast.error(stockCheck.message);
       return;
     }
-    const yuryPassword = isYuryExitPool(pool) ? yuryExitPassword.trim() : "";
-    if (isYuryExitPool(pool) && showYuryExitPassword && !yuryPassword) {
-      setYuryExitForcePassword(true);
-      setYuryExitPasswordError(YURY_EXIT_PASSWORD_HINT);
-      return;
-    }
     setExitingStock((prev) => ({ ...prev, [order.id]: true }));
     try {
       const res = await fetch(`${BASE}/api/admin/orders/${order.id}/inventory-exit`, {
         method: "POST",
         headers: authHeaders(),
-        body: JSON.stringify({ pool, ...(yuryPassword ? { password: yuryPassword } : {}) }),
+        body: JSON.stringify({ pool }),
       });
       const data = await res.json().catch(() => ({})) as {
         message?: string;
         error?: string;
         alreadyDebited?: boolean;
-        passwordRequired?: boolean;
         order?: AdminOrder;
       };
       if (!res.ok) {
-        if (applyYuryExitAuthError(data, res.status)) return;
         toast.error(data?.message || "Erro ao dar baixa no estoque.");
         return;
       }
       if (data.order) onSetOrderPatched(data.order);
-      setYuryExitPassword("");
-      setYuryExitPasswordError("");
-      setYuryExitForcePassword(false);
-      void refreshYuryExitStatus();
       toast.success(
         data.alreadyDebited
           ? `Este pedido já tinha baixa em ${kaExitPoolLabel(pool)}.`
@@ -15482,14 +15389,6 @@ function OrdersPanel({
 
     const order = ordersLookup.find((item) => item.id === orderId);
     const pool = (order ? exitPoolByOrder[orderId] : undefined) || (order ? defaultKaExitPool(order) : "loja");
-    const needsYuryPassword = Boolean(order && orderUsesYuryExit(order, pool));
-    const yuryPassword = novoValor && needsYuryPassword ? yuryExitPassword.trim() : "";
-    if (novoValor && needsYuryPassword && showYuryExitPassword && !yuryPassword) {
-      setYuryExitForcePassword(true);
-      setYuryExitPasswordError(YURY_EXIT_PASSWORD_HINT);
-      toast.error("Digite a senha da baixa Yury.");
-      return;
-    }
 
     // Verify stock before marking as enviado. Motoboy/Minas puxa a Yury na hora
     // (não usa a lista da aba nem o espelho de até 3 min). "T.G" vale como "TG".
@@ -15517,7 +15416,6 @@ function OrdersPanel({
         body: JSON.stringify({
           enviado: novoValor,
           ...(adminPassword ? { adminPassword } : {}),
-          ...(yuryPassword ? { password: yuryPassword } : {}),
         }),
       });
       if (res.status === 404) {
@@ -15527,10 +15425,7 @@ function OrdersPanel({
         return;
       }
       if (!res.ok) {
-        const data = await res.json() as { message?: string; error?: string; passwordRequired?: boolean };
-        if (applyYuryExitAuthError(data, res.status)) {
-          return;
-        }
+        const data = await res.json() as { message?: string; error?: string };
         throw new Error(data?.message || "Erro ao atualizar status de envio");
       }
       const data = await res.json().catch(() => ({})) as { enviado?: boolean };
@@ -15540,13 +15435,6 @@ function OrdersPanel({
       if (confirmado) {
         setOrderPriorities((prev) => ({ ...prev, [orderId]: false }));
       }
-      if (confirmado && yuryPassword) {
-        setYuryExitPassword("");
-        setYuryExitPasswordError("");
-        setYuryExitForcePassword(false);
-        void refreshYuryExitStatus();
-      }
-
       // Keep local state briefly to avoid UI flip from stale background refreshes.
       setEnviadoLockUntil((prev) => ({ ...prev, [orderId]: Date.now() + 15000 }));
 
@@ -16636,8 +16524,6 @@ function OrdersPanel({
                         inventoryByProduct={Object.fromEntries(inventoryBalances.map((row) => [row.productId, row.quantity]))}
                         yuryByProduct={Object.fromEntries(yuryBalances.map((row) => [row.productId, { motoboy: row.qtyMotoboy, minas: row.qtyMinas }]))}
                         productImageById={productImageById}
-                        yuryPassword={yuryExitPassword}
-                        onYuryAuthError={applyYuryExitAuthError}
                         onReshipmentClosed={(orderId, status) => {
                           onSetOrderPatched({
                             id: orderId,
@@ -16649,8 +16535,6 @@ function OrdersPanel({
                       <>
                         <EnvioEcomOrderActions
                           order={order as any}
-                          yuryPassword={yuryExitPassword}
-                          onYuryAuthError={applyYuryExitAuthError}
                           onReshipmentClosed={(orderId, status) => {
                             onSetOrderPatched({
                               id: orderId,
@@ -16675,8 +16559,6 @@ function OrdersPanel({
                           inventoryByProduct={Object.fromEntries(inventoryBalances.map((row) => [row.productId, row.quantity]))}
                           yuryByProduct={Object.fromEntries(yuryBalances.map((row) => [row.productId, { motoboy: row.qtyMotoboy, minas: row.qtyMinas }]))}
                           productImageById={productImageById}
-                          yuryPassword={yuryExitPassword}
-                          onYuryAuthError={applyYuryExitAuthError}
                           onReshipmentClosed={(orderId, status) => {
                             onSetOrderPatched({
                               id: orderId,
@@ -16864,80 +16746,7 @@ function OrdersPanel({
                       : null}
                     {exitedPools.includes(selectedExitPool) ? "Já baixado" : "Dar baixa agora"}
                   </Button>
-                  {isYuryExitPool(selectedExitPool) && !exitedPools.includes(selectedExitPool) && showYuryExitPassword && (
-                    <div className="w-full flex flex-col gap-1 pt-1">
-                      <div className="relative max-w-xs">
-                        <input
-                          type={yuryExitPasswordVisible ? "text" : "password"}
-                          value={yuryExitPassword}
-                          onChange={(event) => {
-                            setYuryExitPassword(event.target.value);
-                            if (yuryExitPasswordError) setYuryExitPasswordError("");
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              void debitOrderStockNow(order, selectedExitPool);
-                            }
-                          }}
-                          autoComplete="off"
-                          placeholder="Senha da baixa Yury"
-                          className="w-full h-8 rounded-lg border border-border px-3 pr-9 text-xs"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setYuryExitPasswordVisible((value) => !value)}
-                          className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 rounded-md hover:bg-muted flex items-center justify-center text-muted-foreground"
-                          aria-label={yuryExitPasswordVisible ? "Ocultar senha" : "Mostrar senha"}
-                        >
-                          {yuryExitPasswordVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                        </button>
-                      </div>
-                      <p className={`text-[11px] ${yuryExitPasswordError ? "text-red-600" : "text-muted-foreground"}`}>
-                        {yuryExitPasswordError || YURY_EXIT_PASSWORD_HINT}
-                      </p>
-                    </div>
-                  )}
-                  {isYuryExitPool(selectedExitPool) && yuryExitStatus?.unlocked && !showYuryExitPassword && (
-                    <span className="text-[11px] text-muted-foreground">
-                      Yury liberada por mais {Math.max(1, Math.ceil((yuryExitStatus.remainingMs || 0) / 60000))} min
-                    </span>
-                  )}
                 </div>
-                )}
-                {isSplitOrder(order as { packages?: unknown[] }) && orderUsesYuryExit(order, selectedExitPool) && showYuryExitPassword && (
-                  <div className="w-full flex flex-col gap-1 pt-1">
-                    <div className="relative max-w-xs">
-                      <input
-                        type={yuryExitPasswordVisible ? "text" : "password"}
-                        value={yuryExitPassword}
-                        onChange={(event) => {
-                          setYuryExitPassword(event.target.value);
-                          if (yuryExitPasswordError) setYuryExitPasswordError("");
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            event.preventDefault();
-                            void toggleEnviado(order.id);
-                          }
-                        }}
-                        autoComplete="off"
-                        placeholder="Senha da baixa Yury"
-                        className="w-full h-8 rounded-lg border border-border px-3 pr-9 text-xs"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setYuryExitPasswordVisible((value) => !value)}
-                        className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 rounded-md hover:bg-muted flex items-center justify-center text-muted-foreground"
-                        aria-label={yuryExitPasswordVisible ? "Ocultar senha" : "Mostrar senha"}
-                      >
-                        {yuryExitPasswordVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                      </button>
-                    </div>
-                    <p className={`text-[11px] ${yuryExitPasswordError ? "text-red-600" : "text-muted-foreground"}`}>
-                      {yuryExitPasswordError || YURY_EXIT_PASSWORD_HINT}
-                    </p>
-                  </div>
                 )}
                 <Button size="sm" className="gap-2 bg-green-600 hover:bg-green-700 text-white border-none"
                   onClick={() => openWhatsApp(order)}>
@@ -17012,9 +16821,7 @@ function OrdersPanel({
                       size="sm"
                       variant="outline"
                       className="gap-1.5 text-red-700 border-red-200 hover:bg-red-50"
-                      onClick={() => onSetReshipmentStatus((order as any).reshipment.id, "reenvio_enviado", {
-                        password: isYuryExitPool(selectedExitPool) ? yuryExitPassword.trim() : undefined,
-                      })}
+                      onClick={() => onSetReshipmentStatus((order as any).reshipment.id, "reenvio_enviado")}
                     >
                       <Truck className="w-3.5 h-3.5" />Marcar Reenvio Enviado
                     </Button>

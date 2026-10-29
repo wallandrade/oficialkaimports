@@ -211,7 +211,6 @@ export function EnvioEcomOrderActions({
   poolLabel,
   yuryPassword,
   onReshipmentClosed,
-  onYuryAuthError,
 }: {
   order: EnvioEcomOrderFields;
   onPatched: (patch: Partial<EnvioEcomOrderFields> & { id: string }) => void;
@@ -219,7 +218,6 @@ export function EnvioEcomOrderActions({
   poolLabel?: string;
   yuryPassword?: string;
   onReshipmentClosed?: (orderId: string, status: string) => void;
-  onYuryAuthError?: (data: { error?: string; message?: string; passwordRequired?: boolean }, status: number) => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [quoteOpen, setQuoteOpen] = useState(false);
@@ -564,14 +562,7 @@ export function EnvioEcomOrderActions({
       await patchFromResponse(data);
       const close = data.reshipmentClose;
       if (close?.passwordRequired || close?.invalidPassword) {
-        onYuryAuthError?.({
-          error: close.invalidPassword ? "INVALID_PASSWORD" : "PASSWORD_REQUIRED",
-          passwordRequired: close.passwordRequired === true,
-          message: close.invalidPassword ? "Senha inválida. Digite novamente." : "Informe a senha para liberar a baixa.",
-        }, 403);
-        toast.message(close.invalidPassword
-          ? "Etiqueta gerada. A senha da Yury não baixou o reenvio."
-          : "Etiqueta gerada. Digite a senha da Yury e gere a etiqueta de novo para dar baixa no reenvio.");
+        toast.message("Etiqueta gerada. A baixa do reenvio não entrou.");
       } else if (close?.status === "reenvio_enviado") {
         onReshipmentClosed?.(order.id, "reenvio_enviado");
         const debited = Array.isArray(close.debitedProducts) ? close.debitedProducts : [];

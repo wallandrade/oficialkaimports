@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-10-22
+> **Última atualização:** 2026-10-28
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-28 | Anti-padrão: voltar o campo de senha da baixa Yury | O card baixa Motoboy/Minas sem senha | Fóz e o snapshot |
 | 2026-10-22 | Anti-padrão: colar o código do balcão em `envioecom_barcode` ou no PATCH de tracking da EnvioEcom | `manual_tracking_code` + `PATCH .../manual-tracking`. Não baixa estoque | **Vincular EE**, OCR **Etiqueta/Rastreio** e o sync |
 | 2026-10-19 | Anti-padrão: promoção relâmpago só no modal ou no `promoPrice` | O preço da reserva entra no create do PIX/WhatsApp. IP sozinho não é a chave; o id do navegador é | Catálogo e cupom |
 | 2026-10-15 | Anti-padrão: gravar extravio da Yury em `carrier_loss_incidents` ou repetir o mesmo token nos dois envs | Espelho em `carrier_loss_peer_incidents`. `LOSS_SYNC_TOKEN` ≠ `YURY_LOSS_SYNC_TOKEN` | Cotação local e o GET da lista nossa |
@@ -207,8 +208,8 @@ Código > memória > suposições.
 - Inferir duração do slot Motoboy pelo preço (usar `interval_hours`).
 - Cadastrar bairro/faixa Motoboy neste repo como fonte da verdade quando `YURY_MOTOBOY_SYNC_TOKEN` está setado (espelho Yury; CRUD local 409).
 - Somar Motoboy + Minas, gravar esses saldos em `inventory_balances`, aplicar `quantityDelta` do webhook Yury, puxar estoque deles em `/api/admin/inventory/...`, ou mandar o uuid/`orderNumber` do KA no campo `orderId` da Yury (usar `POST /api/integrations/inventory/exit` com `referenceId` = `orders.id`; `orderId` só se for pedido da Yury). Não decrementar `yury_inventory_balances` no POST — webhook `balances` ou snapshot. Não debitar Fóz quando o pool do pedido é Motoboy/Minas.
-- Cadastrar senha de baixa Motoboy/Minas neste repo (`tenant_settings`, env, `localStorage`). A senha fica na Yury. Sem janela: `POST /exit` 403 `PASSWORD_REQUIRED` — mostrar input, não só toast. `INVALID_PASSWORD` pede de novo. Snapshot/`GET snapshot` sem senha. Não inventar rota além de `exit-status`, `unlock` e `exit`.
-- No `OrdersPanel` do `Admin.tsx`, ler `yuryExitStatus` (deps de `useEffect` ou variável no render) **antes** do `useState`. Isso quebra o admin no boot (`ReferenceError: Cannot access 'yuryExitStatus' before initialization`). Estado da senha Yury fica no bloco “hooks no topo”, junto com `enviando`/`exitPoolByOrder`.
+- Cadastrar senha de baixa Motoboy/Minas neste repo ou voltar o campo "Senha da baixa Yury" no card. A baixa de Motoboy/Minas segue sem senha. Fóz continua local.
+- No `OrdersPanel` do `Admin.tsx`, repor estado de senha da baixa Yury (`yuryExitStatus`, campo e aviso de 10 minutos). O card não pede essa senha.
 - **Marcar Reenvio Enviado** debitar `inventory_balances` (Fóz) quando o pedido já tem baixa Motoboy/Minas no card. Se `inventory_exited_pools` já tem pool, só marca o status. Sem baixa ainda: Motoboy/Minas vai na Yury; Fóz só se o pool for loja.
 - Exigir cidade da faixa CEP igual à ViaCEP para mostrar Motoboy (CEP na faixa já libera; cidade só desempata).
 - Lookup Motoboy em duas chamadas no frontend (bairro depois faixa). Usar `GET /api/motoboy-coverage/lookup`. Km e bairro são XOR (`shouldLookupNeighborhoods = !distanceEnabled`).

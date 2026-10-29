@@ -1,12 +1,13 @@
 # Segurança e performance — KA Imports
 
-> **Última atualização:** 2026-10-15  
+> **Última atualização:** 2026-10-28  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-28 | Card não pede senha da baixa Yury | Motoboy/Minas saem sem o campo. O KA não guarda essa senha | Fóz e o snapshot |
 | 2026-10-15 | Snapshot de extravio exige Bearer próprio | `LOSS_SYNC_TOKEN` libera o GET. `YURY_LOSS_SYNC_TOKEN` só lê a Yury. Valores iguais não disparam o pull | CORS, checkout token e a aba admin da lista negra |
 | 2026-09-27 | Página `/frete` usa o mesmo limite da cotação de prazo | 30 consultas reais por IP a cada 10 min; HTTP 429 na tela | Token de checkout; chave da fila fora de `PUBLIC_KEYS` |
 | 2026-09-27 | Prazo do checkout: 30 cotações EnvioEcom reais por IP a cada 10 min; cache não conta; chave fora de `PUBLIC_KEYS` | Acima do limite, HTTP 429; CEP inválido e erro da API continuam HTTP 200 vazio | Token de checkout; rate limit global de escrita |
@@ -39,7 +40,7 @@
 - Isolamento tenant/seller (ver `auth-permissoes.md` + smoke scripts).
 - Credenciais APPCNPay da loja: GET `/api/admin/settings` mascara `gateway_appcnpay_*`; PUT com valor já mascarado não sobrescreve; FE não persiste essas keys em `siteSettings`.
 - Prazo da transportadora no checkout: `envioecom_checkout_carrier_priority` entra em `ALLOWED_KEYS` e não em `PUBLIC_KEYS`. O admin não grava essa chave em `siteSettings`. `GET /api/shipping/delivery-estimate` não exige token de checkout. Limite próprio: 30 cotações reais à EnvioEcom por IP a cada 10 min (cache em memória não conta); acima disso HTTP 429.
-- Senha de baixa Motoboy/Minas da Yury: o admin digita no card; o KA só encaminha no unlock/`exit` (Bearer/`X-Api-Key` iguais ao snapshot). Não há setting, env nem `localStorage` dessa senha.
+- Baixa Motoboy/Minas na Yury: o card não pede senha e o KA não guarda senha de baixa. O POST `exit` sai sem `password`.
 - Lista de extravio entre lojas: `GET /api/integrations/loss-blacklist/snapshot` não usa cookie de admin nem token de checkout. `LOSS_SYNC_TOKEN` e `YURY_LOSS_SYNC_TOKEN` são senhas diferentes. O JSON publicado não leva cliente, CPF, telefone, CEP de 8 dígitos, rastreio nem número de pedido. O pull não envia o token da nossa lista.
 - Login EnvioEcom da loja: só `GET /admin/envioecom/accounts` (`hasGlobalAccess`) devolve e-mail e senha das contas `tenant` e extras. Primary da loja 1 recebe também `stores` (nome de cada loja + esses logins). Filial não recebe `stores`. Conta `env` (Railway) não devolve senha e não entra em `stores`. Status, config e respostas de POST/PUT seguem mascarados, sem senha. Token permanece mascarado.
 - **CSP do FE** (`index.html` + `vercel.json`): `default-src 'self'`; `object-src 'none'`; `frame-ancestors 'none'`; `frame-src 'self' blob: data: https:` (comprovante PDF no admin usa iframe + blob). `img-src` já permite `data:`/`blob:`/`https:`.

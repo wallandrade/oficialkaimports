@@ -116,7 +116,6 @@ export function SplitOrderShipmentsButton({
   onUploadTrackingLabel,
   yuryPassword,
   onReshipmentClosed,
-  onYuryAuthError,
 }: {
   order: EnvioEcomOrderFields & { products?: unknown; enviado?: boolean };
   onPatched: (patch: Partial<EnvioEcomOrderFields> & { id: string; splitCleared?: boolean }) => void;
@@ -126,7 +125,6 @@ export function SplitOrderShipmentsButton({
   onUploadTrackingLabel?: (packageId: string, file: File) => void;
   yuryPassword?: string;
   onReshipmentClosed?: (orderId: string, status: string) => void;
-  onYuryAuthError?: (data: { error?: string; message?: string; passwordRequired?: boolean }, status: number) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -352,7 +350,6 @@ export function SplitOrderShipmentsButton({
                 onPatched={onPatched}
                 yuryPassword={yuryPassword}
                 onReshipmentClosed={onReshipmentClosed}
-                onYuryAuthError={onYuryAuthError}
               />
               {onUploadTrackingLabel ? (
                 <>
