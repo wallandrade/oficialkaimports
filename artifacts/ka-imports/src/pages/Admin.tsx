@@ -2,6 +2,7 @@ import { getPendingShipmentCopy, pendingShipmentResumoHeading } from "@/lib/pend
 import { AdminFlashOffersPanel } from "@/components/admin/AdminFlashOffersPanel";
 import { WhatsappN8nSettings } from "@/components/admin/WhatsappN8nSettings";
 import { WhatsappRecoveryPanel } from "@/components/admin/WhatsappRecoveryPanel";
+import { WhatsAppGroupCampaignCard } from "@/components/admin/WhatsAppGroupCampaignCard";
 import { orderToPostPaymentText } from "@/lib/post-payment-message";
 import {
   emptyVariantGroupDraft,
@@ -1401,7 +1402,7 @@ function OrderBumpsPanel({ bumps, products, form, setForm, creating, toggling, d
   );
 }
 
-type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "flashOffers" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "affiliates" | "recurringCustomers" | "support" | "recuperacao" | "inventory" | "webhook" | "configuracoes" | "despesas" | "checkout" | "seguro" | "socialProof" | "raffles" | "lojas" | "supplierPurchases" | "envioecom" | "listaNegra" | "extrato" | "depositos";
+type TabType = "orders" | "charges" | "sellers" | "commissions" | "coupons" | "flashOffers" | "products" | "fretes" | "orderBumps" | "kyc" | "users" | "customers" | "affiliates" | "recurringCustomers" | "support" | "recuperacao" | "automacao" | "inventory" | "webhook" | "configuracoes" | "despesas" | "checkout" | "seguro" | "socialProof" | "raffles" | "lojas" | "supplierPurchases" | "envioecom" | "listaNegra" | "extrato" | "depositos";
 type LojasSubTab = "criar" | "pedidos" | "cadastradas";
 type FilialScopeSubTab = "pedidos" | "produtos" | "estoque";
 
@@ -1412,6 +1413,7 @@ const PRIMARY_ONLY_TABS = new Set<TabType>([
   "checkout",
   "socialProof",
   "lojas",
+  "automacao",
 ]);
 
 interface AdminRaffle {
@@ -7943,6 +7945,7 @@ export default function Admin() {
               { key: "flashOffers" as TabType, label: "Promoções", icon: "Zap" },
             ] : []),
             ...(isPrimary ? [
+              { key: "automacao", label: "Automação", icon: "Send" },
               { key: "checkout", label: "Checkout", icon: "Zap" },
               { key: "coupons", label: "Cupons", icon: "Ticket", count: coupons.length },
               { key: "orderBumps", label: "Order Bumps", icon: "Zap", count: orderBumps.length },
@@ -8286,6 +8289,8 @@ export default function Admin() {
             loading={recurringCustomersLoading}
             onRefresh={fetchRecurringCustomers}
           />
+        ) : tab === "automacao" && isPrimary ? (
+          <WhatsAppGroupCampaignCard />
         ) : tab === "recuperacao" ? (
           <WhatsappRecoveryPanel />
         ) : tab === "support" ? (

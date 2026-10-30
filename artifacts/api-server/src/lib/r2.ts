@@ -154,6 +154,28 @@ export async function readStoredShipmentLabelPdf(url: string): Promise<Buffer | 
   return buffer.slice(0, 4).toString() === "%PDF" ? buffer : null;
 }
 
+const WHATSAPP_GROUP_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+
+export async function uploadWhatsappGroupImageToR2(input: { dataUrl: string }): Promise<string> {
+  const client = getR2Client();
+  const { buffer, mimeType } = parseImageDataUrl(input.dataUrl);
+  if (buffer.length > WHATSAPP_GROUP_IMAGE_MAX_BYTES) {
+    throw new Error("IMAGE_TOO_LARGE");
+  }
+  const extension = getExtensionFromMimeType(mimeType);
+  const objectKey = `whatsapp-groups/${Date.now()}-${crypto.randomBytes(6).toString("hex")}.${extension}`;
+
+  await client.send(new PutObjectCommand({
+    Bucket: R2_BUCKET_NAME,
+    Key: objectKey,
+    Body: buffer,
+    ContentType: mimeType,
+    CacheControl: "public, max-age=31536000, immutable",
+  }));
+
+  return `${R2_PUBLIC_BASE_URL}/${objectKey}`;
+}
+
 export async function uploadSiteSettingImageToR2(input: { dataUrl: string; settingKey: string }): Promise<string> {
   const client = getR2Client();
   const { buffer, mimeType } = parseImageDataUrl(input.dataUrl);

@@ -43,6 +43,7 @@ import walletRouter from "./wallet";
 import flashOffersRouter from "./flash-offers";
 import whatsappSupportRouter from "./whatsapp-support";
 import whatsappRecoveryRouter from "./whatsapp-recovery";
+import whatsappGroupsRouter from "./whatsapp-groups";
 const router: IRouter = Router();
 
 router.use(healthRouter);
@@ -88,5 +89,6 @@ router.use(walletRouter);
 router.use(flashOffersRouter);
 router.use(whatsappSupportRouter);
 router.use(whatsappRecoveryRouter);
+router.use(whatsappGroupsRouter);
 
 export default router;
