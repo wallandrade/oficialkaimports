@@ -20,6 +20,27 @@ type Snapshot = {
   recent: Array<{ phone: string; name: string; spent: number; answer?: string; sentAt: string | null; lastOrderAt: string | null }>;
 };
 
+function formatPhone(phone: string): string {
+  const digits = String(phone || "").replace(/\D/g, "");
+  const local = digits.startsWith("55") && digits.length >= 12 ? digits.slice(2) : digits;
+  if (local.length === 11) return `(${local.slice(0, 2)}) ${local.slice(2, 7)}-${local.slice(7)}`;
+  if (local.length === 10) return `(${local.slice(0, 2)}) ${local.slice(2, 6)}-${local.slice(6)}`;
+  return phone;
+}
+
+function formatSentAt(value: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function authHeaders(): Record<string, string> {
   const token = sessionStorage.getItem("adminToken") || localStorage.getItem("adminToken") || "";
   return token
@@ -118,9 +139,15 @@ export function WhatsappRecoveryPanel() {
       {data && !data.webhookConfigured ? (
         <p className="text-sm text-amber-700">Salve a URL de Recuperação em Configuração, na seção WhatsApp (n8n), antes de ligar.</p>
       ) : null}
-      <div className="grid grid-cols-2 gap-3 text-sm">
-        <p>Na fila: <strong>{data?.waiting ?? "…"}</strong></p>
-        <p>Enviados hoje: <strong>{data?.sentToday ?? "…"}</strong></p>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-2xl border border-border bg-white px-4 py-3">
+          <p className="text-xs font-medium text-muted-foreground">Na fila</p>
+          <p className="mt-1 text-2xl font-bold tabular-nums">{data?.waiting ?? "…"}</p>
+        </div>
+        <div className="rounded-2xl border border-border bg-white px-4 py-3">
+          <p className="text-xs font-medium text-muted-foreground">Enviados hoje</p>
+          <p className="mt-1 text-2xl font-bold tabular-nums">{data?.sentToday ?? "…"}</p>
+        </div>
       </div>
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
@@ -153,28 +180,59 @@ export function WhatsappRecoveryPanel() {
         <Button onClick={() => void save()} disabled={busy}>Salvar</Button>
         <Button variant="outline" onClick={() => void sendOne()} disabled={busy || !enabled}>Enviar um agora</Button>
       </div>
-      <div>
-        <p className="mb-2 text-sm font-medium">Pesquisa</p>
-        <p className="mb-2 text-sm text-muted-foreground">
-          {data?.survey ? `${data.survey.answered} respostas · ${data.survey.unanswered} sem resposta` : "…"}
-        </p>
-        <ul className="space-y-1 text-sm">
-          {(data?.survey?.options || []).map((option) => (
-            <li key={option.id} className="flex items-center justify-between gap-3">
-              <span>{option.title}</span>
-              <span className="text-muted-foreground">{option.count} · {option.percent.toLocaleString("pt-BR")}%</span>
-            </li>
-          ))}
+      <section className="rounded-2xl border border-border bg-white p-4">
+        <p className="text-sm font-semibold">Pesquisa</p>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="rounded-xl bg-orange-50 px-3 py-3">
+            <p className="text-2xl font-bold tabular-nums text-orange-800">{data?.survey?.answered ?? "…"}</p>
+            <p className="text-xs font-medium text-orange-700">respostas</p>
+          </div>
+          <div className="rounded-xl bg-neutral-100 px-3 py-3">
+            <p className="text-2xl font-bold tabular-nums">{data?.survey?.unanswered ?? "…"}</p>
+            <p className="text-xs font-medium text-muted-foreground">sem resposta</p>
+          </div>
+        </div>
+        <ul className="mt-4 space-y-3">
+          {(data?.survey?.options || []).map((option) => {
+            const width = Math.min(100, Math.max(0, Number(option.percent) || 0));
+            return (
+              <li key={option.id}>
+                <div className="mb-1 flex items-baseline justify-between gap-3 text-sm">
+                  <span className="font-medium">{option.title}</span>
+                  <span className="shrink-0 tabular-nums text-muted-foreground">{option.count} · {width.toLocaleString("pt-BR")}%</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-neutral-100">
+                  <div className="h-full rounded-full bg-orange-500" style={{ width: `${width}%` }} />
+                </div>
+              </li>
+            );
+          })}
         </ul>
-      </div>
-      <div>
-        <p className="mb-2 text-sm font-medium">Últimos envios</p>
-        <ul className="space-y-1 text-sm text-muted-foreground">
-          {(data?.recent || []).map((row) => (
-            <li key={`${row.phone}-${row.sentAt}`}>{row.name || "Cliente"} · {row.phone} · {formatCurrency(Number(row.spent) || 0)}{row.answer ? ` · ${row.answer}` : ""} · {row.sentAt ? new Date(row.sentAt).toLocaleString("pt-BR") : ""}</li>
-          ))}
-        </ul>
-      </div>
+      </section>
+      <section className="rounded-2xl border border-border bg-white p-4">
+        <p className="text-sm font-semibold">Últimos envios</p>
+        {(data?.recent || []).length === 0 ? (
+          <p className="mt-3 text-sm text-muted-foreground">Nenhum envio ainda.</p>
+        ) : (
+          <ul className="mt-3 divide-y divide-border">
+            {(data?.recent || []).map((row) => (
+              <li key={`${row.phone}-${row.sentAt}`} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3 first:pt-0 last:pb-0">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold">{row.name || "Cliente"}</p>
+                  <p className="text-sm text-muted-foreground">{formatPhone(row.phone)}</p>
+                </div>
+                <p className="text-sm font-semibold tabular-nums">{formatCurrency(Number(row.spent) || 0)}</p>
+                {row.answer ? (
+                  <span className="rounded-full bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-800">{row.answer}</span>
+                ) : (
+                  <span className="rounded-full bg-neutral-100 px-2.5 py-1 text-xs font-medium text-muted-foreground">Sem resposta</span>
+                )}
+                <p className="w-full text-xs text-muted-foreground sm:w-auto sm:text-right">{formatSentAt(row.sentAt)}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }
