@@ -17,7 +17,8 @@ type Snapshot = {
     unanswered: number;
     options: Array<{ id: string; title: string; count: number; percent: number }>;
   };
-  recent: Array<{ phone: string; name: string; spent: number; answer?: string; sentAt: string | null; lastOrderAt: string | null }>;
+  recovered?: { count: number; total: number; percent: number };
+  recent: Array<{ phone: string; name: string; spent: number; answer?: string; recovered?: boolean; sentAt: string | null; lastOrderAt: string | null }>;
 };
 
 function formatPhone(phone: string): string {
@@ -192,6 +193,17 @@ export function WhatsappRecoveryPanel() {
             <p className="text-xs font-medium text-muted-foreground">sem resposta</p>
           </div>
         </div>
+        {data?.recovered ? (
+          <div className="mt-4">
+            <div className="mb-1 flex items-baseline justify-between gap-3 text-sm">
+              <span className="font-medium">Recuperados</span>
+              <span className="shrink-0 tabular-nums text-muted-foreground">{data.recovered.count} · {data.recovered.percent.toLocaleString("pt-BR")}%</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-neutral-100">
+              <div className="h-full rounded-full bg-green-600" style={{ width: `${Math.min(100, Math.max(0, data.recovered.percent))}%` }} />
+            </div>
+          </div>
+        ) : null}
         <ul className="mt-4 space-y-3">
           {(data?.survey?.options || []).map((option) => {
             const width = Math.min(100, Math.max(0, Number(option.percent) || 0));
@@ -218,7 +230,10 @@ export function WhatsappRecoveryPanel() {
             {(data?.recent || []).map((row) => (
               <li key={`${row.phone}-${row.sentAt}`} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3 first:pt-0 last:pb-0">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold">{row.name || "Cliente"}</p>
+                  <p className="flex flex-wrap items-center gap-2 font-semibold">
+                    <span className="truncate">{row.name || "Cliente"}</span>
+                    {row.recovered ? <span className="rounded-full bg-green-50 px-2.5 py-1 text-xs font-semibold text-green-800">Recuperado</span> : null}
+                  </p>
                   <p className="text-sm text-muted-foreground">{formatPhone(row.phone)}</p>
                 </div>
                 <p className="text-sm font-semibold tabular-nums">{formatCurrency(Number(row.spent) || 0)}</p>

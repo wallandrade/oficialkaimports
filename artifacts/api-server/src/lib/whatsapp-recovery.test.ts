@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addRecoverySpend, canonicalRecoveryPhone, pickRecoveryCandidate, recoveryAnswerId, recoveryMessage, recoveryOptionList, recoveryOrderAmount, recoveryQuietHours, recoverySurveyStats } from "./whatsapp-recovery";
+import { addRecoverySpend, canonicalRecoveryPhone, paidTimesForRecoveryPhone, pickRecoveryCandidate, recoveryAnswerId, recoveryMessage, recoveryOptionList, recoveryOrderAmount, recoveryQuietHours, recoveryRecoveredPercent, recoverySaleAfterMessage, recoverySurveyStats } from "./whatsapp-recovery";
 
 const day = 24 * 60 * 60 * 1000;
 
@@ -70,6 +70,23 @@ test("horário salvo libera o envio dentro da faixa", () => {
   assert.equal(recoveryQuietHours(night, 10, 19), true);
   assert.equal(recoveryQuietHours(night, 10, 22), false);
   assert.equal(recoveryQuietHours(new Date("2026-10-23T14:30:00.000Z"), 10, 19), false);
+});
+
+test("venda paga depois da mensagem marca recuperado", () => {
+  const sentAt = new Date("2026-10-20T12:00:00.000Z");
+  const before = new Date("2026-10-01T12:00:00.000Z");
+  const after = new Date("2026-10-28T12:00:00.000Z");
+  assert.equal(recoverySaleAfterMessage(sentAt, [before]), false);
+  assert.equal(recoverySaleAfterMessage(sentAt, [before, after]), true);
+  assert.equal(recoverySaleAfterMessage(sentAt, [sentAt]), false);
+  const index = new Map<string, Date[]>([
+    ["5511986747851", [after]],
+    ["551186747851", [after]],
+  ]);
+  assert.equal(paidTimesForRecoveryPhone(index, "11986747851").length, 1);
+  assert.equal(recoverySaleAfterMessage(sentAt, paidTimesForRecoveryPhone(index, "11986747851")), true);
+  assert.equal(recoveryRecoveredPercent(3, 225), 1.3);
+  assert.equal(recoveryRecoveredPercent(0, 10), 0);
 });
 
 test("mensagem troca o primeiro nome", () => {

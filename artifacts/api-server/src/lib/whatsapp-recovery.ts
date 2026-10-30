@@ -105,6 +105,36 @@ export function recoveryAnswerTitle(answer: string | null | undefined): string {
   return RECOVERY_SURVEY.find((option) => option.id === answer)?.title || "";
 }
 
+/** Venda paga criada depois do envio da mensagem. Compra anterior não conta. */
+export function recoverySaleAfterMessage(sentAt: Date | null | undefined, paidTimes: readonly Date[]): boolean {
+  if (!sentAt) return false;
+  const sent = sentAt.getTime();
+  if (!Number.isFinite(sent)) return false;
+  return paidTimes.some((time) => {
+    const ms = time.getTime();
+    return Number.isFinite(ms) && ms > sent;
+  });
+}
+
+export function paidTimesForRecoveryPhone(index: ReadonlyMap<string, readonly Date[]>, phone: string): Date[] {
+  const seen = new Set<number>();
+  const times: Date[] = [];
+  for (const key of recoveryPhoneKeys(phone)) {
+    for (const time of index.get(key) || []) {
+      const ms = time.getTime();
+      if (!Number.isFinite(ms) || seen.has(ms)) continue;
+      seen.add(ms);
+      times.push(time);
+    }
+  }
+  return times;
+}
+
+export function recoveryRecoveredPercent(recovered: number, total: number): number {
+  if (total <= 0 || recovered <= 0) return 0;
+  return Math.round((recovered * 1000) / total) / 10;
+}
+
 export function recoveryPhoneKeys(phone: string): string[] {
   const keys = new Set<string>();
   const normalized = normalizeWhatsappPhone(phone);
@@ -314,7 +344,7 @@ export function addRecoverySpend(spentCents: Map<string, number>, phone: string,
   spentCents.set(key, (spentCents.get(key) || 0) + Math.round(amount * 100));
 }
 
-async function loadPaidOrders(): Promise<{ customers: RecoveryCustomer[]; spentCents: Map<string, number> }> {
+async function loadPaidOrders(): Promise<{ customers: RecoveryCustomer[]; spentCents: Map<string, number>; paidAt: Map<string, Date[]> }> {
   const rows = await db
     .select({
       phone: ordersTable.clientPhone,
@@ -330,17 +360,23 @@ async function loadPaidOrders(): Promise<{ customers: RecoveryCustomer[]; spentC
     .where(inArray(ordersTable.status, ["paid", "completed"]));
   const byPhone = new Map<string, RecoveryCustomer>();
   const spentCents = new Map<string, number>();
+  const paidAt = new Map<string, Date[]>();
   for (const row of rows) {
     const phone = normalizeWhatsappPhone(row.phone);
     if (!phone) continue;
     addRecoverySpend(spentCents, phone, recoveryOrderAmount(row));
     if (!row.createdAt) continue;
+    for (const key of recoveryPhoneKeys(phone)) {
+      const times = paidAt.get(key);
+      if (times) times.push(row.createdAt);
+      else paidAt.set(key, [row.createdAt]);
+    }
     const current = byPhone.get(phone);
     if (!current || row.createdAt.getTime() > current.lastAt.getTime()) {
       byPhone.set(phone, { phone, name: String(row.name || ""), lastAt: row.createdAt });
     }
   }
-  return { customers: [...byPhone.values()], spentCents };
+  return { customers: [...byPhone.values()], spentCents, paidAt };
 }
 
 async function loadCustomers(): Promise<RecoveryCustomer[]> {
@@ -365,6 +401,19 @@ export async function recoverySnapshot(tenantId = DEFAULT_TENANT_ID) {
     .select({ phone: whatsappRecoverySendsTable.phone })
     .from(whatsappRecoverySendsTable)
     .where(gte(whatsappRecoverySendsTable.sentAt, saoPauloDayStart(now)));
+  const allSends = await db
+    .select({
+      phone: whatsappRecoverySendsTable.phone,
+      sentAt: whatsappRecoverySendsTable.sentAt,
+    })
+    .from(whatsappRecoverySendsTable);
+  let recoveredCount = 0;
+  const recoveredPhones = new Set<string>();
+  for (const row of allSends) {
+    if (!recoverySaleAfterMessage(row.sentAt, paidTimesForRecoveryPhone(paid.paidAt, row.phone))) continue;
+    recoveredCount += 1;
+    for (const key of recoveryPhoneKeys(row.phone)) recoveredPhones.add(key);
+  }
   const recent = await db
     .select()
     .from(whatsappRecoverySendsTable)
@@ -384,11 +433,17 @@ export async function recoverySnapshot(tenantId = DEFAULT_TENANT_ID) {
     waiting,
     sentToday: sentTodayRows.length,
     survey: recoverySurveyStats(counts),
+    recovered: {
+      count: recoveredCount,
+      total: allSends.length,
+      percent: recoveryRecoveredPercent(recoveredCount, allSends.length),
+    },
     recent: recent.map((row) => ({
       phone: row.phone,
       name: row.customerName || "",
       spent: (paid.spentCents.get(canonicalRecoveryPhone(row.phone) || "") || 0) / 100,
       answer: recoveryAnswerTitle(row.answer),
+      recovered: recoveryPhoneKeys(row.phone).some((key) => recoveredPhones.has(key)),
       sentAt: row.sentAt ? new Date(row.sentAt).toISOString() : null,
       lastOrderAt: row.lastOrderAt ? new Date(row.lastOrderAt).toISOString() : null,
     })),
