@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addRecoverySpend, canonicalRecoveryPhone, paidTimesForRecoveryPhone, pickRecoveryCandidate, recoveryAnswerId, recoveryMessage, recoveryOptionList, recoveryOrderAmount, recoveryQuietHours, recoveryRecoveredPercent, recoverySaleAfterMessage, recoverySurveyStats } from "./whatsapp-recovery";
+import { addRecoverySpend, canonicalRecoveryPhone, paidTimesForRecoveryPhone, pickRecoveryCandidate, recoveryAmountAfterMessage, recoveryAnswerId, recoveryMessage, recoveryOptionList, recoveryOrderAmount, recoveryQuietHours, recoveryRecoveredPercent, recoverySaleAfterMessage, salesForRecoveryPhone, recoverySurveyStats } from "./whatsapp-recovery";
 
 const day = 24 * 60 * 60 * 1000;
 
@@ -87,6 +87,18 @@ test("venda paga depois da mensagem marca recuperado", () => {
   assert.equal(recoverySaleAfterMessage(sentAt, paidTimesForRecoveryPhone(index, "11986747851")), true);
   assert.equal(recoveryRecoveredPercent(3, 225), 1.3);
   assert.equal(recoveryRecoveredPercent(0, 10), 0);
+  const sent = new Date("2026-10-20T12:00:00.000Z");
+  const sales = salesForRecoveryPhone(new Map([
+    ["5511986747851", [
+      { id: "antes", at: new Date("2026-10-01T12:00:00.000Z"), cents: 5000 },
+      { id: "depois", at: new Date("2026-10-28T12:00:00.000Z"), cents: 133000 },
+    ]],
+    ["551186747851", [
+      { id: "depois", at: new Date("2026-10-28T12:00:00.000Z"), cents: 133000 },
+    ]],
+  ]), "11986747851");
+  assert.equal(sales.length, 2);
+  assert.equal(recoveryAmountAfterMessage(sent, sales), 1330);
 });
 
 test("mensagem troca o primeiro nome", () => {

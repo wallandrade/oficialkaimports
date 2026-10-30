@@ -17,7 +17,13 @@ type Snapshot = {
     unanswered: number;
     options: Array<{ id: string; title: string; count: number; percent: number }>;
   };
-  recovered?: { count: number; total: number; percent: number };
+  recovered?: {
+    count: number;
+    total: number;
+    percent: number;
+    amount?: number;
+    customers?: Array<{ phone: string; name: string; amount: number }>;
+  };
   recent: Array<{ phone: string; name: string; spent: number; answer?: string; recovered?: boolean; sentAt: string | null; lastOrderAt: string | null }>;
 };
 
@@ -220,6 +226,27 @@ export function WhatsappRecoveryPanel() {
             );
           })}
         </ul>
+      </section>
+      <section className="rounded-2xl border border-border bg-white p-4">
+        <div className="flex items-baseline justify-between gap-3">
+          <p className="text-sm font-semibold">Recuperados</p>
+          <p className="text-sm font-bold tabular-nums text-green-800">{formatCurrency(Number(data?.recovered?.amount) || 0)}</p>
+        </div>
+        {(data?.recovered?.customers || []).length === 0 ? (
+          <p className="mt-3 text-sm text-muted-foreground">Nenhum cliente recuperado ainda.</p>
+        ) : (
+          <ul className="mt-3 divide-y divide-border">
+            {(data?.recovered?.customers || []).map((row) => (
+              <li key={row.phone} className="flex items-center gap-4 py-3 first:pt-0 last:pb-0">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold">{row.name || "Cliente"}</p>
+                  <p className="text-sm text-muted-foreground">{formatPhone(row.phone)}</p>
+                </div>
+                <p className="shrink-0 text-sm font-semibold tabular-nums text-green-800">{formatCurrency(Number(row.amount) || 0)}</p>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
       <section className="rounded-2xl border border-border bg-white p-4">
         <p className="text-sm font-semibold">Últimos envios</p>

@@ -135,6 +135,35 @@ export function recoveryRecoveredPercent(recovered: number, total: number): numb
   return Math.round((recovered * 1000) / total) / 10;
 }
 
+export type RecoveryPaidSale = { id: string; at: Date; cents: number };
+
+export function salesForRecoveryPhone(index: ReadonlyMap<string, readonly RecoveryPaidSale[]>, phone: string): RecoveryPaidSale[] {
+  const seen = new Set<string>();
+  const sales: RecoveryPaidSale[] = [];
+  for (const key of recoveryPhoneKeys(phone)) {
+    for (const sale of index.get(key) || []) {
+      if (!sale.id || seen.has(sale.id)) continue;
+      seen.add(sale.id);
+      sales.push(sale);
+    }
+  }
+  return sales;
+}
+
+/** Soma, em reais, só as vendas pagas criadas depois do envio. */
+export function recoveryAmountAfterMessage(sentAt: Date | null | undefined, sales: readonly RecoveryPaidSale[]): number {
+  if (!sentAt) return 0;
+  const sent = sentAt.getTime();
+  if (!Number.isFinite(sent)) return 0;
+  let cents = 0;
+  for (const sale of sales) {
+    const ms = sale.at.getTime();
+    if (!Number.isFinite(ms) || ms <= sent) continue;
+    cents += Math.round(sale.cents);
+  }
+  return cents / 100;
+}
+
 export function recoveryPhoneKeys(phone: string): string[] {
   const keys = new Set<string>();
   const normalized = normalizeWhatsappPhone(phone);
@@ -344,9 +373,10 @@ export function addRecoverySpend(spentCents: Map<string, number>, phone: string,
   spentCents.set(key, (spentCents.get(key) || 0) + Math.round(amount * 100));
 }
 
-async function loadPaidOrders(): Promise<{ customers: RecoveryCustomer[]; spentCents: Map<string, number>; paidAt: Map<string, Date[]> }> {
+async function loadPaidOrders(): Promise<{ customers: RecoveryCustomer[]; spentCents: Map<string, number>; paidAt: Map<string, Date[]>; paidSales: Map<string, RecoveryPaidSale[]> }> {
   const rows = await db
     .select({
+      id: ordersTable.id,
       phone: ordersTable.clientPhone,
       name: ordersTable.clientName,
       createdAt: ordersTable.createdAt,
@@ -361,22 +391,28 @@ async function loadPaidOrders(): Promise<{ customers: RecoveryCustomer[]; spentC
   const byPhone = new Map<string, RecoveryCustomer>();
   const spentCents = new Map<string, number>();
   const paidAt = new Map<string, Date[]>();
+  const paidSales = new Map<string, RecoveryPaidSale[]>();
   for (const row of rows) {
     const phone = normalizeWhatsappPhone(row.phone);
     if (!phone) continue;
-    addRecoverySpend(spentCents, phone, recoveryOrderAmount(row));
+    const amount = recoveryOrderAmount(row);
+    addRecoverySpend(spentCents, phone, amount);
     if (!row.createdAt) continue;
+    const sale: RecoveryPaidSale = { id: row.id, at: row.createdAt, cents: Math.round(amount * 100) };
     for (const key of recoveryPhoneKeys(phone)) {
       const times = paidAt.get(key);
       if (times) times.push(row.createdAt);
       else paidAt.set(key, [row.createdAt]);
+      const sales = paidSales.get(key);
+      if (sales) sales.push(sale);
+      else paidSales.set(key, [sale]);
     }
     const current = byPhone.get(phone);
     if (!current || row.createdAt.getTime() > current.lastAt.getTime()) {
       byPhone.set(phone, { phone, name: String(row.name || ""), lastAt: row.createdAt });
     }
   }
-  return { customers: [...byPhone.values()], spentCents, paidAt };
+  return { customers: [...byPhone.values()], spentCents, paidAt, paidSales };
 }
 
 async function loadCustomers(): Promise<RecoveryCustomer[]> {
@@ -405,15 +441,27 @@ export async function recoverySnapshot(tenantId = DEFAULT_TENANT_ID) {
     .select({
       phone: whatsappRecoverySendsTable.phone,
       sentAt: whatsappRecoverySendsTable.sentAt,
+      customerName: whatsappRecoverySendsTable.customerName,
     })
     .from(whatsappRecoverySendsTable);
   let recoveredCount = 0;
+  let recoveredCents = 0;
   const recoveredPhones = new Set<string>();
+  const recoveredCustomers: Array<{ phone: string; name: string; amount: number }> = [];
   for (const row of allSends) {
-    if (!recoverySaleAfterMessage(row.sentAt, paidTimesForRecoveryPhone(paid.paidAt, row.phone))) continue;
+    const sales = salesForRecoveryPhone(paid.paidSales, row.phone);
+    if (!recoverySaleAfterMessage(row.sentAt, sales.map((sale) => sale.at))) continue;
+    const amount = recoveryAmountAfterMessage(row.sentAt, sales);
     recoveredCount += 1;
+    recoveredCents += Math.round(amount * 100);
+    recoveredCustomers.push({
+      phone: row.phone,
+      name: row.customerName || "",
+      amount,
+    });
     for (const key of recoveryPhoneKeys(row.phone)) recoveredPhones.add(key);
   }
+  recoveredCustomers.sort((left, right) => right.amount - left.amount || left.name.localeCompare(right.name, "pt-BR"));
   const recent = await db
     .select()
     .from(whatsappRecoverySendsTable)
@@ -437,6 +485,8 @@ export async function recoverySnapshot(tenantId = DEFAULT_TENANT_ID) {
       count: recoveredCount,
       total: allSends.length,
       percent: recoveryRecoveredPercent(recoveredCount, allSends.length),
+      amount: recoveredCents / 100,
+      customers: recoveredCustomers,
     },
     recent: recent.map((row) => ({
       phone: row.phone,
