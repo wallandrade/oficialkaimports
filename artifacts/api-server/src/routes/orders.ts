@@ -84,6 +84,7 @@ import {
 } from "../lib/order-events";
 import { assignNextOrganicSeller } from "../lib/seller-round-robin";
 import { consumeFlashReservation, FlashOfferError, resolveCheckoutFlash, unitPriceWithFlash } from "../lib/flash-offers";
+import { flashUnitPriceFromOrder } from "../lib/order-edit-price";
 import {
   isObservationVisibleToCustomer,
   observationForCustomerApi,
@@ -2633,12 +2634,15 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
       return parsed.filter((item) => item && typeof item === "object") as Array<Record<string, unknown>>;
     })();
 
-    // Price stays the catalog/tier price. Line discount is a separate reais amount.
+    // Catalog/tier price, except a flash line: that unit price stays. Line discount is separate.
     const resolvedProducts = newProducts.map((item, index) => {
       const productId = String(item?.id || "").trim();
       const quantity = Number(item?.quantity) || 0;
       const catalogProduct = editProductRows.get(productId);
-      const price = catalogProduct ? resolveUnitPriceForQuantity(catalogProduct, quantity) : Number(item?.price) || 0;
+      const flashUnit = flashUnitPriceFromOrder(currentProductRows, productId);
+      const price = flashUnit != null
+        ? flashUnit
+        : catalogProduct ? resolveUnitPriceForQuantity(catalogProduct, quantity) : Number(item?.price) || 0;
       const lineDiscount = roundMoney(cappedLineDiscount({ quantity, price, lineDiscount: item?.lineDiscount }));
       const atIndex = currentProductRows[index];
       const snapshot = atIndex && String(atIndex.id || "") === productId ? atIndex : undefined;
@@ -2663,12 +2667,14 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
         image?: string;
         swappedFrom?: unknown;
         swapMode?: string;
+        flashOffer?: boolean;
       } = {
         id: productId,
         name: String(item?.name || snapshot?.name || "Produto"),
         quantity,
         price,
       };
+      if (flashUnit != null) next.flashOffer = true;
       if (lineDiscount > 0) next.lineDiscount = lineDiscount;
       if (costPrice != null) next.costPrice = costPrice;
       if (image) next.image = image;

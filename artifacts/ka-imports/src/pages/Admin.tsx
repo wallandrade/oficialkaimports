@@ -208,7 +208,7 @@ function isoToSPDate(iso: string) {
   return iso ? iso.slice(0, 10) : "";
 }
 
-type OrderProductLite = { id: string; name: string; quantity: number; price: number; lineDiscount?: number; costPrice?: number; image?: string | null; swappedFrom?: { id?: string; name?: string; quantity?: number; price?: number } | null; swapMode?: string | null };
+type OrderProductLite = { id: string; name: string; quantity: number; price: number; lineDiscount?: number; costPrice?: number; image?: string | null; flashOffer?: boolean; swappedFrom?: { id?: string; name?: string; quantity?: number; price?: number } | null; swapMode?: string | null };
 
 function resolveOrderItemUnitCost(
   item: { id?: string; costPrice?: number | null },
@@ -6305,6 +6305,11 @@ export default function Admin() {
     return tier ? tier.unitPrice : base;
   }
 
+  function editedLineUnitPrice(item: OrderProductLite, catalog: AdminProduct | undefined, quantity: number): number {
+    if (item.flashOffer) return item.price;
+    return catalog ? resolveEditItemPrice(catalog, quantity) : item.price;
+  }
+
   // Order editing
   const openEditOrder = async (order: AdminOrder) => {
     setEditOrderModal(order);
@@ -6314,6 +6319,7 @@ export default function Admin() {
       quantity: p.quantity,
       price: p.price,
       lineDiscount: Math.max(0, Number(p.lineDiscount) || 0),
+      flashOffer: p.flashOffer === true ? true : undefined,
       image: p.image,
       costPrice: p.costPrice,
       swappedFrom: p.swappedFrom,
@@ -12346,7 +12352,7 @@ export default function Admin() {
                                   const exists = editItems.find((i) => i.id === p.id);
                                   if (exists) {
                                     const newQty = exists.quantity + 1;
-                                    const newPrice = resolveEditItemPrice(p, newQty);
+                                    const newPrice = exists.flashOffer ? exists.price : resolveEditItemPrice(p, newQty);
                                     setEditItems((prev) => prev.map((i) => i.id === p.id ? {
                                       ...i,
                                       quantity: newQty,
@@ -12394,6 +12400,9 @@ export default function Admin() {
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium truncate">{item.name}</p>
                               <p className="text-xs text-muted-foreground">{formatCurrency(item.price)} × {item.quantity} = {formatCurrency(lineGross)}</p>
+                              {item.flashOffer && (
+                                <p className="text-[11px] font-semibold text-orange-600">Oferta relâmpago</p>
+                              )}
                               {lineDiscount > 0 && (
                                 <p className="text-xs text-green-700">Líquido {formatCurrency(orderLineNet(item))}</p>
                               )}
@@ -12422,7 +12431,7 @@ export default function Admin() {
                                   if (item.quantity <= 1) return;
                                   const newQty = item.quantity - 1;
                                   const catalog = editCatalog.find((c) => c.id === item.id);
-                                  const newPrice = catalog ? resolveEditItemPrice(catalog, newQty) : item.price;
+                                  const newPrice = editedLineUnitPrice(item, catalog, newQty);
                                   setEditItems((prev) => prev.map((i, j) => j === idx ? {
                                     ...i,
                                     quantity: newQty,
@@ -12435,7 +12444,7 @@ export default function Admin() {
                                 onClick={() => {
                                   const newQty = item.quantity + 1;
                                   const catalog = editCatalog.find((c) => c.id === item.id);
-                                  const newPrice = catalog ? resolveEditItemPrice(catalog, newQty) : item.price;
+                                  const newPrice = editedLineUnitPrice(item, catalog, newQty);
                                   setEditItems((prev) => prev.map((i, j) => j === idx ? {
                                     ...i,
                                     quantity: newQty,

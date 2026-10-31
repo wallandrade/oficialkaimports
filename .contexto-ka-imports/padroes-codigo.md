@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-10-28
+> **Última atualização:** 2026-10-31
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-10-31 | Anti-padrão: edição de pedido recalcula a relâmpago pelo catálogo | `flashOffer` guarda o preço da compra. O PATCH e o −/+ do modal usam esse valor | Catálogo, `promoPrice` e desconto de linha |
 | 2026-10-28 | Anti-padrão: voltar o campo de senha da baixa Yury | O card baixa Motoboy/Minas sem senha | Fóz e o snapshot |
 | 2026-10-22 | Anti-padrão: colar o código do balcão em `envioecom_barcode` ou no PATCH de tracking da EnvioEcom | `manual_tracking_code` + `PATCH .../manual-tracking`. Não baixa estoque | **Vincular EE**, OCR **Etiqueta/Rastreio** e o sync |
 | 2026-10-19 | Anti-padrão: promoção relâmpago só no modal ou no `promoPrice` | O preço da reserva entra no create do PIX/WhatsApp. IP sozinho não é a chave; o id do navegador é | Catálogo e cupom |
@@ -189,6 +190,7 @@ Código > memória > suposições.
 ## Anti-padrões (não reintroduzir)
 
 - Montar promoção relâmpago só no modal, no `promoPrice` do catálogo ou num cupom compartilhado. A vaga fica em `flash_reservations` e o PIX/WhatsApp recalcula com esse preço. O IP do dia é apoio; a chave é o id do navegador.
+- Na edição do pedido, trocar o `price` de uma linha `flashOffer` por `resolveUnitPriceForQuantity`. O preço da reserva já está no JSON do item. Produto novo continua no catálogo.
 - Ordenar a categoria da home `pharma_compact` com `sortCatalogProducts`. Nessa lista a ordem manual vem antes de `soldQty`; a marca BIOGENESIS do peptídeo vem depois do `sortOrder`. A home dos outros temas e `/categoria/:nome` continuam no sorter antigo.
 - Colocar `@import` do Google Fonts dentro de `index.css`. Se o navegador recusa esse import, ele joga fora o CSS do Tailwind inteiro. A fonte fica no `<link>` de `index.html`.
 - Aplicar `shipping_queue_manual_hours` em `findForecast` ou `allocateOrderLogistics`. O número manual só substitui `promisedHours` em `GET /api/shipping-logistics/forecast`. A vaga, as cópias e o card usam o prazo da fila.
