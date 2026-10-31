@@ -3,7 +3,7 @@ import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { DEFAULT_TENANT_ID } from "./tenant-context";
 import { isUsableLabelBarcode } from "./envioecom-status";
 import { listOrderShipments } from "./order-shipments";
-import { phoneHasRecentRecovery, recordRecoveryAnswer, recoveryAnswerId, RECOVERY_THANKS } from "./whatsapp-recovery";
+import { phoneHasRecentRecovery, recordRecoveryAnswer, recoveryAnswerId, recoveryReplyMessage } from "./whatsapp-recovery";
 import { inboundTypeShouldIgnore, menuShouldSendAgain, normalizeWhatsappPhone } from "./whatsapp-notices";
 import {
   instanceMatchesPoly,
@@ -444,7 +444,7 @@ export async function handleWhatsappSupportInbound(rawBody: unknown, token: stri
       tenantId: auth.tenantId,
       secondInstance,
       phone,
-      message: RECOVERY_THANKS,
+      message: recoveryReplyMessage(clicked),
     });
     return { status: 200 };
   }

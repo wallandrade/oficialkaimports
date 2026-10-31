@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addRecoverySpend, canonicalRecoveryPhone, paidTimesForRecoveryPhone, pickRecoveryCandidate, recoveryAmountAfterMessage, recoveryAnswerId, recoveryMessage, recoveryOptionList, recoveryOrderAmount, recoveryQuietHours, recoveryRecoveredPercent, recoverySaleAfterMessage, salesForRecoveryPhone, recoverySurveyStats } from "./whatsapp-recovery";
+import { addRecoverySpend, canonicalRecoveryPhone, paidTimesForRecoveryPhone, pickRecoveryCandidate, recoveryAmountAfterMessage, recoveryAnswerId, recoveryMessage, recoveryOptionList, recoveryOrderAmount, recoveryQuietHours, recoveryRecoveredPercent, recoveryReplyMessage, recoverySaleAfterMessage, salesForRecoveryPhone, recoverySurveyStats, RECOVERY_PRICE_ASK, RECOVERY_THANKS } from "./whatsapp-recovery";
 
 const day = 24 * 60 * 60 * 1000;
 
@@ -63,6 +63,9 @@ test("pesquisa reconhece o clique e calcula a porcentagem", () => {
   assert.equal(stats.answered, 10);
   assert.equal(stats.unanswered, 30);
   assert.equal(stats.options[0].percent, 50);
+  assert.equal(recoveryReplyMessage("preco"), RECOVERY_PRICE_ASK);
+  assert.equal(recoveryReplyMessage("objetivo"), RECOVERY_THANKS);
+  assert.match(RECOVERY_PRICE_ASK, /print ou a tabela de preço/);
 });
 
 test("horário salvo libera o envio dentro da faixa", () => {

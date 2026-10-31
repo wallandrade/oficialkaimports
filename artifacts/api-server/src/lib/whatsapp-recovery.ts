@@ -29,6 +29,16 @@ export const RECOVERY_DEFAULT_MESSAGE = [
 
 export const RECOVERY_THANKS = "Obrigado por responder. Isso ajuda a gente a melhorar.";
 
+export const RECOVERY_PRICE_ASK = [
+  "Valeu por contar.",
+  "",
+  "Me manda o print ou a tabela de preço do fornecedor novo. A gente analisa e vê o que consegue fazer para chegar nesse valor, para você voltar a comprar com a gente.",
+].join("\n");
+
+export function recoveryReplyMessage(answerId: RecoveryAnswerId): string {
+  return answerId === "preco" ? RECOVERY_PRICE_ASK : RECOVERY_THANKS;
+}
+
 export const RECOVERY_SURVEY = [
   { id: "preco", title: "Achei preço melhor", description: "Preço em outro lugar" },
   { id: "objetivo", title: "Já atingi meu objetivo", description: "Já comprei o que precisava" },
