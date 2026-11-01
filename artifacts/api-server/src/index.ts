@@ -8,6 +8,7 @@ import { reconcilePendingOrderLogistics } from "./lib/order-logistics";
 import { startYuryMotoboyCoverageSyncJob } from "./lib/motoboy-yury-sync-job";
 import { startYuryInventorySyncJob } from "./lib/yury-inventory-sync-job";
 import { startYuryLossSyncJob } from "./lib/loss-peer-sync-job";
+import { startYuryMetaAdsSyncJob } from "./lib/meta-ads-sync-job";
 import { startWhatsappRecoveryJob } from "./lib/whatsapp-recovery-job";
 import { startWhatsappGroupJob } from "./whatsapp-group-job";
 import { syncOpenReshipmentsSentFromEnvioEcom } from "./lib/reshipments";
@@ -54,6 +55,7 @@ async function bootstrap(): Promise<void> {
     startYuryMotoboyCoverageSyncJob();
     startYuryInventorySyncJob();
     startYuryLossSyncJob();
+    startYuryMetaAdsSyncJob();
     startWhatsappRecoveryJob();
     startWhatsappGroupJob();
     void reconcilePendingOrderLogistics().catch((error) => {

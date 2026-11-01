@@ -1,12 +1,13 @@
 # Integrações externas — KA Imports
 
-> **Última atualização:** 2026-10-31
+> **Última atualização:** 2026-11-01
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-01 | Gasto Facebook da conta C2 vem da Yury | Job de 60 min grava `marketing_expenses` com id `yury-meta-ads:AAAA-MM-DD`. `GET {YURY_API_BASE}/api/integrations/meta-ads/spend` com `YURY_META_ADS_SYNC_TOKEN`. 404/503 só logam. Zero apaga só essa linha do dia. Fora de `since`/`until` nada é apagado | Cadastro manual, Visão Geral e a senha do Facebook. A rota da Yury ainda pode responder 404 |
 | 2026-10-31 | Clique em preço pede o print do fornecedor | Quem escolhe **Achei preço melhor** recebe o pedido do print ou da tabela. As outras três opções seguem com o agradecimento. O print depois disso continua com uma pessoa | Fila, horário, limite do dia e a porcentagem da pesquisa |
 | 2026-10-30 | Aba Automação manda foto nos grupos pela Z-API | Só o admin principal. Produtos às 9h, 13h, 17h e 21h e aviso avulso. O job confere a cada 60 s. A marca fica em `whatsapp_group_send_log`. Sem `ZAPI_MAIN_INSTANCE_ID`, `ZAPI_MAIN_TOKEN` e `ZAPI_CLIENT_TOKEN`, não envia | A explicação diária fica desligada. Pedido, rastreio, atendimento e recuperação continuam no n8n. Não lê credencial `*_poly` |
 | 2026-10-30 | Recuperação lista o valor pago depois da mensagem | O card **Recuperados** mostra cada cliente e a soma dos pedidos `paid`/`completed` criados depois de `sent_at`. O topo do card é o total | A barra, o selo, a pesquisa e o valor de todas as compras em Últimos envios |
@@ -183,6 +184,15 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 - Webhook: `POST /api/webhooks/yury/inventory` (+ `/webhooks/yury/inventory`). Body cru + HMAC igual à cobertura. Evento `inventory.changed`: **não** aplica `quantityDelta`.
 - Erros do GET remoto: 401 token · 503 sync desligado · 500 retry no próximo ciclo.
 - **Não** usa `/api/admin/inventory/...` da Yury. 48h / EnvioEcom / Fóz continuam na baixa local.
+
+## Gasto Facebook (Yury → KA)
+
+- A Yury lê a conta de anúncio C2. Este repo não cria app na Meta e não guarda token do Facebook.
+- Job no boot (~20s) e a cada 60 min, se existir `YURY_META_ADS_SYNC_TOKEN`. Sem a variável, o job fica parado. A senha não vai para o site.
+- Chamada: `GET {YURY_API_BASE}/api/integrations/meta-ads/spend`. A base é o domínio (`https://api.yury-imports.com`), sem `/api` no final. Header `Authorization: Bearer`. Sem `dateFrom`/`dateTo`: últimos 7 dias.
+- Cada dia vira uma despesa em `marketing_expenses`, loja `tenant_loja1`, sem seller, canal `Facebook`, id `yury-meta-ads:AAAA-MM-DD`, dia em `America/Sao_Paulo`. Valor novo no mesmo dia substitui. Observação: `Importado da Yury (conta C2)`.
+- Dentro de `since` e `until`, todo dia vem na lista. `amount: 0` apaga só essa linha. Dia de fora da janela não é apagado. Gasto manual de Facebook (outro id) não é alterado.
+- 404 (rota ainda fora do ar) e 503 (`error: SYNC_DISABLED`, conta C2 ou senha ausente na Yury) só geram log. 401, 502, timeout e JSON inválido também não apagam nem zeram. Sucesso traz `currency: BRL`; outra moeda não volta em 200.
 
 ## Geo / IP
 
