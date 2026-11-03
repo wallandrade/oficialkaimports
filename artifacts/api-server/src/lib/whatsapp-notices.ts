@@ -7,6 +7,56 @@ import {
 
 export const SINGLE_SHIPMENT_WHATSAPP_KEY = "order";
 
+/** Linhas `💊 2x Nome` do aviso de rastreio. Quantidade vazia ou zero fica de fora. */
+export function formatTrackingProductLines(raw: unknown): string {
+  const rows = Array.isArray(raw) ? raw : [];
+  const lines: string[] = [];
+  for (const item of rows) {
+    const row = item as { quantity?: unknown; name?: unknown; productName?: unknown };
+    const qty = Math.trunc(Number(row?.quantity) || 0);
+    if (!Number.isFinite(qty) || qty <= 0) continue;
+    const name = String(row?.productName || row?.name || "").trim() || "Produto";
+    lines.push(`💊 ${qty}x ${name}`);
+  }
+  return lines.join("\n");
+}
+
+export const PARTIAL_TRACKING_NOTICE =
+  "Seu pedido foi enviado parcialmente. Aguarde: em breve você recebe outro rastreio com o restante do pedido.";
+
+function packageHasUsableTracking(row: { envioecomBarcode?: unknown; manualTrackingCode?: unknown }): boolean {
+  return isUsableLabelBarcode(row.envioecomBarcode) || isUsableLabelBarcode(row.manualTrackingCode);
+}
+
+/** Pedido dividido e algum outro pacote ainda sem código utilizável. Envio único não avisa. */
+export function trackingNoticeIsPartial(input: {
+  packageKey: string;
+  packages: Array<{ id?: unknown; envioecomBarcode?: unknown; manualTrackingCode?: unknown }>;
+}): boolean {
+  const packageKey = String(input.packageKey || "").trim();
+  if (!packageKey || packageKey === SINGLE_SHIPMENT_WHATSAPP_KEY) return false;
+  const packages = Array.isArray(input.packages) ? input.packages : [];
+  if (packages.length < 2) return false;
+  const others = packages.filter((row) => String(row?.id || "").trim() !== packageKey);
+  if (!others.length) return false;
+  return others.some((row) => !packageHasUsableTracking(row));
+}
+
+/** Rastreio com os itens daquele pacote. Sem itens, fica só número, código e link. */
+export function formatTrackingWhatsappMessage(input: {
+  orderLabel: string;
+  code: string;
+  productsText?: string;
+  partial?: boolean;
+}): string {
+  const lines = [`📦 *Rastreio do pedido #${input.orderLabel}*`, ""];
+  const products = String(input.productsText || "").trim();
+  if (products) lines.push(products, "");
+  if (input.partial) lines.push(PARTIAL_TRACKING_NOTICE, "");
+  lines.push(`Código: ${input.code}`, `https://envioecomrastreio.com.br/${input.code}`);
+  return lines.join("\n");
+}
+
 export type ShipmentWhatsappNotice = "tracking" | "posted" | "out_for_delivery" | "delivered";
 
 function foldStatus(value: unknown): string {

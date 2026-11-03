@@ -1,4 +1,4 @@
-import { db, orderLogisticsAllocationsTable, ordersTable, pool, siteSettingsTable, tenantSettingsTable } from "@workspace/db";
+import { db, orderLogisticsAllocationsTable, orderShipmentsTable, ordersTable, pool, siteSettingsTable, tenantSettingsTable } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { timingSafeEqual } from "crypto";
 import type { ResultSetHeader } from "mysql2";
@@ -7,6 +7,9 @@ import { buildOrderPaidWhatsappMessage } from "./post-payment-message";
 import {
   currentStatusWhatsappNotices,
   filmagemShouldMark,
+  formatTrackingProductLines,
+  formatTrackingWhatsappMessage,
+  trackingNoticeIsPartial,
   isHttpsWebhookUrl,
   normalizeWhatsappPhone,
   planShipmentWhatsappNotices,
@@ -16,6 +19,7 @@ import {
   type ShipmentWhatsappNotice,
 } from "./whatsapp-notices";
 import { isProvisionalBarcode, isUsableLabelBarcode } from "./envioecom-status";
+import { parseOrderShipmentItems } from "./order-shipments-logic";
 
 export { SINGLE_SHIPMENT_WHATSAPP_KEY };
 
@@ -167,15 +171,16 @@ function orderLabel(order: WhatsappOrderRef): string {
   return order.id;
 }
 
-function noticeMessage(kind: ShipmentWhatsappNotice, order: WhatsappOrderRef, code: string): string {
+function noticeMessage(
+  kind: ShipmentWhatsappNotice,
+  order: WhatsappOrderRef,
+  code: string,
+  productsText = "",
+  partial = false,
+): string {
   const label = orderLabel(order);
   if (kind === "tracking") {
-    return [
-      `📦 *Rastreio do pedido #${label}*`,
-      "",
-      `Código: ${code}`,
-      `https://envioecomrastreio.com.br/${code}`,
-    ].join("\n");
+    return formatTrackingWhatsappMessage({ orderLabel: label, code, productsText, partial });
   }
   if (kind === "posted") {
     return [
@@ -258,6 +263,42 @@ async function restoreKeys(orderId: string, column: string, previous: string[]):
   );
 }
 
+/** Pacote dividido usa `order_shipments.items`. Envio único usa `orders.products`. Falha deixa o aviso só com o código. */
+async function trackingNoticeExtras(orderId: string, packageKey: string): Promise<{ productsText: string; partial: boolean }> {
+  try {
+    if (packageKey && packageKey !== SINGLE_SHIPMENT_WHATSAPP_KEY) {
+      const packages = await db
+        .select({
+          id: orderShipmentsTable.id,
+          items: orderShipmentsTable.items,
+          envioecomBarcode: orderShipmentsTable.envioecomBarcode,
+          manualTrackingCode: orderShipmentsTable.manualTrackingCode,
+        })
+        .from(orderShipmentsTable)
+        .where(eq(orderShipmentsTable.orderId, orderId));
+      const current = packages.find((row) => row.id === packageKey);
+      if (current) {
+        return {
+          productsText: formatTrackingProductLines(parseOrderShipmentItems(current.items)),
+          partial: trackingNoticeIsPartial({ packageKey, packages }),
+        };
+      }
+    }
+    const rows = await db
+      .select({ products: ordersTable.products })
+      .from(ordersTable)
+      .where(eq(ordersTable.id, orderId))
+      .limit(1);
+    return {
+      productsText: formatTrackingProductLines(parseOrderShipmentItems(rows[0]?.products)),
+      partial: false,
+    };
+  } catch (err) {
+    console.warn("[WHATSAPP_N8N] Rastreio sem lista de produtos", orderId, err);
+    return { productsText: "", partial: false };
+  }
+}
+
 async function sendMarkedNotice(input: {
   order: WhatsappOrderRef;
   phone: string;
@@ -280,9 +321,12 @@ async function sendMarkedNotice(input: {
   const column = KEY_COLUMNS[input.kind];
   const previous = await claimKey(input.order.id, column, input.packageKey);
   if (!previous) return;
+  const extras = input.kind === "tracking"
+    ? await trackingNoticeExtras(input.order.id, input.packageKey)
+    : { productsText: "", partial: false };
   const ok = await postWhatsappWebhook(url, {
     phone: input.phone,
-    message: noticeMessage(input.kind, input.order, input.code),
+    message: noticeMessage(input.kind, input.order, input.code, extras.productsText, extras.partial),
   });
   if (!ok) await restoreKeys(input.order.id, column, previous);
 }

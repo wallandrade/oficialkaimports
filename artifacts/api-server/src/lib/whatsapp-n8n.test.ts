@@ -3,6 +3,10 @@ import test from "node:test";
 
 import {
   filmagemShouldMark,
+  formatTrackingProductLines,
+  formatTrackingWhatsappMessage,
+  PARTIAL_TRACKING_NOTICE,
+  trackingNoticeIsPartial,
   inboundTypeShouldIgnore,
   isHttpsWebhookUrl,
   MENU_REPEAT_MS,
@@ -12,6 +16,66 @@ import {
   shouldBackfillShipmentNotice,
   toWhatsappText,
 } from "./whatsapp-notices";
+
+test("rastreio lista os itens daquele pacote e sem itens fica só o código", () => {
+  assert.equal(formatTrackingProductLines([
+    { productName: "Tirzepatida", quantity: 1 },
+    { name: "Caneta", quantity: 2 },
+    { name: "Vazio", quantity: 0 },
+  ]), "💊 1x Tirzepatida\n💊 2x Caneta");
+  assert.equal(formatTrackingWhatsappMessage({
+    orderLabel: "2676",
+    code: "AE097534155BR",
+    productsText: "💊 1x Tirzepatida",
+  }), [
+    "📦 *Rastreio do pedido #2676*",
+    "",
+    "💊 1x Tirzepatida",
+    "",
+    "Código: AE097534155BR",
+    "https://envioecomrastreio.com.br/AE097534155BR",
+  ].join("\n"));
+  assert.equal(formatTrackingWhatsappMessage({
+    orderLabel: "2676",
+    code: "888031026687466",
+  }), [
+    "📦 *Rastreio do pedido #2676*",
+    "",
+    "Código: 888031026687466",
+    "https://envioecomrastreio.com.br/888031026687466",
+  ].join("\n"));
+});
+
+test("rastreio parcial avisa que o restante ainda vem", () => {
+  const packages = [
+    { id: "pkg-a", envioecomBarcode: "888031026687466", manualTrackingCode: null },
+    { id: "pkg-b", envioecomBarcode: "EC123", manualTrackingCode: "" },
+  ];
+  assert.equal(trackingNoticeIsPartial({ packageKey: "pkg-a", packages }), true);
+  assert.equal(trackingNoticeIsPartial({
+    packageKey: "pkg-b",
+    packages: [
+      { id: "pkg-a", envioecomBarcode: "888031026687466" },
+      { id: "pkg-b", manualTrackingCode: "AE097534155BR" },
+    ],
+  }), false);
+  assert.equal(trackingNoticeIsPartial({ packageKey: "order", packages }), false);
+  assert.equal(formatTrackingWhatsappMessage({
+    orderLabel: "2676",
+    code: "888031026687466",
+    productsText: "💊 1x Tirzepatida",
+    partial: true,
+  }), [
+    "📦 *Rastreio do pedido #2676*",
+    "",
+    "💊 1x Tirzepatida",
+    "",
+    PARTIAL_TRACKING_NOTICE,
+    "",
+    "Código: 888031026687466",
+    "https://envioecomrastreio.com.br/888031026687466",
+  ].join("\n"));
+});
 
 test("telefone ganha 55 e quem já tem 55 permanece", () => {
   assert.equal(normalizeWhatsappPhone("(11) 99999-8888"), "5511999998888");
