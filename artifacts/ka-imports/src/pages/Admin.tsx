@@ -2528,6 +2528,7 @@ export default function Admin() {
   const [raffleReservations, setRaffleReservations] = useState<AdminRaffleReservation[]>([]);
   const [raffleReservationsLoading, setRaffleReservationsLoading] = useState(false);
   const [raffleCancelingReservationId, setRaffleCancelingReservationId] = useState<string | null>(null);
+  const [raffleApprovingReservationId, setRaffleApprovingReservationId] = useState<string | null>(null);
   const [rafflePromotions, setRafflePromotions] = useState<AdminRafflePromotion[]>([]);
   const [rafflePromotionForm, setRafflePromotionForm] = useState({ quantity: "", promoPrice: "", sortOrder: "0", isActive: true });
   const [rafflePromotionSaving, setRafflePromotionSaving] = useState(false);
@@ -5535,6 +5536,47 @@ export default function Admin() {
       toast.error("Erro ao carregar ranking da rifa.");
     }
   }, []);
+
+  const approveRaffleReservation = useCallback(async (raffleId: string, reservation: AdminRaffleReservation) => {
+    if (reservation.status !== "reserved" || reservation.isExpired) {
+      toast.error("Só é possível aprovar uma reserva ainda ativa.");
+      return;
+    }
+
+    const numbersLabel = reservation.numbers.join(", ");
+    const confirmed = window.confirm(
+      `Aprovar o pagamento de ${reservation.clientName}? Os números ${numbersLabel} ficam pagos (${formatCurrency(Number(reservation.totalAmount))}).`,
+    );
+    if (!confirmed) return;
+
+    setRaffleApprovingReservationId(reservation.id);
+    try {
+      const res = await fetch(`${BASE}/api/admin/raffles/${raffleId}/reservations/${reservation.id}/mark-paid`, {
+        method: "PATCH",
+        headers: authHeaders(),
+      });
+
+      if (res.status === 401) { handleUnauthorized(); return; }
+
+      const data = await res.json().catch(() => ({} as { message?: string }));
+      if (!res.ok) {
+        toast.error((data as { message?: string }).message || "Erro ao aprovar pagamento.");
+        return;
+      }
+
+      setRaffleReservations((prev) => prev.map((rv) =>
+        rv.id === reservation.id
+          ? { ...rv, status: "paid", isExpired: false }
+          : rv,
+      ));
+      toast.success("Pagamento aprovado. Os números ficam pagos.");
+      void fetchRaffleRanking(raffleId);
+    } catch {
+      toast.error("Erro ao aprovar pagamento.");
+    } finally {
+      setRaffleApprovingReservationId(null);
+    }
+  }, [fetchRaffleRanking, handleUnauthorized]);
 
   const fetchRaffleResult = useCallback(async (raffleId: string) => {
     setRaffleResultLoading(true);
@@ -9892,17 +9934,30 @@ export default function Admin() {
                             <td className="py-2 text-muted-foreground text-xs">{new Date(rv.createdAt).toLocaleDateString("pt-BR")}</td>
                             <td className="py-2 text-right">
                               {rv.status === "reserved" && !rv.isExpired ? (
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-8 px-2.5 text-xs border-red-200 text-red-700 hover:bg-red-50"
-                                  onClick={() => raffleViewId && cancelRaffleReservation(raffleViewId, rv)}
-                                  disabled={raffleCancelingReservationId === rv.id}
-                                >
-                                  {raffleCancelingReservationId === rv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />}
-                                  <span className="ml-1">Cancelar</span>
-                                </Button>
+                                <div className="flex justify-end gap-1.5">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 px-2.5 text-xs border-green-200 text-green-700 hover:bg-green-50"
+                                    onClick={() => raffleViewId && approveRaffleReservation(raffleViewId, rv)}
+                                    disabled={raffleApprovingReservationId === rv.id || raffleCancelingReservationId === rv.id}
+                                  >
+                                    {raffleApprovingReservationId === rv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />}
+                                    <span className="ml-1">Aprovar pagamento</span>
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 px-2.5 text-xs border-red-200 text-red-700 hover:bg-red-50"
+                                    onClick={() => raffleViewId && cancelRaffleReservation(raffleViewId, rv)}
+                                    disabled={raffleCancelingReservationId === rv.id || raffleApprovingReservationId === rv.id}
+                                  >
+                                    {raffleCancelingReservationId === rv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />}
+                                    <span className="ml-1">Cancelar</span>
+                                  </Button>
+                                </div>
                               ) : (
                                 <span className="text-xs text-muted-foreground">-</span>
                               )}

@@ -1,12 +1,13 @@
 # Regras de negócio — KA Imports
 
-> **Última atualização:** 2026-11-03
+> **Última atualização:** 2026-11-07
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-07 | Admin aprova pagamento da reserva da rifa na mão | Na linha **Reservado**, **Aprovar pagamento** grava `paid` em `PATCH /api/admin/raffles/:id/reservations/:reservationId/mark-paid`. Reserva expirada ou número já ocupado é recusado. O ranking passa a contar esses números | PIX, webhook e a tela `/rifas/pix/:id`. `transactionId` não muda. **Cancelar** continua igual |
 | 2026-11-03 | WhatsApp avisa quando o envio é parcial | No rastreio dividido, se ainda falta código de outro pacote, o cliente lê que o pedido foi enviado parcialmente e que outro rastreio vem. O último pacote não repete essa frase | Pedido sem divisão, postado, saiu, entregue e aviso já enviado. Detalhe em `integracoes.md` |
 | 2026-11-03 | WhatsApp de rastreio leva os itens daquele pacote | O cliente vê `💊 quantidade x nome` junto do código. No dividido, só os itens daquele rastreio. Sem divisão, a lista do pedido | Postado, saiu, entregue e aviso já enviado. Detalhe em `integracoes.md` |
 | 2026-11-01 | Gasto Facebook do dia vem da Yury | Linha automática `yury-meta-ads:AAAA-MM-DD` no canal Facebook entra na aba Despesas e na Visão Geral. Zero apaga só essa linha. Gasto de mais de 7 dias permanece | Cadastro e edição manuais. Seller-scoped continua vendo gasto sem seller. Detalhe em `integracoes.md` |
@@ -306,6 +307,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 - Admin: aba Rifas para primary da loja 1 **e** admin de filial (`isPrimary || tenant ≠ tenant_loja1`). Seller-scoped da loja 1 não vê. API já era `requireAdminAuth` + `buildRafflesTenantWhere`.
 - Job de expiração: `raffle-expiry.ts`.
 - PIX CN Pay/DentPeg: a confirmação entra por `POST /api/webhook/pix` e grava `raffle_reservations.status = paid`. A tela `/rifas/pix/:id` lê `GET /api/raffles/reservations/:id/status` a cada 2s (só o status, no banco). Depois de copiar o código, o texto fica “Aguardando pagamento…”. Com `paid`, a tela mostra “PIX pago”. Não consulta o gateway. A consulta por telefone (`/reservations/lookup`) continua na rifa e em `/rifas/consulta`.
+- Pagamento manual: na lista de reservas, a linha **Reservado** (ainda dentro do prazo) tem **Aprovar pagamento**. Confirma nome, números e valor e chama `PATCH /api/admin/raffles/:id/reservations/:reservationId/mark-paid`. Grava `paid` e entra no ranking e no sorteio. Recusa se expirou ou se o número já está em outra reserva ativa/paga. Não chama o gateway e não mexe no `transactionId`. **Cancelar** continua só na reserva ativa.
 - Páginas FE: `/rifas`, `/rifas/:id`, `/rifas/pix/:id`, `/rifas/consulta`.
 
 ## Cliente final

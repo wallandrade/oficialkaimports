@@ -13,6 +13,7 @@ import {
 } from "../gateway";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 import { confirmRaffleReservationFromPix } from "../lib/raffle-pix-confirm";
+import { rafflePaymentBlockReason } from "../lib/raffle-pix-confirm-core";
 
 const router: IRouter = Router();
 
@@ -888,6 +889,90 @@ router.patch("/admin/raffles/:id/reservations/:reservationId/cancel", requireAdm
     .where(and(buildRaffleReservationsTenantWhere(tenantId), eq(raffleReservationsTable.id, reservation.id)));
 
   res.json({ ok: true, status: "expired" });
+});
+
+// ---------------------------------------------------------------------------
+// ADMIN: PATCH /api/admin/raffles/:id/reservations/:reservationId/mark-paid
+// Pagamento fora do PIX. Não fala com o gateway e não altera transactionId.
+// ---------------------------------------------------------------------------
+router.patch("/admin/raffles/:id/reservations/:reservationId/mark-paid", requireAdminAuth, async (req, res) => {
+  const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+  const { id: raffleId, reservationId } = req.params as { id: string; reservationId: string };
+
+  const [reservation] = await db
+    .select()
+    .from(raffleReservationsTable)
+    .where(and(
+      buildRaffleReservationsTenantWhere(tenantId),
+      eq(raffleReservationsTable.id, reservationId),
+      eq(raffleReservationsTable.raffleId, raffleId),
+    ))
+    .limit(1);
+
+  if (!reservation) {
+    res.status(404).json({ error: "NOT_FOUND", message: "Reserva não encontrada." });
+    return;
+  }
+
+  if (reservation.status === "paid") {
+    res.json({ ok: true, status: "paid" });
+    return;
+  }
+
+  const now = new Date();
+  const reservationNumbers = parseNumbers(reservation.numbers);
+  const competingRows = reservationNumbers.length > 0
+    ? await db
+      .select({
+        id: raffleReservationsTable.id,
+        numbers: raffleReservationsTable.numbers,
+        status: raffleReservationsTable.status,
+        expiresAt: raffleReservationsTable.expiresAt,
+      })
+      .from(raffleReservationsTable)
+      .where(and(
+        buildRaffleReservationsTenantWhere(tenantId),
+        eq(raffleReservationsTable.raffleId, raffleId),
+        inArray(raffleReservationsTable.status, ["reserved", "paid"]),
+      ))
+    : [];
+
+  const reason = rafflePaymentBlockReason({
+    reservationId: reservation.id,
+    reservationStatus: reservation.status,
+    reservationExpiresAt: reservation.expiresAt,
+    reservationNumbers,
+    now,
+    competing: competingRows.map((row) => ({
+      id: row.id,
+      numbers: parseNumbers(row.numbers),
+      status: row.status,
+      expiresAt: row.expiresAt,
+    })),
+  });
+
+  if (reason === "RESERVATION_EXPIRED") {
+    res.status(400).json({
+      error: "RESERVATION_EXPIRED",
+      message: "A reserva expirou. Não é possível aprovar o pagamento.",
+    });
+    return;
+  }
+
+  if (reason === "NUMBER_ALREADY_ASSIGNED") {
+    res.status(409).json({
+      error: "NUMBER_ALREADY_ASSIGNED",
+      message: "Algum número desta reserva já está em outra reserva ativa ou paga.",
+    });
+    return;
+  }
+
+  await db
+    .update(raffleReservationsTable)
+    .set({ status: "paid", updatedAt: new Date() })
+    .where(and(buildRaffleReservationsTenantWhere(tenantId), eq(raffleReservationsTable.id, reservation.id)));
+
+  res.json({ ok: true, status: "paid" });
 });
 
 // ---------------------------------------------------------------------------
