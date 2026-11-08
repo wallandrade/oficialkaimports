@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-10-31
+> **Última atualização:** 2026-11-08
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-08 | Pré-deploy de custo só nas últimas 72h e só em `costPrice` | `patch-orders-costprice.ts` não regrava o item inteiro nem apaga JSON ilegível | Total, status, rifa e as outras rotinas de custo |
 | 2026-10-31 | Anti-padrão: edição de pedido recalcula a relâmpago pelo catálogo | `flashOffer` guarda o preço da compra. O PATCH e o −/+ do modal usam esse valor | Catálogo, `promoPrice` e desconto de linha |
 | 2026-10-28 | Anti-padrão: voltar o campo de senha da baixa Yury | O card baixa Motoboy/Minas sem senha | Fóz e o snapshot |
 | 2026-10-22 | Anti-padrão: colar o código do balcão em `envioecom_barcode` ou no PATCH de tracking da EnvioEcom | `manual_tracking_code` + `PATCH .../manual-tracking`. Não baixa estoque | **Vincular EE**, OCR **Etiqueta/Rastreio** e o sync |
