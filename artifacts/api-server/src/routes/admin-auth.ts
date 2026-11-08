@@ -1,9 +1,10 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import crypto from "crypto";
-import { db, adminUserTenantsTable, adminUsersTable, adminSessionsTable } from "@workspace/db";
-import { lt, eq } from "drizzle-orm";
+import { db, adminUserTenantsTable, adminUsersTable, adminSessionsTable, tenantsTable } from "@workspace/db";
+import { inArray, lt, eq } from "drizzle-orm";
 import { loadAdminAccessFacts, saveSellerScope, clearSellerScope, listSellerSlugsForTenant, assertSellerInTenant } from "../lib/admin-seller-scope";
 import { resolveSellerAccess } from "../lib/admin-seller-scope-core";
+import { pickPreferredAdminTenant } from "../lib/admin-tenant-pick";
 
 const router: IRouter = Router();
 const TOKEN_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
@@ -239,25 +240,7 @@ async function resolveAdminTenantId(username: string): Promise<string> {
     .from(adminUserTenantsTable)
     .where(eq(adminUserTenantsTable.adminUserId, user.id));
 
-  if (tenantRows.length === 0) return DEFAULT_TENANT_ID;
-
-  const normalizedRows = tenantRows
-    .map((row) => ({
-      tenantId: String(row.tenantId || "").trim(),
-      role: String(row.role || "").trim().toLowerCase(),
-    }))
-    .filter((row) => !!row.tenantId);
-
-  if (normalizedRows.length === 0) return DEFAULT_TENANT_ID;
-
-  // Prefer explicit owner link outside Loja 1, then any non-default link, then fallback.
-  const nonDefaultOwner = normalizedRows.find((row) => row.tenantId !== DEFAULT_TENANT_ID && row.role === "owner");
-  if (nonDefaultOwner) return nonDefaultOwner.tenantId;
-
-  const nonDefault = normalizedRows.find((row) => row.tenantId !== DEFAULT_TENANT_ID);
-  if (nonDefault) return nonDefault.tenantId;
-
-  return normalizedRows[0].tenantId || DEFAULT_TENANT_ID;
+  return pickPreferredAdminTenant(tenantRows)?.tenantId || DEFAULT_TENANT_ID;
 }
 
 export function getAdminScope(req: Request): AdminScope | null {
@@ -701,9 +684,39 @@ router.get("/admin/users", requirePrimaryAdmin, async (_req, res) => {
       .select({ id: adminUsersTable.id, username: adminUsersTable.username, isPrimary: adminUsersTable.isPrimary, createdAt: adminUsersTable.createdAt })
       .from(adminUsersTable)
       .orderBy(adminUsersTable.createdAt);
+
+    const userIds = users.map((user) => user.id);
+    const links = userIds.length === 0
+      ? []
+      : await db
+          .select({
+            adminUserId: adminUserTenantsTable.adminUserId,
+            tenantId: adminUserTenantsTable.tenantId,
+            role: adminUserTenantsTable.role,
+            tenantName: tenantsTable.name,
+          })
+          .from(adminUserTenantsTable)
+          .leftJoin(tenantsTable, eq(tenantsTable.id, adminUserTenantsTable.tenantId))
+          .where(inArray(adminUserTenantsTable.adminUserId, userIds));
+
+    const linksByUserId = new Map<string, typeof links>();
+    for (const link of links) {
+      const current = linksByUserId.get(link.adminUserId) || [];
+      current.push(link);
+      linksByUserId.set(link.adminUserId, current);
+    }
+
     const withScope = [];
     for (const user of users) {
-      withScope.push({ ...user, sellerAccess: await describeSellerAccess(user) });
+      const preferred = pickPreferredAdminTenant(linksByUserId.get(user.id) || []);
+      const tenantId = preferred?.tenantId || DEFAULT_TENANT_ID;
+      const tenantName = String(preferred?.tenantName || "").trim() || (tenantId === DEFAULT_TENANT_ID ? "Loja padrão" : tenantId);
+      withScope.push({
+        ...user,
+        tenantId,
+        tenantName,
+        sellerAccess: await describeSellerAccess(user),
+      });
     }
     res.json({ users: withScope });
   } catch (err) {

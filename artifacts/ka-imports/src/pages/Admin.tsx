@@ -1633,6 +1633,8 @@ interface AdminUser {
   username: string;
   isPrimary: boolean;
   createdAt: string;
+  tenantId?: string | null;
+  tenantName?: string | null;
   sellerAccess?: {
     kind: "primary" | "store" | "linked" | "legacy" | "cleared" | "none";
     tenantId: string | null;
@@ -19447,6 +19449,8 @@ function UserSellerEditor({
   );
 }
 
+const DEFAULT_ADMIN_TENANT_ID = "tenant_loja1";
+
 function UsersPanel({
   users, newUsername, setNewUsername, newPassword, setNewPassword,
   newFullAccess, setNewFullAccess, newSellerTenantId, setNewSellerTenantId, newSellerSlug, setNewSellerSlug,
@@ -19503,11 +19507,148 @@ function UsersPanel({
     return () => { cancelled = true; };
   }, [newFullAccess, newSellerTenantId]);
 
+  const isDefaultStoreUser = (user: AdminUser) =>
+    String(user.tenantId || DEFAULT_ADMIN_TENANT_ID).trim() === DEFAULT_ADMIN_TENANT_ID;
+
+  const defaultStoreUsers = users.filter(isDefaultStoreUser);
+  const filialGroups = new Map<string, { tenantId: string; tenantName: string; users: AdminUser[] }>();
+  for (const user of users) {
+    if (isDefaultStoreUser(user)) continue;
+    const tenantId = String(user.tenantId || "").trim();
+    const current = filialGroups.get(tenantId) || {
+      tenantId,
+      tenantName: String(user.tenantName || "").trim() || tenantId,
+      users: [],
+    };
+    current.users.push(user);
+    filialGroups.set(tenantId, current);
+  }
+  const filialGroupList = Array.from(filialGroups.values()).sort((a, b) =>
+    a.tenantName.localeCompare(b.tenantName, "pt-BR"),
+  );
+
+  const renderRegisteredUser = (user: AdminUser) => {
+    const storeLabel = String(user.tenantName || "").trim();
+    const showStore = !isDefaultStoreUser(user) && storeLabel.length > 0;
+    return (
+      <div key={user.id} className="bg-card border border-border/60 rounded-2xl p-4 shadow-sm space-y-3">
+        <div className="flex items-center gap-4">
+          <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg shrink-0 ${user.isPrimary ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
+            {user.username[0]?.toUpperCase()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="font-bold capitalize">{user.username}</p>
+              <span className={`text-xs px-2 py-0.5 rounded-full font-semibold border ${
+                user.isPrimary
+                  ? "bg-primary/10 text-primary border-primary/20"
+                  : "bg-muted text-muted-foreground border-border"
+              }`}>
+                {user.isPrimary ? "Acesso Total" : "Limitado"}
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Criado em {formatDateOnlyBR(user.createdAt)}
+              {showStore ? ` · ${storeLabel}` : ""}
+              {user.sellerAccess?.kind === "linked" ? ` · Vendedor ${user.sellerAccess.sellerCode}` : ""}
+              {user.sellerAccess?.kind === "legacy" ? ` · Vendedor antigo ${user.sellerAccess.sellerCode}` : ""}
+              {user.sellerAccess?.kind === "store" ? " · Admin da loja" : ""}
+              {user.sellerAccess?.kind === "cleared" ? " · Sem vendedor" : ""}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              title={user.isPrimary ? "Remover acesso total" : "Conceder acesso total"}
+              disabled={userAccessUpdating === user.id}
+              onClick={() => toggleUserAccess(user.id, user.username, !user.isPrimary)}
+              className="text-muted-foreground hover:text-primary transition-colors disabled:opacity-50"
+            >
+              {userAccessUpdating === user.id
+                ? <Loader2 className="w-5 h-5 animate-spin" />
+                : user.isPrimary
+                  ? <IconLucide name="ToggleRight" className="w-6 h-6 text-primary" />
+                  : <ToggleLeft className="w-6 h-6" />}
+            </button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0 gap-1.5"
+              onClick={() => openPasswordEditor(user.id)}
+              disabled={userPasswordUpdating === user.id}
+            >
+              {userPasswordUpdating === user.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
+              Alterar senha
+            </Button>
+            <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 shrink-0"
+              disabled={userDeleting === user.id}
+              onClick={() => deleteUser(user.id, user.username)}>
+              {userDeleting === user.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+            </Button>
+          </div>
+        </div>
+
+        {!user.isPrimary && user.sellerAccess?.kind !== "store" && (
+          <UserSellerEditor
+            user={user}
+            tenants={tenants}
+            loadSellerSlugs={loadSellerSlugs}
+            saveUserSeller={saveUserSeller}
+            clearUserSeller={clearUserSeller}
+          />
+        )}
+
+        {editingPasswordUserId === user.id && (
+          <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-2">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              Alterar senha de {user.username}
+            </p>
+            <div className="relative">
+              <input
+                type={showPasswordDraft ? "text" : "password"}
+                value={passwordDraft}
+                onChange={(e) => setPasswordDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    void submitPasswordChange(user.id, user.username);
+                  }
+                }}
+                placeholder="Nova senha (mínimo 6 caracteres)"
+                className="w-full h-10 px-3 pr-10 rounded-lg border border-border bg-white text-sm focus:border-primary outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPasswordDraft(!showPasswordDraft)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                {showPasswordDraft ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                className="gap-2"
+                onClick={() => void submitPasswordChange(user.id, user.username)}
+                disabled={userPasswordUpdating === user.id || passwordDraft.trim().length < 6}
+              >
+                {userPasswordUpdating === user.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                Salvar senha
+              </Button>
+              <Button size="sm" variant="ghost" onClick={closePasswordEditor} disabled={userPasswordUpdating === user.id}>
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6 max-w-2xl">
       <div className="bg-card border border-border/60 rounded-2xl p-6 shadow-sm">
         <h2 className="text-lg font-bold mb-1 flex items-center gap-2"><UserPlus className="w-5 h-5 text-primary" />Novo Usuário</h2>
-        <p className="text-muted-foreground text-sm mb-5">Crie novos acessos ao painel administrativo.</p>
+        <p className="text-muted-foreground text-sm mb-5">Crie acessos da loja padrão. O admin de uma filial continua sendo criado na aba Lojas.</p>
         <div className="space-y-3">
           <input
             value={newUsername}
@@ -19582,126 +19723,34 @@ function UsersPanel({
         </div>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-6">
         <h3 className="font-bold text-sm text-muted-foreground uppercase tracking-wide px-1">Usuários Cadastrados</h3>
         {users.length === 0 ? (
           <div className="text-center py-10 bg-muted/30 rounded-2xl border border-dashed">
             <Users className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
             <p className="text-muted-foreground text-sm">Nenhum usuário cadastrado.</p>
           </div>
-        ) : users.map((u) => (
-          <div key={u.id} className="bg-card border border-border/60 rounded-2xl p-4 shadow-sm space-y-3">
-            <div className="flex items-center gap-4">
-            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg shrink-0 ${u.isPrimary ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"}`}>
-              {u.username[0]?.toUpperCase()}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <p className="font-bold capitalize">{u.username}</p>
-                <span className={`text-xs px-2 py-0.5 rounded-full font-semibold border ${
-                  u.isPrimary
-                    ? "bg-primary/10 text-primary border-primary/20"
-                    : "bg-muted text-muted-foreground border-border"
-                }`}>
-                  {u.isPrimary ? "Acesso Total" : "Limitado"}
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Criado em {formatDateOnlyBR(u.createdAt)}
-                {u.sellerAccess?.kind === "linked" ? ` · Vendedor ${u.sellerAccess.sellerCode}` : ""}
-                {u.sellerAccess?.kind === "legacy" ? ` · Vendedor antigo ${u.sellerAccess.sellerCode}` : ""}
-                {u.sellerAccess?.kind === "store" ? " · Admin da loja" : ""}
-                {u.sellerAccess?.kind === "cleared" ? " · Sem vendedor" : ""}
-              </p>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              {/* Toggle access level */}
-              <button
-                type="button"
-                title={u.isPrimary ? "Remover acesso total" : "Conceder acesso total"}
-                disabled={userAccessUpdating === u.id}
-                onClick={() => toggleUserAccess(u.id, u.username, !u.isPrimary)}
-                className="text-muted-foreground hover:text-primary transition-colors disabled:opacity-50"
-              >
-                {userAccessUpdating === u.id
-                  ? <Loader2 className="w-5 h-5 animate-spin" />
-                  : u.isPrimary
-                    ? <IconLucide name="ToggleRight" className="w-6 h-6 text-primary" />
-                    : <ToggleLeft className="w-6 h-6" />}
-              </button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="shrink-0 gap-1.5"
-                onClick={() => openPasswordEditor(u.id)}
-                disabled={userPasswordUpdating === u.id}
-              >
-                {userPasswordUpdating === u.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
-                Alterar senha
-              </Button>
-              {/* Delete */}
-              <Button size="sm" variant="outline" className="text-red-600 border-red-200 hover:bg-red-50 shrink-0"
-                disabled={userDeleting === u.id}
-                onClick={() => deleteUser(u.id, u.username)}>
-                {userDeleting === u.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-              </Button>
-            </div>
-            </div>
-
-            {!u.isPrimary && u.sellerAccess?.kind !== "store" && (
-              <UserSellerEditor
-                user={u}
-                tenants={tenants}
-                loadSellerSlugs={loadSellerSlugs}
-                saveUserSeller={saveUserSeller}
-                clearUserSeller={clearUserSeller}
-              />
-            )}
-
-            {editingPasswordUserId === u.id && (
-              <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-2">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                  Alterar senha de {u.username}
-                </p>
-                <div className="relative">
-                  <input
-                    type={showPasswordDraft ? "text" : "password"}
-                    value={passwordDraft}
-                    onChange={(e) => setPasswordDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        void submitPasswordChange(u.id, u.username);
-                      }
-                    }}
-                    placeholder="Nova senha (mínimo 6 caracteres)"
-                    className="w-full h-10 px-3 pr-10 rounded-lg border border-border bg-white text-sm focus:border-primary outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPasswordDraft(!showPasswordDraft)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  >
-                    {showPasswordDraft ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
+        ) : (
+          <>
+            <section className="space-y-3">
+              <h4 className="font-bold text-sm text-foreground px-1">Loja padrão</h4>
+              {defaultStoreUsers.length === 0 ? (
+                <p className="text-sm text-muted-foreground px-1">Nenhum usuário da loja padrão.</p>
+              ) : defaultStoreUsers.map(renderRegisteredUser)}
+            </section>
+            <section className="space-y-3">
+              <h4 className="font-bold text-sm text-foreground px-1">Lojas filiais</h4>
+              {filialGroupList.length === 0 ? (
+                <p className="text-sm text-muted-foreground px-1">Nenhum usuário de filial.</p>
+              ) : filialGroupList.map((group) => (
+                <div key={group.tenantId} className="space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground px-1">{group.tenantName}</p>
+                  {group.users.map(renderRegisteredUser)}
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    className="gap-2"
-                    onClick={() => void submitPasswordChange(u.id, u.username)}
-                    disabled={userPasswordUpdating === u.id || passwordDraft.trim().length < 6}
-                  >
-                    {userPasswordUpdating === u.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                    Salvar senha
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={closePasswordEditor} disabled={userPasswordUpdating === u.id}>
-                    Cancelar
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
-        ))}
+              ))}
+            </section>
+          </>
+        )}
       </div>
     </div>
   );
