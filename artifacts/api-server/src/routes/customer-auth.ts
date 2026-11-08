@@ -488,7 +488,8 @@ router.post("/admin/customers/:id/impersonate", requireAdminAuth, async (req, re
       return;
     }
 
-    // Impersonação é sensível: permitido apenas para admin com acesso global.
+    // Acesso amplo da própria loja. O superadmin (isPrimary) é a exceção já
+    // usada no catálogo: pode abrir cliente de outra loja. A filial não.
     if (!adminScope.hasGlobalAccess) {
       res.status(403).json({ error: "FORBIDDEN", message: "Apenas administrador principal pode usar este recurso." });
       return;
@@ -502,7 +503,9 @@ router.post("/admin/customers/:id/impersonate", requireAdminAuth, async (req, re
         tenantId: customerUsersTable.tenantId,
       })
       .from(customerUsersTable)
-      .where(eq(customerUsersTable.id, customerId))
+      .where(adminScope.isPrimary
+        ? eq(customerUsersTable.id, customerId)
+        : and(eq(customerUsersTable.id, customerId), buildCustomerUsersTenantWhere(adminScope.tenantId)))
       .limit(1);
 
     const user = users[0];

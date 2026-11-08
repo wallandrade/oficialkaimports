@@ -1,59 +1,75 @@
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { db, ordersTable, productsTable } from "../../lib/db/src/index";
-import { eq } from "drizzle-orm";
-import { inArray } from "drizzle-orm";
+import { and, eq, gte, inArray, lte } from "drizzle-orm";
+import { COST_PATCH_WINDOW_MS, planOrderCostPatch, productIdsForCostLookup } from "./patch-orders-costprice-core";
 
-async function patchOrdersCostPrice() {
-  // Corrige apenas pedidos pagos/concluidos e seleciona somente colunas necessarias.
-  // Evita falhas em deploy quando novas colunas ainda nao existem no banco.
+export async function patchRecentPaidOrderCostPrices(now = new Date()): Promise<{
+  scanned: number;
+  updated: number;
+  skipped: Record<string, number>;
+}> {
+  const cutoff = new Date(now.getTime() - COST_PATCH_WINDOW_MS);
   const orders = await db
     .select({
       id: ordersTable.id,
+      status: ordersTable.status,
+      createdAt: ordersTable.createdAt,
       products: ordersTable.products,
     })
     .from(ordersTable)
-    .where(inArray(ordersTable.status, ["paid", "completed"]));
+    .where(and(
+      inArray(ordersTable.status, ["paid", "completed"]),
+      gte(ordersTable.createdAt, cutoff),
+      lte(ordersTable.createdAt, now),
+    ));
+
+  const ids = new Set<string>();
   for (const order of orders) {
-    let products = [];
-    // Tenta parsear products mesmo se mal formatado
-    if (typeof order.products === "string") {
-      try {
-        const parsed = JSON.parse(order.products);
-        if (Array.isArray(parsed)) products = parsed;
-        else if (parsed && typeof parsed === "object") products = [parsed];
-        else products = [];
-      } catch {
-        products = [];
-      }
-    } else if (Array.isArray(order.products)) {
-      products = order.products;
-    } else {
-      products = [];
-    }
-    // Busca os custos dos produtos no banco
-    const productIds = Array.from(new Set(products.map((p) => String(p?.id || "")).filter(Boolean)));
-    let productCostMap = new Map();
-    if (productIds.length > 0) {
-      const costRows = await db
-        .select({ id: productsTable.id, costPrice: productsTable.costPrice })
-        .from(productsTable)
-        .where(inArray(productsTable.id, productIds));
-      productCostMap = new Map(costRows.map((row) => [row.id, Number(row.costPrice || 0)]));
-    }
-    // Atualiza o campo costPrice de cada produto, força array de objetos válidos
-    const patchedProducts = products.map((p) => ({
-      id: p.id,
-      name: p.name,
-      quantity: Number(p.quantity) || 0,
-      price: Number(p.price) || 0,
-      costPrice: productCostMap.get(String(p.id)) ?? 0,
-    }));
-    // Atualiza o pedido no banco se necessário
-    await db.update(ordersTable)
-      .set({ products: patchedProducts })
-      .where(eq(ordersTable.id, order.id));
-    console.log(`Pedido ${order.id} corrigido.`);
+    for (const id of productIdsForCostLookup(order.products)) ids.add(id);
   }
-  console.log("Todos os pedidos pagos/completed foram corrigidos.");
+
+  const catalogCosts = new Map<string, unknown>();
+  if (ids.size > 0) {
+    const rows = await db
+      .select({ id: productsTable.id, costPrice: productsTable.costPrice })
+      .from(productsTable)
+      .where(inArray(productsTable.id, [...ids]));
+    for (const row of rows) catalogCosts.set(row.id, row.costPrice);
+  }
+
+  const skipped: Record<string, number> = {};
+  let updated = 0;
+  for (const order of orders) {
+    const plan = planOrderCostPatch({
+      status: order.status,
+      createdAt: order.createdAt,
+      products: order.products,
+      catalogCosts,
+      now,
+    });
+    if (!plan.update) {
+      skipped[plan.reason] = (skipped[plan.reason] || 0) + 1;
+      continue;
+    }
+    await db.update(ordersTable)
+      .set({ products: plan.products })
+      .where(eq(ordersTable.id, order.id));
+    updated += 1;
+    console.log(`[patch:costprice] updated order=${order.id}`);
+  }
+
+  console.log(`[patch:costprice] scanned=${orders.length} updated=${updated} skipped=${JSON.stringify(skipped)}`);
+  return { scanned: orders.length, updated, skipped };
 }
 
-patchOrdersCostPrice().then(() => process.exit(0));
+const entry = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : "";
+if (entry && entry === import.meta.url) {
+  patchRecentPaidOrderCostPrices()
+    .then(() => process.exit(0))
+    .catch((error: unknown) => {
+      const message = error instanceof Error ? error.name : "error";
+      console.error(`[patch:costprice] failed ${message}`);
+      process.exit(1);
+    });
+}

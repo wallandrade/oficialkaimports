@@ -161,8 +161,7 @@ async function resolveTenantIdByDomain(domainRaw: string): Promise<string | null
 
 function canManageSettings(scope: ReturnType<typeof getAdminScope>): boolean {
   if (!scope) return false;
-  if (scope.isPrimary) return true;
-  return scope.tenantId !== DEFAULT_TENANT_ID;
+  return scope.hasGlobalAccess;
 }
 
 function buildTenantSettingsTenantWhere(tenantId: string) {

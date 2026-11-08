@@ -113,7 +113,7 @@ function getInventoryTenantScope(
   }
 
   const scopeTenantId = String(scope.tenantId || "").trim() || DEFAULT_TENANT_ID;
-  const canManageInventory = scope.isPrimary || scopeTenantId !== DEFAULT_TENANT_ID;
+  const canManageInventory = scope.hasGlobalAccess;
   if (!canManageInventory) {
     (res as any).status(403).json({ error: "FORBIDDEN", message: "Sem permissão para acessar estoque." });
     return null;

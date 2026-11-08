@@ -10,7 +10,7 @@ const router: IRouter = Router();
 function canManage(req: Parameters<typeof getAdminScope>[0]): { tenantId: string } | null {
   const scope = getAdminScope(req);
   if (!scope) return null;
-  if (!scope.isPrimary && scope.tenantId === DEFAULT_TENANT_ID && !scope.hasGlobalAccess) return null;
+  if (!scope.hasGlobalAccess) return null;
   return { tenantId: scope.tenantId || DEFAULT_TENANT_ID };
 }
 

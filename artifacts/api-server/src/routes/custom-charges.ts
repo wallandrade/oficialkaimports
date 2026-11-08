@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, customChargesTable, ordersTable, siteSettingsTable, tenantSettingsTable } from "@workspace/db";
-import { desc, and, gte, lte, eq } from "drizzle-orm";
+import { desc, and, gte, lte, eq, notInArray } from "drizzle-orm";
 import crypto from "crypto";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { broadcastNotification } from "./notifications";
@@ -10,9 +10,16 @@ import {
   genIdentifier,
   normalizePixGatewayProvider,
   PIX_DURATION_MS,
-  isPaymentConfirmed,
 } from "../gateway";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
+import {
+  decidePixSettlement,
+  pixNoticeLogFields,
+  readPixNotice,
+  updatedRowCount,
+  webhookAuthenticated,
+} from "../lib/pix-settlement";
+import { rememberGatewayChargeProof } from "../lib/pix-charge-proof";
 import { scheduleOrderPaidWhatsapp } from "../lib/whatsapp-n8n";
 
 const router: IRouter = Router();
@@ -109,9 +116,7 @@ async function ensureChargeScopeOrReject(
 router.post("/custom-charges", async (req, res) => {
   const requestId = Math.random().toString(36).slice(2, 9).toUpperCase();
   const t0 = Date.now();
-  console.log(`[CustomCharge:${requestId}] ===== Incoming POST /api/custom-charges =====`);
-  console.log(`[CustomCharge:${requestId}] Time: ${new Date().toISOString()}`);
-  console.log(`[CustomCharge:${requestId}] Body:`, JSON.stringify(req.body));
+  console.log(`[CustomCharge:${requestId}] POST /api/custom-charges`);
 
   try {
     const tenantId = await resolvePublicTenantId(req as any);
@@ -138,7 +143,7 @@ router.post("/custom-charges", async (req, res) => {
       return;
     }
 
-    console.log(`[CustomCharge:${requestId}] Validation OK — client=${client.name} amount=${amount} seller=${sellerCode || "none"}`);
+    console.log(`[CustomCharge:${requestId}] Validation OK — amount=${Number(amount)} hasSeller=${Boolean(sellerCode)}`);
 
     const id = crypto.randomBytes(8).toString("hex");
     const gatewayProvider = await getActivePixGateway(tenantId);
@@ -151,7 +156,7 @@ router.post("/custom-charges", async (req, res) => {
       ? `${callbackBase}${callbackBase.includes("?") ? "&" : "?"}whsec=${encodeURIComponent(webhookSecret)}`
       : callbackBase;
 
-    console.log(`[CustomCharge:${requestId}] Calling gateway — id=${id} identifier=${identifier} amount=${Number(amount)} callbackUrl=${callbackUrl}`);
+    console.log(`[CustomCharge:${requestId}] Calling gateway — id=${id} amount=${Number(amount)} hasCallback=${Boolean(callbackUrl)}`);
 
     let gatewayData;
     try {
@@ -177,6 +182,19 @@ router.post("/custom-charges", async (req, res) => {
     }
 
     console.log(`[CustomCharge:${requestId}] Gateway OK — txId=${gatewayData.transactionId} (${Date.now() - t0}ms)`);
+
+    try {
+      await rememberGatewayChargeProof({
+        transactionId: gatewayData.transactionId,
+        tenantId,
+        webhookToken: gatewayData.webhookToken,
+      });
+    } catch {
+      console.error(`[CustomCharge:${requestId}] proof not stored`);
+      res.status(500).json({ error: "PIX_PROOF_NOT_STORED", message: "Não foi possível guardar a confirmação do PIX." });
+      return;
+    }
+    delete gatewayData.webhookToken;
 
     await db.insert(customChargesTable).values({
       id,
@@ -264,55 +282,109 @@ router.get("/custom-charges/status/:transactionId", async (req, res) => {
 // ---------------------------------------------------------------------------
 router.post("/custom-charges/callback/:token/:chargeId", async (req, res) => {
   try {
-    const { chargeId } = req.params;
-    const body = req.body as { transactionId?: string; status?: string };
-    console.log("[CustomCharge] Legacy callback:", JSON.stringify(body));
+    const { token, chargeId } = req.params;
+    const sharedSecret = String(process.env.WEBHOOK_SHARED_SECRET || "").trim();
+    const directToken = String(process.env.WEBHOOK_DIRECT_TOKEN || sharedSecret).trim();
+    const authenticated = webhookAuthenticated({
+      sharedSecret,
+      providedSecret: "",
+      directTokenExpected: directToken,
+      providedDirectToken: token,
+    });
+    const notice = readPixNotice(req.body);
+    console.log("[CustomCharge] Legacy callback", JSON.stringify(pixNoticeLogFields(notice)));
+    if (!authenticated) {
+      res.status(403).json({ ok: false, error: "PIX_SETTLEMENT_REJECTED", reason: "untrusted" });
+      return;
+    }
 
-    if (isPaymentConfirmed(body.status || "")) {
-      const existing = await db
-        .select({ id: customChargesTable.id, tenantId: customChargesTable.tenantId, status: customChargesTable.status, orderId: customChargesTable.orderId, amount: customChargesTable.amount })
-        .from(customChargesTable)
-        .where(eq(customChargesTable.id, chargeId))
+    const existing = await db
+      .select({
+        id: customChargesTable.id,
+        tenantId: customChargesTable.tenantId,
+        status: customChargesTable.status,
+        orderId: customChargesTable.orderId,
+        amount: customChargesTable.amount,
+        transactionId: customChargesTable.transactionId,
+      })
+      .from(customChargesTable)
+      .where(eq(customChargesTable.id, chargeId))
+      .limit(1);
+    const charge = existing[0];
+    if (!charge?.transactionId) {
+      res.status(404).json({ ok: false, error: "PIX_SETTLEMENT_REJECTED", reason: "missing_transaction" });
+      return;
+    }
+
+    const decision = decidePixSettlement({
+      authenticated: true,
+      transactionId: notice.transactionId,
+      boundTransactionId: charge.transactionId,
+      status: notice.status,
+      reportedAmount: notice.amount,
+      expectedAmount: Number(charge.amount ?? 0),
+      currency: notice.currency,
+      alreadySettled: charge.status === "paid",
+    });
+    if (decision.action !== "pay") {
+      res.status(decision.httpStatus).json({
+        ok: decision.action !== "reject",
+        reason: decision.reason,
+        duplicate: decision.action === "duplicate",
+      });
+      return;
+    }
+
+    const tenantId = charge.tenantId || DEFAULT_TENANT_ID;
+    const updated = await db
+      .update(customChargesTable)
+      .set({ status: "paid", updatedAt: new Date() })
+      .where(and(
+        eq(customChargesTable.id, chargeId),
+        eq(customChargesTable.tenantId, tenantId),
+        notInArray(customChargesTable.status, ["paid"]),
+      ));
+    if (updatedRowCount(updated) < 1) {
+      res.json({ ok: true, duplicate: true });
+      return;
+    }
+
+    broadcastNotification({ type: "charge_paid", data: { id: chargeId, tenantId } });
+
+    if (charge.orderId) {
+      const parentOrder = await db
+        .select({ id: ordersTable.id, status: ordersTable.status, total: ordersTable.total, paidAmount: ordersTable.paidAmount })
+        .from(ordersTable)
+        .where(and(eq(ordersTable.id, charge.orderId), eq(ordersTable.tenantId, tenantId)))
         .limit(1);
-
-      if (existing[0] && existing[0].status !== "paid") {
-        await db
-          .update(customChargesTable)
-          .set({ status: "paid", updatedAt: new Date() })
-          .where(and(eq(customChargesTable.id, chargeId), eq(customChargesTable.tenantId, existing[0].tenantId || DEFAULT_TENANT_ID)));
-
-        broadcastNotification({ type: "charge_paid", data: { id: chargeId, tenantId: existing[0].tenantId || DEFAULT_TENANT_ID } });
-
-        // Propagate to parent order if this is a diff charge
-        if (existing[0].orderId) {
-          const parentOrder = await db
-            .select({ id: ordersTable.id, status: ordersTable.status, total: ordersTable.total, paidAmount: ordersTable.paidAmount })
-            .from(ordersTable)
-            .where(and(eq(ordersTable.id, existing[0].orderId), eq(ordersTable.tenantId, existing[0].tenantId || DEFAULT_TENANT_ID)))
-            .limit(1);
-
-          if (parentOrder[0] && parentOrder[0].status === "awaiting_payment") {
-            const orderTotal  = Number(parentOrder[0].total ?? 0);
-            const alreadyPaid = Number(parentOrder[0].paidAmount ?? 0);
-            const diffPaid    = Number(existing[0].amount ?? 0);
-            const totalPaid   = alreadyPaid + diffPaid;
-            const newOrderStatus = totalPaid >= orderTotal - 0.01 ? "paid" : "awaiting_payment";
-
-            await db
-              .update(ordersTable)
-              .set({ status: newOrderStatus, paidAmount: String(totalPaid), updatedAt: new Date() })
-              .where(and(eq(ordersTable.id, existing[0].orderId), eq(ordersTable.tenantId, existing[0].tenantId || DEFAULT_TENANT_ID)));
-
-            broadcastNotification({ type: "order_paid", data: { id: existing[0].orderId, status: newOrderStatus, tenantId: existing[0].tenantId || DEFAULT_TENANT_ID } });
-          }
+      const parent = parentOrder[0];
+      if (parent && parent.status !== "paid" && parent.status !== "completed") {
+        const orderTotal = Number(parent.total ?? 0);
+        const alreadyPaid = Number(parent.paidAmount ?? 0);
+        const diffPaid = Number(charge.amount ?? 0);
+        const totalPaid = alreadyPaid + diffPaid;
+        const newOrderStatus = totalPaid >= orderTotal - 0.01 ? "paid" : "awaiting_payment";
+        const parentUpdate = await db
+          .update(ordersTable)
+          .set({ status: newOrderStatus, paidAmount: String(totalPaid), updatedAt: new Date() })
+          .where(and(
+            eq(ordersTable.id, charge.orderId),
+            eq(ordersTable.tenantId, tenantId),
+            notInArray(ordersTable.status, ["paid", "completed"]),
+          ));
+        if (updatedRowCount(parentUpdate) > 0 && newOrderStatus === "paid") {
+          scheduleOrderPaidWhatsapp(charge.orderId);
+        }
+        if (updatedRowCount(parentUpdate) > 0) {
+          broadcastNotification({ type: newOrderStatus === "paid" ? "order_paid" : "order_status_updated", data: { id: charge.orderId, status: newOrderStatus, tenantId } });
         }
       }
     }
 
     res.json({ ok: true });
   } catch (err) {
-    console.error("[CustomCharge] Callback error:", err);
-    res.json({ ok: false });
+    console.error("[CustomCharge] Callback failed");
+    res.status(500).json({ ok: false });
   }
 });
 

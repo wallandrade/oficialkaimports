@@ -59,6 +59,7 @@ test("mapOrderEventRow normaliza ator e data", () => {
   });
   assert.equal(mapped.actorType, "admin");
   assert.equal(mapped.actorUsername, "joao");
+  assert.equal(mapped.actorAdminUserId, null);
   assert.equal(mapped.createdAt, "2026-09-03T19:58:00.000Z");
   assert.equal(mapped.payload?.fromStatus, "pending");
 });

@@ -22,6 +22,7 @@ export type AddOrderEventInput = {
   action: string;
   actorType?: OrderEventActorType;
   actorUsername?: string | null;
+  actorAdminUserId?: string | null;
   payload?: Record<string, unknown> | null;
 };
 
@@ -32,9 +33,11 @@ function randomId(): string {
 export function actorFromAdminRequest(req: Request): {
   actorType: "admin";
   actorUsername: string | null;
+  actorAdminUserId: string | null;
 } {
   const username = String((req as { adminSession?: { username?: string } }).adminSession?.username || "").trim();
-  return { actorType: "admin", actorUsername: username || null };
+  const adminUserId = String((req as { adminSession?: { adminUserId?: string } }).adminSession?.adminUserId || "").trim();
+  return { actorType: "admin", actorUsername: username || null, actorAdminUserId: adminUserId || null };
 }
 
 export async function addOrderEvent(params: AddOrderEventInput): Promise<void> {
@@ -49,6 +52,7 @@ export async function addOrderEvent(params: AddOrderEventInput): Promise<void> {
       action,
       actorType: params.actorType || "admin",
       actorUsername: String(params.actorUsername || "").trim() || null,
+      actorAdminUserId: String(params.actorAdminUserId || "").trim() || null,
       payload: params.payload || null,
       createdAt: new Date(),
     });

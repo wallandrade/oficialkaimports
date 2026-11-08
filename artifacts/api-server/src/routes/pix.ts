@@ -1,7 +1,6 @@
 import { Router, type IRouter } from "express";
-import crypto from "crypto";
 import { db, ordersTable, siteSettingsTable, tenantSettingsTable } from "@workspace/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, notInArray } from "drizzle-orm";
 import { broadcastNotification } from "./notifications";
 import {
   createPixChargeWithProvider,
@@ -10,8 +9,18 @@ import {
   genIdentifier,
   normalizePixGatewayProvider,
   PIX_DURATION_MS,
-  isPaymentConfirmed,
 } from "../gateway";
+import {
+  decidePixSettlement,
+  legacyPixCallbackGate,
+  moneyEquals,
+  pixNoticeLogFields,
+  readPixNotice,
+  regeneratePixChargeDecision,
+  safeTokenEquals,
+  updatedRowCount,
+} from "../lib/pix-settlement";
+import { rememberGatewayChargeProof } from "../lib/pix-charge-proof";
 import { ensureOrderCommission } from "../lib/affiliates";
 import { sendOutboundWebhook } from "../lib/outbound-webhook";
 import { scheduleOrderPaidWhatsapp } from "../lib/whatsapp-n8n";
@@ -25,13 +34,6 @@ const ENABLE_LEGACY_PIX_CALLBACK =
   String(process.env.ENABLE_LEGACY_PIX_CALLBACK || "false").toLowerCase() === "true";
 const LEGACY_PIX_CALLBACK_TOKEN = String(process.env.LEGACY_PIX_CALLBACK_TOKEN || "").trim();
 
-function safeTokenEquals(expected: string, provided: string): boolean {
-  if (!expected || !provided) return false;
-  const a = Buffer.from(expected);
-  const b = Buffer.from(provided);
-  if (a.length !== b.length) return false;
-  return crypto.timingSafeEqual(a, b);
-}
 
 async function getActivePixGateway(tenantId: string): Promise<"appcnpay" | "dentpeg"> {
   const tenantRow = await db
@@ -89,13 +91,34 @@ router.post("/pix/generate", async (req, res) => {
     const callbackUrl = webhookSecret
       ? `${callbackBase}${callbackBase.includes("?") ? "&" : "?"}whsec=${encodeURIComponent(webhookSecret)}`
       : callbackBase;
-    console.log(`[PIX] Creating charge for order ${orderId || identifier} via ${gatewayProvider} — callback: ${callbackUrl}`);
+    if (!orderId) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Pedido obrigatório para gerar o PIX." });
+      return;
+    }
+
+    const [order] = await db
+      .select({ id: ordersTable.id, status: ordersTable.status, total: ordersTable.total })
+      .from(ordersTable)
+      .where(and(eq(ordersTable.id, orderId), eq(ordersTable.tenantId, tenantId)))
+      .limit(1);
+    const chargeDecision = regeneratePixChargeDecision({
+      orderFound: Boolean(order),
+      orderStatus: order?.status || "",
+      orderTotal: Number(order?.total ?? 0),
+      clientAmount: Number(amount),
+    });
+    if (!chargeDecision.ok) {
+      res.status(chargeDecision.httpStatus).json({ error: "PIX_AMOUNT_REJECTED", message: "O valor do PIX precisa ser o total do pedido." });
+      return;
+    }
+
+    console.log(`[PIX] Creating charge for order ${orderId} via ${gatewayProvider} amount=${chargeDecision.chargeAmount}`);
 
     let gatewayData;
     try {
       gatewayData = await createPixChargeWithProvider({
         identifier,
-        amount: Number(amount),
+        amount: chargeDecision.chargeAmount,
         provider: gatewayProvider,
         tenantId,
         client: {
@@ -119,19 +142,42 @@ router.post("/pix/generate", async (req, res) => {
 
     const expiresAt = new Date(Date.now() + PIX_DURATION_MS).toISOString();
 
+    try {
+      await rememberGatewayChargeProof({
+        transactionId: gatewayData.transactionId,
+        tenantId,
+        webhookToken: gatewayData.webhookToken,
+      });
+    } catch {
+      console.error("[PIX] proof not stored");
+      res.status(500).json({ error: "PIX_PROOF_NOT_STORED", message: "Não foi possível guardar a confirmação do PIX." });
+      return;
+    }
+    delete gatewayData.webhookToken;
+
     // Update the order record with the transaction ID
     if (orderId) {
       try {
-        await db
+        const linked = await db
           .update(ordersTable)
           .set({
             transactionId: gatewayData.transactionId,
             status: "awaiting_payment",
             updatedAt: new Date(),
           })
-          .where(and(eq(ordersTable.id, orderId), eq(ordersTable.tenantId, tenantId)));
+          .where(and(
+            eq(ordersTable.id, orderId),
+            eq(ordersTable.tenantId, tenantId),
+            notInArray(ordersTable.status, ["paid", "completed"]),
+          ));
+        if (updatedRowCount(linked) < 1) {
+          res.status(409).json({ error: "PIX_AMOUNT_REJECTED", message: "O pedido já foi pago." });
+          return;
+        }
       } catch (dbErr) {
-        console.error("[PIX] DB update error:", dbErr);
+        console.error("[PIX] DB update error");
+        res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro interno ao gerar pagamento. Tente novamente." });
+        return;
       }
     }
 
@@ -168,6 +214,7 @@ router.get("/pix/status/:transactionId", async (req, res) => {
       .select({
         id: ordersTable.id,
         status: ordersTable.status,
+        total: ordersTable.total,
         updatedAt: ordersTable.updatedAt,
       })
       .from(ordersTable)
@@ -177,29 +224,33 @@ router.get("/pix/status/:transactionId", async (req, res) => {
     const row = rows[0];
 
     // DentPeg supports status lookup; for IDs like dep_* we can refresh status live.
-    if (transactionId.startsWith("dep_")) {
+    // The browser does not send the status. Amount is required because the GET
+    // contract in this repo includes amountInCents on the deposit object.
+    if (transactionId.startsWith("dep_") && row && row.status !== "paid" && row.status !== "completed") {
       const live = await fetchDentpegDepositStatus(transactionId);
-      if (live?.status && row) {
-        const normalized = String(live.status).toLowerCase();
-        const isPaid = normalized === "depix_sent";
-        const isCancelled = ["expired", "canceled", "refunded", "error"].includes(normalized);
-        const nextOrderStatus = isPaid ? "paid" : isCancelled ? "cancelled" : row.status;
-
-        if (nextOrderStatus !== row.status) {
-          await db
-            .update(ordersTable)
-            .set({ status: nextOrderStatus, updatedAt: new Date() })
-            .where(and(eq(ordersTable.id, row.id), eq(ordersTable.tenantId, tenantId)));
-
-          if (nextOrderStatus === "paid") {
-            await ensureOrderCommission(row.id);
-            await enqueueFilialOrderPurchaseRequest(row.id);
-          }
+      const normalized = String(live?.status || "").toLowerCase();
+      const isPaid = normalized === "depix_sent";
+      const isCancelled = ["expired", "canceled", "refunded", "error"].includes(normalized);
+      const amountOk = live?.amountInCents != null && moneyEquals(live.amountInCents / 100, Number(row.total ?? 0));
+      if (isPaid && !amountOk) {
+        console.warn("[PIX] DentPeg status ignored: amount missing or different");
+      } else if (live && (isCancelled || (isPaid && amountOk))) {
+        const nextOrderStatus = isPaid ? "paid" : "cancelled";
+        const updated = await db
+          .update(ordersTable)
+          .set({ status: nextOrderStatus, ...(isPaid ? { paidAmount: row.total } : {}), updatedAt: new Date() })
+          .where(and(
+            eq(ordersTable.id, row.id),
+            eq(ordersTable.tenantId, tenantId),
+            notInArray(ordersTable.status, ["paid", "completed"]),
+          ));
+        if (isPaid && updatedRowCount(updated) > 0) {
+          await ensureOrderCommission(row.id);
+          await enqueueFilialOrderPurchaseRequest(row.id);
+          row.status = "paid";
+        } else if (!isPaid && updatedRowCount(updated) > 0) {
+          row.status = "cancelled";
         }
-
-        const status = isPaid ? "OK" : isCancelled ? "CANCELED" : "PENDING";
-        res.json({ transactionId, status, paidAt: null });
-        return;
       }
     }
 
@@ -230,50 +281,67 @@ router.post("/pix/callback/:token", async (req, res) => {
   try {
     const tenantId = await resolvePublicTenantId(req as any);
     const token = String(req.params.token || "").trim();
-    if (!ENABLE_LEGACY_PIX_CALLBACK) {
-      res.status(410).json({
-        error: "LEGACY_CALLBACK_DISABLED",
-        message: "Callback legado desabilitado por segurança.",
-      });
-      return;
-    }
-    if (!safeTokenEquals(LEGACY_PIX_CALLBACK_TOKEN, token)) {
-      console.warn("[PIX] Legacy callback rejected: invalid token", {
-        ip: req.ip,
-        ua: req.get("user-agent"),
-      });
-      res.status(403).json({ error: "FORBIDDEN", message: "Token inválido." });
+    const gate = legacyPixCallbackGate({
+      enabled: ENABLE_LEGACY_PIX_CALLBACK,
+      tokenMatches: safeTokenEquals(LEGACY_PIX_CALLBACK_TOKEN, token),
+    });
+    if (gate) {
+      res.status(gate.httpStatus).json({ ok: false, error: gate.reason });
       return;
     }
 
-    const body = req.body as { transactionId?: string; status?: string };
-    console.log("[PIX] Legacy callback received:", JSON.stringify(body));
+    const notice = readPixNotice(req.body);
+    console.log("[PIX] Legacy callback", JSON.stringify(pixNoticeLogFields(notice)));
+    if (!notice.transactionId) {
+      res.status(403).json({ ok: false, error: "missing_transaction" });
+      return;
+    }
 
-    if (body.transactionId && isPaymentConfirmed(body.status || "")) {
-      const existing = await db
-        .select({ id: ordersTable.id, status: ordersTable.status })
-        .from(ordersTable)
-        .where(and(eq(ordersTable.transactionId, body.transactionId), eq(ordersTable.tenantId, tenantId)))
-        .limit(1);
+    const existing = await db
+      .select({ id: ordersTable.id, status: ordersTable.status, total: ordersTable.total, transactionId: ordersTable.transactionId })
+      .from(ordersTable)
+      .where(and(eq(ordersTable.transactionId, notice.transactionId), eq(ordersTable.tenantId, tenantId)))
+      .limit(1);
+    const row = existing[0];
+    if (!row?.transactionId) {
+      res.status(404).json({ ok: false, error: "not_found" });
+      return;
+    }
 
-      await db
-        .update(ordersTable)
-        .set({ status: "paid", updatedAt: new Date() })
-        .where(and(eq(ordersTable.transactionId, body.transactionId), eq(ordersTable.tenantId, tenantId)));
+    const decision = decidePixSettlement({
+      authenticated: true,
+      transactionId: notice.transactionId,
+      boundTransactionId: row.transactionId,
+      status: notice.status,
+      reportedAmount: notice.amount,
+      expectedAmount: Number(row.total ?? 0),
+      currency: notice.currency,
+      alreadySettled: row.status === "paid" || row.status === "completed",
+    });
+    if (decision.action !== "pay") {
+      res.status(decision.httpStatus).json({ ok: decision.action !== "reject", reason: decision.reason });
+      return;
+    }
 
-      if (existing[0] && existing[0].status !== "paid" && existing[0].status !== "completed") {
-        await ensureOrderCommission(existing[0].id);
-        await enqueueFilialOrderPurchaseRequest(existing[0].id);
-        scheduleOrderPaidWhatsapp(existing[0].id);
-      }
-      if (existing[0]) await allocateOrderLogistics(existing[0].id);
-
+    const updated = await db
+      .update(ordersTable)
+      .set({ status: "paid", paidAmount: row.total, updatedAt: new Date() })
+      .where(and(
+        eq(ordersTable.id, row.id),
+        eq(ordersTable.tenantId, tenantId),
+        notInArray(ordersTable.status, ["paid", "completed"]),
+      ));
+    if (updatedRowCount(updated) > 0) {
+      await ensureOrderCommission(row.id);
+      await enqueueFilialOrderPurchaseRequest(row.id);
+      scheduleOrderPaidWhatsapp(row.id);
+      await allocateOrderLogistics(row.id);
       broadcastNotification({
         type: "order_paid",
-        data: { transactionId: body.transactionId, status: "paid", tenantId },
+        data: { transactionId: notice.transactionId, status: "paid", tenantId },
       });
       void sendOutboundWebhook("order_paid", {
-        transactionId: body.transactionId,
+        transactionId: notice.transactionId,
         status: "paid",
         source: "legacy_pix_callback",
       }, { tenantId });
@@ -281,8 +349,8 @@ router.post("/pix/callback/:token", async (req, res) => {
 
     res.json({ ok: true });
   } catch (err) {
-    console.error("[PIX] Callback error:", err);
-    res.json({ ok: false });
+    console.error("[PIX] Callback failed");
+    res.status(500).json({ ok: false });
   }
 });
 

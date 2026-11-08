@@ -6,6 +6,7 @@
  */
 import crypto from "crypto";
 import { getAppcnpayGatewayHeaders } from "./lib/pix-gateway-credentials";
+import { isPaymentConfirmed as isExactPaymentConfirmed } from "./lib/pix-settlement";
 
 export const GATEWAY_PIX_URL = "https://painel.appcnpay.com/api/v1/gateway/pix/receive";
 export const DENTPEG_BASE_URL = "https://api.dentpeg.com/api/v1";
@@ -50,6 +51,8 @@ export interface GatewayPixResponse {
   };
   details?: string;
   errorDescription?: string;
+  /** Só para gravar o hash. Não devolver ao navegador. */
+  webhookToken?: string;
 }
 
 export interface GatewayErrorResponse {
@@ -115,7 +118,7 @@ async function createDentpegPixCharge(payload: {
   const url = `${DENTPEG_BASE_URL}/deposits`;
   const body = { amountInCents };
 
-  console.log("[DENTPEG] POST", url, JSON.stringify(body));
+  console.log("[DENTPEG] POST", url, JSON.stringify({ amountInCents }));
   const res = await fetch(url, {
     method: "POST",
     headers,
@@ -123,7 +126,7 @@ async function createDentpegPixCharge(payload: {
   });
 
   const rawText = await res.text();
-  console.log(`[DENTPEG] Response ${res.status}:`, rawText.slice(0, 600));
+  console.log(`[DENTPEG] Response ${res.status} bytes=${rawText.length}`);
 
   let data: { ok?: boolean; deposit?: DentpegDeposit; message?: string; error?: string };
   try {
@@ -200,8 +203,10 @@ export async function createPixCharge(payload: {
   }
 
   console.log("[GATEWAY] POST", GATEWAY_PIX_URL, JSON.stringify({
-    ...body,
-    callbackUrl: body.callbackUrl ? "[redacted]" : undefined,
+    identifier: payload.identifier,
+    amount: payload.amount,
+    hasClient: Boolean(payload.client),
+    hasCallback: Boolean(payload.callbackUrl),
   }));
 
   const res = await fetch(GATEWAY_PIX_URL, {
@@ -211,7 +216,7 @@ export async function createPixCharge(payload: {
   });
 
   const rawText = await res.text();
-  console.log(`[GATEWAY] Response ${res.status}:`, rawText.slice(0, 600));
+  console.log(`[GATEWAY] Response ${res.status} bytes=${rawText.length}`);
 
   let data: GatewayPixResponse & GatewayErrorResponse;
   try {
@@ -233,9 +238,14 @@ export async function createPixCharge(payload: {
     throw new Error("Gateway não retornou o código PIX. Tente novamente.");
   }
 
+  const webhookToken = typeof (data as { webhookToken?: unknown }).webhookToken === "string"
+    ? (data as { webhookToken: string }).webhookToken.trim()
+    : "";
+
   return {
     ...(data as GatewayPixResponse),
     gatewayProvider: "appcnpay",
+    webhookToken: webhookToken || undefined,
   };
 }
 
@@ -294,6 +304,10 @@ export async function createPixChargeWithProvider(payload: {
 export function buildCallbackUrl(req: {
   headers: Record<string, string | string[] | undefined>;
 }, path: string): string {
+  const fixedBase = String(process.env["PIX_CALLBACK_BASE_URL"] || "").trim().replace(/\/$/, "");
+  if (fixedBase) {
+    return `${fixedBase}/api${path}`;
+  }
   const replitDomains = process.env["REPLIT_DOMAINS"];
   if (replitDomains) {
     // REPLIT_DOMAINS may be a comma-separated list; take the first one
@@ -308,19 +322,11 @@ export function buildCallbackUrl(req: {
 }
 
 /**
- * Determine if a gateway status string means the payment was confirmed.
- * Covers both the PIX creation response (OK) and the transactions API (COMPLETED).
+ * Status de pago em igualdade exata. `OK` continua sendo o status da
+ * cobrança recém-criada e não liquida pedido. A lista mora em pix-settlement.
  */
 export function isPaymentConfirmed(status: string): boolean {
-  const s = (status || "").toUpperCase();
-  const confirmed = [
-    "OK", "PAID", "APPROVED", "CONFIRMED", "COMPLETED", "SUCCESS",
-    "DEPIX_SENT",
-    // Portuguese variants from APPCNPay
-    "PAGO", "PAGA", "CONCLUIDO", "CONCLUÍDA", "CONCLUIDA",
-    "APROVADO", "APROVADA",
-  ];
-  return confirmed.some((c) => s === c || s.includes(c));
+  return isExactPaymentConfirmed(status);
 }
 
 export const GATEWAY_TRANSACTIONS_URL =
@@ -346,13 +352,13 @@ export async function fetchTransactionStatus(
     const res = await fetch(url, { method: "GET", headers });
     const rawBody = await res.text();
     if (!res.ok) {
-      console.warn(`[GATEWAY] fetchTransactionStatus ${res.status} for ${transactionId} — body: ${rawBody.slice(0, 300)}`);
+      console.warn(`[GATEWAY] fetchTransactionStatus ${res.status} for ${transactionId} bytes=${rawBody.length}`);
       // Try alternate param name "transactionId"
       const url2 = `${GATEWAY_TRANSACTIONS_URL}?transactionId=${encodeURIComponent(transactionId)}`;
       const res2 = await fetch(url2, { method: "GET", headers });
       const raw2 = await res2.text();
       if (!res2.ok) {
-        console.warn(`[GATEWAY] fetchTransactionStatus (alt) ${res2.status} — body: ${raw2.slice(0, 300)}`);
+        console.warn(`[GATEWAY] fetchTransactionStatus (alt) ${res2.status} bytes=${raw2.length}`);
         return null;
       }
       const data2 = JSON.parse(raw2) as { status?: string; payedAt?: string | null };
@@ -370,7 +376,7 @@ export async function fetchTransactionStatus(
 
 export async function fetchDentpegDepositStatus(
   depositId: string,
-): Promise<{ status: string } | null> {
+): Promise<{ status: string; amountInCents: number | null } | null> {
   let headers: Record<string, string>;
   try {
     headers = getDentpegHeaders();
@@ -385,13 +391,17 @@ export async function fetchDentpegDepositStatus(
     });
     const raw = await res.text();
     if (!res.ok) {
-      console.warn(`[DENTPEG] fetchDepositStatus ${res.status} for ${depositId} — body: ${raw.slice(0, 300)}`);
+      console.warn(`[DENTPEG] fetchDepositStatus ${res.status} for ${depositId} bytes=${raw.length}`);
       return null;
     }
 
-    const data = JSON.parse(raw) as { deposit?: { status?: string } };
+    const data = JSON.parse(raw) as { deposit?: { status?: string; amountInCents?: number } };
     if (!data.deposit?.status) return null;
-    return { status: data.deposit.status };
+    const cents = data.deposit.amountInCents;
+    return {
+      status: data.deposit.status,
+      amountInCents: typeof cents === "number" && Number.isFinite(cents) ? cents : null,
+    };
   } catch (err) {
     console.error("[DENTPEG] fetchDepositStatus error:", err);
     return null;

@@ -2,17 +2,24 @@ import { Router, type IRouter } from "express";
 import { db, rafflesTable, raffleReservationsTable, raffleResultsTable, rafflePromotionsTable, siteSettingsTable, tenantSettingsTable } from "@workspace/db";
 import { eq, and, inArray, isNull, or, sql } from "drizzle-orm";
 import crypto from "crypto";
-import { getAdminScope, requireAdminAuth } from "./admin-auth";
+import { getAdminScope, requireAdminAuth, requireStoreWideAdmin } from "./admin-auth";
 import {
   createPixChargeWithProvider,
   buildCallbackUrl,
   genIdentifier,
   normalizePixGatewayProvider,
   PIX_DURATION_MS,
-  isPaymentConfirmed,
 } from "../gateway";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 import { confirmRaffleReservationFromPix } from "../lib/raffle-pix-confirm";
+import {
+  decidePixSettlement,
+  pixNoticeLogFields,
+  readPixNotice,
+  readWebhookSecret,
+  webhookAuthenticated,
+} from "../lib/pix-settlement";
+import { authenticatePixNotice, rememberGatewayChargeProof } from "../lib/pix-charge-proof";
 import { canUndoManualRafflePayment, rafflePaymentBlockReason } from "../lib/raffle-pix-confirm-core";
 
 const router: IRouter = Router();
@@ -393,6 +400,19 @@ router.post("/raffles/:id/reserve", async (req, res) => {
     return;
   }
 
+  try {
+    await rememberGatewayChargeProof({
+      transactionId: gatewayData.transactionId,
+      tenantId,
+      webhookToken: gatewayData.webhookToken,
+    });
+  } catch {
+    console.error("[Raffle] proof not stored");
+    res.status(500).json({ error: "PIX_PROOF_NOT_STORED", message: "Não foi possível guardar a confirmação do PIX." });
+    return;
+  }
+  delete gatewayData.webhookToken;
+
   await db
     .update(raffleReservationsTable)
     .set({
@@ -630,6 +650,19 @@ router.post("/raffles/reservations/:reservationId/refresh-pix", async (req, res)
     return;
   }
 
+  try {
+    await rememberGatewayChargeProof({
+      transactionId: gatewayData.transactionId,
+      tenantId,
+      webhookToken: gatewayData.webhookToken,
+    });
+  } catch {
+    console.error("[Raffle] proof not stored");
+    res.status(500).json({ error: "PIX_PROOF_NOT_STORED", message: "Não foi possível guardar a confirmação do PIX." });
+    return;
+  }
+  delete gatewayData.webhookToken;
+
   const pixExpiresAt = new Date(Date.now() + PIX_DURATION_MS);
 
   await db
@@ -680,7 +713,7 @@ router.get("/raffles/:id/result", async (req, res) => {
 // ---------------------------------------------------------------------------
 // ADMIN: GET /api/admin/raffles — list all raffles
 // ---------------------------------------------------------------------------
-router.get("/admin/raffles", requireAdminAuth, async (req, res) => {
+router.get("/admin/raffles", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   try {
     const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const raffles = await db
@@ -746,7 +779,7 @@ router.get("/admin/raffles", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // ADMIN: POST /api/admin/raffles — create raffle
 // ---------------------------------------------------------------------------
-router.post("/admin/raffles", requireAdminAuth, async (req, res) => {
+router.post("/admin/raffles", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   try {
     const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const { title, description, imageUrl, totalNumbers, pricePerNumber, reservationHours, status } = req.body as {
@@ -792,7 +825,7 @@ router.post("/admin/raffles", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // ADMIN: PATCH /api/admin/raffles/:id — update raffle
 // ---------------------------------------------------------------------------
-router.patch("/admin/raffles/:id", requireAdminAuth, async (req, res) => {
+router.patch("/admin/raffles/:id", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: raffleId } = req.params as { id: string };
   const { title, description, imageUrl, totalNumbers, pricePerNumber, reservationHours, status } = req.body as {
@@ -822,9 +855,18 @@ router.patch("/admin/raffles/:id", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // ADMIN: DELETE /api/admin/raffles/:id — delete raffle (and reservations)
 // ---------------------------------------------------------------------------
-router.delete("/admin/raffles/:id", requireAdminAuth, async (req, res) => {
+router.delete("/admin/raffles/:id", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: delId } = req.params as { id: string };
+  const [existing] = await db
+    .select({ id: rafflesTable.id })
+    .from(rafflesTable)
+    .where(and(buildRafflesTenantWhere(tenantId), eq(rafflesTable.id, delId)))
+    .limit(1);
+  if (!existing) {
+    res.status(404).json({ error: "NOT_FOUND", message: "Rifa não encontrada." });
+    return;
+  }
   await db.delete(raffleReservationsTable).where(and(buildRaffleReservationsTenantWhere(tenantId), eq(raffleReservationsTable.raffleId, delId)));
   await db.delete(rafflesTable).where(and(buildRafflesTenantWhere(tenantId), eq(rafflesTable.id, delId)));
   res.json({ ok: true });
@@ -833,7 +875,7 @@ router.delete("/admin/raffles/:id", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // ADMIN: GET /api/admin/raffles/:id/reservations — list all reservations
 // ---------------------------------------------------------------------------
-router.get("/admin/raffles/:id/reservations", requireAdminAuth, async (req, res) => {
+router.get("/admin/raffles/:id/reservations", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: resRaffleId } = req.params as { id: string };
   const rows = await db
@@ -854,7 +896,7 @@ router.get("/admin/raffles/:id/reservations", requireAdminAuth, async (req, res)
 // ---------------------------------------------------------------------------
 // ADMIN: PATCH /api/admin/raffles/:id/reservations/:reservationId/cancel
 // ---------------------------------------------------------------------------
-router.patch("/admin/raffles/:id/reservations/:reservationId/cancel", requireAdminAuth, async (req, res) => {
+router.patch("/admin/raffles/:id/reservations/:reservationId/cancel", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: raffleId, reservationId } = req.params as { id: string; reservationId: string };
 
@@ -895,7 +937,7 @@ router.patch("/admin/raffles/:id/reservations/:reservationId/cancel", requireAdm
 // ADMIN: PATCH /api/admin/raffles/:id/reservations/:reservationId/mark-paid
 // Pagamento fora do PIX. Não fala com o gateway e não altera transactionId.
 // ---------------------------------------------------------------------------
-router.patch("/admin/raffles/:id/reservations/:reservationId/mark-paid", requireAdminAuth, async (req, res) => {
+router.patch("/admin/raffles/:id/reservations/:reservationId/mark-paid", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: raffleId, reservationId } = req.params as { id: string; reservationId: string };
 
@@ -979,7 +1021,7 @@ router.patch("/admin/raffles/:id/reservations/:reservationId/mark-paid", require
 // ADMIN: PATCH /api/admin/raffles/:id/reservations/:reservationId/undo-manual-paid
 // Só desfaz pagamento aprovado na mão. PIX confirmado pelo webhook permanece.
 // ---------------------------------------------------------------------------
-router.patch("/admin/raffles/:id/reservations/:reservationId/undo-manual-paid", requireAdminAuth, async (req, res) => {
+router.patch("/admin/raffles/:id/reservations/:reservationId/undo-manual-paid", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: raffleId, reservationId } = req.params as { id: string; reservationId: string };
 
@@ -1027,7 +1069,7 @@ router.patch("/admin/raffles/:id/reservations/:reservationId/undo-manual-paid", 
 // ---------------------------------------------------------------------------
 // ADMIN: GET /api/admin/raffles/:id/ranking — ranking for admin panel
 // ---------------------------------------------------------------------------
-router.get("/admin/raffles/:id/ranking", requireAdminAuth, async (req, res) => {
+router.get("/admin/raffles/:id/ranking", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: raffleId } = req.params as { id: string };
   const ranking = await getRaffleRanking(raffleId, 3, tenantId);
@@ -1037,7 +1079,7 @@ router.get("/admin/raffles/:id/ranking", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // ADMIN: GET /api/admin/raffles/:id/result — current winner/result
 // ---------------------------------------------------------------------------
-router.get("/admin/raffles/:id/result", requireAdminAuth, async (req, res) => {
+router.get("/admin/raffles/:id/result", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: raffleId } = req.params as { id: string };
   const result = await getRaffleResult(raffleId, tenantId);
@@ -1047,7 +1089,7 @@ router.get("/admin/raffles/:id/result", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // ADMIN: PUT /api/admin/raffles/:id/result — register winner number/result
 // ---------------------------------------------------------------------------
-router.put("/admin/raffles/:id/result", requireAdminAuth, async (req, res) => {
+router.put("/admin/raffles/:id/result", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: raffleId } = req.params as { id: string };
   const { winnerNumber, notes, drawMethod } = req.body as {
@@ -1131,7 +1173,7 @@ router.put("/admin/raffles/:id/result", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // ADMIN: GET /api/admin/raffles/:id/promotions — list promotions
 // ---------------------------------------------------------------------------
-router.get("/admin/raffles/:id/promotions", requireAdminAuth, async (req, res) => {
+router.get("/admin/raffles/:id/promotions", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: raffleId } = req.params as { id: string };
   const promotions = await getRafflePromotions(raffleId, false, tenantId);
@@ -1141,7 +1183,7 @@ router.get("/admin/raffles/:id/promotions", requireAdminAuth, async (req, res) =
 // ---------------------------------------------------------------------------
 // ADMIN: POST /api/admin/raffles/:id/promotions — create promotion
 // ---------------------------------------------------------------------------
-router.post("/admin/raffles/:id/promotions", requireAdminAuth, async (req, res) => {
+router.post("/admin/raffles/:id/promotions", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: raffleId } = req.params as { id: string };
   const { quantity, promoPrice, isActive, sortOrder } = req.body as {
@@ -1184,7 +1226,7 @@ router.post("/admin/raffles/:id/promotions", requireAdminAuth, async (req, res) 
 // ---------------------------------------------------------------------------
 // ADMIN: PATCH /api/admin/raffles/:id/promotions/:promotionId — update
 // ---------------------------------------------------------------------------
-router.patch("/admin/raffles/:id/promotions/:promotionId", requireAdminAuth, async (req, res) => {
+router.patch("/admin/raffles/:id/promotions/:promotionId", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { promotionId } = req.params as { id: string; promotionId: string };
   const { quantity, promoPrice, isActive, sortOrder } = req.body as {
@@ -1230,7 +1272,7 @@ router.patch("/admin/raffles/:id/promotions/:promotionId", requireAdminAuth, asy
 // ---------------------------------------------------------------------------
 // ADMIN: DELETE /api/admin/raffles/:id/promotions/:promotionId — delete
 // ---------------------------------------------------------------------------
-router.delete("/admin/raffles/:id/promotions/:promotionId", requireAdminAuth, async (req, res) => {
+router.delete("/admin/raffles/:id/promotions/:promotionId", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { promotionId } = req.params as { id: string; promotionId: string };
   await db.delete(rafflePromotionsTable).where(and(buildRafflePromotionsTenantWhere(tenantId), eq(rafflePromotionsTable.id, promotionId)));
@@ -1239,58 +1281,95 @@ router.delete("/admin/raffles/:id/promotions/:promotionId", requireAdminAuth, as
 
 // ---------------------------------------------------------------------------
 // WEBHOOK: POST /webhook/raffle-pix — cobranças já emitidas com o callback antigo
+// Mesma prova do webhook da loja: segredo, transação gravada, valor e status exato.
 // ---------------------------------------------------------------------------
 router.post("/webhook/raffle-pix", async (req, res) => {
-  const raw = (req.body ?? {}) as Record<string, unknown>;
-  const tx = ((raw.transaction as Record<string, unknown>) ?? raw) as Record<string, unknown>;
-  const txMeta = ((tx.metadata as Record<string, unknown>) ?? {}) as Record<string, unknown>;
-  const rawMeta = ((raw.metadata as Record<string, unknown>) ?? {}) as Record<string, unknown>;
+  try {
+    const notice = readPixNotice(req.body);
+    console.log("[RaffleWebhook] notice", JSON.stringify(pixNoticeLogFields(notice)));
+    const sharedSecret = String(process.env.WEBHOOK_SHARED_SECRET || "").trim();
+    const globalSecretMatches = webhookAuthenticated({
+      sharedSecret,
+      providedSecret: readWebhookSecret({
+        headerSecret: req.get("x-webhook-secret"),
+        signatureHeader: req.get("x-signature"),
+        querySecret: req.query?.whsec,
+      }),
+    });
+    const auth = await authenticatePixNotice({
+      globalSecretMatches,
+      bodyToken: notice.bodyToken,
+      transactionId: notice.transactionId,
+    });
+    if (!auth.ok) {
+      res.status(auth.httpStatus).json({ ok: false, error: "PIX_SETTLEMENT_REJECTED", reason: auth.reason });
+      return;
+    }
+    if (!notice.transactionId) {
+      res.status(403).json({ ok: false, error: "PIX_SETTLEMENT_REJECTED", reason: "missing_transaction" });
+      return;
+    }
 
-  const transactionId = String(
-    tx.id || tx.transactionId || (tx as { transaction_id?: unknown }).transaction_id || raw.transactionId || raw.transaction_id || raw.id || "",
-  ).trim();
+    const [reservation] = await db
+      .select({
+        id: raffleReservationsTable.id,
+        status: raffleReservationsTable.status,
+        totalAmount: raffleReservationsTable.totalAmount,
+        transactionId: raffleReservationsTable.transactionId,
+      })
+      .from(raffleReservationsTable)
+      .where(eq(raffleReservationsTable.transactionId, notice.transactionId))
+      .limit(1);
 
-  let status = String(tx.status || raw.status || raw.payment_status || raw.event || "").trim();
-  if (!status && raw.event) {
-    const ev = String(raw.event).toUpperCase();
-    if (ev.includes("PAID") || ev.includes("APPROVED") || ev.includes("COMPLETED")) status = "COMPLETED";
-    else if (ev.includes("CANCEL") || ev.includes("REJECT") || ev.includes("FAILED")) status = "CANCELED";
-  }
+    if (!reservation?.transactionId) {
+      if (auth.method === "transaction_token") {
+        res.status(503).json({ ok: false, error: "PIX_SETTLEMENT_REJECTED", reason: "settlement_not_ready" });
+        return;
+      }
+      res.status(404).json({ ok: false, error: "RESERVATION_NOT_FOUND" });
+      return;
+    }
+    if (notice.reservationId && notice.reservationId !== reservation.id) {
+      res.status(409).json({ ok: false, error: "PIX_SETTLEMENT_REJECTED", reason: "transaction_mismatch" });
+      return;
+    }
 
-  const reservationId = String(txMeta.reservationId || rawMeta.reservationId || "").trim();
+    const decision = decidePixSettlement({
+      authenticated: true,
+      transactionId: notice.transactionId,
+      boundTransactionId: reservation.transactionId,
+      status: notice.status,
+      reportedAmount: notice.amount,
+      expectedAmount: Number(reservation.totalAmount ?? 0),
+      currency: notice.currency,
+      alreadySettled: reservation.status === "paid",
+    });
+    if (decision.action === "reject") {
+      res.status(decision.httpStatus).json({ ok: false, error: "PIX_SETTLEMENT_REJECTED", reason: decision.reason });
+      return;
+    }
+    if (decision.action !== "pay") {
+      res.status(decision.httpStatus).json({ ok: true, confirmed: false, reason: decision.reason, reservationId: reservation.id });
+      return;
+    }
 
-  if (!transactionId && !reservationId) {
-    console.log("[RaffleWebhook] Missing transactionId/reservationId", JSON.stringify(raw));
-    res.status(400).json({ error: "MISSING_REFERENCE" });
-    return;
-  }
-
-  const confirmed = status ? isPaymentConfirmed(status) : false;
-  const result = await confirmRaffleReservationFromPix({
-    transactionId,
-    reservationId,
-    confirmed,
-    source: "raffle-pix",
-  });
-
-  if (!result.matched) {
-    console.log("[RaffleWebhook] Reservation not found", JSON.stringify({ transactionId, reservationId, status }));
-    res.status(404).json({ error: "RESERVATION_NOT_FOUND" });
-    return;
-  }
-
-  if (result.ignored) {
+    const result = await confirmRaffleReservationFromPix({
+      transactionId: notice.transactionId,
+      reservationId: reservation.id,
+      confirmed: true,
+      source: "raffle-pix",
+    });
     res.json({
       ok: true,
-      confirmed: false,
-      ignored: true,
+      confirmed: result.confirmed,
+      ignored: result.ignored ?? false,
       reason: result.reason,
       reservationId: result.reservationId,
     });
-    return;
+  } catch (err) {
+    console.error("[RaffleWebhook] settlement failed");
+    res.status(500).json({ ok: false, error: "PIX_SETTLEMENT_FAILED" });
   }
-
-  res.json({ ok: true, confirmed: result.confirmed, reservationId: result.reservationId });
 });
 
 export default router;

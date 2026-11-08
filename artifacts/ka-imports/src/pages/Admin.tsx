@@ -88,6 +88,11 @@ function getAdminUsername() {
 function getAdminTenantId() {
   return localStorage.getItem("adminTenantId") || "tenant_loja1";
 }
+function getHasGlobalAccess() {
+  const stored = localStorage.getItem("adminHasGlobalAccess");
+  if (stored === "true" || stored === "false") return stored === "true";
+  return getIsPrimary() || getAdminTenantId() !== "tenant_loja1";
+}
 
 function filialCopyStoreLabel(tenantId: string, settings: Record<string, string>): string | null {
   const id = String(tenantId || "").trim();
@@ -1623,6 +1628,18 @@ interface ClientErrorEvent {
   ts: string;
 }
 
+interface AdminUser {
+  id: string;
+  username: string;
+  isPrimary: boolean;
+  createdAt: string;
+  sellerAccess?: {
+    kind: "primary" | "store" | "linked" | "legacy" | "cleared" | "none";
+    tenantId: string | null;
+    sellerCode: string | null;
+  };
+}
+
 interface AdminTenant {
   id: string;
   slug: string;
@@ -2400,6 +2417,7 @@ export default function Admin() {
   const [chargesReady, setChargesReady] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
   const [isPrimary, setIsPrimary] = useState(getIsPrimary);
+  const [hasGlobalAccess, setHasGlobalAccess] = useState(getHasGlobalAccess);
   const [currentUsername, setCurrentUsername] = useState(getAdminUsername);
   const [adminTenantId, setAdminTenantId] = useState(getAdminTenantId);
   const [search, setSearch] = useState("");
@@ -2455,6 +2473,9 @@ export default function Admin() {
   const [newUsername, setNewUsername] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [newFullAccess, setNewFullAccess] = useState(false);
+  const [newSellerTenantId, setNewSellerTenantId] = useState("tenant_loja1");
+  const [newSellerSlug, setNewSellerSlug] = useState("");
+  const [sellerSlugChoices, setSellerSlugChoices] = useState<string[]>([]);
   const [showNewPw, setShowNewPw] = useState(false);
   const [userCreating, setUserCreating] = useState(false);
   const [userDeleting, setUserDeleting] = useState<string | null>(null);
@@ -2688,15 +2709,15 @@ export default function Admin() {
   const shipQueueFetchSeqRef = useRef(0);
   const swRef  = useRef<ServiceWorkerRegistration | null>(null);
   const canManageTenants = isPrimary && adminTenantId === "tenant_loja1";
-  const canManageProductsTab = isPrimary || adminTenantId !== "tenant_loja1";
-  const canManageInventoryTab = isPrimary || adminTenantId !== "tenant_loja1";
-  const canManageShippingTab = isPrimary || adminTenantId !== "tenant_loja1";
-  const canManageSellerLinks = isPrimary || adminTenantId !== "tenant_loja1";
-  const canManageRafflesTab = isPrimary || adminTenantId !== "tenant_loja1";
-  const canManageInsuranceTab = isPrimary || adminTenantId !== "tenant_loja1";
-  const canManageAffiliatesTab = isPrimary || adminTenantId !== "tenant_loja1";
-  const canEditOrders = isPrimary || adminTenantId !== "tenant_loja1";
-  const canViewSupplierPurchasesTab = adminTenantId !== "tenant_loja1";
+  const canManageProductsTab = hasGlobalAccess;
+  const canManageInventoryTab = hasGlobalAccess;
+  const canManageShippingTab = hasGlobalAccess;
+  const canManageSellerLinks = hasGlobalAccess;
+  const canManageRafflesTab = hasGlobalAccess;
+  const canManageInsuranceTab = hasGlobalAccess;
+  const canManageAffiliatesTab = hasGlobalAccess;
+  const canEditOrders = hasGlobalAccess;
+  const canViewSupplierPurchasesTab = hasGlobalAccess && adminTenantId !== "tenant_loja1";
   const filialTenantOptions = tenants.filter((tenant) => tenant.id !== "tenant_loja1");
   const selectedFilialTenant = filialTenantOptions.find((tenant) => tenant.id === selectedFilialTenantId) || null;
   const filteredFilialPurchaseRequests = selectedFilialTenantId
@@ -3305,6 +3326,7 @@ export default function Admin() {
     sessionStorage.removeItem("adminToken");
     localStorage.removeItem("adminToken");
     localStorage.removeItem("adminIsPrimary");
+    localStorage.removeItem("adminHasGlobalAccess");
     localStorage.removeItem("adminUsername");
     localStorage.removeItem("adminTenantId");
     setAdminTenantId("tenant_loja1");
@@ -5723,7 +5745,7 @@ export default function Admin() {
   const fetchAll = useCallback(() => {
     if (tab === "orders")          { fetchOrders(); fetchProducts(); fetchInventoryOverview(); }
     else if (tab === "charges")    fetchCharges();
-    else if (tab === "users")      fetchUsers();
+    else if (tab === "users")      { fetchUsers(); fetchTenants(); }
     else if (tab === "customers")  fetchCustomers();
     else if (tab === "recurringCustomers") fetchRecurringCustomers();
     else if (tab === "support")    fetchSupportTickets();
@@ -5922,12 +5944,17 @@ export default function Admin() {
           handleUnauthorized();
           return;
         }
-        const data = await res.json() as { ok: boolean; isPrimary: boolean; username: string; tenantId?: string };
+        const data = await res.json() as { ok: boolean; isPrimary: boolean; hasGlobalAccess?: boolean; username: string; tenantId?: string };
         console.log('[DEBUG] Dados recebidos do backend:', data);
+        const storeWide = typeof data.hasGlobalAccess === "boolean"
+          ? data.hasGlobalAccess
+          : data.isPrimary || (data.tenantId || "tenant_loja1") !== "tenant_loja1";
         setIsPrimary(data.isPrimary);
+        setHasGlobalAccess(storeWide);
         setCurrentUsername(data.username || "");
         setAdminTenantId(data.tenantId || "tenant_loja1");
         localStorage.setItem("adminIsPrimary", String(data.isPrimary));
+        localStorage.setItem("adminHasGlobalAccess", String(storeWide));
         localStorage.setItem("adminUsername", data.username || "");
         if (data.tenantId) localStorage.setItem("adminTenantId", data.tenantId);
         setAuthChecked(true);
@@ -6080,6 +6107,7 @@ export default function Admin() {
     sessionStorage.removeItem("adminToken");
     localStorage.removeItem("adminToken");
     localStorage.removeItem("adminIsPrimary");
+    localStorage.removeItem("adminHasGlobalAccess");
     localStorage.removeItem("adminUsername");
     localStorage.removeItem("adminTenantId");
     setAdminTenantId("tenant_loja1");
@@ -6770,17 +6798,58 @@ export default function Admin() {
     if (!newUsername.trim() || !newPassword.trim()) { toast.error("Preencha usuário e senha."); return; }
     setUserCreating(true);
     try {
+      if (!newFullAccess && !newSellerSlug) { toast.error("Escolha o vendedor deste login."); return; }
       const res = await fetch(`${BASE}/api/admin/users`, {
         method: "POST", headers: authHeaders(),
-        body: JSON.stringify({ username: newUsername.trim(), password: newPassword, fullAccess: newFullAccess }),
+        body: JSON.stringify({
+          username: newUsername.trim(),
+          password: newPassword,
+          fullAccess: newFullAccess,
+          sellerTenantId: newFullAccess ? undefined : newSellerTenantId,
+          sellerSlug: newFullAccess ? undefined : newSellerSlug,
+        }),
       });
       const data = await res.json() as { username?: string; message?: string };
       if (!res.ok) { toast.error(data.message || "Erro ao criar usuário."); return; }
       toast.success(`Usuário "${data.username}" criado!`);
-      setNewUsername(""); setNewPassword(""); setNewFullAccess(false);
+      setNewUsername(""); setNewPassword(""); setNewFullAccess(false); setNewSellerSlug("");
       fetchUsers();
     } catch { toast.error("Erro ao criar usuário."); }
     finally { setUserCreating(false); }
+  };
+
+  const loadSellerSlugs = async (tenantId: string) => {
+    const res = await fetch(`${BASE}/api/admin/seller-scope-options?tenantId=${encodeURIComponent(tenantId)}`, { headers: authHeaders() });
+    const data = await res.json() as { sellers?: string[]; message?: string };
+    if (!res.ok) {
+      toast.error(data.message || "Erro ao listar vendedores.");
+      return [] as string[];
+    }
+    return data.sellers || [];
+  };
+
+  const saveUserSeller = async (id: string, tenantId: string, sellerSlug: string) => {
+    const res = await fetch(`${BASE}/api/admin/users/${id}/seller-scope`, {
+      method: "PATCH",
+      headers: authHeaders(),
+      body: JSON.stringify({ tenantId, sellerSlug }),
+    });
+    const data = await res.json() as { message?: string };
+    if (!res.ok) { toast.error(data.message || "Erro ao vincular vendedor."); return; }
+    toast.success("Vendedor vinculado. O acesso antigo desta sessão já segue o novo vendedor.");
+    fetchUsers();
+  };
+
+  const clearUserSeller = async (id: string) => {
+    const res = await fetch(`${BASE}/api/admin/users/${id}/seller-scope`, {
+      method: "PATCH",
+      headers: authHeaders(),
+      body: JSON.stringify({ clear: true }),
+    });
+    const data = await res.json() as { message?: string };
+    if (!res.ok) { toast.error(data.message || "Erro ao remover vínculo."); return; }
+    toast.success("Vínculo removido. A configuração antiga não devolve o acesso.");
+    fetchUsers();
   };
 
   const toggleUserAccess = async (id: string, username: string, fullAccess: boolean) => {
@@ -8677,6 +8746,16 @@ export default function Admin() {
             setNewPassword={setNewPassword}
             newFullAccess={newFullAccess}
             setNewFullAccess={setNewFullAccess}
+            newSellerTenantId={newSellerTenantId}
+            setNewSellerTenantId={setNewSellerTenantId}
+            newSellerSlug={newSellerSlug}
+            setNewSellerSlug={setNewSellerSlug}
+            sellerSlugChoices={sellerSlugChoices}
+            setSellerSlugChoices={setSellerSlugChoices}
+            tenants={tenants.map((tenant) => ({ id: tenant.id, name: tenant.name }))}
+            loadSellerSlugs={loadSellerSlugs}
+            saveUserSeller={saveUserSeller}
+            clearUserSeller={clearUserSeller}
             showNewPw={showNewPw}
             setShowNewPw={setShowNewPw}
             userCreating={userCreating}
@@ -19143,15 +19222,75 @@ function RecurringCustomersPanel({
   );
 }
 
+function UserSellerEditor({
+  user, tenants, loadSellerSlugs, saveUserSeller, clearUserSeller,
+}: {
+  user: AdminUser;
+  tenants: Array<{ id: string; name: string }>;
+  loadSellerSlugs: (tenantId: string) => Promise<string[]>;
+  saveUserSeller: (id: string, tenantId: string, sellerSlug: string) => Promise<void>;
+  clearUserSeller: (id: string) => Promise<void>;
+}) {
+  const [tenantId, setTenantId] = useState(user.sellerAccess?.tenantId || "tenant_loja1");
+  const [slug, setSlug] = useState(user.sellerAccess?.sellerCode || "");
+  const [choices, setChoices] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    loadSellerSlugs(tenantId).then((rows) => { if (!cancelled) setChoices(rows); }).catch(() => { if (!cancelled) setChoices([]); });
+    return () => { cancelled = true; };
+  }, [tenantId]);
+  return (
+    <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-2">
+      <p className="text-xs text-muted-foreground">
+        {user.sellerAccess?.kind === "legacy"
+          ? "Este login ainda usa a configuração antiga do servidor. Grave aqui para passar a valer o painel. Remover não devolve essa configuração."
+          : "Escolha a loja e o vendedor deste login."}
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        <select value={tenantId} onChange={(e) => setTenantId(e.target.value)} className="h-10 px-3 rounded-lg border border-border bg-white text-sm">
+          <option value="tenant_loja1">Loja 1</option>
+          {tenants.filter((tenant) => tenant.id !== "tenant_loja1").map((tenant) => (
+            <option key={tenant.id} value={tenant.id}>{tenant.name}</option>
+          ))}
+        </select>
+        <select value={slug} onChange={(e) => setSlug(e.target.value)} className="h-10 px-3 rounded-lg border border-border bg-white text-sm">
+          <option value="">Selecione</option>
+          {choices.map((item) => <option key={item} value={item}>{item}</option>)}
+        </select>
+      </div>
+      <div className="flex gap-2">
+        <Button size="sm" disabled={saving || !slug} onClick={() => { setSaving(true); saveUserSeller(user.id, tenantId, slug).finally(() => setSaving(false)); }}>
+          Salvar vendedor
+        </Button>
+        {user.sellerAccess?.kind === "linked" || user.sellerAccess?.kind === "legacy" ? (
+          <Button size="sm" variant="outline" disabled={saving} onClick={() => { setSaving(true); clearUserSeller(user.id).finally(() => setSaving(false)); }}>
+            Remover vínculo
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function UsersPanel({
   users, newUsername, setNewUsername, newPassword, setNewPassword,
-  newFullAccess, setNewFullAccess, showNewPw, setShowNewPw,
+  newFullAccess, setNewFullAccess, newSellerTenantId, setNewSellerTenantId, newSellerSlug, setNewSellerSlug,
+  sellerSlugChoices, setSellerSlugChoices, tenants, loadSellerSlugs, saveUserSeller, clearUserSeller,
+  showNewPw, setShowNewPw,
   userCreating, userDeleting, userAccessUpdating, userPasswordUpdating,
   createUser, deleteUser, toggleUserAccess, changeUserPassword,
 }: {
   users: AdminUser[]; newUsername: string; setNewUsername: (v: string) => void;
   newPassword: string; setNewPassword: (v: string) => void;
   newFullAccess: boolean; setNewFullAccess: (v: boolean) => void;
+  newSellerTenantId: string; setNewSellerTenantId: (v: string) => void;
+  newSellerSlug: string; setNewSellerSlug: (v: string) => void;
+  sellerSlugChoices: string[]; setSellerSlugChoices: (v: string[]) => void;
+  tenants: Array<{ id: string; name: string }>;
+  loadSellerSlugs: (tenantId: string) => Promise<string[]>;
+  saveUserSeller: (id: string, tenantId: string, sellerSlug: string) => Promise<void>;
+  clearUserSeller: (id: string) => Promise<void>;
   showNewPw: boolean; setShowNewPw: (v: boolean) => void;
   userCreating: boolean; userDeleting: string | null; userAccessUpdating: string | null; userPasswordUpdating: string | null;
   createUser: () => void; deleteUser: (id: string, username: string) => void;
@@ -19178,6 +19317,17 @@ function UsersPanel({
     const ok = await changeUserPassword(id, username, passwordDraft);
     if (ok) closePasswordEditor();
   };
+
+  useEffect(() => {
+    if (newFullAccess) return;
+    let cancelled = false;
+    loadSellerSlugs(newSellerTenantId).then((slugs) => {
+      if (cancelled) return;
+      setSellerSlugChoices(slugs);
+      if (!slugs.includes(newSellerSlug)) setNewSellerSlug(slugs[0] || "");
+    }).catch(() => { if (!cancelled) setSellerSlugChoices([]); });
+    return () => { cancelled = true; };
+  }, [newFullAccess, newSellerTenantId]);
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -19224,10 +19374,32 @@ function UsersPanel({
               <p className="text-xs text-muted-foreground">
                 {newFullAccess
                   ? "Este usuário terá acesso completo — criar cupons, gerenciar produtos, configurações e usuários."
-                  : "Acesso padrão — visualiza pedidos, cobranças, vendedores e configurações básicas."}
+                  : "Acesso de um vendedor — só os pedidos desse link, na loja escolhida."}
               </p>
             </div>
           </button>
+          {!newFullAccess && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <select
+                value={newSellerTenantId}
+                onChange={(e) => setNewSellerTenantId(e.target.value)}
+                className="h-11 px-3 rounded-xl border-2 border-border bg-white text-sm"
+              >
+                <option value="tenant_loja1">Loja 1</option>
+                {tenants.filter((tenant) => tenant.id !== "tenant_loja1").map((tenant) => (
+                  <option key={tenant.id} value={tenant.id}>{tenant.name}</option>
+                ))}
+              </select>
+              <select
+                value={newSellerSlug}
+                onChange={(e) => setNewSellerSlug(e.target.value)}
+                className="h-11 px-3 rounded-xl border-2 border-border bg-white text-sm"
+              >
+                {sellerSlugChoices.length === 0 ? <option value="">Nenhum vendedor nesta loja</option> : null}
+                {sellerSlugChoices.map((slug) => <option key={slug} value={slug}>{slug}</option>)}
+              </select>
+            </div>
+          )}
 
           <Button onClick={createUser} className="w-full gap-2" disabled={userCreating || !newUsername.trim() || !newPassword.trim()}>
             {userCreating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
@@ -19262,6 +19434,10 @@ function UsersPanel({
               </div>
               <p className="text-xs text-muted-foreground">
                 Criado em {formatDateOnlyBR(u.createdAt)}
+                {u.sellerAccess?.kind === "linked" ? ` · Vendedor ${u.sellerAccess.sellerCode}` : ""}
+                {u.sellerAccess?.kind === "legacy" ? ` · Vendedor antigo ${u.sellerAccess.sellerCode}` : ""}
+                {u.sellerAccess?.kind === "store" ? " · Admin da loja" : ""}
+                {u.sellerAccess?.kind === "cleared" ? " · Sem vendedor" : ""}
               </p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
@@ -19297,6 +19473,16 @@ function UsersPanel({
               </Button>
             </div>
             </div>
+
+            {!u.isPrimary && u.sellerAccess?.kind !== "store" && (
+              <UserSellerEditor
+                user={u}
+                tenants={tenants}
+                loadSellerSlugs={loadSellerSlugs}
+                saveUserSeller={saveUserSeller}
+                clearUserSeller={clearUserSeller}
+              />
+            )}
 
             {editingPasswordUserId === u.id && (
               <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-2">

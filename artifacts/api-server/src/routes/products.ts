@@ -291,8 +291,7 @@ function buildOrderTenantWhere(tenantId: string) {
 
 function canManageProducts(scope: ReturnType<typeof getAdminScope>): boolean {
   if (!scope) return false;
-  if (scope.isPrimary) return true;
-  return scope.tenantId !== DEFAULT_TENANT_ID;
+  return scope.hasGlobalAccess;
 }
 
 // ─── Public ──────────────────────────────────────────────────────────────────
