@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { db, rafflesTable, raffleReservationsTable, raffleResultsTable, rafflePromotionsTable, siteSettingsTable, tenantSettingsTable } from "@workspace/db";
 import { eq, and, inArray, isNull, or, sql } from "drizzle-orm";
 import crypto from "crypto";
-import { getAdminScope, requireAdminAuth } from "./admin-auth";
+import { getAdminScope, requireAdminAuth, requireStoreWideAdmin } from "./admin-auth";
 import {
   createPixChargeWithProvider,
   buildCallbackUrl,
@@ -713,7 +713,7 @@ router.get("/raffles/:id/result", async (req, res) => {
 // ---------------------------------------------------------------------------
 // ADMIN: GET /api/admin/raffles — list all raffles
 // ---------------------------------------------------------------------------
-router.get("/admin/raffles", requireAdminAuth, async (req, res) => {
+router.get("/admin/raffles", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   try {
     const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const raffles = await db
@@ -779,7 +779,7 @@ router.get("/admin/raffles", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // ADMIN: POST /api/admin/raffles — create raffle
 // ---------------------------------------------------------------------------
-router.post("/admin/raffles", requireAdminAuth, async (req, res) => {
+router.post("/admin/raffles", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   try {
     const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
     const { title, description, imageUrl, totalNumbers, pricePerNumber, reservationHours, status } = req.body as {
@@ -825,7 +825,7 @@ router.post("/admin/raffles", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // ADMIN: PATCH /api/admin/raffles/:id — update raffle
 // ---------------------------------------------------------------------------
-router.patch("/admin/raffles/:id", requireAdminAuth, async (req, res) => {
+router.patch("/admin/raffles/:id", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: raffleId } = req.params as { id: string };
   const { title, description, imageUrl, totalNumbers, pricePerNumber, reservationHours, status } = req.body as {
@@ -855,9 +855,18 @@ router.patch("/admin/raffles/:id", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // ADMIN: DELETE /api/admin/raffles/:id — delete raffle (and reservations)
 // ---------------------------------------------------------------------------
-router.delete("/admin/raffles/:id", requireAdminAuth, async (req, res) => {
+router.delete("/admin/raffles/:id", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: delId } = req.params as { id: string };
+  const [existing] = await db
+    .select({ id: rafflesTable.id })
+    .from(rafflesTable)
+    .where(and(buildRafflesTenantWhere(tenantId), eq(rafflesTable.id, delId)))
+    .limit(1);
+  if (!existing) {
+    res.status(404).json({ error: "NOT_FOUND", message: "Rifa não encontrada." });
+    return;
+  }
   await db.delete(raffleReservationsTable).where(and(buildRaffleReservationsTenantWhere(tenantId), eq(raffleReservationsTable.raffleId, delId)));
   await db.delete(rafflesTable).where(and(buildRafflesTenantWhere(tenantId), eq(rafflesTable.id, delId)));
   res.json({ ok: true });
@@ -866,7 +875,7 @@ router.delete("/admin/raffles/:id", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // ADMIN: GET /api/admin/raffles/:id/reservations — list all reservations
 // ---------------------------------------------------------------------------
-router.get("/admin/raffles/:id/reservations", requireAdminAuth, async (req, res) => {
+router.get("/admin/raffles/:id/reservations", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: resRaffleId } = req.params as { id: string };
   const rows = await db
@@ -887,7 +896,7 @@ router.get("/admin/raffles/:id/reservations", requireAdminAuth, async (req, res)
 // ---------------------------------------------------------------------------
 // ADMIN: PATCH /api/admin/raffles/:id/reservations/:reservationId/cancel
 // ---------------------------------------------------------------------------
-router.patch("/admin/raffles/:id/reservations/:reservationId/cancel", requireAdminAuth, async (req, res) => {
+router.patch("/admin/raffles/:id/reservations/:reservationId/cancel", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: raffleId, reservationId } = req.params as { id: string; reservationId: string };
 
@@ -928,7 +937,7 @@ router.patch("/admin/raffles/:id/reservations/:reservationId/cancel", requireAdm
 // ADMIN: PATCH /api/admin/raffles/:id/reservations/:reservationId/mark-paid
 // Pagamento fora do PIX. Não fala com o gateway e não altera transactionId.
 // ---------------------------------------------------------------------------
-router.patch("/admin/raffles/:id/reservations/:reservationId/mark-paid", requireAdminAuth, async (req, res) => {
+router.patch("/admin/raffles/:id/reservations/:reservationId/mark-paid", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: raffleId, reservationId } = req.params as { id: string; reservationId: string };
 
@@ -1012,7 +1021,7 @@ router.patch("/admin/raffles/:id/reservations/:reservationId/mark-paid", require
 // ADMIN: PATCH /api/admin/raffles/:id/reservations/:reservationId/undo-manual-paid
 // Só desfaz pagamento aprovado na mão. PIX confirmado pelo webhook permanece.
 // ---------------------------------------------------------------------------
-router.patch("/admin/raffles/:id/reservations/:reservationId/undo-manual-paid", requireAdminAuth, async (req, res) => {
+router.patch("/admin/raffles/:id/reservations/:reservationId/undo-manual-paid", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: raffleId, reservationId } = req.params as { id: string; reservationId: string };
 
@@ -1060,7 +1069,7 @@ router.patch("/admin/raffles/:id/reservations/:reservationId/undo-manual-paid", 
 // ---------------------------------------------------------------------------
 // ADMIN: GET /api/admin/raffles/:id/ranking — ranking for admin panel
 // ---------------------------------------------------------------------------
-router.get("/admin/raffles/:id/ranking", requireAdminAuth, async (req, res) => {
+router.get("/admin/raffles/:id/ranking", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: raffleId } = req.params as { id: string };
   const ranking = await getRaffleRanking(raffleId, 3, tenantId);
@@ -1070,7 +1079,7 @@ router.get("/admin/raffles/:id/ranking", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // ADMIN: GET /api/admin/raffles/:id/result — current winner/result
 // ---------------------------------------------------------------------------
-router.get("/admin/raffles/:id/result", requireAdminAuth, async (req, res) => {
+router.get("/admin/raffles/:id/result", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: raffleId } = req.params as { id: string };
   const result = await getRaffleResult(raffleId, tenantId);
@@ -1080,7 +1089,7 @@ router.get("/admin/raffles/:id/result", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // ADMIN: PUT /api/admin/raffles/:id/result — register winner number/result
 // ---------------------------------------------------------------------------
-router.put("/admin/raffles/:id/result", requireAdminAuth, async (req, res) => {
+router.put("/admin/raffles/:id/result", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: raffleId } = req.params as { id: string };
   const { winnerNumber, notes, drawMethod } = req.body as {
@@ -1164,7 +1173,7 @@ router.put("/admin/raffles/:id/result", requireAdminAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 // ADMIN: GET /api/admin/raffles/:id/promotions — list promotions
 // ---------------------------------------------------------------------------
-router.get("/admin/raffles/:id/promotions", requireAdminAuth, async (req, res) => {
+router.get("/admin/raffles/:id/promotions", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: raffleId } = req.params as { id: string };
   const promotions = await getRafflePromotions(raffleId, false, tenantId);
@@ -1174,7 +1183,7 @@ router.get("/admin/raffles/:id/promotions", requireAdminAuth, async (req, res) =
 // ---------------------------------------------------------------------------
 // ADMIN: POST /api/admin/raffles/:id/promotions — create promotion
 // ---------------------------------------------------------------------------
-router.post("/admin/raffles/:id/promotions", requireAdminAuth, async (req, res) => {
+router.post("/admin/raffles/:id/promotions", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: raffleId } = req.params as { id: string };
   const { quantity, promoPrice, isActive, sortOrder } = req.body as {
@@ -1217,7 +1226,7 @@ router.post("/admin/raffles/:id/promotions", requireAdminAuth, async (req, res) 
 // ---------------------------------------------------------------------------
 // ADMIN: PATCH /api/admin/raffles/:id/promotions/:promotionId — update
 // ---------------------------------------------------------------------------
-router.patch("/admin/raffles/:id/promotions/:promotionId", requireAdminAuth, async (req, res) => {
+router.patch("/admin/raffles/:id/promotions/:promotionId", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { promotionId } = req.params as { id: string; promotionId: string };
   const { quantity, promoPrice, isActive, sortOrder } = req.body as {
@@ -1263,7 +1272,7 @@ router.patch("/admin/raffles/:id/promotions/:promotionId", requireAdminAuth, asy
 // ---------------------------------------------------------------------------
 // ADMIN: DELETE /api/admin/raffles/:id/promotions/:promotionId — delete
 // ---------------------------------------------------------------------------
-router.delete("/admin/raffles/:id/promotions/:promotionId", requireAdminAuth, async (req, res) => {
+router.delete("/admin/raffles/:id/promotions/:promotionId", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { promotionId } = req.params as { id: string; promotionId: string };
   await db.delete(rafflePromotionsTable).where(and(buildRafflePromotionsTenantWhere(tenantId), eq(rafflePromotionsTable.id, promotionId)));

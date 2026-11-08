@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, sellersTable } from "@workspace/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 
@@ -10,6 +10,103 @@ function canManageSellers(scope: ReturnType<typeof getAdminScope>): boolean {
   if (!scope) return false;
   if (scope.isPrimary) return true;
   return scope.tenantId !== DEFAULT_TENANT_ID;
+}
+
+function sameSellerTenant(rowTenant: string | null | undefined, sessionTenant: string): boolean {
+  const row = String(rowTenant || "").trim() || DEFAULT_TENANT_ID;
+  const session = String(sessionTenant || "").trim() || DEFAULT_TENANT_ID;
+  return row === session;
+}
+
+function sellerOwnedWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(eq(sellersTable.tenantId, tenantId), isNull(sellersTable.tenantId), eq(sellersTable.tenantId, ""));
+  }
+  return eq(sellersTable.tenantId, tenantId);
+}
+
+function errorChain(err: unknown): object[] {
+  const chain: object[] = [];
+  const seen = new Set<unknown>();
+  let current: unknown = err;
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    chain.push(current);
+    current = (current as { cause?: unknown }).cause;
+  }
+  return chain;
+}
+
+function isDuplicateKey(err: unknown): boolean {
+  return errorChain(err).some((item) => {
+    const record = item as { code?: unknown; errno?: unknown };
+    return String(record.code || "") === "ER_DUP_ENTRY" || Number(record.errno) === 1062;
+  });
+}
+
+function isSlugConflict(err: unknown): boolean {
+  return errorChain(err).some((item) => item instanceof SellerSlugConflict || (item as { message?: unknown }).message === "SLUG_IN_OTHER_STORE");
+}
+
+class SellerSlugConflict extends Error {
+  constructor() {
+    super("SLUG_IN_OTHER_STORE");
+  }
+}
+
+async function saveSellerInOwnStore(input: {
+  tenantId: string;
+  slug: string;
+  whatsapp: string;
+  hasCommission: boolean;
+  commissionRate: string;
+}) {
+  const writeOwnRow = async (executor: Pick<typeof db, "update">) => {
+    await executor.update(sellersTable)
+      .set({
+        whatsapp: input.whatsapp,
+        hasCommission: input.hasCommission,
+        commissionRate: input.commissionRate,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(sellersTable.slug, input.slug), sellerOwnedWhere(input.tenantId)));
+  };
+
+  try {
+    await db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({ tenantId: sellersTable.tenantId })
+        .from(sellersTable)
+        .where(eq(sellersTable.slug, input.slug))
+        .limit(1);
+      if (existing && !sameSellerTenant(existing.tenantId, input.tenantId)) {
+        throw new SellerSlugConflict();
+      }
+      if (existing) {
+        await writeOwnRow(tx);
+        return;
+      }
+      await tx.insert(sellersTable).values({
+        slug: input.slug,
+        tenantId: input.tenantId,
+        whatsapp: input.whatsapp,
+        hasCommission: input.hasCommission,
+        commissionRate: input.commissionRate,
+        updatedAt: new Date(),
+      });
+    });
+  } catch (err) {
+    if (isSlugConflict(err)) return false;
+    if (!isDuplicateKey(err)) throw err;
+    const [row] = await db
+      .select({ tenantId: sellersTable.tenantId })
+      .from(sellersTable)
+      .where(eq(sellersTable.slug, input.slug))
+      .limit(1);
+    if (!row || !sameSellerTenant(row.tenantId, input.tenantId)) return false;
+    await writeOwnRow(db);
+  }
+  return true;
 }
 
 /** GET /api/sellers — public, returns all sellers [{slug, whatsapp}] */
@@ -89,24 +186,20 @@ router.post("/admin/sellers", requireAdminAuth, async (req, res) => {
     const wNum = (whatsapp || "").replace(/\D/g, "");
     const hasCommissionValue = hasCommission !== false;
     const normalizedRate = hasCommissionValue ? Math.max(0, Number(commissionRate ?? 5)) : 0;
-    await db
-      .insert(sellersTable)
-      .values({
-        slug: clean,
-        tenantId,
-        whatsapp: wNum,
-        hasCommission: hasCommissionValue,
-        commissionRate: String(normalizedRate),
-        updatedAt: new Date(),
-      })
-      .onDuplicateKeyUpdate({
-        set: {
-          whatsapp: wNum,
-          hasCommission: hasCommissionValue,
-          commissionRate: String(normalizedRate),
-          updatedAt: new Date(),
-        },
+    const saved = await saveSellerInOwnStore({
+      tenantId,
+      slug: clean,
+      whatsapp: wNum,
+      hasCommission: hasCommissionValue,
+      commissionRate: String(normalizedRate),
+    });
+    if (!saved) {
+      res.status(409).json({
+        error: "SLUG_IN_OTHER_STORE",
+        message: "Este identificador de vendedor já existe em outra loja.",
       });
+      return;
+    }
     res.json({
       ok: true,
       seller: {

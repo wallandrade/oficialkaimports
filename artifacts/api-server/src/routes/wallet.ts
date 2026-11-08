@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { customerUsersTable, db } from "@workspace/db";
 import { and, eq, isNull, or } from "drizzle-orm";
-import { getAdminScope, requireAdminAuth } from "./admin-auth";
+import { getAdminScope, requireAdminAuth, requireStoreWideAdmin } from "./admin-auth";
 import { getCustomerSession, requireCustomerAuth } from "../middlewares/customer-auth";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-context";
 import { creditWallet, getWalletBalance, listWalletEntries } from "../lib/customer-wallet";
@@ -38,7 +38,7 @@ router.get("/me/wallet", requireCustomerAuth, async (req, res) => {
   res.json({ availableCredit: available, entries: await listWalletEntries(session.userId, tenantId, 20) });
 });
 
-router.get("/admin/wallet/:userId", requireAdminAuth, async (req, res) => {
+router.get("/admin/wallet/:userId", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   try {
     const scope = getAdminScope(req);
     if (!scope) {
@@ -49,6 +49,15 @@ router.get("/admin/wallet/:userId", requireAdminAuth, async (req, res) => {
     const userId = String(req.params.userId || "").trim();
     if (!userId) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Informe o ID do cliente." });
+      return;
+    }
+    const [customer] = await db
+      .select({ id: customerUsersTable.id })
+      .from(customerUsersTable)
+      .where(and(buildCustomerUsersTenantWhere(tenantId), eq(customerUsersTable.id, userId)))
+      .limit(1);
+    if (!customer) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Cliente não encontrado." });
       return;
     }
     const available = await getWalletBalance(userId, tenantId);

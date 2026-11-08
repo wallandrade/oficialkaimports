@@ -453,6 +453,20 @@ export async function requireAdminAuth(req: Request, res: Response, next: NextFu
   }
 }
 
+/** Admin da loja inteira: superadmin ou admin da filial. O vendedor restrito fica de fora. */
+export function requireStoreWideAdmin(req: Request, res: Response, next: NextFunction) {
+  const scope = getAdminScope(req);
+  if (!scope) {
+    res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
+    return;
+  }
+  if (!scope.hasGlobalAccess) {
+    res.status(403).json({ error: "FORBIDDEN", message: "Sem permissão para esta operação da loja." });
+    return;
+  }
+  next();
+}
+
 export async function requirePrimaryAdmin(req: Request, res: Response, next: NextFunction) {
   const token = getTokenFromRequest(req);
   await purgeExpiredSessions();
