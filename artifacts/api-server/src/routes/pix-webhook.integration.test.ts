@@ -26,6 +26,7 @@ const { default: pixRouter } = await import("./pix.ts");
 const { default: raffleRouter } = await import("./raffles.ts");
 const { default: chargeRouter } = await import("./custom-charges.ts");
 const { rememberGatewayChargeProof } = await import("../lib/pix-charge-proof.ts");
+const { ensureRuntimeSchema } = await import("../runtime-schema.ts");
 
 const app = express();
 app.use(express.json());
@@ -370,6 +371,88 @@ test("token incorreto, valor, moeda e status errados não pagam; whsec antigo co
 
   const [untouched] = await db.select().from(ordersTable).where(eq(ordersTable.id, "order-guards"));
   assert.equal(untouched?.status, "awaiting_payment");
+});
+
+test("rifa já paga e números atribuídos sobrevivem ao boot e a aviso tardio", async () => {
+  const numbers = "[7,8]";
+  const expiresAt = new Date(Date.now() - 60 * 60 * 1000);
+  await db.insert(rafflesTable).values({
+    id: "raffle-paid",
+    tenantId: "tenant_loja1",
+    title: "Rifa ja paga",
+    totalNumbers: 50,
+    pricePerNumber: "10.00",
+  }).onDuplicateKeyUpdate({ set: { title: "Rifa ja paga" } });
+  await db.delete(raffleReservationsTable).where(eq(raffleReservationsTable.id, "reservation-paid"));
+  await db.insert(raffleReservationsTable).values({
+    id: "reservation-paid",
+    tenantId: "tenant_loja1",
+    raffleId: "raffle-paid",
+    numbers,
+    clientName: "Pessoa Sintetica",
+    clientEmail: "sintetico@example.test",
+    clientPhone: "11999999999",
+    totalAmount: "20.00",
+    status: "paid",
+    paidSource: "pix",
+    transactionId: "tx-already-paid",
+    expiresAt,
+  });
+
+  const beforeBoot = await db.select().from(raffleReservationsTable).where(eq(raffleReservationsTable.id, "reservation-paid"));
+  const ordersBefore = await db.select({ id: ordersTable.id, status: ordersTable.status }).from(ordersTable);
+
+  await ensureRuntimeSchema();
+
+  const [proofTable] = await pool.query(
+    "SELECT COUNT(*) AS total FROM information_schema.tables WHERE table_schema = ? AND table_name = 'pix_charge_proofs'",
+    ["pix_settlement_test"],
+  ) as unknown as [Array<{ total: number }>];
+  assert.equal(Number(proofTable[0]?.total), 1);
+
+  const afterBoot = await db.select().from(raffleReservationsTable).where(eq(raffleReservationsTable.id, "reservation-paid"));
+  assert.equal(afterBoot[0]?.status, "paid");
+  assert.equal(afterBoot[0]?.numbers, numbers);
+  assert.equal(afterBoot[0]?.paidSource, "pix");
+  assert.equal(afterBoot[0]?.transactionId, "tx-already-paid");
+  assert.equal(afterBoot[0]?.totalAmount, beforeBoot[0]?.totalAmount);
+
+  const repeated = await post("/api/webhook/pix", realRaffleNotice("tx-already-paid", "COMPLETED", "token-nao-gravado", 20));
+  assert.equal(repeated.status, 403);
+  assert.equal(repeated.json.reason, "proof_not_stored");
+
+  const cancelled = await post("/api/webhook/pix", {
+    ...realRaffleNotice("tx-already-paid", "COMPLETED", "token-nao-gravado", 20),
+    event: "TRANSACTION_CANCELED",
+    transaction: {
+      ...realRaffleNotice("tx-already-paid", "COMPLETED", "token-nao-gravado", 20).transaction,
+      status: "CANCELED",
+      payedAt: null,
+    },
+  });
+  assert.equal(cancelled.status, 403);
+
+  const withSecret = await post("/api/webhook/pix?whsec=it-shared-secret", {
+    ...realRaffleNotice("tx-already-paid", "COMPLETED", "", 20),
+    token: "",
+    event: "TRANSACTION_CANCELED",
+    transaction: {
+      ...realRaffleNotice("tx-already-paid", "COMPLETED", "", 20).transaction,
+      status: "EXPIRED",
+      payedAt: null,
+    },
+  });
+  assert.equal(withSecret.status, 200);
+  assert.equal(withSecret.json.reason, "duplicate");
+
+  const afterWebhook = await db.select().from(raffleReservationsTable).where(eq(raffleReservationsTable.id, "reservation-paid"));
+  assert.equal(afterWebhook[0]?.status, "paid");
+  assert.equal(afterWebhook[0]?.numbers, numbers);
+  assert.equal(afterWebhook[0]?.paidSource, "pix");
+  assert.equal(afterWebhook[0]?.transactionId, "tx-already-paid");
+
+  const ordersAfter = await db.select({ id: ordersTable.id, status: ordersTable.status }).from(ordersTable);
+  assert.deepEqual(ordersAfter, ordersBefore);
 });
 
 test("regenerar PIX com valor do navegador menor não chama o gateway", async () => {
