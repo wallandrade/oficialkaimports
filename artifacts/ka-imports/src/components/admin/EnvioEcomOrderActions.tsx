@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, RefreshCw, Truck, FileText, Ban, ExternalLink, X, Link2, Unlink, ShieldAlert } from "lucide-react";
+import { Loader2, RefreshCw, Truck, FileText, Ban, ExternalLink, X, Link2, Unlink, ShieldAlert, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { formatCurrency } from "@/lib/utils";
 import { hasEnvioEcomLabelReady } from "@/lib/pending-shipment-copy";
 import { fetchRelatedCpfShipments, type RelatedCpfShipmentsResult } from "@/lib/related-cpf-shipments";
@@ -712,72 +719,141 @@ export function EnvioEcomOrderActions({
     }
   }
 
+  const packageCard = Boolean(packageId);
+  const actionClass = packageCard ? "h-8 px-2.5 text-xs" : "";
+  const canGenerateLabel = Boolean(bound.envioecomShipmentId || barcode) && !labelBlocked;
+  const canSync = Boolean(bound.envioecomShipmentId || barcode);
+  const canOpenPdf = Boolean(labelUrl) && !labelBlocked;
+  const canManagePackage = canGenerateLabel || canSync || canOpenPdf || hasBinding;
+
+  function openLabelPdf() {
+    openShipmentLabelPdf({
+      orderId: order.id,
+      packageId,
+      fallbackUrl: labelUrl,
+      clientName: order.clientName,
+      orderNumber: order.orderNumber,
+      poolLabel,
+    });
+  }
+
   return (
     <>
-      <Button size="sm" variant="outline" className="gap-1.5 text-emerald-700 border-emerald-200 hover:bg-emerald-50" disabled={!!busy} onClick={() => void startQuote()}>
+      <Button size="sm" variant="outline" className={`gap-1.5 text-emerald-700 border-emerald-200 hover:bg-emerald-50 ${actionClass}`} disabled={!!busy} onClick={() => void startQuote()}>
         {busy === "quote" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Truck className="w-3.5 h-3.5" />}
         EnvioEcom
       </Button>
       <Button
         size="sm"
         variant="outline"
-        className="gap-1.5 text-teal-700 border-teal-200 hover:bg-teal-50"
+        className={`gap-1.5 text-teal-700 border-teal-200 hover:bg-teal-50 ${actionClass}`}
         disabled={!!busy}
         onClick={() => openEnvioEcomLinkModal(false)}
       >
         {busy === "bind" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />}
-        Vincular EE
+        {packageCard ? "Vincular" : "Vincular EE"}
       </Button>
-      {(bound.envioecomShipmentId || barcode) && !labelBlocked && (
-        <Button size="sm" variant="outline" className="gap-1.5 text-emerald-800 border-emerald-200 hover:bg-emerald-50" disabled={!!busy} onClick={() => void generateLabel()}>
-          {busy === "label" || busy === "bind" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
-          Etiqueta EE
-        </Button>
-      )}
-      {(bound.envioecomShipmentId || barcode) && (
-        <Button size="sm" variant="outline" className="gap-1.5" disabled={!!busy} onClick={() => void sync()}>
-          {busy === "sync" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-          Sync EE
-        </Button>
-      )}
-      {hasBinding && (
-        <Button size="sm" variant="outline" className="gap-1.5 text-amber-700 border-amber-200 hover:bg-amber-50" disabled={!!busy} onClick={() => void unlinkShipment()}>
-          {busy === "unlink" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Unlink className="w-3.5 h-3.5" />}
-          Desvincular
-        </Button>
-      )}
-      {hasBinding && (
-        <Button size="sm" variant="outline" className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50" disabled={!!busy} onClick={() => void cancelShipment()}>
-          {busy === "cancel" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />}
-          Cancelar EE
-        </Button>
-      )}
-      {hasBinding && (
-        <Button size="sm" variant="outline" className="gap-1.5 text-rose-800 border-rose-200 hover:bg-rose-50" disabled={!!busy} onClick={() => void toggleLossBlacklist()}>
-          {busy === "loss" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldAlert className="w-3.5 h-3.5" />}
-          {lossActive ? "Tirar da lista negra" : "Lista negra de extravio"}
-        </Button>
-      )}
-      {labelUrl && !labelBlocked && (
-        <Button size="sm" variant="outline" className="gap-1.5" onClick={() => openShipmentLabelPdf({
-          orderId: order.id,
-          packageId,
-          fallbackUrl: labelUrl,
-          clientName: order.clientName,
-          orderNumber: order.orderNumber,
-          poolLabel,
-        })}>
-          <ExternalLink className="w-3.5 h-3.5" /> Ver PDF
-        </Button>
-      )}
-      {(bound.envioecomStatus || barcode) && (
-        <p className={`basis-full text-xs ${labelBlocked ? "text-rose-700" : "text-emerald-800"}`}>
-          EnvioEcom{poolLabel ? ` ${poolLabel}` : ""}: {bound.envioecomStatus || "Rastreio vinculado"}
-          {prettyAccountName(bound) ? ` · ${prettyAccountName(bound)}` : ""}
-          {bound.envioecomDeliveryMode ? ` · ${bound.envioecomDeliveryMode}` : ""}
-          {barcode ? ` · ${barcode}` : ""}
-          {bound.envioecomFreightCost != null ? ` · ${formatCurrency(bound.envioecomFreightCost)}` : ""}
-        </p>
+      {packageCard ? (
+        canManagePackage ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={!!busy}
+                className={`gap-1 text-teal-800 border-teal-300 hover:bg-teal-50 ${actionClass}`}
+              >
+                Gerenciar EE
+                <ChevronDown className="w-3.5 h-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="z-[80] w-56">
+              {canGenerateLabel && (
+                <DropdownMenuItem disabled={!!busy} onSelect={() => { void generateLabel(); }}>
+                  <FileText className="w-4 h-4" />
+                  Etiqueta EE
+                </DropdownMenuItem>
+              )}
+              {canOpenPdf && (
+                <DropdownMenuItem onSelect={openLabelPdf}>
+                  <ExternalLink className="w-4 h-4" />
+                  Ver PDF
+                </DropdownMenuItem>
+              )}
+              {canSync && (
+                <DropdownMenuItem disabled={!!busy} onSelect={() => { void sync(); }}>
+                  <RefreshCw className="w-4 h-4" />
+                  Sync EE
+                </DropdownMenuItem>
+              )}
+              {hasBinding && (
+                <>
+                  {(canGenerateLabel || canOpenPdf || canSync) && <DropdownMenuSeparator />}
+                  <DropdownMenuItem disabled={!!busy} className="text-amber-800 focus:text-amber-900" onSelect={() => { void unlinkShipment(); }}>
+                    <Unlink className="w-4 h-4" />
+                    Desvincular
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={!!busy} className="text-red-700 focus:text-red-800" onSelect={() => { void cancelShipment(); }}>
+                    <Ban className="w-4 h-4" />
+                    Cancelar EE
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={!!busy} className="text-rose-800 focus:text-rose-900" onSelect={() => { void toggleLossBlacklist(); }}>
+                    <ShieldAlert className="w-4 h-4" />
+                    {lossActive ? "Tirar da lista negra" : "Lista negra de extravio"}
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null
+      ) : (
+        <>
+          {canGenerateLabel && (
+            <Button size="sm" variant="outline" className="gap-1.5 text-emerald-800 border-emerald-200 hover:bg-emerald-50" disabled={!!busy} onClick={() => void generateLabel()}>
+              {busy === "label" || busy === "bind" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
+              Etiqueta EE
+            </Button>
+          )}
+          {canSync && (
+            <Button size="sm" variant="outline" className="gap-1.5" disabled={!!busy} onClick={() => void sync()}>
+              {busy === "sync" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              Sync EE
+            </Button>
+          )}
+          {hasBinding && (
+            <Button size="sm" variant="outline" className="gap-1.5 text-amber-700 border-amber-200 hover:bg-amber-50" disabled={!!busy} onClick={() => void unlinkShipment()}>
+              {busy === "unlink" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Unlink className="w-3.5 h-3.5" />}
+              Desvincular
+            </Button>
+          )}
+          {hasBinding && (
+            <Button size="sm" variant="outline" className="gap-1.5 text-red-600 border-red-200 hover:bg-red-50" disabled={!!busy} onClick={() => void cancelShipment()}>
+              {busy === "cancel" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Ban className="w-3.5 h-3.5" />}
+              Cancelar EE
+            </Button>
+          )}
+          {hasBinding && (
+            <Button size="sm" variant="outline" className="gap-1.5 text-rose-800 border-rose-200 hover:bg-rose-50" disabled={!!busy} onClick={() => void toggleLossBlacklist()}>
+              {busy === "loss" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldAlert className="w-3.5 h-3.5" />}
+              {lossActive ? "Tirar da lista negra" : "Lista negra de extravio"}
+            </Button>
+          )}
+          {canOpenPdf && (
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={openLabelPdf}>
+              <ExternalLink className="w-3.5 h-3.5" /> Ver PDF
+            </Button>
+          )}
+          {(bound.envioecomStatus || barcode) && (
+            <p className={`basis-full text-xs ${labelBlocked ? "text-rose-700" : "text-emerald-800"}`}>
+              EnvioEcom{poolLabel ? ` ${poolLabel}` : ""}: {bound.envioecomStatus || "Rastreio vinculado"}
+              {prettyAccountName(bound) ? ` · ${prettyAccountName(bound)}` : ""}
+              {bound.envioecomDeliveryMode ? ` · ${bound.envioecomDeliveryMode}` : ""}
+              {barcode ? ` · ${barcode}` : ""}
+              {bound.envioecomFreightCost != null ? ` · ${formatCurrency(bound.envioecomFreightCost)}` : ""}
+            </p>
+          )}
+        </>
       )}
 
       {quoteOpen && (

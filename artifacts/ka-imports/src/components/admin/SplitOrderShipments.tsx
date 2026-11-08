@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Loader2, Pencil, Split, Upload } from "lucide-react";
+import { Loader2, Pencil, ShoppingBag, Split, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EnvioEcomOrderActions, type EnvioEcomOrderFields, type EnvioEcomPackageFields } from "@/components/admin/EnvioEcomOrderActions";
@@ -22,6 +22,33 @@ function poolLabel(pool: string): string {
   if (pool === "motoboy") return "Motoboy";
   if (pool === "minas") return "Minas";
   return "Fóz Guaçu";
+}
+
+function cardStockLabel(pool: string): string {
+  if (pool === "motoboy") return "Motoboy";
+  if (pool === "minas") return "Minas";
+  return "Foz";
+}
+
+function trackingPillClass(status?: string | null): string {
+  const normalized = String(status || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+  if (normalized.includes("cancelad")) return "border-rose-200 bg-rose-50 text-rose-800";
+  if (normalized.includes("entregue")) return "border-emerald-200 bg-emerald-50 text-emerald-900";
+  if (
+    normalized.includes("transito")
+    || normalized.includes("postado")
+    || normalized.includes("expedido")
+    || normalized.includes("saiu")
+    || normalized.includes("rota")
+    || normalized.includes("coletad")
+  ) {
+    return "border-sky-200 bg-sky-50 text-sky-900";
+  }
+  return "border-teal-200 bg-white text-teal-950";
 }
 
 function parseProducts(products: unknown): Array<{ id: string; name: string; quantity: number; image: string | null }> {
@@ -89,11 +116,16 @@ function resolveProductImage(
   return productId ? String(catalog?.[productId] || "").trim() : "";
 }
 
-function ProductThumb({ src, name }: { src: string; name: string }) {
+function ProductThumb({ src, name, size = "md" }: { src: string; name: string; size?: "md" | "sm" }) {
+  const box = size === "sm" ? "h-8 w-8 rounded-md" : "h-11 w-11 rounded-lg";
   return (
-    <div className="h-11 w-11 rounded-lg overflow-hidden border border-neutral-200 bg-neutral-50 shrink-0">
+    <div className={`${box} overflow-hidden border border-neutral-200 bg-neutral-50 shrink-0`}>
       {src ? (
         <img src={src} alt={name} className="h-full w-full object-cover" loading="lazy" />
+      ) : size === "sm" ? (
+        <div className="h-full w-full flex items-center justify-center text-neutral-400">
+          <ShoppingBag className="w-3.5 h-3.5" />
+        </div>
       ) : (
         <div className="h-full w-full flex items-center justify-center text-[11px] font-semibold text-neutral-400">
           {(name || "?").slice(0, 1).toUpperCase()}
@@ -321,32 +353,79 @@ export function SplitOrderShipmentsButton({
           <Pencil className="w-3.5 h-3.5" />
           Editar divisão
         </Button>
-        {order.packages!.map((pkg) => (
-          <div key={pkg.id} className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-3 space-y-2">
-            <p className="text-xs font-semibold text-emerald-900">
-              Pacote {poolLabel(String(pkg.inventoryPool || ""))}
-              {pkg.enviado ? " · Enviado" : pkg.inventoryReserved ? " · Estoque baixado" : ""}
-            </p>
-            <ul className="text-xs text-emerald-900/80 space-y-1.5">
-              {(pkg.items || []).map((item, index) => {
-                const name = item.productName || item.productId || "Produto";
-                const imageSrc = resolveProductImage(
-                  { id: item.productId, name, image: products.find((row) => row.id && row.id === item.productId)?.image },
-                  imageByProductId,
-                );
-                return (
-                  <li key={`${pkg.id}-${item.productId || item.productName || index}`} className="flex items-center gap-2">
-                    <ProductThumb src={imageSrc} name={name} />
-                    <span>{item.quantity}× {name}</span>
-                  </li>
-                );
-              })}
-            </ul>
-            <div className="flex flex-wrap gap-2">
+        {order.packages!.map((pkg) => {
+          const pool = String(pkg.inventoryPool || "");
+          const eeCode = String(pkg.envioecomBarcode || "").trim();
+          const manualCode = String(pkg.manualTrackingCode || "").trim();
+          const hasEnvioEcomTracking = Boolean(pkg.envioecomStatus || eeCode);
+          const packageItems = pkg.items || [];
+          const hasTracking = Boolean(pkg.envioecomStatus || eeCode || manualCode);
+          return (
+          <div key={pkg.id} className="w-full flex flex-col gap-2 rounded-xl border border-teal-100 bg-teal-50/40 px-2.5 py-2">
+            <div className="flex items-start justify-between gap-3">
+              <span className="text-xs font-bold text-teal-950 shrink-0 pt-0.5">
+                {cardStockLabel(pool)}
+              </span>
+              <div className="flex flex-col items-end gap-1 min-w-0">
+                {hasEnvioEcomTracking ? (
+                  <span className={`inline-flex flex-col items-end max-w-full px-2.5 py-1 rounded-lg text-[11px] font-semibold border ${trackingPillClass(pkg.envioecomStatus)}`}>
+                    <span>{pkg.envioecomStatus || "EnvioEcom"}</span>
+                    {eeCode ? <span className="font-mono text-xs font-bold tracking-tight break-all">{eeCode}</span> : null}
+                  </span>
+                ) : null}
+                {manualCode ? (
+                  <span className="inline-flex flex-col items-end max-w-full px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-indigo-200 bg-white text-indigo-900">
+                    <span>Correios</span>
+                    <span className="font-mono text-xs font-bold tracking-tight break-all">{manualCode}</span>
+                  </span>
+                ) : null}
+                {!hasTracking ? (
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-dashed border-slate-300 bg-white text-slate-500">
+                    Sem rastreio
+                  </span>
+                ) : null}
+              </div>
+            </div>
+            {packageItems.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <p className="text-[11px] font-semibold text-teal-900">
+                  {packageItems.length} {packageItems.length === 1 ? "item" : "itens"} {hasTracking ? "neste rastreio" : "neste pacote"}
+                </p>
+                {packageItems.map((item, index) => {
+                  const name = String(item.productName || item.productId || "Produto").trim() || "Produto";
+                  const imageSrc = resolveProductImage(
+                    { id: item.productId, name, image: products.find((row) => row.id && row.id === item.productId)?.image },
+                    imageByProductId,
+                  );
+                  return (
+                    <div key={`${pkg.id}-${item.productId || item.productName || index}`} className="flex items-center gap-2 min-w-0">
+                      <ProductThumb src={imageSrc} name={name} size="sm" />
+                      <span className="text-xs font-medium text-foreground leading-snug break-words min-w-0">
+                        {item.quantity}× {name}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-teal-100">
+              {pkg.inventoryReserved ? (
+                <span className="h-8 px-2.5 inline-flex items-center rounded-full border border-emerald-300 bg-emerald-50 text-emerald-800 text-[11px] font-bold">
+                  Baixa OK
+                </span>
+              ) : null}
+              <ManualTrackingButton
+                orderId={order.id}
+                packageId={pkg.id}
+                trackingCode={pkg.manualTrackingCode}
+                hideCode
+                className="h-8 px-2.5 text-xs"
+                onSaved={(next) => onPatched(next)}
+              />
               <EnvioEcomOrderActions
                 order={order}
                 packageId={pkg.id}
-                poolLabel={poolLabel(String(pkg.inventoryPool || ""))}
+                poolLabel={poolLabel(pool)}
                 onPatched={onPatched}
                 yuryPassword={yuryPassword}
                 onReshipmentClosed={onReshipmentClosed}
@@ -369,7 +448,7 @@ export function SplitOrderShipmentsButton({
                     type="button"
                     size="sm"
                     variant="outline"
-                    className="gap-1.5 text-indigo-700 border-indigo-200 hover:bg-indigo-50"
+                    className="h-8 px-2.5 text-xs gap-1.5 text-indigo-700 border-indigo-200 hover:bg-indigo-50"
                     onClick={() => document.getElementById(`split-tracking-${pkg.id}`)?.click()}
                   >
                     <Upload className="w-3.5 h-3.5" />
@@ -377,15 +456,10 @@ export function SplitOrderShipmentsButton({
                   </Button>
                 </>
               ) : null}
-              <ManualTrackingButton
-                orderId={order.id}
-                packageId={pkg.id}
-                trackingCode={pkg.manualTrackingCode}
-                onSaved={(next) => onPatched(next)}
-              />
             </div>
           </div>
-        ))}
+          );
+        })}
         {modal}
       </div>
     );

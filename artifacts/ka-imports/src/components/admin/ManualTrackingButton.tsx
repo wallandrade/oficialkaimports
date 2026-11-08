@@ -17,11 +17,15 @@ export function ManualTrackingButton({
   packageId,
   trackingCode,
   onSaved,
+  hideCode = false,
+  className,
 }: {
   orderId: string;
   packageId?: string | null;
   trackingCode?: string | null;
   onSaved: (order: { id: string; enviado?: boolean }) => void;
+  hideCode?: boolean;
+  className?: string;
 }) {
   const current = String(trackingCode || "").trim();
   const [open, setOpen] = useState(false);
@@ -58,7 +62,7 @@ export function ManualTrackingButton({
         type="button"
         size="sm"
         variant="outline"
-        className="gap-1.5 text-sky-800 border-sky-200 hover:bg-sky-50"
+        className={`gap-1.5 text-sky-800 border-sky-200 hover:bg-sky-50 ${className || ""}`}
         disabled={busy}
         onClick={() => {
           setDraft(current);
@@ -68,7 +72,7 @@ export function ManualTrackingButton({
         {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
         Rastreio manual
       </Button>
-      {current && !open ? (
+      {current && !open && !hideCode ? (
         <p className="text-[11px] font-mono text-sky-900">Código: {current}</p>
       ) : null}
       {open ? (

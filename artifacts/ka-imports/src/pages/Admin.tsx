@@ -891,7 +891,7 @@ function formatRaffleDescriptionPreview(value: string | undefined | null): strin
 
 import React, { useState, useEffect, useCallback, useRef, useMemo, startTransition, type ReactNode } from "react";
 import { useLocation } from "wouter";
-import { Loader2, Save, Plus, Trash2, X, CheckCircle, XCircle, Zap, Info, Pencil, MessageCircle, Tag, Bell, RefreshCw, Download, LogOut, QrCode, LinkIcon, Ticket, ShoppingBag, Clock, Upload, ChevronDown, ChevronUp, Copy, Users, Percent, Calendar, DollarSign, ShieldCheck, CreditCard, Truck, RotateCcw, UserPlus, Eye, EyeOff, ToggleLeft, Webhook, ImageOff, Lock, AlertTriangle, Star, Send, Mail, Store, Bike, MapPin, Search, Warehouse } from "lucide-react";
+import { Loader2, Save, Plus, Trash2, X, CheckCircle, XCircle, Zap, Info, Pencil, MessageCircle, Tag, Bell, RefreshCw, Download, LogOut, QrCode, LinkIcon, Ticket, ShoppingBag, Clock, Upload, ChevronDown, ChevronUp, Copy, Users, Percent, Calendar, DollarSign, ShieldCheck, CreditCard, Truck, RotateCcw, UserPlus, Eye, EyeOff, ToggleLeft, Webhook, ImageOff, Lock, AlertTriangle, Star, Send, Mail, Store, Bike, MapPin, Search, Warehouse, Wallet } from "lucide-react";
 import { IconLucide } from "@/components/ui/IconLucide";
 
 import { toast } from "sonner";
@@ -8433,6 +8433,7 @@ export default function Admin() {
             onImpersonate={impersonateCustomerAccount}
             impersonatingId={customerImpersonatingId}
             canImpersonate={isPrimary}
+            canAdjustWallet={canManageInsuranceTab}
             onExportCSV={handleExportCustomersCSV}
             onSyncBrevo={handleSyncCustomersBrevo}
             exportingCSV={exportingCustomersCSV}
@@ -18583,8 +18584,18 @@ function CommissionPaymentsPanel({
 // ---------------------------------------------------------------------------
 // CustomersPanel
 // ---------------------------------------------------------------------------
+function parseCustomerWalletAmount(raw: string): number {
+  const cleaned = raw.trim().replace(/\s/g, "").replace(/^R\$/i, "");
+  if (!cleaned) return Number.NaN;
+  if (cleaned.includes(",") && cleaned.includes(".")) {
+    return Number(cleaned.replace(/\./g, "").replace(",", "."));
+  }
+  if (cleaned.includes(",")) return Number(cleaned.replace(",", "."));
+  return Number(cleaned);
+}
+
 function CustomersPanel({
-  customers, loading, onRefresh, onImpersonate, impersonatingId, canImpersonate, onExportCSV, onSyncBrevo, exportingCSV, syncingBrevo, exportModalOpen, setExportModalOpen, exportColumns, setExportColumns,
+  customers, loading, onRefresh, onImpersonate, impersonatingId, canImpersonate, canAdjustWallet, onExportCSV, onSyncBrevo, exportingCSV, syncingBrevo, exportModalOpen, setExportModalOpen, exportColumns, setExportColumns,
 }: {
   customers: CustomerUserRecord[];
   loading: boolean;
@@ -18592,6 +18603,7 @@ function CustomersPanel({
   onImpersonate: (customer: CustomerUserRecord) => void;
   impersonatingId: string | null;
   canImpersonate: boolean;
+  canAdjustWallet: boolean;
   onExportCSV: () => void;
   onSyncBrevo: () => void;
   exportingCSV: boolean;
@@ -18606,6 +18618,13 @@ function CustomersPanel({
   const [passwordDraft, setPasswordDraft] = useState("");
   const [showPasswordDraft, setShowPasswordDraft] = useState(false);
   const [passwordSaving, setPasswordSaving] = useState(false);
+  const [walletCustomer, setWalletCustomer] = useState<CustomerUserRecord | null>(null);
+  const [walletAmount, setWalletAmount] = useState("");
+  const [walletReason, setWalletReason] = useState("");
+  const [walletSaving, setWalletSaving] = useState(false);
+  const [walletBalance, setWalletBalance] = useState<number | null>(null);
+  const [walletBalanceLoading, setWalletBalanceLoading] = useState(false);
+  const walletRequestId = useRef(0);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return customers;
@@ -18660,6 +18679,93 @@ function CustomersPanel({
       toast.error("Erro ao alterar senha.");
     } finally {
       setPasswordSaving(false);
+    }
+  };
+
+  const openWalletModal = (customer: CustomerUserRecord) => {
+    const requestId = walletRequestId.current + 1;
+    walletRequestId.current = requestId;
+    setWalletCustomer(customer);
+    setWalletAmount("");
+    setWalletReason("");
+    setWalletBalance(null);
+    setWalletBalanceLoading(true);
+    void (async () => {
+      try {
+        const res = await fetch(`${BASE}/api/admin/wallet/${encodeURIComponent(customer.id)}`, {
+          headers: authHeaders(),
+        });
+        const data = await res.json().catch(() => ({})) as { availableCredit?: number; message?: string };
+        if (walletRequestId.current !== requestId) return;
+        if (!res.ok) {
+          toast.error(data.message || "Erro ao carregar saldo.");
+          return;
+        }
+        setWalletBalance(Number(data.availableCredit || 0));
+      } catch {
+        if (walletRequestId.current === requestId) toast.error("Erro ao carregar saldo.");
+      } finally {
+        if (walletRequestId.current === requestId) setWalletBalanceLoading(false);
+      }
+    })();
+  };
+
+  const closeWalletModal = () => {
+    if (walletSaving) return;
+    walletRequestId.current += 1;
+    setWalletCustomer(null);
+    setWalletAmount("");
+    setWalletReason("");
+    setWalletBalance(null);
+  };
+
+  const submitCustomerWallet = async () => {
+    if (!walletCustomer) return;
+    if (!canAdjustWallet) {
+      toast.error("Sem permissão para adicionar saldo.");
+      return;
+    }
+    if (!walletCustomer.hasAccount) {
+      toast.error("Este comprador não possui conta cadastrada (compra como convidado).");
+      return;
+    }
+    const amount = parseCustomerWalletAmount(walletAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error("Informe um valor maior que zero.");
+      return;
+    }
+    const reason = walletReason.trim();
+    if (!reason) {
+      toast.error("Informe o motivo.");
+      return;
+    }
+
+    setWalletSaving(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/wallet/adjust`, {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerUserId: walletCustomer.id,
+          amount,
+          reason,
+        }),
+      });
+      const data = await res.json().catch(() => ({})) as { message?: string; availableCredit?: number };
+      if (!res.ok) {
+        toast.error(data.message || "Erro ao adicionar saldo.");
+        return;
+      }
+      const available = Number(data.availableCredit || 0);
+      toast.success(`Saldo de "${walletCustomer.name}" atualizado. Disponível: ${formatCurrency(available)}.`);
+      setWalletCustomer(null);
+      setWalletAmount("");
+      setWalletReason("");
+      setWalletBalance(null);
+    } catch {
+      toast.error("Erro ao adicionar saldo.");
+    } finally {
+      setWalletSaving(false);
     }
   };
 
@@ -18793,6 +18899,16 @@ function CustomersPanel({
                         <Lock className="w-3.5 h-3.5" />
                         Alterar senha
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => openWalletModal(c)}
+                        disabled={!canAdjustWallet || !c.hasAccount || walletSaving}
+                        className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg border border-border bg-white hover:bg-muted text-xs font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+                        title={!canAdjustWallet ? "Sem permissão para adicionar saldo" : !c.hasAccount ? "Comprador sem cadastro (convidado)" : "Adicionar saldo na carteira do cliente"}
+                      >
+                        <Wallet className="w-3.5 h-3.5" />
+                        Adicionar saldo
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -18846,6 +18962,64 @@ function CustomersPanel({
               >
                 {passwordSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                 Salvar senha
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {walletCustomer && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl shadow-lg max-w-md w-full mx-4 p-6 space-y-4">
+            <div>
+              <h3 className="text-lg font-bold text-foreground">Adicionar saldo</h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                Carteira da loja de {walletCustomer.name} ({walletCustomer.email}). O cliente usa esse valor no checkout.
+              </p>
+            </div>
+            <p className="text-sm font-medium text-foreground">
+              Saldo atual:{" "}
+              {walletBalanceLoading ? (
+                <span className="inline-flex items-center gap-1 text-muted-foreground">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  carregando
+                </span>
+              ) : walletBalance == null ? (
+                <span className="text-muted-foreground">indisponível</span>
+              ) : (
+                formatCurrency(walletBalance)
+              )}
+            </p>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={walletAmount}
+              onChange={(e) => setWalletAmount(e.target.value)}
+              placeholder="Valor a adicionar (ex.: 50,00)"
+              className="w-full h-11 px-4 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+            />
+            <input
+              type="text"
+              value={walletReason}
+              onChange={(e) => setWalletReason(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void submitCustomerWallet();
+              }}
+              placeholder="Motivo"
+              className="w-full h-11 px-4 rounded-xl border-2 border-border bg-white focus:border-primary outline-none text-sm"
+            />
+            <div className="flex items-center justify-end gap-2">
+              <Button size="sm" variant="ghost" onClick={closeWalletModal} disabled={walletSaving}>
+                Cancelar
+              </Button>
+              <Button
+                size="sm"
+                className="gap-2"
+                onClick={() => void submitCustomerWallet()}
+                disabled={walletSaving || !(parseCustomerWalletAmount(walletAmount) > 0) || !walletReason.trim()}
+              >
+                {walletSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wallet className="w-3.5 h-3.5" />}
+                Adicionar
               </Button>
             </div>
           </div>
