@@ -1,12 +1,13 @@
 # Integrações externas — KA Imports
 
-> **Última atualização:** 2026-11-03
+> **Última atualização:** 2026-11-07
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-07 | Webhook da rifa grava a origem do pagamento | `confirmRaffleReservationFromPix` grava `raffle_reservations.paid_source = pix` ao confirmar. Se a reserva já estava `paid`, a origem também vira `pix` | Pedido, cobrança custom e a tela `/rifas/pix/:id`. Sem GET de status no gateway |
 | 2026-11-03 | WhatsApp de rastreio avisa envio parcial | Com 2 ou mais pacotes, se outro ainda não tem código utilizável (barcode real ou rastreio manual; `EC…` não conta), a mensagem diz que o pedido foi enviado parcialmente e que outro rastreio vem. O último pacote, quando os outros já têm código, não leva essa frase | Pedido sem divisão. Postado, saiu e entregue. Aviso já marcado não sai de novo |
 | 2026-11-03 | WhatsApp de rastreio lista os itens daquele pacote | A mensagem leva `💊 quantidade x nome` antes do código e do link. Pedido dividido lê `order_shipments.items`. Envio único lê `orders.products`. Sem itens, ou se a leitura falhar, continua só número, código e link | Postado, saiu e entregue. Aviso já marcado em `tracking_whatsapp_codes` não sai de novo. Rastreio manual e botão Enviado continuam sem esse aviso |
 | 2026-11-01 | Gasto Facebook da conta C2 vem da Yury | Job de 60 min grava `marketing_expenses` com id `yury-meta-ads:AAAA-MM-DD`. `GET {YURY_API_BASE}/api/integrations/meta-ads/spend` com `YURY_META_ADS_SYNC_TOKEN`. 404/503 só logam. Zero apaga só essa linha do dia. Fora de `since`/`until` nada é apagado | Cadastro manual, Visão Geral e a senha do Facebook. A rota da Yury ainda pode responder 404 |
@@ -113,7 +114,7 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 - **Credenciais APPCNPay por loja:** `tenant_settings` `gateway_appcnpay_public_key` + `gateway_appcnpay_secret_key` (as duas juntas). Sem o par, usa env `GATEWAY_IDENTIFIER` / `GATEWAY_SECRET`. Não mistura pública da loja com secret do env. GET admin mascara; PUT com valor `***` é no-op. Admin Configurações: bloco “Credenciais APPCNPay desta loja”; “Usar chaves globais” = DELETE. Chaves **não** vão para `localStorage` nem `PUBLIC_KEYS`.
 - Checkout, `/pix/generate`, cobrança custom, PIX de diferença, rifas passam `tenantId` em `createPixCharge*`. Webhook não confiável: `findTenantIdByPixTransactionId` (pedido / cobrança / reserva) e `fetchTransactionStatus(txId, tenantId)`.
 - Webhook confirmação: `/api/webhook/pix` (+ webhook universal `/api/webhook`). No painel APPCNPay da conta da loja: `{origin}/api/webhook/pix`.
-- **Rifa:** reserva e refresh do PIX usam o mesmo callback `/api/webhook/pix` (com `whsec` quando `WEBHOOK_SHARED_SECRET` existe). `handleCallback` grava `raffle_reservations.status = paid` pelo `transactionId` (ou `metadata.reservationId` se o corpo não trouxer `transactionId`). Recusa se a reserva expirou ou o número já está em outra reserva ativa/paga. `POST /api/webhook/raffle-pix` continua só para cobrança antiga. A página `/rifas/pix/:id` consulta `GET /api/raffles/reservations/:id/status` no banco a cada 2s. Esse GET devolve só `{ reservationId, status }`.
+- **Rifa:** reserva e refresh do PIX usam o mesmo callback `/api/webhook/pix` (com `whsec` quando `WEBHOOK_SHARED_SECRET` existe). `handleCallback` grava `raffle_reservations.status = paid` e `paid_source = pix` pelo `transactionId` (ou `metadata.reservationId` se o corpo não trouxer `transactionId`). Se a reserva já estava `paid`, a origem também vira `pix`. Recusa se a reserva expirou ou o número já está em outra reserva ativa/paga. `POST /api/webhook/raffle-pix` continua só para cobrança antiga. A página `/rifas/pix/:id` consulta `GET /api/raffles/reservations/:id/status` no banco a cada 2s. Esse GET devolve só `{ reservationId, status }`.
 - **Não** depender de GET transactions para confirmação (polling bloqueado no APPCNPay).
 - Status local: endpoints de status leem BD.
 

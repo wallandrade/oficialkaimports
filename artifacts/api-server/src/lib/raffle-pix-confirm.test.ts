@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { rafflePaymentBlockReason } from "./raffle-pix-confirm-core";
+import { canUndoManualRafflePayment, rafflePaymentBlockReason } from "./raffle-pix-confirm-core";
 
 const now = new Date("2026-10-11T12:00:00.000Z");
 const future = new Date("2026-10-11T18:00:00.000Z");
@@ -37,6 +37,14 @@ test("número já pago em outra reserva bloqueia", () => {
     now,
     competing: [{ id: "b", numbers: [25], status: "paid", expiresAt: future }],
   }), "NUMBER_ALREADY_ASSIGNED");
+});
+
+test("só pagamento manual pago pode ser desfeito", () => {
+  assert.equal(canUndoManualRafflePayment({ status: "paid", paidSource: "manual" }), true);
+  assert.equal(canUndoManualRafflePayment({ status: "paid", paidSource: "pix" }), false);
+  assert.equal(canUndoManualRafflePayment({ status: "paid", paidSource: null }), false);
+  assert.equal(canUndoManualRafflePayment({ status: "reserved", paidSource: "manual" }), false);
+  assert.equal(canUndoManualRafflePayment({ status: "expired", paidSource: "manual" }), false);
 });
 
 test("reserva concorrente já expirada não bloqueia", () => {

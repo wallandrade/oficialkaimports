@@ -13,7 +13,7 @@ import {
 } from "../gateway";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 import { confirmRaffleReservationFromPix } from "../lib/raffle-pix-confirm";
-import { rafflePaymentBlockReason } from "../lib/raffle-pix-confirm-core";
+import { canUndoManualRafflePayment, rafflePaymentBlockReason } from "../lib/raffle-pix-confirm-core";
 
 const router: IRouter = Router();
 
@@ -969,10 +969,59 @@ router.patch("/admin/raffles/:id/reservations/:reservationId/mark-paid", require
 
   await db
     .update(raffleReservationsTable)
-    .set({ status: "paid", updatedAt: new Date() })
+    .set({ status: "paid", paidSource: "manual", updatedAt: new Date() })
     .where(and(buildRaffleReservationsTenantWhere(tenantId), eq(raffleReservationsTable.id, reservation.id)));
 
-  res.json({ ok: true, status: "paid" });
+  res.json({ ok: true, status: "paid", paidSource: "manual" });
+});
+
+// ---------------------------------------------------------------------------
+// ADMIN: PATCH /api/admin/raffles/:id/reservations/:reservationId/undo-manual-paid
+// Só desfaz pagamento aprovado na mão. PIX confirmado pelo webhook permanece.
+// ---------------------------------------------------------------------------
+router.patch("/admin/raffles/:id/reservations/:reservationId/undo-manual-paid", requireAdminAuth, async (req, res) => {
+  const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
+  const { id: raffleId, reservationId } = req.params as { id: string; reservationId: string };
+
+  const [reservation] = await db
+    .select()
+    .from(raffleReservationsTable)
+    .where(and(
+      buildRaffleReservationsTenantWhere(tenantId),
+      eq(raffleReservationsTable.id, reservationId),
+      eq(raffleReservationsTable.raffleId, raffleId),
+    ))
+    .limit(1);
+
+  if (!reservation) {
+    res.status(404).json({ error: "NOT_FOUND", message: "Reserva não encontrada." });
+    return;
+  }
+
+  if (!canUndoManualRafflePayment({ status: reservation.status, paidSource: reservation.paidSource })) {
+    res.status(400).json({
+      error: "INVALID_STATUS",
+      message: "Só é possível cancelar um pagamento aprovado manualmente.",
+    });
+    return;
+  }
+
+  const result = await getRaffleResult(raffleId, tenantId);
+  if (result?.winnerReservationId === reservation.id) {
+    res.status(409).json({
+      error: "WINNER_PUBLISHED",
+      message: "Esta reserva é a do resultado publicado. Publique outro resultado antes de cancelar o pagamento.",
+    });
+    return;
+  }
+
+  const now = new Date();
+  await db
+    .update(raffleReservationsTable)
+    .set({ status: "expired", expiresAt: now, updatedAt: now })
+    .where(and(buildRaffleReservationsTenantWhere(tenantId), eq(raffleReservationsTable.id, reservation.id)));
+
+  res.json({ ok: true, status: "expired" });
 });
 
 // ---------------------------------------------------------------------------

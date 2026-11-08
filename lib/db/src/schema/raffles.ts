@@ -25,6 +25,7 @@ export const raffleReservationsTable = mysqlTable("raffle_reservations", {
   clientDocument: varchar("client_document", { length: 32 }),
   totalAmount: decimal("total_amount", { precision: 10, scale: 2 }).notNull(),
   status: varchar("status", { length: 32 }).notNull().default("reserved"), // reserved | paid | expired
+  paidSource: varchar("paid_source", { length: 16 }), // manual | pix
   transactionId: varchar("transaction_id", { length: 255 }),
   pixCode: mediumtext("pix_code"),
   pixBase64: mediumtext("pix_base64"),

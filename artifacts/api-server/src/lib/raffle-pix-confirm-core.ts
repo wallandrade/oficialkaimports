@@ -1,5 +1,12 @@
 export type RafflePaymentBlockReason = "RESERVATION_EXPIRED" | "NUMBER_ALREADY_ASSIGNED";
 
+export function canUndoManualRafflePayment(input: {
+  status: string;
+  paidSource: string | null | undefined;
+}): boolean {
+  return input.status === "paid" && input.paidSource === "manual";
+}
+
 type CompetingReservation = {
   id: string;
   numbers: number[];

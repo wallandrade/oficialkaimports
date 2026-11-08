@@ -684,6 +684,7 @@ async function ensureRaffleTables(databaseName: string): Promise<void> {
         client_document VARCHAR(32) NULL,
         total_amount DECIMAL(10,2) NOT NULL,
         status VARCHAR(32) NOT NULL DEFAULT 'reserved',
+        paid_source VARCHAR(16) NULL,
         transaction_id VARCHAR(255) NULL,
         pix_code MEDIUMTEXT NULL,
         pix_base64 MEDIUMTEXT NULL,
@@ -710,6 +711,10 @@ async function ensureRaffleTables(databaseName: string): Promise<void> {
 
   if (!(await columnExists("raffle_reservations", "pix_expires_at", databaseName))) {
     await pool.query("ALTER TABLE raffle_reservations ADD COLUMN pix_expires_at TIMESTAMP NULL AFTER pix_base64");
+  }
+
+  if (!(await columnExists("raffle_reservations", "paid_source", databaseName))) {
+    await pool.query("ALTER TABLE raffle_reservations ADD COLUMN paid_source VARCHAR(16) NULL AFTER status");
   }
 
   if (!(await tableExists("raffle_results", databaseName))) {

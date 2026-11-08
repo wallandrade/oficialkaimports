@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-10-28
+> **Última atualização:** 2026-11-07
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-07 | Coluna `paid_source` em `raffle_reservations` | `manual` no pagamento aprovado no admin; `pix` no webhook. O cancelamento manual usa `PATCH /api/admin/raffles/:id/reservations/:reservationId/undo-manual-paid`. A coluna entra no boot (`runtime-schema`) | `transactionId`, números e o status `paid` / `expired` |
 | 2026-10-28 | Card não pede senha da baixa Yury | `POST /admin/orders/:id/inventory-exit` e o `enviado` saem sem `password` | Fóz local e o exit da Yury |
 | 2026-10-25 | `GET /api/raffles/reservations/:id/status` | A tela `/rifas/pix/:id` lê só o status da reserva. Sem token de checkout e sem o limite do lookup | Webhook PIX, lookup por telefone e refresh do QR |
 | 2026-10-23 | `always_show` em `flash_campaign_items` | `PATCH /admin/flash-campaigns/:id/items/:productId`. O sorteio devolve esses produtos sem visita. O `/claim` reserva sem `seen` | Horário, vaga e preço dos outros itens |

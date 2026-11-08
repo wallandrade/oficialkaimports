@@ -61,11 +61,18 @@ export async function confirmRaffleReservationFromPix(input: {
     return { matched: true, confirmed: false, reservationId: reservation.id, reason: "NOT_CONFIRMED" };
   }
 
+  const tenantId = String(reservation.tenantId || "").trim() || DEFAULT_TENANT_ID;
+
   if (reservation.status === "paid") {
+    if (reservation.paidSource !== "pix") {
+      await db
+        .update(raffleReservationsTable)
+        .set({ paidSource: "pix", updatedAt: new Date() })
+        .where(and(buildRaffleReservationsTenantWhere(tenantId), eq(raffleReservationsTable.id, reservation.id)));
+    }
     return { matched: true, confirmed: true, reservationId: reservation.id };
   }
 
-  const tenantId = String(reservation.tenantId || "").trim() || DEFAULT_TENANT_ID;
   const now = new Date();
   const reservationNumbers = parseNumbers(reservation.numbers);
   const competingRows = reservationNumbers.length > 0
@@ -122,7 +129,7 @@ export async function confirmRaffleReservationFromPix(input: {
 
   await db
     .update(raffleReservationsTable)
-    .set({ status: "paid", updatedAt: new Date() })
+    .set({ status: "paid", paidSource: "pix", updatedAt: new Date() })
     .where(and(buildRaffleReservationsTenantWhere(tenantId), eq(raffleReservationsTable.id, reservation.id)));
 
   console.log("[RaffleWebhook] Reservation paid", JSON.stringify({

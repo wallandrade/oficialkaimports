@@ -1426,6 +1426,7 @@ interface AdminRaffleReservation {
   clientEmail: string; clientPhone: string; totalAmount: string;
   status: string; isExpired: boolean; expiresAt: string; createdAt: string;
   transactionId: string | null;
+  paidSource?: string | null;
 }
 interface AdminRafflePromotion {
   id: string;
@@ -5566,7 +5567,7 @@ export default function Admin() {
 
       setRaffleReservations((prev) => prev.map((rv) =>
         rv.id === reservation.id
-          ? { ...rv, status: "paid", isExpired: false }
+          ? { ...rv, status: "paid", isExpired: false, paidSource: "manual" }
           : rv,
       ));
       toast.success("Pagamento aprovado. Os números ficam pagos.");
@@ -5575,6 +5576,47 @@ export default function Admin() {
       toast.error("Erro ao aprovar pagamento.");
     } finally {
       setRaffleApprovingReservationId(null);
+    }
+  }, [fetchRaffleRanking, handleUnauthorized]);
+
+  const undoManualRafflePayment = useCallback(async (raffleId: string, reservation: AdminRaffleReservation) => {
+    if (reservation.status !== "paid" || reservation.paidSource !== "manual") {
+      toast.error("Só é possível cancelar um pagamento aprovado manualmente.");
+      return;
+    }
+
+    const numbersLabel = reservation.numbers.join(", ");
+    const confirmed = window.confirm(
+      `Cancelar o pagamento manual de ${reservation.clientName}? Os números ${numbersLabel} voltam a ficar disponíveis.`,
+    );
+    if (!confirmed) return;
+
+    setRaffleCancelingReservationId(reservation.id);
+    try {
+      const res = await fetch(`${BASE}/api/admin/raffles/${raffleId}/reservations/${reservation.id}/undo-manual-paid`, {
+        method: "PATCH",
+        headers: authHeaders(),
+      });
+
+      if (res.status === 401) { handleUnauthorized(); return; }
+
+      const data = await res.json().catch(() => ({} as { message?: string }));
+      if (!res.ok) {
+        toast.error((data as { message?: string }).message || "Erro ao cancelar pagamento.");
+        return;
+      }
+
+      setRaffleReservations((prev) => prev.map((rv) =>
+        rv.id === reservation.id
+          ? { ...rv, status: "expired", isExpired: true, expiresAt: new Date().toISOString() }
+          : rv,
+      ));
+      toast.success("Pagamento cancelado. Os números voltaram a ficar disponíveis.");
+      void fetchRaffleRanking(raffleId);
+    } catch {
+      toast.error("Erro ao cancelar pagamento.");
+    } finally {
+      setRaffleCancelingReservationId(null);
     }
   }, [fetchRaffleRanking, handleUnauthorized]);
 
@@ -9956,6 +9998,20 @@ export default function Admin() {
                                   >
                                     {raffleCancelingReservationId === rv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />}
                                     <span className="ml-1">Cancelar</span>
+                                  </Button>
+                                </div>
+                              ) : rv.status === "paid" && rv.paidSource === "manual" ? (
+                                <div className="flex justify-end">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 px-2.5 text-xs border-red-200 text-red-700 hover:bg-red-50"
+                                    onClick={() => raffleViewId && undoManualRafflePayment(raffleViewId, rv)}
+                                    disabled={raffleCancelingReservationId === rv.id}
+                                  >
+                                    {raffleCancelingReservationId === rv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />}
+                                    <span className="ml-1">Cancelar pagamento</span>
                                   </Button>
                                 </div>
                               ) : (
