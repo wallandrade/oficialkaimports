@@ -223,19 +223,12 @@ router.post("/checkout/pix", async (req, res) => {
   const purchaseIp = getPurchaseIp(req) || "IP_NAO_ENCONTRADO";
 
   // Log the FULL request payload immediately — before any validation
-  console.log(`[CHECKOUT/PIX:${requestId}] Request received:`, JSON.stringify({
-    amount:    req.body?.amount,
-    orderId:   req.body?.orderId,
-    client: {
-      name:     req.body?.client?.name     || "(missing)",
-      email:    req.body?.client?.email    || "(missing)",
-      phone:    req.body?.client?.phone    || "(missing)",
-      document: req.body?.client?.document ? `present(${String(req.body.client.document).length} chars)` : "(missing)",
-    },
+  console.log(`[CHECKOUT/PIX:${requestId}] Request received`, JSON.stringify({
+    hasClient: Boolean(req.body?.client?.name && req.body?.client?.email),
     shippingType: req.body?.shippingType,
-    sellerCode: req.body?.sellerCode || null,
-    hasAddress:   !!req.body?.address,
-    hasProducts:  Array.isArray(req.body?.products) ? req.body.products.length : 0,
+    hasSeller: Boolean(req.body?.sellerCode),
+    hasAddress: !!req.body?.address,
+    hasProducts: Array.isArray(req.body?.products) ? req.body.products.length : 0,
   }));
 
   try {
@@ -737,7 +730,7 @@ router.post("/checkout/pix", async (req, res) => {
     const callbackUrl = webhookSecret
       ? `${callbackBase}${callbackBase.includes("?") ? "&" : "?"}whsec=${encodeURIComponent(webhookSecret)}`
       : callbackBase;
-    console.log(`[CHECKOUT/PIX:${requestId}] Generating PIX for order ${orderId} via ${gatewayProvider} — amount: ${payableAmount} — callback: ${callbackUrl}`);
+    console.log(`[CHECKOUT/PIX:${requestId}] Generating PIX for order ${orderId} via ${gatewayProvider} amount=${payableAmount} hasCallback=${Boolean(callbackUrl)}`);
 
     let gatewayData;
     try {

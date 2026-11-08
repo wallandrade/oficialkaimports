@@ -9,10 +9,16 @@ import {
   genIdentifier,
   normalizePixGatewayProvider,
   PIX_DURATION_MS,
-  isPaymentConfirmed,
 } from "../gateway";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 import { confirmRaffleReservationFromPix } from "../lib/raffle-pix-confirm";
+import {
+  decidePixSettlement,
+  pixNoticeLogFields,
+  readPixNotice,
+  readWebhookSecret,
+  webhookAuthenticated,
+} from "../lib/pix-settlement";
 import { canUndoManualRafflePayment, rafflePaymentBlockReason } from "../lib/raffle-pix-confirm-core";
 
 const router: IRouter = Router();
@@ -1239,58 +1245,82 @@ router.delete("/admin/raffles/:id/promotions/:promotionId", requireAdminAuth, as
 
 // ---------------------------------------------------------------------------
 // WEBHOOK: POST /webhook/raffle-pix — cobranças já emitidas com o callback antigo
+// Mesma prova do webhook da loja: segredo, transação gravada, valor e status exato.
 // ---------------------------------------------------------------------------
 router.post("/webhook/raffle-pix", async (req, res) => {
-  const raw = (req.body ?? {}) as Record<string, unknown>;
-  const tx = ((raw.transaction as Record<string, unknown>) ?? raw) as Record<string, unknown>;
-  const txMeta = ((tx.metadata as Record<string, unknown>) ?? {}) as Record<string, unknown>;
-  const rawMeta = ((raw.metadata as Record<string, unknown>) ?? {}) as Record<string, unknown>;
+  try {
+    const notice = readPixNotice(req.body);
+    console.log("[RaffleWebhook] notice", JSON.stringify(pixNoticeLogFields(notice)));
+    const sharedSecret = String(process.env.WEBHOOK_SHARED_SECRET || "").trim();
+    const authenticated = webhookAuthenticated({
+      sharedSecret,
+      providedSecret: readWebhookSecret({
+        headerSecret: req.get("x-webhook-secret"),
+        signatureHeader: req.get("x-signature"),
+        querySecret: req.query?.whsec,
+      }),
+    });
+    if (!authenticated || !notice.transactionId) {
+      res.status(403).json({ ok: false, error: "PIX_SETTLEMENT_REJECTED", reason: authenticated ? "missing_transaction" : "untrusted" });
+      return;
+    }
 
-  const transactionId = String(
-    tx.id || tx.transactionId || (tx as { transaction_id?: unknown }).transaction_id || raw.transactionId || raw.transaction_id || raw.id || "",
-  ).trim();
+    const [reservation] = await db
+      .select({
+        id: raffleReservationsTable.id,
+        status: raffleReservationsTable.status,
+        totalAmount: raffleReservationsTable.totalAmount,
+        transactionId: raffleReservationsTable.transactionId,
+      })
+      .from(raffleReservationsTable)
+      .where(eq(raffleReservationsTable.transactionId, notice.transactionId))
+      .limit(1);
 
-  let status = String(tx.status || raw.status || raw.payment_status || raw.event || "").trim();
-  if (!status && raw.event) {
-    const ev = String(raw.event).toUpperCase();
-    if (ev.includes("PAID") || ev.includes("APPROVED") || ev.includes("COMPLETED")) status = "COMPLETED";
-    else if (ev.includes("CANCEL") || ev.includes("REJECT") || ev.includes("FAILED")) status = "CANCELED";
-  }
+    if (!reservation?.transactionId) {
+      res.status(404).json({ ok: false, error: "RESERVATION_NOT_FOUND" });
+      return;
+    }
+    if (notice.reservationId && notice.reservationId !== reservation.id) {
+      res.status(409).json({ ok: false, error: "PIX_SETTLEMENT_REJECTED", reason: "transaction_mismatch" });
+      return;
+    }
 
-  const reservationId = String(txMeta.reservationId || rawMeta.reservationId || "").trim();
+    const decision = decidePixSettlement({
+      authenticated: true,
+      transactionId: notice.transactionId,
+      boundTransactionId: reservation.transactionId,
+      status: notice.status,
+      reportedAmount: notice.amount,
+      expectedAmount: Number(reservation.totalAmount ?? 0),
+      currency: notice.currency,
+      alreadySettled: reservation.status === "paid",
+    });
+    if (decision.action === "reject") {
+      res.status(decision.httpStatus).json({ ok: false, error: "PIX_SETTLEMENT_REJECTED", reason: decision.reason });
+      return;
+    }
+    if (decision.action !== "pay") {
+      res.status(decision.httpStatus).json({ ok: true, confirmed: false, reason: decision.reason, reservationId: reservation.id });
+      return;
+    }
 
-  if (!transactionId && !reservationId) {
-    console.log("[RaffleWebhook] Missing transactionId/reservationId", JSON.stringify(raw));
-    res.status(400).json({ error: "MISSING_REFERENCE" });
-    return;
-  }
-
-  const confirmed = status ? isPaymentConfirmed(status) : false;
-  const result = await confirmRaffleReservationFromPix({
-    transactionId,
-    reservationId,
-    confirmed,
-    source: "raffle-pix",
-  });
-
-  if (!result.matched) {
-    console.log("[RaffleWebhook] Reservation not found", JSON.stringify({ transactionId, reservationId, status }));
-    res.status(404).json({ error: "RESERVATION_NOT_FOUND" });
-    return;
-  }
-
-  if (result.ignored) {
+    const result = await confirmRaffleReservationFromPix({
+      transactionId: notice.transactionId,
+      reservationId: reservation.id,
+      confirmed: true,
+      source: "raffle-pix",
+    });
     res.json({
       ok: true,
-      confirmed: false,
-      ignored: true,
+      confirmed: result.confirmed,
+      ignored: result.ignored ?? false,
       reason: result.reason,
       reservationId: result.reservationId,
     });
-    return;
+  } catch (err) {
+    console.error("[RaffleWebhook] settlement failed");
+    res.status(500).json({ ok: false, error: "PIX_SETTLEMENT_FAILED" });
   }
-
-  res.json({ ok: true, confirmed: result.confirmed, reservationId: result.reservationId });
 });
 
 export default router;

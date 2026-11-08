@@ -37,23 +37,17 @@ export async function confirmRaffleReservationFromPix(input: {
   const reservationId = String(input.reservationId || "").trim();
   const source = input.source || "raffle-pix";
 
-  if (!transactionId && !reservationId) {
+  if (!transactionId) {
     return { matched: false, confirmed: false, reason: "NOT_FOUND" };
   }
 
-  const [reservation] = transactionId
-    ? await db
-      .select()
-      .from(raffleReservationsTable)
-      .where(eq(raffleReservationsTable.transactionId, transactionId))
-      .limit(1)
-    : await db
-      .select()
-      .from(raffleReservationsTable)
-      .where(eq(raffleReservationsTable.id, reservationId))
-      .limit(1);
+  const [reservation] = await db
+    .select()
+    .from(raffleReservationsTable)
+    .where(eq(raffleReservationsTable.transactionId, transactionId))
+    .limit(1);
 
-  if (!reservation) {
+  if (!reservation || (reservationId && reservationId !== reservation.id)) {
     return { matched: false, confirmed: false, reason: "NOT_FOUND" };
   }
 
@@ -64,12 +58,6 @@ export async function confirmRaffleReservationFromPix(input: {
   const tenantId = String(reservation.tenantId || "").trim() || DEFAULT_TENANT_ID;
 
   if (reservation.status === "paid") {
-    if (reservation.paidSource !== "pix") {
-      await db
-        .update(raffleReservationsTable)
-        .set({ paidSource: "pix", updatedAt: new Date() })
-        .where(and(buildRaffleReservationsTenantWhere(tenantId), eq(raffleReservationsTable.id, reservation.id)));
-    }
     return { matched: true, confirmed: true, reservationId: reservation.id };
   }
 
@@ -127,10 +115,26 @@ export async function confirmRaffleReservationFromPix(input: {
     };
   }
 
-  await db
+  const paidUpdate = await db
     .update(raffleReservationsTable)
     .set({ status: "paid", paidSource: "pix", updatedAt: new Date() })
-    .where(and(buildRaffleReservationsTenantWhere(tenantId), eq(raffleReservationsTable.id, reservation.id)));
+    .where(and(
+      buildRaffleReservationsTenantWhere(tenantId),
+      eq(raffleReservationsTable.id, reservation.id),
+      eq(raffleReservationsTable.status, "reserved"),
+    ));
+  const affected = Number((paidUpdate as { affectedRows?: number; rowsAffected?: number }).affectedRows
+    ?? (paidUpdate as { rowsAffected?: number }).rowsAffected
+    ?? (paidUpdate as unknown as [{ affectedRows?: number }])[0]?.affectedRows
+    ?? 0);
+  if (affected < 1) {
+    const [again] = await db
+      .select({ status: raffleReservationsTable.status })
+      .from(raffleReservationsTable)
+      .where(eq(raffleReservationsTable.id, reservation.id))
+      .limit(1);
+    return { matched: true, confirmed: again?.status === "paid", reservationId: reservation.id };
+  }
 
   console.log("[RaffleWebhook] Reservation paid", JSON.stringify({
     id: reservation.id,

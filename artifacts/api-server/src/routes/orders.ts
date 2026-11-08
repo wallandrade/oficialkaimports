@@ -2205,7 +2205,7 @@ router.patch("/admin/orders/:id/status", requireAdminAuth, async (req, res) => {
     if (cardTotalActual !== undefined) updates.cardTotalActual = String(cardTotalActual);
 
     const existing = await db
-      .select({ status: ordersTable.status, couponCode: ordersTable.couponCode, total: ordersTable.total, paidAmount: ordersTable.paidAmount })
+      .select({ status: ordersTable.status, couponCode: ordersTable.couponCode, total: ordersTable.total, paidAmount: ordersTable.paidAmount, paymentMethod: ordersTable.paymentMethod })
       .from(ordersTable)
       .where(buildAdminOrderWhere(id, adminScope))
       .limit(1);
@@ -2240,7 +2240,8 @@ router.patch("/admin/orders/:id/status", requireAdminAuth, async (req, res) => {
 
     let couponCodeToIncrement: string | null = null;
     if (isBeingPaid) {
-      if (!wasAlreadyPaid && existing[0]?.couponCode) {
+      const countedAtCheckout = String(existing[0]?.paymentMethod || "") === "pix";
+      if (!wasAlreadyPaid && existing[0]?.couponCode && !countedAtCheckout) {
         couponCodeToIncrement = existing[0].couponCode;
       }
       // Manual paid/completed confirmation should reflect at least the current order total.

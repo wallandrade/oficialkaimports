@@ -1,12 +1,13 @@
 # Integrações externas — KA Imports
 
-> **Última atualização:** 2026-11-07
+> **Última atualização:** 2026-11-08
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-08 | Liquidação PIX exige segredo, transação gravada, valor em reais e status exato | Webhook sem prova responde 403/409 e não marca pago. `OK` e substring (`UNPAID`) não pagam. Cupom do PIX não soma de novo no webhook. Log não grava corpo, código PIX nem URL com segredo | Admin ainda marca pago na mão. A tela `/pix` continua lendo o banco (`paid` → `OK`). Callback segue `/api/webhook/pix`. Consulta GET da APPCNPay continua fora da prova |
 | 2026-11-07 | Webhook da rifa grava a origem do pagamento | `confirmRaffleReservationFromPix` grava `raffle_reservations.paid_source = pix` ao confirmar. Se a reserva já estava `paid`, a origem também vira `pix` | Pedido, cobrança custom e a tela `/rifas/pix/:id`. Sem GET de status no gateway |
 | 2026-11-03 | WhatsApp de rastreio avisa envio parcial | Com 2 ou mais pacotes, se outro ainda não tem código utilizável (barcode real ou rastreio manual; `EC…` não conta), a mensagem diz que o pedido foi enviado parcialmente e que outro rastreio vem. O último pacote, quando os outros já têm código, não leva essa frase | Pedido sem divisão. Postado, saiu e entregue. Aviso já marcado não sai de novo |
 | 2026-11-03 | WhatsApp de rastreio lista os itens daquele pacote | A mensagem leva `💊 quantidade x nome` antes do código e do link. Pedido dividido lê `order_shipments.items`. Envio único lê `orders.products`. Sem itens, ou se a leitura falhar, continua só número, código e link | Postado, saiu e entregue. Aviso já marcado em `tracking_whatsapp_codes` não sai de novo. Rastreio manual e botão Enviado continuam sem esse aviso |
@@ -112,11 +113,16 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 
 - Seleção: setting `checkout_pix_gateway` / normalizer `normalizePixGatewayProvider`.
 - **Credenciais APPCNPay por loja:** `tenant_settings` `gateway_appcnpay_public_key` + `gateway_appcnpay_secret_key` (as duas juntas). Sem o par, usa env `GATEWAY_IDENTIFIER` / `GATEWAY_SECRET`. Não mistura pública da loja com secret do env. GET admin mascara; PUT com valor `***` é no-op. Admin Configurações: bloco “Credenciais APPCNPay desta loja”; “Usar chaves globais” = DELETE. Chaves **não** vão para `localStorage` nem `PUBLIC_KEYS`.
-- Checkout, `/pix/generate`, cobrança custom, PIX de diferença, rifas passam `tenantId` em `createPixCharge*`. Webhook não confiável: `findTenantIdByPixTransactionId` (pedido / cobrança / reserva) e `fetchTransactionStatus(txId, tenantId)`.
-- Webhook confirmação: `/api/webhook/pix` (+ webhook universal `/api/webhook`). No painel APPCNPay da conta da loja: `{origin}/api/webhook/pix`.
-- **Rifa:** reserva e refresh do PIX usam o mesmo callback `/api/webhook/pix` (com `whsec` quando `WEBHOOK_SHARED_SECRET` existe). `handleCallback` grava `raffle_reservations.status = paid` e `paid_source = pix` pelo `transactionId` (ou `metadata.reservationId` se o corpo não trouxer `transactionId`). Se a reserva já estava `paid`, a origem também vira `pix`. Recusa se a reserva expirou ou o número já está em outra reserva ativa/paga. `POST /api/webhook/raffle-pix` continua só para cobrança antiga. A página `/rifas/pix/:id` consulta `GET /api/raffles/reservations/:id/status` no banco a cada 2s. Esse GET devolve só `{ reservationId, status }`.
-- **Não** depender de GET transactions para confirmação (polling bloqueado no APPCNPay).
-- Status local: endpoints de status leem BD.
+- Checkout, `/pix/generate`, cobrança custom, PIX de diferença, rifas passam `tenantId` em `createPixCharge*`.
+- Webhook de confirmação: `POST /api/webhook/pix` e o mesmo leitor em `POST /api/webhook`. No painel APPCNPay: `{origin}/api/webhook/pix`. O segredo continua na query `whsec` porque as cobranças já emitidas apontam para essa URL. `PIX_CALLBACK_BASE_URL`, se existir, fixa o host; sem ela o host segue o pedido. Não é HMAC do corpo.
+- Prova para marcar pago (`lib/pix-settlement.ts`): segredo presente e igual, `transactionId` igual ao gravado no pedido, cobrança ou reserva, valor igual ao total gravado (reais em `amount` / `chargeAmount` / `originalAmount`; `amountInCents` só nesse campo, ÷ 100) e status em lista exata (`COMPLETED`, `PAID`, `APPROVED`, `CONFIRMED`, `SUCCESS`, `DEPIX_SENT`, `PAGO`/`PAGA`, `CONCLUIDO`/`CONCLUÍDA`/`CONCLUIDA`, `APROVADO`/`APROVADA`). `OK` não paga. Moeda só entra na conta se o JSON trouxer `currency` ou `currencyCode` (`BRL` ou `986`). Sem valor, sem transação ou sem segredo: não marca pago. O GET de transações da APPCNPay não é prova (polling bloqueado; o formato da resposta com valor não está no repositório).
+- Efeito uma vez: o `UPDATE` exige status ainda não pago. O webhook não chama `incrementCouponUse`. O checkout PIX soma o cupom na criação; o admin soma ao marcar pago só se o método não for `pix`.
+- **Rifa:** reserva e refresh novos usam `/api/webhook/pix`. `POST /api/webhook/raffle-pix` usa a mesma prova e só acha a reserva pelo `transactionId`. Não confirma por `reservationId` sozinho e não troca `paid_source` de uma reserva que já estava paga. A página `/rifas/pix/:id` consulta o banco a cada 2s.
+- **Rotas antigas:** `POST /api/custom-charges/callback/:token/:chargeId` exige o token do caminho (`WEBHOOK_DIRECT_TOKEN` ou, na falta, o segredo compartilhado), a transação da cobrança e o valor. `POST /api/pix/callback/:token` continua desligado salvo `ENABLE_LEGACY_PIX_CALLBACK=true`, e nesse caso também exige token, valor e transação. `POST /api/pix/generate` só emite o total do pedido e não troca a transação de um pedido já pago.
+- **DentPeg:** o GET público de status, para id `dep_`, só grava pago se o depósito devolver `depix_sent` e `amountInCents` igual ao total. Sem o valor, não marca. Não há webhook DentPeg no create.
+- Status local da tela: `GET /api/pix/status` lê o banco. Pedido `paid` continua respondendo `OK` para a página `/pix`.
+- **Não** depender de GET transactions da APPCNPay para confirmação.
+- Pendência do proprietário, sem rotação feita aqui: o segredo que já apareceu em log antigo precisa ser trocado depois do deploy, e `PIX_CALLBACK_BASE_URL` deve ser a URL pública da API. Se o webhook real da APPCNPay não mandar valor em reais nos campos acima, a liquidação fica fechada até o campo ser confirmado.
 
 ## WhatsApp (n8n / Z-API)
 
