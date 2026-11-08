@@ -8,6 +8,7 @@ export type OrderHistoryEvent = {
   action: string;
   actorType?: string | null;
   actorUsername?: string | null;
+  actorAdminUserId?: string | null;
   payload?: Record<string, unknown> | null;
   createdAt: string;
   synthetic?: boolean;

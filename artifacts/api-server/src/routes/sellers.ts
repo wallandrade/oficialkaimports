@@ -8,8 +8,7 @@ const router: IRouter = Router();
 
 function canManageSellers(scope: ReturnType<typeof getAdminScope>): boolean {
   if (!scope) return false;
-  if (scope.isPrimary) return true;
-  return scope.tenantId !== DEFAULT_TENANT_ID;
+  return scope.hasGlobalAccess;
 }
 
 function sameSellerTenant(rowTenant: string | null | undefined, sessionTenant: string): boolean {

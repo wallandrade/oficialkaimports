@@ -1,12 +1,13 @@
 # Auth e permissões — KA Imports
 
-> **Última atualização:** 2026-11-08  
+> **Última atualização:** 2026-11-08
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-08 | Vínculo de vendedor no painel e autor estável no histórico | Superadmin grava qual login vê qual slug, por loja. Sessão relê o vínculo. `order_events` ganha `actor_admin_user_id` nas ações novas de admin | Admin de filial não ganha a aba Usuários. Mapa antigo só vale se ninguém gravou ou removeu o vínculo. Username antigo do evento permanece |
 | 2026-11-08 | Slug de vendedor, impersonar, rifa e leitura de carteira | Slug de outra loja responde 409 e não grava. Filial só impersona e lê carteira do próprio tenant. Seller-scoped toma 403 em rifa e carteira | Superadmin ainda impersona outra loja. Filial segue com rifa e carteira da própria loja. Cupom, pedido e comissão de vendedor iguais |
 | 2026-10-03 | `POST /api/admin/affiliates/:userId/balance` | Mesmo `hasGlobalAccess` da lista de afiliados. Seller-scoped 403 | Carteira do seguro; comissão de vendedor |
 | 2026-09-28 | Painel apaga a Conta da loja EnvioEcom (`DELETE .../accounts/tenant`) | Mesmo `hasGlobalAccess` do CRUD de contas | Conta `env` segue sem editar/apagar; seller-scoped 403 |
@@ -51,7 +52,8 @@ Código > memória > tipagens.
 - Credenciais env bootstrap: `ADMIN_USERNAME` / `ADMIN_PASSWORD` (primary) e `*_2` (secundário).
 - `AdminScope`: `{ username, isPrimary, hasGlobalAccess, sellerCode, tenantId }`.
 - Primary → `hasGlobalAccess: true`, `sellerCode: null`.
-- Seller map: env JSON `ADMIN_SELLER_SCOPE_MAP` `{"usuario":"seller-slug"}`.
+- Seller map: env JSON `ADMIN_SELLER_SCOPE_MAP` `{"usuario":"seller-slug"}` continua só para conta antiga sem linha em `admin_seller_scopes`. O painel, na aba Usuários do superadmin, grava o vínculo (`linked` ou `cleared`). `cleared` não volta para o mapa. A sessão nova guarda `admin_user_id`; a cada pedido o servidor relê o vínculo. Admin de filial não cria esses logins.
+- Boot: `ensureRuntimeSchema` cria `admin_seller_scopes` se faltar e acrescenta `order_events.actor_admin_user_id` e `admin_sessions.admin_user_id` se faltarem. Não apaga linha. Rollback do código pode deixar essas colunas. Evento antigo fica legível, com id de autor vazio. Não há autoria retroativa.
 - Middleware: `requireAdminAuth`; subset: `requirePrimaryAdmin`.
 - EnvioEcom (cotar/criar/etiqueta/config/accounts/shipment-item-name): `hasGlobalAccess` (primary e admin de filial). Seller-scoped recebe 403. GET accounts mascara token/e-mail. POST/PUT/DELETE da Conta da loja e das extras no próprio tenant; não apaga/edita `id=env`. Apagar a Conta da loja tira token, e-mail e senha; o CEP de origem permanece. Board `tracking-board` lista/sync com filtro de `sellerCode` se não for global.
 - Extrato OFX (`POST /api/admin/bank-statement/analyze|apply|clear`) e histórico (`GET /api/admin/bank-deposits`): `requireAdminAuth`; filtra `tenantId`; seller-scoped só pedidos do próprio `sellerCode`. Não exige primary. `clear` não altera `paid`.

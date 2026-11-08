@@ -1321,22 +1321,47 @@ async function ensureCarrierLossPeerIncidentsTable(databaseName: string): Promis
 }
 
 async function ensureOrderEventsTable(databaseName: string): Promise<void> {
-  if (await tableExists("order_events", databaseName)) return;
+  if (!(await tableExists("order_events", databaseName))) {
+    await pool.query(`
+      CREATE TABLE order_events (
+        id VARCHAR(255) NOT NULL PRIMARY KEY,
+        order_id VARCHAR(255) NOT NULL,
+        tenant_id VARCHAR(255) NULL,
+        action VARCHAR(64) NOT NULL,
+        actor_type VARCHAR(32) NOT NULL DEFAULT 'admin',
+        actor_username VARCHAR(255) NULL,
+        actor_admin_user_id VARCHAR(255) NULL,
+        payload JSON NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY order_events_order_id_idx (order_id),
+        KEY order_events_order_created_idx (order_id, created_at),
+        KEY order_events_tenant_id_idx (tenant_id)
+      )
+    `);
+  }
+  if (!(await columnExists("order_events", "actor_admin_user_id", databaseName))) {
+    await pool.query("ALTER TABLE order_events ADD COLUMN actor_admin_user_id VARCHAR(255) NULL AFTER actor_username");
+  }
+}
+
+async function ensureAdminSellerScopesTable(databaseName: string): Promise<void> {
+  if (await tableExists("admin_seller_scopes", databaseName)) return;
   await pool.query(`
-    CREATE TABLE order_events (
-      id VARCHAR(255) NOT NULL PRIMARY KEY,
-      order_id VARCHAR(255) NOT NULL,
-      tenant_id VARCHAR(255) NULL,
-      action VARCHAR(64) NOT NULL,
-      actor_type VARCHAR(32) NOT NULL DEFAULT 'admin',
-      actor_username VARCHAR(255) NULL,
-      payload JSON NULL,
-      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      KEY order_events_order_id_idx (order_id),
-      KEY order_events_order_created_idx (order_id, created_at),
-      KEY order_events_tenant_id_idx (tenant_id)
+    CREATE TABLE admin_seller_scopes (
+      admin_user_id VARCHAR(255) NOT NULL PRIMARY KEY,
+      tenant_id VARCHAR(255) NOT NULL,
+      seller_code VARCHAR(255) NULL,
+      status VARCHAR(16) NOT NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
+}
+
+async function ensureAdminSessionUserColumn(databaseName: string): Promise<void> {
+  if (!(await tableExists("admin_sessions", databaseName))) return;
+  if (!(await columnExists("admin_sessions", "admin_user_id", databaseName))) {
+    await pool.query("ALTER TABLE admin_sessions ADD COLUMN admin_user_id VARCHAR(255) NULL AFTER username");
+  }
 }
 
 async function ensureMotoboyNeighborhoodsTable(databaseName: string): Promise<void> {
@@ -1859,6 +1884,8 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureMarketingExpensesColumns(databaseName);
     await ensureFilialPurchaseTables(databaseName);
     await ensureOrderEventsTable(databaseName);
+    await ensureAdminSellerScopesTable(databaseName);
+    await ensureAdminSessionUserColumn(databaseName);
     await ensureCarrierLossIncidentsTable(databaseName);
     await ensureCarrierLossPeerIncidentsTable(databaseName);
     await ensureOrderShipmentsTable(databaseName);

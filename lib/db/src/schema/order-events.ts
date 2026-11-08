@@ -7,6 +7,7 @@ export const orderEventsTable = mysqlTable("order_events", {
   action: varchar("action", { length: 64 }).notNull(),
   actorType: varchar("actor_type", { length: 32 }).notNull().default("admin"),
   actorUsername: varchar("actor_username", { length: 255 }),
+  actorAdminUserId: varchar("actor_admin_user_id", { length: 255 }),
   payload: json("payload"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });

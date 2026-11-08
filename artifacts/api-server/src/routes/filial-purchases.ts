@@ -356,7 +356,7 @@ router.get("/admin/filial-purchases/my", requireAdminAuth, async (req, res) => {
   try {
     const scope = getAdminScope(req);
     const tenantId = String(scope?.tenantId || "").trim() || DEFAULT_TENANT_ID;
-    if (!tenantId || tenantId === DEFAULT_TENANT_ID) {
+    if (!scope?.hasGlobalAccess || !tenantId || tenantId === DEFAULT_TENANT_ID) {
       res.status(403).json({
         error: "FORBIDDEN",
         message: "Esta visualização está disponível apenas para lojas filiais.",
@@ -489,7 +489,7 @@ router.post("/admin/filial-purchases/my/launch-batch", requireAdminAuth, async (
   try {
     const scope = getAdminScope(req);
     const tenantId = String(scope?.tenantId || "").trim() || DEFAULT_TENANT_ID;
-    if (!tenantId || tenantId === DEFAULT_TENANT_ID) {
+    if (!scope?.hasGlobalAccess || !tenantId || tenantId === DEFAULT_TENANT_ID) {
       res.status(403).json({
         error: "FORBIDDEN",
         message: "Somente a filial pode lançar lote para fornecedor.",
@@ -621,7 +621,7 @@ router.post("/admin/filial-purchases/my/launch-motoboy", requireAdminAuth, async
   try {
     const scope = getAdminScope(req);
     const tenantId = String(scope?.tenantId || "").trim() || DEFAULT_TENANT_ID;
-    if (!tenantId || tenantId === DEFAULT_TENANT_ID) {
+    if (!scope?.hasGlobalAccess || !tenantId || tenantId === DEFAULT_TENANT_ID) {
       res.status(403).json({
         error: "FORBIDDEN",
         message: "Somente a filial pode enviar pedidos para motoboy.",
@@ -747,7 +747,7 @@ router.post("/admin/filial-purchases/my/mark-order-motoboy", requireAdminAuth, a
   try {
     const scope = getAdminScope(req);
     const tenantId = String(scope?.tenantId || "").trim() || DEFAULT_TENANT_ID;
-    if (!tenantId || tenantId === DEFAULT_TENANT_ID) {
+    if (!scope?.hasGlobalAccess || !tenantId || tenantId === DEFAULT_TENANT_ID) {
       res.status(403).json({
         error: "FORBIDDEN",
         message: "Somente a filial pode marcar pedido para motoboy.",

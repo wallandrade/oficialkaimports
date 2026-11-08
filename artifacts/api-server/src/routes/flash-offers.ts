@@ -81,7 +81,7 @@ const FLASH_RESERVATION_RANK: Record<string, number> = {
 
 function canManageFlash(scope: ReturnType<typeof getAdminScope>): boolean {
   if (!scope) return false;
-  return scope.isPrimary || scope.tenantId !== DEFAULT_TENANT_ID;
+  return scope.hasGlobalAccess;
 }
 
 function readVisitor(body: unknown): string {

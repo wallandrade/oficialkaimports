@@ -8,6 +8,7 @@ export * from "./tenants";
 export * from "./admin-user-tenants";
 export * from "./custom-charges";
 export * from "./admin-users";
+export * from "./admin-seller-scopes";
 export * from "./coupons";
 export * from "./products";
 export * from "./settings";

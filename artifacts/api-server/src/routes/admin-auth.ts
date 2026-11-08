@@ -2,6 +2,8 @@ import { Router, type IRouter, type Request, type Response, type NextFunction } 
 import crypto from "crypto";
 import { db, adminUserTenantsTable, adminUsersTable, adminSessionsTable } from "@workspace/db";
 import { lt, eq } from "drizzle-orm";
+import { loadAdminAccessFacts, saveSellerScope, clearSellerScope, listSellerSlugsForTenant, assertSellerInTenant } from "../lib/admin-seller-scope";
+import { resolveSellerAccess } from "../lib/admin-seller-scope-core";
 
 const router: IRouter = Router();
 const TOKEN_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
@@ -34,6 +36,7 @@ type AdminSessionRecord = {
   username: string;
   isPrimary: number | boolean;
   tenantId?: string | null;
+  adminUserId?: string | null;
 };
 
 export type AdminScope = {
@@ -168,33 +171,47 @@ export function resolveAdminScopeFromSession(session: AdminSessionRecord): Admin
   const username = String(session.username || "").trim().toLowerCase();
   const isPrimary = !!session.isPrimary;
   const tenantId = String(session.tenantId || "").trim() || DEFAULT_TENANT_ID;
-  if (isPrimary) {
-    return {
-      username,
-      isPrimary,
-      hasGlobalAccess: true,
-      sellerCode: null,
-      tenantId,
-    };
-  }
-
-  const sellerCode = getAdminSellerScopeMap()[username] ?? null;
-  if (tenantId !== DEFAULT_TENANT_ID) {
-    return {
-      username,
-      isPrimary,
-      hasGlobalAccess: true,
-      sellerCode,
-      tenantId,
-    };
-  }
-
+  const access = resolveSellerAccess({
+    isPrimary,
+    sessionTenantId: tenantId,
+    defaultTenantId: DEFAULT_TENANT_ID,
+    explicit: null,
+    legacySellerCode: isPrimary ? null : getAdminSellerScopeMap()[username] ?? null,
+    storeAdminTenantId: !isPrimary && tenantId !== DEFAULT_TENANT_ID ? tenantId : null,
+  });
   return {
     username,
     isPrimary,
-    hasGlobalAccess: false,
-    sellerCode,
-    tenantId,
+    hasGlobalAccess: access.hasGlobalAccess,
+    sellerCode: access.sellerCode,
+    tenantId: access.tenantId,
+  };
+}
+
+async function resolveLiveAdminScope(session: AdminSessionRecord): Promise<AdminScope & { adminUserId: string | null; denied: boolean }> {
+  const sessionUsername = String(session.username || "").trim().toLowerCase();
+  const sessionTenantId = String(session.tenantId || "").trim() || DEFAULT_TENANT_ID;
+  const facts = await loadAdminAccessFacts({
+    adminUserId: session.adminUserId,
+    username: sessionUsername,
+  });
+  const isPrimary = !!session.isPrimary || facts.isPrimaryUser;
+  const access = resolveSellerAccess({
+    isPrimary,
+    sessionTenantId,
+    defaultTenantId: DEFAULT_TENANT_ID,
+    explicit: facts.explicit,
+    legacySellerCode: facts.explicit ? null : getAdminSellerScopeMap()[sessionUsername] ?? null,
+    storeAdminTenantId: facts.storeAdminTenantId,
+  });
+  return {
+    username: facts.currentUsername || sessionUsername,
+    isPrimary,
+    hasGlobalAccess: access.hasGlobalAccess,
+    sellerCode: access.sellerCode,
+    tenantId: access.tenantId,
+    adminUserId: facts.adminUserId,
+    denied: access.denied,
   };
 }
 
@@ -424,17 +441,17 @@ export async function requireAdminAuth(req: Request, res: Response, next: NextFu
       return;
     }
     const tenantId = String(sessionRows[0].tenantId || "").trim() || await resolveAdminTenantId(sessionRows[0].username);
-    const scope = resolveAdminScopeFromSession({ ...sessionRows[0], tenantId });
+    const scope = await resolveLiveAdminScope({ ...sessionRows[0], tenantId });
 
-    if (!scope.hasGlobalAccess && !scope.sellerCode && scope.tenantId === DEFAULT_TENANT_ID) {
+    if (scope.denied) {
       res.status(403).json({
         error: "FORBIDDEN",
-        message: "Usuário admin sem seller vinculado. Configure ADMIN_SELLER_SCOPE_MAP.",
+        message: "Usuário admin sem vendedor vinculado.",
       });
       return;
     }
 
-    // Anexa info da sessão para downstream
+    // Anexa info da sessão para downstream. O vendedor é relido a cada pedido.
     (req as any).adminSession = { ...sessionRows[0], ...scope };
     if (ADMIN_AUTH_VERBOSE_LOGS) {
       console.log('[requireAdminAuth] Sessão OK', {
@@ -481,7 +498,7 @@ export async function requirePrimaryAdmin(req: Request, res: Response, next: Nex
     return;
   }
   const tenantId = String(sessionRows[0].tenantId || "").trim() || await resolveAdminTenantId(sessionRows[0].username);
-  const scope = resolveAdminScopeFromSession({ ...sessionRows[0], tenantId });
+  const scope = await resolveLiveAdminScope({ ...sessionRows[0], tenantId });
   (req as any).adminSession = { ...sessionRows[0], ...scope };
   next();
 }
@@ -492,7 +509,7 @@ export async function getSessionInfo(req: Request) {
   const sessionRows = await db.select().from(adminSessionsTable).where(eq(adminSessionsTable.token, token)).limit(1);
   if (!sessionRows[0]) return undefined;
   const tenantId = String(sessionRows[0].tenantId || "").trim() || await resolveAdminTenantId(sessionRows[0].username);
-  return { ...sessionRows[0], ...resolveAdminScopeFromSession({ ...sessionRows[0], tenantId }) };
+  return { ...sessionRows[0], ...await resolveLiveAdminScope({ ...sessionRows[0], tenantId }) };
 }
 
 // --------------------------------------------------------------------------
@@ -588,6 +605,7 @@ router.post("/admin/login", async (req, res) => {
     await db.insert(adminSessionsTable).values({
       token,
       username: user.username,
+      adminUserId: user.id,
       tenantId,
       isPrimary: user.isPrimary ? 1 : 0,
       expiresAt,
@@ -600,8 +618,16 @@ router.post("/admin/login", async (req, res) => {
       path: "/api",
       maxAge: TOKEN_TTL_MS,
     });
-    const sellerCode = resolveAdminScopeFromSession({ username: user.username, isPrimary: user.isPrimary, tenantId }).sellerCode;
-    res.json({ token, expiresIn: TOKEN_TTL_MS / 1000, isPrimary: user.isPrimary, username: user.username, sellerCode, tenantId });
+    const live = await resolveLiveAdminScope({ username: user.username, isPrimary: user.isPrimary, tenantId, adminUserId: user.id });
+    res.json({
+      token,
+      expiresIn: TOKEN_TTL_MS / 1000,
+      isPrimary: user.isPrimary,
+      username: user.username,
+      sellerCode: live.sellerCode,
+      hasGlobalAccess: live.hasGlobalAccess,
+      tenantId: live.tenantId,
+    });
   } catch (err) {
     console.error("[AdminAuth] login error:", err, JSON.stringify(err, Object.getOwnPropertyNames(err)));
     respondInternalError(res, "Erro ao autenticar.", err);
@@ -651,7 +677,14 @@ router.get("/admin/verify", requireAdminAuth, async (req, res) => {
       tenantId: (req as any).adminSession?.tenantId ?? DEFAULT_TENANT_ID,
     });
     const session = (req as any).adminSession;
-    res.json({ ok: true, isPrimary: !!session?.isPrimary, username: session?.username ?? "", tenantId: session?.tenantId ?? DEFAULT_TENANT_ID });
+    res.json({
+      ok: true,
+      isPrimary: !!session?.isPrimary,
+      hasGlobalAccess: !!session?.hasGlobalAccess,
+      username: session?.username ?? "",
+      sellerCode: session?.sellerCode ?? null,
+      tenantId: session?.tenantId ?? DEFAULT_TENANT_ID,
+    });
     console.log('[admin/verify] SUCESSO', { username: session?.username });
   } catch (err) {
     console.error('[admin/verify] Erro:', err);
@@ -668,8 +701,11 @@ router.get("/admin/users", requirePrimaryAdmin, async (_req, res) => {
       .select({ id: adminUsersTable.id, username: adminUsersTable.username, isPrimary: adminUsersTable.isPrimary, createdAt: adminUsersTable.createdAt })
       .from(adminUsersTable)
       .orderBy(adminUsersTable.createdAt);
-
-    res.json({ users });
+    const withScope = [];
+    for (const user of users) {
+      withScope.push({ ...user, sellerAccess: await describeSellerAccess(user) });
+    }
+    res.json({ users: withScope });
   } catch (err) {
     console.error("[AdminAuth] list users error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao listar usuários." });
@@ -679,9 +715,28 @@ router.get("/admin/users", requirePrimaryAdmin, async (_req, res) => {
 // --------------------------------------------------------------------------
 // POST /api/admin/users  — create a new user (primary admin only)
 // --------------------------------------------------------------------------
+router.get("/admin/seller-scope-options", requirePrimaryAdmin, async (req, res) => {
+  try {
+    const tenantId = String(req.query.tenantId || "").trim();
+    if (!tenantId) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Informe a loja." });
+      return;
+    }
+    const sellers = await listSellerSlugsForTenant(tenantId);
+    if (!sellers) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Loja não encontrada." });
+      return;
+    }
+    res.json({ tenantId, sellers });
+  } catch (err) {
+    console.error("[AdminAuth] seller scope options error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao listar vendedores." });
+  }
+});
+
 router.post("/admin/users", requirePrimaryAdmin, async (req, res) => {
-  const { username, password, fullAccess } = req.body as {
-    username?: string; password?: string; fullAccess?: boolean;
+  const { username, password, fullAccess, sellerTenantId, sellerSlug } = req.body as {
+    username?: string; password?: string; fullAccess?: boolean; sellerTenantId?: string; sellerSlug?: string;
   };
 
   if (!username || !password) {
@@ -698,6 +753,13 @@ router.post("/admin/users", requirePrimaryAdmin, async (req, res) => {
     const salt = generateSalt();
     const id   = crypto.randomBytes(8).toString("hex");
     const grantPrimary = fullAccess === true;
+    if (!grantPrimary) {
+      const check = await assertSellerInTenant(String(sellerTenantId || ""), String(sellerSlug || ""));
+      if (!check.ok) {
+        res.status(400).json({ error: "INVALID_SELLER", message: check.message });
+        return;
+      }
+    }
 
     await db.insert(adminUsersTable).values({
       id,
@@ -706,6 +768,14 @@ router.post("/admin/users", requirePrimaryAdmin, async (req, res) => {
       salt,
       isPrimary:    grantPrimary,
     });
+    if (!grantPrimary) {
+      const saved = await saveSellerScope({ adminUserId: id, tenantId: String(sellerTenantId || ""), sellerSlug: String(sellerSlug || "") });
+      if (!saved.ok) {
+        await db.delete(adminUsersTable).where(eq(adminUsersTable.id, id));
+        res.status(saved.status).json({ error: "INVALID_SELLER", message: saved.message });
+        return;
+      }
+    }
 
     res.status(201).json({ id, username: username.trim().toLowerCase(), isPrimary: grantPrimary });
   } catch (err: unknown) {
@@ -718,6 +788,43 @@ router.post("/admin/users", requirePrimaryAdmin, async (req, res) => {
     }
   }
 });
+
+router.patch("/admin/users/:id/seller-scope", requirePrimaryAdmin, async (req, res) => {
+  const userId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const clear = req.body?.clear === true;
+  try {
+    const result = clear
+      ? await clearSellerScope(String(userId || ""))
+      : await saveSellerScope({
+          adminUserId: String(userId || ""),
+          tenantId: String(req.body?.tenantId || ""),
+          sellerSlug: String(req.body?.sellerSlug || ""),
+        });
+    if (!result.ok) {
+      res.status(result.status).json({ error: "INVALID_SELLER", message: result.message });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("[AdminAuth] seller scope error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao gravar o vendedor do usuário." });
+  }
+});
+
+async function describeSellerAccess(user: { id: string; username: string; isPrimary: boolean }) {
+  if (user.isPrimary) return { kind: "primary", tenantId: null, sellerCode: null };
+  const facts = await loadAdminAccessFacts({ adminUserId: user.id });
+  if (facts.explicit?.status === "linked") {
+    return { kind: "linked", tenantId: facts.explicit.tenantId, sellerCode: facts.explicit.sellerCode };
+  }
+  if (facts.explicit?.status === "cleared") {
+    return { kind: "cleared", tenantId: facts.explicit.tenantId, sellerCode: null };
+  }
+  if (facts.storeAdminTenantId) return { kind: "store", tenantId: facts.storeAdminTenantId, sellerCode: null };
+  const legacy = getAdminSellerScopeMap()[String(user.username || "").trim().toLowerCase()] ?? null;
+  if (legacy) return { kind: "legacy", tenantId: DEFAULT_TENANT_ID, sellerCode: legacy };
+  return { kind: "none", tenantId: null, sellerCode: null };
+}
 
 // --------------------------------------------------------------------------
 // PATCH /api/admin/users/:id/access  — toggle full access (primary admin only)
@@ -743,6 +850,16 @@ router.patch("/admin/users/:id/access", requirePrimaryAdmin, async (req, res) =>
     if (!existing[0]) {
       res.status(404).json({ error: "NOT_FOUND", message: "Usuário não encontrado." });
       return;
+    }
+
+    if (!fullAccess) {
+      const facts = await loadAdminAccessFacts({ adminUserId: userId });
+      const legacy = facts.explicit ? null : getAdminSellerScopeMap()[String(existing[0].username || "").trim().toLowerCase()] ?? null;
+      const linked = facts.explicit?.status === "linked" && facts.explicit.sellerValid && facts.explicit.sellerCode;
+      if (!linked && !legacy && !facts.storeAdminTenantId) {
+        res.status(400).json({ error: "SELLER_REQUIRED", message: "Escolha o vendedor antes de tirar o acesso total." });
+        return;
+      }
     }
 
     // Prevent removing the last primary admin

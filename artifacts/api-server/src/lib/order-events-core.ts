@@ -6,6 +6,7 @@ export type OrderEventRecord = {
   action: string;
   actorType: OrderEventActorType;
   actorUsername: string | null;
+  actorAdminUserId: string | null;
   payload: Record<string, unknown> | null;
   createdAt: string;
 };
@@ -21,6 +22,7 @@ export function mapOrderEventRow(row: {
   action: string;
   actorType: string | null;
   actorUsername: string | null;
+  actorAdminUserId?: string | null;
   payload: unknown;
   createdAt: Date | string | null;
 }): OrderEventRecord {
@@ -35,6 +37,7 @@ export function mapOrderEventRow(row: {
     action: String(row.action || "").trim(),
     actorType: (allowed.includes(actorType as OrderEventActorType) ? actorType : "admin") as OrderEventActorType,
     actorUsername: String(row.actorUsername || "").trim() || null,
+    actorAdminUserId: String(row.actorAdminUserId || "").trim() || null,
     payload: asPayload(row.payload),
     createdAt,
   };
