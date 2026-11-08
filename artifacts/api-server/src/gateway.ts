@@ -51,6 +51,8 @@ export interface GatewayPixResponse {
   };
   details?: string;
   errorDescription?: string;
+  /** Só para gravar o hash. Não devolver ao navegador. */
+  webhookToken?: string;
 }
 
 export interface GatewayErrorResponse {
@@ -236,9 +238,14 @@ export async function createPixCharge(payload: {
     throw new Error("Gateway não retornou o código PIX. Tente novamente.");
   }
 
+  const webhookToken = typeof (data as { webhookToken?: unknown }).webhookToken === "string"
+    ? (data as { webhookToken: string }).webhookToken.trim()
+    : "";
+
   return {
     ...(data as GatewayPixResponse),
     gatewayProvider: "appcnpay",
+    webhookToken: webhookToken || undefined,
   };
 }
 

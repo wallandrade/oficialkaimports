@@ -6,6 +6,7 @@ import {
   decidePixSettlement,
   isPaymentConfirmed,
   legacyPixCallbackGate,
+  pixNoticeLogFields,
   readPixNotice,
   regeneratePixChargeDecision,
   safeTokenEquals,
@@ -197,8 +198,10 @@ test("aviso no formato documentado usa o valor pago pelo cliente, não o líquid
   assert.equal(notice.amount, 100);
   assert.equal(notice.status, "COMPLETED");
   assert.equal(notice.currency, "BRL");
-  assert.equal(JSON.stringify(notice).includes("00020126NAO-USAR"), false);
-  assert.equal(JSON.stringify(notice).includes("token-de-exemplo"), false);
+  assert.equal(notice.bodyToken, "token-de-exemplo");
+  const logged = JSON.stringify(pixNoticeLogFields(notice));
+  assert.equal(logged.includes("00020126NAO-USAR"), false);
+  assert.equal(logged.includes("token-de-exemplo"), false);
   const decision = decidePixSettlement({
     authenticated: true,
     transactionId: notice.transactionId,

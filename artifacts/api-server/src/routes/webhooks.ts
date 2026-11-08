@@ -34,6 +34,7 @@ import {
   updatedRowCount,
   webhookAuthenticated,
 } from "../lib/pix-settlement";
+import { authenticatePixNotice } from "../lib/pix-charge-proof";
 
 const router: IRouter = Router();
 
@@ -297,7 +298,11 @@ async function settleMatchedRaffle(notice: PixNotice, authenticated: boolean): P
   };
 }
 
-async function handleCallback(notice: PixNotice, authenticated: boolean): Promise<SettlementResult> {
+async function handleCallback(
+  notice: PixNotice,
+  authenticated: boolean,
+  authMethod: "shared_secret" | "transaction_token" | "none",
+): Promise<SettlementResult> {
   console.log("[WEBHOOK/pix] notice", JSON.stringify(pixNoticeLogFields(notice)));
   if (!authenticated || !notice.transactionId) {
     return reject(openSettlement(notice, authenticated, { alreadySettled: false }));
@@ -309,7 +314,23 @@ async function handleCallback(notice: PixNotice, authenticated: boolean): Promis
   if (chargeResult) return chargeResult;
   const raffleResult = await settleMatchedRaffle(notice, authenticated);
   if (raffleResult) return raffleResult;
+  if (authMethod === "transaction_token") {
+    return { httpStatus: 503, body: { ok: false, error: "PIX_SETTLEMENT_REJECTED", reason: "settlement_not_ready" } };
+  }
   return { httpStatus: 200, body: { ok: true, matched: false } };
+}
+
+async function settleAuthenticatedNotice(req: Request, notice: PixNotice, directToken?: string): Promise<SettlementResult> {
+  const globalSecretMatches = requestIsAuthenticated(req, directToken);
+  const auth = await authenticatePixNotice({
+    globalSecretMatches,
+    bodyToken: notice.bodyToken,
+    transactionId: notice.transactionId,
+  });
+  if (!auth.ok) {
+    return { httpStatus: auth.httpStatus, body: { ok: false, error: "PIX_SETTLEMENT_REJECTED", reason: auth.reason } };
+  }
+  return handleCallback(notice, true, auth.method);
 }
 
 // Generic webhook — gateway can call with just the transactionId/status
@@ -317,7 +338,7 @@ async function handleCallback(notice: PixNotice, authenticated: boolean): Promis
 router.post("/webhook/pix", async (req, res) => {
   try {
     const notice = readPixNotice(req.body);
-    const result = await handleCallback(notice, requestIsAuthenticated(req));
+    const result = await settleAuthenticatedNotice(req, notice);
     res.status(result.httpStatus).json(result.body);
   } catch (err) {
     console.error("[WEBHOOK] settlement failed");
@@ -328,7 +349,7 @@ router.post("/webhook/pix", async (req, res) => {
 router.post("/webhook", async (req, res) => {
   try {
     const notice = readPixNotice(req.body);
-    const result = await handleCallback(notice, requestIsAuthenticated(req));
+    const result = await settleAuthenticatedNotice(req, notice);
     res.status(result.httpStatus).json(result.body);
   } catch (err) {
     console.error("[WEBHOOK/universal] settlement failed");
@@ -340,8 +361,13 @@ router.post("/webhook/pix/order/:token/:orderId", async (req, res) => {
   try {
     const { token, orderId } = req.params;
     const notice = readPixNotice(req.body);
-    if (!requestIsAuthenticated(req, token)) {
-      res.status(403).json({ ok: false, error: "PIX_SETTLEMENT_REJECTED", reason: "untrusted" });
+    const auth = await authenticatePixNotice({
+      globalSecretMatches: requestIsAuthenticated(req, token),
+      bodyToken: notice.bodyToken,
+      transactionId: notice.transactionId,
+    });
+    if (!auth.ok) {
+      res.status(auth.httpStatus).json({ ok: false, error: "PIX_SETTLEMENT_REJECTED", reason: auth.reason });
       return;
     }
     const rows = await db
@@ -415,8 +441,13 @@ router.post("/webhook/pix/charge/:token/:chargeId", async (req, res) => {
   try {
     const { token, chargeId } = req.params;
     const notice = readPixNotice(req.body);
-    if (!requestIsAuthenticated(req, token)) {
-      res.status(403).json({ ok: false, error: "PIX_SETTLEMENT_REJECTED", reason: "untrusted" });
+    const auth = await authenticatePixNotice({
+      globalSecretMatches: requestIsAuthenticated(req, token),
+      bodyToken: notice.bodyToken,
+      transactionId: notice.transactionId,
+    });
+    if (!auth.ok) {
+      res.status(auth.httpStatus).json({ ok: false, error: "PIX_SETTLEMENT_REJECTED", reason: auth.reason });
       return;
     }
     const rows = await db

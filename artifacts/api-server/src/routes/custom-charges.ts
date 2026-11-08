@@ -19,6 +19,7 @@ import {
   updatedRowCount,
   webhookAuthenticated,
 } from "../lib/pix-settlement";
+import { rememberGatewayChargeProof } from "../lib/pix-charge-proof";
 import { scheduleOrderPaidWhatsapp } from "../lib/whatsapp-n8n";
 
 const router: IRouter = Router();
@@ -181,6 +182,19 @@ router.post("/custom-charges", async (req, res) => {
     }
 
     console.log(`[CustomCharge:${requestId}] Gateway OK — txId=${gatewayData.transactionId} (${Date.now() - t0}ms)`);
+
+    try {
+      await rememberGatewayChargeProof({
+        transactionId: gatewayData.transactionId,
+        tenantId,
+        webhookToken: gatewayData.webhookToken,
+      });
+    } catch {
+      console.error(`[CustomCharge:${requestId}] proof not stored`);
+      res.status(500).json({ error: "PIX_PROOF_NOT_STORED", message: "Não foi possível guardar a confirmação do PIX." });
+      return;
+    }
+    delete gatewayData.webhookToken;
 
     await db.insert(customChargesTable).values({
       id,

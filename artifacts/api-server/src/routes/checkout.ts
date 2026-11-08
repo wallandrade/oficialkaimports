@@ -32,6 +32,7 @@ import {
 } from "../lib/checkout-insurance";
 import { applyStoreCreditToOrder } from "../lib/customer-wallet";
 import { addOrderEvent } from "../lib/order-events";
+import { rememberGatewayChargeProof } from "../lib/pix-charge-proof";
 import { assignNextOrganicSeller } from "../lib/seller-round-robin";
 import { applyVariantToOrderItem, parseVariantGroups } from "../lib/product-variants";
 import { consumeFlashReservation, FlashOfferError, resolveCheckoutFlash, unitPriceWithFlash } from "../lib/flash-offers";
@@ -772,6 +773,19 @@ router.post("/checkout/pix", async (req, res) => {
     }
 
     const expiresAt = new Date(Date.now() + PIX_DURATION_MS).toISOString();
+
+    try {
+      await rememberGatewayChargeProof({
+        transactionId: gatewayData.transactionId,
+        tenantId,
+        webhookToken: gatewayData.webhookToken,
+      });
+    } catch {
+      console.error(`[CHECKOUT/PIX:${requestId}] proof not stored`);
+      res.status(500).json({ error: "PIX_PROOF_NOT_STORED", message: "Não foi possível guardar a confirmação do PIX." });
+      return;
+    }
+    delete gatewayData.webhookToken;
 
     // Link PIX transaction to the order
     await db.update(ordersTable)

@@ -19,12 +19,13 @@ for (const key of ["GATEWAY_SECRET", "GATEWAY_IDENTIFIER", "DENTPEG_API_KEY", "N
   if (process.env[key]) throw new Error(`Variável de integração real presente: ${key}`);
 }
 
-const { db, pool, ordersTable, couponsTable, customChargesTable, raffleReservationsTable, rafflesTable } = await import("@workspace/db");
+const { db, pool, ordersTable, couponsTable, customChargesTable, raffleReservationsTable, rafflesTable, pixChargeProofsTable } = await import("@workspace/db");
 const { eq } = await import("drizzle-orm");
 const { default: webhookRouter } = await import("./webhooks.ts");
 const { default: pixRouter } = await import("./pix.ts");
 const { default: raffleRouter } = await import("./raffles.ts");
 const { default: chargeRouter } = await import("./custom-charges.ts");
+const { rememberGatewayChargeProof } = await import("../lib/pix-charge-proof.ts");
 
 const app = express();
 app.use(express.json());
@@ -90,6 +91,7 @@ async function insertOrder(id: string, transactionId: string, total = "100.00") 
 }
 
 test.before(async () => {
+  await db.delete(pixChargeProofsTable);
   await db.delete(ordersTable).where(eq(ordersTable.couponCode, "CUPOMTESTE"));
   await db.delete(customChargesTable).where(eq(customChargesTable.id, "charge-1"));
   await db.delete(raffleReservationsTable).where(eq(raffleReservationsTable.id, "reservation-1"));
@@ -130,9 +132,13 @@ test("confirmação legítima marca pago uma vez e não soma o cupom de novo", a
 test("aviso sem segredo, valor divergente, valor ausente e status ambíguo não pagam", async () => {
   await insertOrder("order-reject", "tx-reject");
 
-  const untrusted = await post("/api/webhook/pix", paidBody("tx-reject"));
+  const untrusted = await post("/api/webhook/pix", { ...paidBody("tx-reject"), token: "" });
   assert.equal(untrusted.status, 403);
   assert.equal(untrusted.json.reason, "untrusted");
+
+  const tokenWithoutProof = await post("/api/webhook/pix", paidBody("tx-reject"));
+  assert.equal(tokenWithoutProof.status, 403);
+  assert.equal(tokenWithoutProof.json.reason, "proof_not_stored");
 
   const wrongAmount = await post("/api/webhook/pix?whsec=it-shared-secret", paidBody("tx-reject", 10));
   assert.equal(wrongAmount.status, 409);
@@ -255,6 +261,115 @@ test("dois avisos simultâneos só liquidam o pedido uma vez", async () => {
   assert.equal(order?.status, "paid");
   const [coupon] = await db.select().from(couponsTable).where(eq(couponsTable.code, "CUPOMTESTE"));
   assert.equal(coupon?.usedCount, 1);
+});
+
+function realRaffleNotice(
+  transactionId: string,
+  status: "PENDING" | "COMPLETED",
+  token: string,
+  amount = 100,
+  currency = "BRL",
+) {
+  return {
+    event: status === "COMPLETED" ? "TRANSACTION_PAID" : "TRANSACTION_CREATED",
+    token,
+    offerCode: null,
+    checkoutUrl: "",
+    orderId: null,
+    orderUrl: null,
+    client: { name: "Pessoa Sintetica", email: "sintetico@example.test" },
+    transaction: {
+      id: transactionId,
+      identifier: "ident-sintetico",
+      status,
+      paymentMethod: "PIX",
+      originalAmount: amount,
+      amount,
+      originalCurrency: currency,
+      currency,
+      exchangeRate: 1,
+      installments: 1,
+      createdAt: "2026-11-08T10:06:06.000Z",
+      payedAt: status === "COMPLETED" ? "2026-11-08T10:07:05.000Z" : null,
+      boletoInformation: null,
+      pixInformation: { qrCode: "00020126NAO-GRAVAR" },
+      ...(status === "COMPLETED" ? { commissionAmount: 1.5 } : {}),
+    },
+    subscription: null,
+    orderItems: [],
+    trackProps: {
+      numbers: "[1]",
+      isUpsell: false,
+      raffleId: "raffle-sintetica",
+      reservationId: "reserva-sintetica",
+    },
+  };
+}
+
+test("token da criação confirma a rifa sem whsec; criação não paga; repetição não duplica", async () => {
+  await insertOrder("order-token", "tx-token");
+  const creationToken = "webhook-token-da-criacao";
+  const early = await post("/api/webhook/pix", realRaffleNotice("tx-token", "COMPLETED", creationToken));
+  assert.equal(early.status, 403);
+  assert.equal(early.json.reason, "proof_not_stored");
+
+  await rememberGatewayChargeProof({
+    transactionId: "tx-token",
+    tenantId: "tenant_loja1",
+    webhookToken: creationToken,
+  });
+
+  const created = await post("/api/webhook/pix", realRaffleNotice("tx-token", "PENDING", creationToken));
+  assert.equal(created.status, 200);
+  assert.equal(created.json.reason, "status_not_paid");
+
+  const paid = await post("/api/webhook/pix", realRaffleNotice("tx-token", "COMPLETED", creationToken));
+  assert.equal(paid.status, 200);
+  assert.equal(paid.json.status, "paid");
+  const again = await post("/api/webhook/pix", realRaffleNotice("tx-token", "COMPLETED", creationToken));
+  assert.equal(again.json.duplicate, true);
+
+  const wrong = await post("/api/webhook/pix", realRaffleNotice("tx-other", "COMPLETED", creationToken));
+  assert.equal(wrong.status, 403);
+
+  const [order] = await db.select().from(ordersTable).where(eq(ordersTable.id, "order-token"));
+  assert.equal(order?.status, "paid");
+});
+
+test("token incorreto, valor, moeda e status errados não pagam; whsec antigo continua valendo", async () => {
+  await insertOrder("order-guards", "tx-guards");
+  await rememberGatewayChargeProof({
+    transactionId: "tx-guards",
+    tenantId: "tenant_loja1",
+    webhookToken: "token-certo",
+  });
+
+  const wrongToken = await post("/api/webhook/pix", realRaffleNotice("tx-guards", "COMPLETED", "token-errado"));
+  assert.equal(wrongToken.status, 403);
+  assert.equal(wrongToken.json.reason, "token_mismatch");
+
+  const wrongAmount = await post("/api/webhook/pix", realRaffleNotice("tx-guards", "COMPLETED", "token-certo", 10));
+  assert.equal(wrongAmount.status, 409);
+  assert.equal(wrongAmount.json.reason, "amount_mismatch");
+
+  const wrongCurrency = await post("/api/webhook/pix", realRaffleNotice("tx-guards", "COMPLETED", "token-certo", 100, "USD"));
+  assert.equal(wrongCurrency.status, 409);
+  assert.equal(wrongCurrency.json.reason, "currency_rejected");
+
+  const missing = await post("/api/webhook/pix", {
+    ...realRaffleNotice("tx-guards", "COMPLETED", "token-certo"),
+    token: "",
+  });
+  assert.equal(missing.status, 403);
+  assert.equal(missing.json.reason, "untrusted");
+
+  await insertOrder("order-whsec", "tx-whsec-only");
+  const legacySecret = await post("/api/webhook/pix?whsec=it-shared-secret", paidBody("tx-whsec-only"));
+  assert.equal(legacySecret.status, 200);
+  assert.equal(legacySecret.json.status, "paid");
+
+  const [untouched] = await db.select().from(ordersTable).where(eq(ordersTable.id, "order-guards"));
+  assert.equal(untouched?.status, "awaiting_payment");
 });
 
 test("regenerar PIX com valor do navegador menor não chama o gateway", async () => {

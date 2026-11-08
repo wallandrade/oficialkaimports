@@ -19,6 +19,7 @@ import {
   readWebhookSecret,
   webhookAuthenticated,
 } from "../lib/pix-settlement";
+import { authenticatePixNotice, rememberGatewayChargeProof } from "../lib/pix-charge-proof";
 import { canUndoManualRafflePayment, rafflePaymentBlockReason } from "../lib/raffle-pix-confirm-core";
 
 const router: IRouter = Router();
@@ -399,6 +400,19 @@ router.post("/raffles/:id/reserve", async (req, res) => {
     return;
   }
 
+  try {
+    await rememberGatewayChargeProof({
+      transactionId: gatewayData.transactionId,
+      tenantId,
+      webhookToken: gatewayData.webhookToken,
+    });
+  } catch {
+    console.error("[Raffle] proof not stored");
+    res.status(500).json({ error: "PIX_PROOF_NOT_STORED", message: "Não foi possível guardar a confirmação do PIX." });
+    return;
+  }
+  delete gatewayData.webhookToken;
+
   await db
     .update(raffleReservationsTable)
     .set({
@@ -635,6 +649,19 @@ router.post("/raffles/reservations/:reservationId/refresh-pix", async (req, res)
     res.status(400).json({ error: "GATEWAY_ERROR", message: msg });
     return;
   }
+
+  try {
+    await rememberGatewayChargeProof({
+      transactionId: gatewayData.transactionId,
+      tenantId,
+      webhookToken: gatewayData.webhookToken,
+    });
+  } catch {
+    console.error("[Raffle] proof not stored");
+    res.status(500).json({ error: "PIX_PROOF_NOT_STORED", message: "Não foi possível guardar a confirmação do PIX." });
+    return;
+  }
+  delete gatewayData.webhookToken;
 
   const pixExpiresAt = new Date(Date.now() + PIX_DURATION_MS);
 
@@ -1252,7 +1279,7 @@ router.post("/webhook/raffle-pix", async (req, res) => {
     const notice = readPixNotice(req.body);
     console.log("[RaffleWebhook] notice", JSON.stringify(pixNoticeLogFields(notice)));
     const sharedSecret = String(process.env.WEBHOOK_SHARED_SECRET || "").trim();
-    const authenticated = webhookAuthenticated({
+    const globalSecretMatches = webhookAuthenticated({
       sharedSecret,
       providedSecret: readWebhookSecret({
         headerSecret: req.get("x-webhook-secret"),
@@ -1260,8 +1287,17 @@ router.post("/webhook/raffle-pix", async (req, res) => {
         querySecret: req.query?.whsec,
       }),
     });
-    if (!authenticated || !notice.transactionId) {
-      res.status(403).json({ ok: false, error: "PIX_SETTLEMENT_REJECTED", reason: authenticated ? "missing_transaction" : "untrusted" });
+    const auth = await authenticatePixNotice({
+      globalSecretMatches,
+      bodyToken: notice.bodyToken,
+      transactionId: notice.transactionId,
+    });
+    if (!auth.ok) {
+      res.status(auth.httpStatus).json({ ok: false, error: "PIX_SETTLEMENT_REJECTED", reason: auth.reason });
+      return;
+    }
+    if (!notice.transactionId) {
+      res.status(403).json({ ok: false, error: "PIX_SETTLEMENT_REJECTED", reason: "missing_transaction" });
       return;
     }
 
@@ -1277,6 +1313,10 @@ router.post("/webhook/raffle-pix", async (req, res) => {
       .limit(1);
 
     if (!reservation?.transactionId) {
+      if (auth.method === "transaction_token") {
+        res.status(503).json({ ok: false, error: "PIX_SETTLEMENT_REJECTED", reason: "settlement_not_ready" });
+        return;
+      }
       res.status(404).json({ ok: false, error: "RESERVATION_NOT_FOUND" });
       return;
     }

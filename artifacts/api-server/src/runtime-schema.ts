@@ -1813,6 +1813,18 @@ async function ensureWhatsappRecoverySendsTable(databaseName: string): Promise<v
   }
 }
 
+async function ensurePixChargeProofsTable(databaseName: string): Promise<void> {
+  if (await tableExists("pix_charge_proofs", databaseName)) return;
+  await pool.query(`
+    CREATE TABLE pix_charge_proofs (
+      transaction_id VARCHAR(255) NOT NULL PRIMARY KEY,
+      tenant_id VARCHAR(255) NULL,
+      token_hash VARCHAR(64) NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+}
+
 export async function ensureRuntimeSchema(): Promise<void> {
   try {
     const databaseName = getDatabaseName();
@@ -1821,6 +1833,7 @@ export async function ensureRuntimeSchema(): Promise<void> {
       return;
     }
 
+    await ensurePixChargeProofsTable(databaseName);
     await ensureTenantsTables(databaseName);
     await ensureOrdersColumns(databaseName);
     await ensureWhatsappSupportSessionsTable(databaseName);

@@ -13,6 +13,7 @@ import {
   normalizePixGatewayProvider,
   PIX_DURATION_MS,
 } from "../gateway";
+import { rememberGatewayChargeProof } from "../lib/pix-charge-proof";
 import { getCustomerSession, requireCustomerAuth } from "../middlewares/customer-auth";
 import {
   applyAffiliateCreditToOrder,
@@ -3224,6 +3225,19 @@ router.post("/admin/orders/:id/difference-charge", requireAdminAuth, async (req,
       metadata: { chargeId, description: desc },
       callbackUrl,
     });
+
+    try {
+      await rememberGatewayChargeProof({
+        transactionId: gatewayData.transactionId,
+        tenantId: adminScope.tenantId,
+        webhookToken: gatewayData.webhookToken,
+      });
+    } catch {
+      console.error("[Diff PIX] proof not stored");
+      res.status(500).json({ error: "PIX_PROOF_NOT_STORED", message: "Não foi possível guardar a confirmação do PIX." });
+      return;
+    }
+    delete gatewayData.webhookToken;
 
     await db.insert(customChargesTable).values({
       id: chargeId,

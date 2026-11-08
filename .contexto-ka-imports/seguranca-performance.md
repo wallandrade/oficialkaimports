@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-08 | PIX aceita o token por transação só pelo hash gravado na criação | `pix_charge_proofs` guarda SHA-256. O corpo não cadastra confiança. `whsec` continua para cobrança que já saiu com ele | Cobrança antiga sem hash e sem `whsec` não confirma sozinha |
 | 2026-11-08 | PIX não liquida sem segredo, transação, valor e status exato; log do webhook não grava o corpo | 403/409 em aviso sem prova. Código PIX, cliente e `whsec` saem dos logs de criação/aviso | Sessão admin, CORS, HMAC da Yury e a marcação manual do admin |
 | 2026-10-28 | Card não pede senha da baixa Yury | Motoboy/Minas saem sem o campo. O KA não guarda essa senha | Fóz e o snapshot |
 | 2026-10-15 | Snapshot de extravio exige Bearer próprio | `LOSS_SYNC_TOKEN` libera o GET. `YURY_LOSS_SYNC_TOKEN` só lê a Yury. Valores iguais não disparam o pull | CORS, checkout token e a aba admin da lista negra |

@@ -53,6 +53,8 @@ export type PixNotice = {
   currency: string | null;
   reservationId?: string;
   chargeId?: string;
+  /** Token por transação. Não entra em log. */
+  bodyToken: string;
 };
 
 export type SettlementAction = "reject" | "ignore" | "cancel" | "pay" | "duplicate";
@@ -203,8 +205,9 @@ export function readPixNotice(raw: unknown): PixNotice {
 
   const reservationId = firstText([txMeta.reservationId, rawMeta.reservationId]) || undefined;
   const chargeId = firstText([txMeta.chargeId, rawMeta.chargeId, body.chargeId]) || undefined;
+  const bodyToken = text(body.token);
 
-  return { transactionId, status, amount, currency, reservationId, chargeId };
+  return { transactionId, status, amount, currency, reservationId, chargeId, bodyToken };
 }
 
 export function readWebhookSecret(input: {

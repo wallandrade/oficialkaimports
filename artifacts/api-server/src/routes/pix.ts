@@ -20,6 +20,7 @@ import {
   safeTokenEquals,
   updatedRowCount,
 } from "../lib/pix-settlement";
+import { rememberGatewayChargeProof } from "../lib/pix-charge-proof";
 import { ensureOrderCommission } from "../lib/affiliates";
 import { sendOutboundWebhook } from "../lib/outbound-webhook";
 import { scheduleOrderPaidWhatsapp } from "../lib/whatsapp-n8n";
@@ -140,6 +141,19 @@ router.post("/pix/generate", async (req, res) => {
     }
 
     const expiresAt = new Date(Date.now() + PIX_DURATION_MS).toISOString();
+
+    try {
+      await rememberGatewayChargeProof({
+        transactionId: gatewayData.transactionId,
+        tenantId,
+        webhookToken: gatewayData.webhookToken,
+      });
+    } catch {
+      console.error("[PIX] proof not stored");
+      res.status(500).json({ error: "PIX_PROOF_NOT_STORED", message: "Não foi possível guardar a confirmação do PIX." });
+      return;
+    }
+    delete gatewayData.webhookToken;
 
     // Update the order record with the transaction ID
     if (orderId) {
