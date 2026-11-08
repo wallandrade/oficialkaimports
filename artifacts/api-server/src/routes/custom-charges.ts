@@ -313,7 +313,11 @@ router.post("/custom-charges/callback/:token/:chargeId", async (req, res) => {
       alreadySettled: charge.status === "paid",
     });
     if (decision.action !== "pay") {
-      res.status(decision.httpStatus).json({ ok: decision.action !== "reject", reason: decision.reason });
+      res.status(decision.httpStatus).json({
+        ok: decision.action !== "reject",
+        reason: decision.reason,
+        duplicate: decision.action === "duplicate",
+      });
       return;
     }
 

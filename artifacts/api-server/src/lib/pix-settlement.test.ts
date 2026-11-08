@@ -177,6 +177,64 @@ test("leitura do aviso não guarda cliente nem código PIX", () => {
   assert.equal(JSON.stringify(notice).includes("Cliente"), false);
 });
 
+test("aviso no formato documentado usa o valor pago pelo cliente, não o líquido", () => {
+  const notice = readPixNotice({
+    event: "TRANSACTION_PAID",
+    token: "token-de-exemplo",
+    client: { name: "Pessoa Sintetica", email: "sintetico@example.test", phone: "11999999999", cpf: "00000000000" },
+    transaction: {
+      id: "tx-sintetica",
+      status: "COMPLETED",
+      paymentMethod: "PIX",
+      currency: "BRL",
+      originalCurrency: "BRL",
+      amount: 97.5,
+      chargeAmount: 100,
+      originalAmount: 100,
+      pixInformation: { qrCode: "00020126NAO-USAR" },
+    },
+  });
+  assert.equal(notice.amount, 100);
+  assert.equal(notice.status, "COMPLETED");
+  assert.equal(notice.currency, "BRL");
+  assert.equal(JSON.stringify(notice).includes("00020126NAO-USAR"), false);
+  assert.equal(JSON.stringify(notice).includes("token-de-exemplo"), false);
+  const decision = decidePixSettlement({
+    authenticated: true,
+    transactionId: notice.transactionId,
+    boundTransactionId: "tx-sintetica",
+    status: notice.status,
+    reportedAmount: notice.amount,
+    expectedAmount: 100,
+    currency: notice.currency,
+    alreadySettled: false,
+  });
+  assert.equal(decision.action, "pay");
+});
+
+test("moeda original estrangeira não usa o valor em outra moeda", () => {
+  const notice = readPixNotice({
+    transaction: {
+      id: "tx-fx",
+      status: "COMPLETED",
+      originalCurrency: "USD",
+      originalAmount: 20,
+      amount: 100,
+      currency: "BRL",
+    },
+  });
+  assert.equal(notice.amount, 100);
+});
+
+test("CHARGED_BACK documentado cancela e não paga", () => {
+  const decision = decidePixSettlement({
+    ...paidNotice,
+    status: "CHARGED_BACK",
+    reportedAmount: null,
+  });
+  assert.equal(decision.action, "cancel");
+});
+
 test("amountInCents do DentPeg vira reais só nesse campo", () => {
   const notice = readPixNotice({
     transaction: { id: "dep_1", status: "depix_sent", amountInCents: 2590 },

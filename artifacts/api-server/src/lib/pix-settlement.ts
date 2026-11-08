@@ -40,6 +40,7 @@ export const PIX_CANCEL_STATUSES = [
   "REFUNDED",
   "ERROR",
   "CHARGEBACK",
+  "CHARGED_BACK",
 ] as const;
 
 const PAID = new Set<string>(PIX_PAID_STATUSES);
@@ -154,13 +155,17 @@ export function readPixNotice(raw: unknown): PixNotice {
   const txMeta = asRecord(transaction.metadata) ?? {};
   const rawMeta = asRecord(body.metadata) ?? {};
 
-  const reais = readReais([
-    transaction.amount,
-    transaction.chargeAmount,
-    transaction.originalAmount,
-    body.amount,
-  ]);
-  let amount = reais;
+  const chargeAmount = finiteNumber(transaction.chargeAmount);
+  const originalAmount = finiteNumber(transaction.originalAmount);
+  const receivedAmount = finiteNumber(transaction.amount) ?? finiteNumber(body.amount);
+  const originalCurrency = text(transaction.originalCurrency).toUpperCase();
+  const originalIsBrl = !originalCurrency || originalCurrency === "BRL" || originalCurrency === "986";
+  // CN Pay documenta `chargeAmount` como o valor pago pelo cliente e `amount`
+  // como o valor recebido, que pode ser líquido de taxa. O total do pedido é o
+  // valor cobrado do cliente.
+  let amount = chargeAmount
+    ?? (originalAmount != null && originalIsBrl ? originalAmount : null)
+    ?? receivedAmount;
   if (amount == null) {
     const cents = readReais([
       transaction.amountInCents,

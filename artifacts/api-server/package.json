@@ -13,7 +13,8 @@
     "test:insurance": "node --test --import tsx ./src/lib/checkout-insurance.test.ts ./src/lib/insurance-claims-policy.test.ts",
     "test:envioecom": "node --test --import tsx ./src/lib/shipping-control-tower.test.ts ./src/lib/shipment-label-filename.test.ts ./src/lib/carrier-loss.test.ts ./src/lib/loss-peer.test.ts ./src/lib/carrier-delivery-hint.test.ts",
     "test:meta-ads": "node --test --import tsx ./src/lib/meta-ads-spend.test.ts",
-    "test:pix-settlement": "node --test --import tsx ./src/lib/pix-settlement.test.ts"
+    "test:pix-settlement": "node --test --import tsx ./src/lib/pix-settlement.test.ts",
+    "test:pix-webhook-local": "node --test --import tsx ./src/routes/pix-webhook.integration.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.916.0",
