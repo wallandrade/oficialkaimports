@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-08 | Anti-padrão: Radix `DropdownMenu` no Gerenciar EE (React 19 #185) | Menu nativo em portal no pacote | Etiqueta, PDF, sync, desvincular, cancelar e lista negra |
 | 2026-11-08 | Pré-deploy de custo só nas últimas 72h e só em `costPrice` | `patch-orders-costprice.ts` não regrava o item inteiro nem apaga JSON ilegível | Total, status, rifa e as outras rotinas de custo |
 | 2026-10-31 | Anti-padrão: edição de pedido recalcula a relâmpago pelo catálogo | `flashOffer` guarda o preço da compra. O PATCH e o −/+ do modal usam esse valor | Catálogo, `promoPrice` e desconto de linha |
 | 2026-10-28 | Anti-padrão: voltar o campo de senha da baixa Yury | O card baixa Motoboy/Minas sem senha | Fóz e o snapshot |
@@ -276,6 +277,7 @@ Código > memória > suposições.
 - Devolver `orders.observation` em `GET /me/orders`, `GET /me/orders/:id` ou guest sem filtrar pelo flag. Notas internas (reenvio, OFX, operação) vazam. Usar `mapOrder(..., { forCustomer: true })`. Não usar Radix `Switch` no interruptor do card (React 19 #185); toggle nativo `role="switch"`.
 - Substituir o depósito anterior ao vincular um 2º PIX no mesmo pedido. Vários FITIDs em `order_bank_deposits`; `orders.bank_deposit_amount` é a soma. FITID continua único no banco.
 - Usar Radix `Dialog`/`Switch` no Extrato/admin com React 19: gera `Minified React error #185` (loop de ref no `composeRefs`). Modal de motivo usa overlay `fixed` como EnvioEcom. Aba Seguro usa toggle nativo (`role="switch"`), não `@/components/ui/switch`.
+- Usar Radix `DropdownMenu` no **Gerenciar EE** do pacote. Abrir o menu dispara o mesmo #185 e derruba o admin. O menu do pacote é portal nativo (`PackageEeManageMenu`).
 - Tratar score 100% só como “nome igual”; se o CPF/CNPJ do pedido (`11`/`14` dígitos) aparecer no NAME/MEMO do crédito, o score é 1.0.
 - Abrir pedido do Extrato/Depósitos só com `setSearch(id)` enquanto o filtro de data é “hoje”; a API não traz pedido antigo. Usar `goToOrder` (intervalo da data do pedido → hoje, ou 365 dias).
 - Desfazer depósito alterando `status`/`paid` ou apagando o pedido; `POST .../clear` remove linhas em `order_bank_deposits` (um `fitid` ou todos) e ressincroniza `bank_deposit_*`.

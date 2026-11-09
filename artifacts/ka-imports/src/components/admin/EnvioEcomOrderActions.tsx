@@ -1,14 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Loader2, RefreshCw, Truck, FileText, Ban, ExternalLink, X, Link2, Unlink, ShieldAlert, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { formatCurrency } from "@/lib/utils";
 import { hasEnvioEcomLabelReady } from "@/lib/pending-shipment-copy";
 import { fetchRelatedCpfShipments, type RelatedCpfShipmentsResult } from "@/lib/related-cpf-shipments";
@@ -121,6 +115,121 @@ function parseEnvioEcomLinkRef(raw: unknown): { shipmentId?: number; barcode?: s
     return { shipmentId: Number(digits) };
   }
   return { barcode: compact };
+}
+
+type PackageEeMenuAction = {
+  key: string;
+  label: string;
+  icon: ReactNode;
+  className?: string;
+  dividerBefore?: boolean;
+  onSelect: () => void;
+};
+
+function PackageEeManageMenu({
+  busy,
+  actionClass,
+  actions,
+}: {
+  busy: boolean;
+  actionClass: string;
+  actions: PackageEeMenuAction[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const actionKey = actions.map((action) => action.key).join("|");
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    function place() {
+      const trigger = buttonRef.current;
+      if (!trigger) return;
+      const rect = trigger.getBoundingClientRect();
+      const width = 224;
+      const height = menuRef.current?.offsetHeight ?? 0;
+      const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+      let top = rect.bottom + 4;
+      if (height > 0 && top + height > window.innerHeight - 8 && rect.top > height + 12) {
+        top = rect.top - height - 4;
+      }
+      setPos((current) => (current && current.top === top && current.left === left ? current : { top, left }));
+    }
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open, actionKey]);
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(event: PointerEvent) {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (buttonRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
+    }
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <>
+      <Button
+        ref={buttonRef}
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={busy}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        className={`gap-1 text-teal-800 border-teal-300 hover:bg-teal-50 ${actionClass}`}
+        onClick={() => setOpen((current) => !current)}
+      >
+        Gerenciar EE
+        <ChevronDown className="w-3.5 h-3.5" />
+      </Button>
+      {open && createPortal(
+        <div
+          ref={menuRef}
+          role="menu"
+          style={{ position: "fixed", top: pos?.top ?? -9999, left: pos?.left ?? 0, width: 224, zIndex: 80 }}
+          className="rounded-md border border-neutral-200 bg-white p-1 text-sm text-neutral-900 shadow-md"
+        >
+          {actions.map((action) => (
+            <div key={action.key}>
+              {action.dividerBefore ? <div className="my-1 h-px bg-neutral-200" role="separator" /> : null}
+              <button
+                type="button"
+                role="menuitem"
+                disabled={busy}
+                className={`flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-neutral-100 disabled:pointer-events-none disabled:opacity-50 ${action.className || ""}`}
+                onClick={() => {
+                  setOpen(false);
+                  action.onSelect();
+                }}
+              >
+                {action.icon}
+                {action.label}
+              </button>
+            </div>
+          ))}
+        </div>,
+        document.body,
+      )}
+    </>
+  );
 }
 
 function prettyAccountName(order: EnvioEcomOrderFields) {
@@ -719,13 +828,6 @@ export function EnvioEcomOrderActions({
     }
   }
 
-  const packageCard = Boolean(packageId);
-  const actionClass = packageCard ? "h-8 px-2.5 text-xs" : "";
-  const canGenerateLabel = Boolean(bound.envioecomShipmentId || barcode) && !labelBlocked;
-  const canSync = Boolean(bound.envioecomShipmentId || barcode);
-  const canOpenPdf = Boolean(labelUrl) && !labelBlocked;
-  const canManagePackage = canGenerateLabel || canSync || canOpenPdf || hasBinding;
-
   function openLabelPdf() {
     openShipmentLabelPdf({
       orderId: order.id,
@@ -735,6 +837,65 @@ export function EnvioEcomOrderActions({
       orderNumber: order.orderNumber,
       poolLabel,
     });
+  }
+
+  const packageCard = Boolean(packageId);
+  const actionClass = packageCard ? "h-8 px-2.5 text-xs" : "";
+  const canGenerateLabel = Boolean(bound.envioecomShipmentId || barcode) && !labelBlocked;
+  const canSync = Boolean(bound.envioecomShipmentId || barcode);
+  const canOpenPdf = Boolean(labelUrl) && !labelBlocked;
+  const canManagePackage = canGenerateLabel || canSync || canOpenPdf || hasBinding;
+  const showManageDivider = canGenerateLabel || canOpenPdf || canSync;
+  const packageManageActions: PackageEeMenuAction[] = [];
+  if (canGenerateLabel) {
+    packageManageActions.push({
+      key: "label",
+      label: "Etiqueta EE",
+      icon: <FileText className="w-4 h-4" />,
+      onSelect: () => { void generateLabel(); },
+    });
+  }
+  if (canOpenPdf) {
+    packageManageActions.push({
+      key: "pdf",
+      label: "Ver PDF",
+      icon: <ExternalLink className="w-4 h-4" />,
+      onSelect: openLabelPdf,
+    });
+  }
+  if (canSync) {
+    packageManageActions.push({
+      key: "sync",
+      label: "Sync EE",
+      icon: <RefreshCw className="w-4 h-4" />,
+      onSelect: () => { void sync(); },
+    });
+  }
+  if (hasBinding) {
+    packageManageActions.push(
+      {
+        key: "unlink",
+        label: "Desvincular",
+        icon: <Unlink className="w-4 h-4" />,
+        className: "text-amber-800",
+        dividerBefore: showManageDivider,
+        onSelect: () => { void unlinkShipment(); },
+      },
+      {
+        key: "cancel",
+        label: "Cancelar EE",
+        icon: <Ban className="w-4 h-4" />,
+        className: "text-red-700",
+        onSelect: () => { void cancelShipment(); },
+      },
+      {
+        key: "loss",
+        label: lossActive ? "Tirar da lista negra" : "Lista negra de extravio",
+        icon: <ShieldAlert className="w-4 h-4" />,
+        className: "text-rose-800",
+        onSelect: () => { void toggleLossBlacklist(); },
+      },
+    );
   }
 
   return (
@@ -755,57 +916,7 @@ export function EnvioEcomOrderActions({
       </Button>
       {packageCard ? (
         canManagePackage ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={!!busy}
-                className={`gap-1 text-teal-800 border-teal-300 hover:bg-teal-50 ${actionClass}`}
-              >
-                Gerenciar EE
-                <ChevronDown className="w-3.5 h-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="z-[80] w-56">
-              {canGenerateLabel && (
-                <DropdownMenuItem disabled={!!busy} onSelect={() => { void generateLabel(); }}>
-                  <FileText className="w-4 h-4" />
-                  Etiqueta EE
-                </DropdownMenuItem>
-              )}
-              {canOpenPdf && (
-                <DropdownMenuItem onSelect={openLabelPdf}>
-                  <ExternalLink className="w-4 h-4" />
-                  Ver PDF
-                </DropdownMenuItem>
-              )}
-              {canSync && (
-                <DropdownMenuItem disabled={!!busy} onSelect={() => { void sync(); }}>
-                  <RefreshCw className="w-4 h-4" />
-                  Sync EE
-                </DropdownMenuItem>
-              )}
-              {hasBinding && (
-                <>
-                  {(canGenerateLabel || canOpenPdf || canSync) && <DropdownMenuSeparator />}
-                  <DropdownMenuItem disabled={!!busy} className="text-amber-800 focus:text-amber-900" onSelect={() => { void unlinkShipment(); }}>
-                    <Unlink className="w-4 h-4" />
-                    Desvincular
-                  </DropdownMenuItem>
-                  <DropdownMenuItem disabled={!!busy} className="text-red-700 focus:text-red-800" onSelect={() => { void cancelShipment(); }}>
-                    <Ban className="w-4 h-4" />
-                    Cancelar EE
-                  </DropdownMenuItem>
-                  <DropdownMenuItem disabled={!!busy} className="text-rose-800 focus:text-rose-900" onSelect={() => { void toggleLossBlacklist(); }}>
-                    <ShieldAlert className="w-4 h-4" />
-                    {lossActive ? "Tirar da lista negra" : "Lista negra de extravio"}
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <PackageEeManageMenu busy={!!busy} actionClass={actionClass} actions={packageManageActions} />
         ) : null
       ) : (
         <>
