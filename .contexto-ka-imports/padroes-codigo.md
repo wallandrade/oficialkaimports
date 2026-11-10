@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-11-08
+> **Última atualização:** 2026-11-10
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-10 | Anti-padrão: modal da relâmpago crescer com a foto | `FlashOfferHost` limita a altura da tela, reduz a foto e deixa o X sempre visível | Sorteio, reserva e o preço |
 | 2026-11-08 | Anti-padrão: Radix `DropdownMenu` no Gerenciar EE (React 19 #185) | Menu nativo em portal no pacote | Etiqueta, PDF, sync, desvincular, cancelar e lista negra |
 | 2026-11-08 | Pré-deploy de custo só nas últimas 72h e só em `costPrice` | `patch-orders-costprice.ts` não regrava o item inteiro nem apaga JSON ilegível | Total, status, rifa e as outras rotinas de custo |
 | 2026-10-31 | Anti-padrão: edição de pedido recalcula a relâmpago pelo catálogo | `flashOffer` guarda o preço da compra. O PATCH e o −/+ do modal usam esse valor | Catálogo, `promoPrice` e desconto de linha |
@@ -192,6 +193,7 @@ Código > memória > suposições.
 ## Anti-padrões (não reintroduzir)
 
 - Montar promoção relâmpago só no modal, no `promoPrice` do catálogo ou num cupom compartilhado. A vaga fica em `flash_reservations` e o PIX/WhatsApp recalcula com esse preço. O IP do dia é apoio; a chave é o id do navegador.
+- Deixar o modal da relâmpago crescer com a foto (`h-auto` na imagem, sem teto de altura). No iPhone o botão some e não havia X. A foto tem altura máxima, o cartão cabe em `100dvh`/`100svh` e o X fica no canto.
 - Na edição do pedido, trocar o `price` de uma linha `flashOffer` por `resolveUnitPriceForQuantity`. O preço da reserva já está no JSON do item. Produto novo continua no catálogo.
 - Ordenar a categoria da home `pharma_compact` com `sortCatalogProducts`. Nessa lista a ordem manual vem antes de `soldQty`; a marca BIOGENESIS do peptídeo vem depois do `sortOrder`. A home dos outros temas e `/categoria/:nome` continuam no sorter antigo.
 - Colocar `@import` do Google Fonts dentro de `index.css`. Se o navegador recusa esse import, ele joga fora o CSS do Tailwind inteiro. A fonte fica no `<link>` de `index.html`.
