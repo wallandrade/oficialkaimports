@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { useCart } from "@/store/use-cart";
@@ -174,32 +174,98 @@ export function FlashOfferHost() {
 
   const isAdmin = location.startsWith("/admin");
   const several = offers.length > 1;
+  const modalOpen = !isAdmin && !holdOffers && offers.length > 0;
+
+  useEffect(() => {
+    if (!modalOpen) return;
+    const root = document.documentElement;
+    const previousRoot = root.style.overflow;
+    const previousBody = document.body.style.overflow;
+    root.style.overflow = "hidden";
+    document.body.style.overflow = "hidden";
+    return () => {
+      root.style.overflow = previousRoot;
+      document.body.style.overflow = previousBody;
+    };
+  }, [modalOpen]);
+
+  useEffect(() => {
+    if (!modalOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || claiming) return;
+      event.preventDefault();
+      setOffers([]);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [modalOpen, claiming]);
+
+  const dismiss = () => {
+    if (claiming) return;
+    setOffers([]);
+  };
 
   return (
     <>
-      {!isAdmin && !holdOffers && offers.length > 0 && (
-        <div className="fixed inset-0 z-[80] flex h-dvh max-h-dvh overflow-y-auto overscroll-contain bg-black/55 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-          <div className="m-auto w-full max-w-[22.5rem] rounded-[1.75rem] bg-white px-4 pb-3 pt-4 shadow-2xl">
-            <p className="text-center text-[10px] font-bold uppercase tracking-[0.08em] text-orange-500">
-              Promoção relâmpago{several ? ` · ${index + 1} de ${offers.length}` : ""}
-            </p>
-            <h2 className="mt-0.5 text-center text-[1.45rem] font-extrabold leading-tight tracking-tight text-neutral-950">Essa oferta é sua</h2>
-            <p className="mx-auto mt-1 max-w-[16.5rem] text-center text-[13px] leading-[1.35] text-neutral-500">
-              Aparece uma vez. Se aceitar, tem 1 hora para pagar no PIX ou no WhatsApp.
-            </p>
-            <div className="mt-3">
+      {modalOpen && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center overflow-hidden bg-black/55"
+          style={{
+            height: "100dvh",
+            maxHeight: "100svh",
+            paddingTop: "max(0.75rem, env(safe-area-inset-top))",
+            paddingRight: "max(0.75rem, env(safe-area-inset-right))",
+            paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
+            paddingLeft: "max(0.75rem, env(safe-area-inset-left))",
+          }}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) dismiss();
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="flash-offer-title"
+            className="flex max-h-full min-h-0 w-full max-w-[22.5rem] flex-col overflow-hidden rounded-[1.5rem] bg-white shadow-2xl sm:max-w-[26rem] sm:rounded-[1.75rem]"
+          >
+            <div className="shrink-0 px-2 pt-2">
+              <div className="grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-start">
+                <span aria-hidden="true" />
+                <div className="px-1 pt-1.5 text-center">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-orange-500">
+                    Promoção relâmpago{several ? ` · ${index + 1} de ${offers.length}` : ""}
+                  </p>
+                  <h2 id="flash-offer-title" className="mt-0.5 text-xl font-extrabold leading-tight tracking-tight text-neutral-950 sm:text-[1.45rem]">
+                    Essa oferta é sua
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Fechar"
+                  disabled={claiming}
+                  onClick={dismiss}
+                  className="flex h-11 w-11 items-center justify-center rounded-full bg-neutral-100 text-neutral-800 hover:bg-neutral-200 disabled:opacity-40"
+                >
+                  <X className="h-5 w-5" strokeWidth={2.25} />
+                </button>
+              </div>
+              <p className="mx-auto mt-1 max-w-[17rem] px-2 pb-1 text-center text-xs leading-snug text-neutral-500 sm:text-[13px]">
+                Aparece uma vez. Se aceitar, tem 1 hora para pagar no PIX ou no WhatsApp.
+              </p>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3.5 sm:px-4">
               <div
                 ref={scrollerRef}
                 onScroll={syncIndex}
-                className="flex snap-x snap-mandatory overflow-x-auto scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                className="flex min-w-0 snap-x snap-mandatory overflow-x-auto scroll-smooth touch-pan-x [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
               >
                 {offers.map((item) => (
                   <div key={`${item.campaignId}-${item.productId}`} className="w-full shrink-0 snap-center">
-                    <div className="rounded-2xl border border-neutral-200 bg-white px-2 pb-2.5 pt-2">
-                      <div className="relative">
+                    <div className="rounded-2xl border border-neutral-200 bg-neutral-50 px-2 pb-2.5 pt-2">
+                      <div className="relative flex h-40 max-h-[30dvh] items-center justify-center sm:h-52">
                         {item.image
-                          ? <img src={item.image} alt="" className="mx-auto block h-auto w-full object-contain" />
-                          : <div className="h-36 w-full rounded-xl bg-neutral-100" />}
+                          ? <img src={item.image} alt="" className="max-h-full max-w-full object-contain" />
+                          : <div className="h-full w-full rounded-xl bg-neutral-100" />}
                         {several && (
                           <>
                             <button
@@ -207,59 +273,63 @@ export function FlashOfferHost() {
                               aria-label="Oferta anterior"
                               disabled={claiming || index === 0}
                               onClick={() => scrollToIndex(index - 1)}
-                              className="absolute left-0 top-1/2 z-10 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full bg-white text-orange-500 shadow-md disabled:opacity-40"
+                              className="absolute left-0 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white text-orange-500 shadow-md disabled:opacity-40"
                             >
-                              <ChevronLeft className="h-4 w-4" />
+                              <ChevronLeft className="h-5 w-5" />
                             </button>
                             <button
                               type="button"
                               aria-label="Próxima oferta"
                               disabled={claiming || index >= offers.length - 1}
                               onClick={() => scrollToIndex(index + 1)}
-                              className="absolute right-0 top-1/2 z-10 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full bg-white text-orange-500 shadow-md disabled:opacity-40"
+                              className="absolute right-0 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white text-orange-500 shadow-md disabled:opacity-40"
                             >
-                              <ChevronRight className="h-4 w-4" />
+                              <ChevronRight className="h-5 w-5" />
                             </button>
                           </>
                         )}
                       </div>
-                      <p className="mt-1.5 text-center text-[13px] font-medium leading-snug text-neutral-800">{item.name}</p>
-                      <p className="mt-0.5 text-center text-[13px] leading-none text-neutral-400 line-through">{formatCurrency(item.regularPrice)}</p>
-                      <p className="mt-0.5 text-center text-[1.7rem] font-extrabold leading-none text-orange-500">{formatCurrency(item.flashPrice)}</p>
+                      <p className="mt-1.5 line-clamp-2 text-center text-[13px] font-medium leading-snug text-neutral-800">{item.name}</p>
+                      <p className="mt-1 text-center text-xs leading-none text-neutral-400 line-through">{formatCurrency(item.regularPrice)}</p>
+                      <p className="mt-1 text-center text-[1.65rem] font-extrabold leading-none text-orange-500 sm:text-[1.85rem]">{formatCurrency(item.flashPrice)}</p>
                     </div>
                   </div>
                 ))}
               </div>
+              {several && (
+                <div className="flex items-center justify-center">
+                  {offers.map((item, dot) => (
+                    <button
+                      key={`${item.campaignId}-${item.productId}-dot`}
+                      type="button"
+                      aria-label={`Oferta ${dot + 1} de ${offers.length}`}
+                      onClick={() => scrollToIndex(dot)}
+                      className="flex h-8 w-6 items-center justify-center"
+                    >
+                      <span className={`h-1.5 rounded-full ${dot === index ? "w-4 bg-orange-500" : "w-1.5 bg-neutral-300"}`} />
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-            {several && (
-              <div className="mt-2.5 flex items-center justify-center gap-1">
-                {offers.map((item, dot) => (
-                  <button
-                    key={`${item.campaignId}-${item.productId}-dot`}
-                    type="button"
-                    aria-label={`Oferta ${dot + 1} de ${offers.length}`}
-                    onClick={() => scrollToIndex(dot)}
-                    className={`h-1.5 rounded-full ${dot === index ? "w-3.5 bg-orange-500" : "w-1.5 bg-neutral-300"}`}
-                  />
-                ))}
-              </div>
-            )}
-            <button
-              type="button"
-              disabled={claiming}
-              onClick={() => void accept()}
-              className="mt-3 h-11 w-full rounded-full bg-orange-500 text-[15px] font-bold text-white disabled:opacity-60"
-            >
-              {claiming ? "Reservando..." : "Quero essa oferta"}
-            </button>
-            <button
-              type="button"
-              disabled={claiming}
-              onClick={() => setOffers([])}
-              className="mt-0.5 h-9 w-full text-[13px] font-medium text-neutral-400"
-            >
-              Agora não
-            </button>
+            <div className="shrink-0 px-3.5 pb-2 pt-1 sm:px-4 sm:pb-3">
+              <button
+                type="button"
+                disabled={claiming}
+                onClick={() => void accept()}
+                className="h-11 w-full rounded-full bg-orange-500 text-[15px] font-bold text-white disabled:opacity-60"
+              >
+                {claiming ? "Reservando..." : "Quero essa oferta"}
+              </button>
+              <button
+                type="button"
+                disabled={claiming}
+                onClick={dismiss}
+                className="mt-0.5 h-10 w-full text-[13px] font-medium text-neutral-500"
+              >
+                Agora não
+              </button>
+            </div>
           </div>
         </div>
       )}
