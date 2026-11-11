@@ -30,7 +30,7 @@ function soldOutLast(a: CatalogSalesProduct, b: CatalogSalesProduct): number {
   return aOut ? 1 : -1;
 }
 
-function compareSalesThenTiebreak(a: CatalogSalesProduct, b: CatalogSalesProduct): number {
+export function compareCatalogSales(a: CatalogSalesProduct, b: CatalogSalesProduct): number {
   const soldDiff = (Number(b.soldQty) || 0) - (Number(a.soldQty) || 0);
   if (soldDiff !== 0) return soldDiff;
 
@@ -70,14 +70,14 @@ export function sortCatalogProducts<T extends CatalogSalesProduct>(products: T[]
       }
     }
 
-    return compareSalesThenTiebreak(a, b);
+    return compareCatalogSales(a, b);
   });
 }
 
 export function topSellerRanks(products: CatalogSalesProduct[]): Map<string, 1 | 2 | 3> {
   const ranked = [...products]
     .filter((product) => (Number(product.soldQty) || 0) > 0)
-    .sort(compareSalesThenTiebreak);
+    .sort(compareCatalogSales);
   const ranks = new Map<string, 1 | 2 | 3>();
   ranked.slice(0, 3).forEach((product, index) => {
     ranks.set(product.id, (index + 1) as 1 | 2 | 3);

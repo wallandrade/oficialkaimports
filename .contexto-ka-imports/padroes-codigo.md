@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-11-10
+> **Última atualização:** 2026-11-11
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-11 | Hero da home sai do catálogo já carregado | `buildHomeHero` no browser. Sem rota nova e sem coluna | `soldQty`, preço e o banner |
 | 2026-11-10 | Anti-padrão: modal da relâmpago crescer com a foto | `FlashOfferHost` limita a altura da tela, reduz a foto e deixa o X sempre visível | Sorteio, reserva e o preço |
 | 2026-11-08 | Anti-padrão: Radix `DropdownMenu` no Gerenciar EE (React 19 #185) | Menu nativo em portal no pacote | Etiqueta, PDF, sync, desvincular, cancelar e lista negra |
 | 2026-11-08 | Pré-deploy de custo só nas últimas 72h e só em `costPrice` | `patch-orders-costprice.ts` não regrava o item inteiro nem apaga JSON ilegível | Total, status, rifa e as outras rotinas de custo |
@@ -168,6 +169,7 @@ Código > memória > suposições.
 - Data fetching: TanStack Query via `@workspace/api-client-react` quando o endpoint está no OpenAPI; muitos fetches manuais ainda existem (admin/checkout).
 - Path alias `@/` no FE.
 - Estilo: Tailwind + CVA + `cn` util.
+- Hero da home: `buildHomeHero` (`home-hero.ts`) só com o array de `useGetProducts`. Cor do botão e do gradiente: `--pharma-green*` no tema compacto, senão `--color-primary` da loja. A flutuação é CSS (5s, sobe 10px, gira ±2°); `prefers-reduced-motion` desliga. Não criar coluna nem endpoint para esse card.
 - Tema da loja: `store_theme_preset` vira `data-store-theme` no `<html>`. `pharma_compact` muda a vitrine da loja 1 (header, lista, card, `/ofertas`, `/categoria`, página do produto com foto em faixa no celular e ao lado da compra a partir de 768px, drawer do carrinho e login em cartão). A home limpa dessa lista são cinco vitrines (`pharma-home-showcases.ts`); busca, categoria, marca, promoção, `vitrine` ou outra ordem voltam à grade de 24. Filial não recebe esse preset no GET público e o PUT recusa gravá-lo. O verde fica em `--pharma-*`. A cor principal da loja continua no checkout e nos outros presets.
 
 ## Codegen (Orval)
@@ -192,6 +194,7 @@ Código > memória > suposições.
 
 ## Anti-padrões (não reintroduzir)
 
+- Fixar o hero da home num produto ou categoria (por exemplo Tirzepatida) ou buscar o catálogo de outra loja. O destaque sai do `soldQty` do `GET /api/products` do domínio.
 - Montar promoção relâmpago só no modal, no `promoPrice` do catálogo ou num cupom compartilhado. A vaga fica em `flash_reservations` e o PIX/WhatsApp recalcula com esse preço. O IP do dia é apoio; a chave é o id do navegador.
 - Deixar o modal da relâmpago crescer com a foto (`h-auto` na imagem, sem teto de altura). No iPhone o botão some e não havia X. A foto tem altura máxima, o cartão cabe em `100dvh`/`100svh` e o X fica no canto.
 - Na edição do pedido, trocar o `price` de uma linha `flashOffer` por `resolveUnitPriceForQuantity`. O preço da reserva já está no JSON do item. Produto novo continua no catálogo.
