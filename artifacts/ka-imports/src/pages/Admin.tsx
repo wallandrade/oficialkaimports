@@ -16501,6 +16501,11 @@ function OrdersPanel({
                           </span>
                         )}
                         {statusBadge(order.status)}
+                        {(order as { clientDataCorrectedAt?: string | null }).clientDataCorrectedAt ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 text-xs font-semibold border border-emerald-200">
+                            Dados corrigidos pelo cliente
+                          </span>
+                        ) : null}
                         {isCard ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 text-xs font-semibold border border-purple-200">
                             <CreditCard className="w-3 h-3" />Cartão{order.cardInstallments ? ` · ${order.cardInstallments}x` : ""}
@@ -22855,7 +22860,13 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
         </div>
       </div>
 
-      <WhatsappN8nSettings settings={settings} loading={loading} onSave={onSave} onDelete={onDelete} />
+      <WhatsappN8nSettings
+        settings={settings}
+        loading={loading}
+        onSave={onSave}
+        onDelete={onDelete}
+        showDeliveryCorrection={adminTenantId === "tenant_loja1"}
+      />
 
       {/* ── Integração Brevo ─────────────────────────────────────────────── */}
       <div className="max-w-3xl bg-card border border-border/60 rounded-2xl p-5 shadow-sm space-y-4">

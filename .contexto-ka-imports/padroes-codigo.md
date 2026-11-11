@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-11 | Anti-padrão: correção de entrega na filial ou POST real no teste | Token, webhook e o card da URL só em `tenant_loja1`. O link usa `https://www.ka-imports.com`. Teste usa `fetch` falso | PIX e o hero da home |
 | 2026-11-11 | Hero da home sai do catálogo já carregado | `buildHomeHero` no browser. Sem rota nova e sem coluna | `soldQty`, preço e o banner |
 | 2026-11-10 | Anti-padrão: modal da relâmpago crescer com a foto | `FlashOfferHost` limita a altura da tela, reduz a foto e deixa o X sempre visível | Sorteio, reserva e o preço |
 | 2026-11-08 | Anti-padrão: Radix `DropdownMenu` no Gerenciar EE (React 19 #185) | Menu nativo em portal no pacote | Etiqueta, PDF, sync, desvincular, cancelar e lista negra |

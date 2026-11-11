@@ -104,6 +104,8 @@ export const ordersTable = mysqlTable("orders", {
   postedWhatsappKeys: json("posted_whatsapp_keys"),
   outForDeliveryWhatsappKeys: json("out_for_delivery_whatsapp_keys"),
   deliveredWhatsappKeys: json("delivered_whatsapp_keys"),
+  /** Cliente corrigiu CPF, CEP ou endereço pelo link da etiqueta. */
+  clientDataCorrectedAt: timestamp("client_data_corrected_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

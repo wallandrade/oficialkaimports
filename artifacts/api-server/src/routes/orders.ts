@@ -3516,6 +3516,7 @@ function mapOrder(o: typeof ordersTable.$inferSelect, options?: { light?: boolea
     bankDepositPayerName:   (o as any).bankDepositPayerName ?? null,
     bankDepositPostedAt:    (o as any).bankDepositPostedAt ?? null,
     bankDepositMatchedAt:   (o as any).bankDepositMatchedAt?.toISOString?.() ?? (o as any).bankDepositMatchedAt ?? null,
+    clientDataCorrectedAt:  o.clientDataCorrectedAt?.toISOString?.() ?? o.clientDataCorrectedAt ?? null,
   };
 }
 

@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-11 | Cliente corrige CPF, CEP ou endereço quando a etiqueta falha | Só `tenant_loja1`. O admin vê o modal com Reenviar, Copiar e Abrir no WhatsApp. O link público vale 7 dias, só sem etiqueta (envio cancelado ainda vale). Ao salvar, o pedido e o CPF da conta mudam e o histórico marca "Dados corrigidos pelo cliente" | Filiais não recebem o aviso nem o campo na configuração. PIX, status de pagamento e o hero da home |
 | 2026-11-11 | Hero no topo da home | O banner de cima continua primeiro. Abaixo dele, o card do produto mais vendido e os cards de categoria, antes das prateleiras. Some com busca ou filtro. Cada domínio usa o próprio `GET /api/products` | Conteúdo do banner, vitrines, modal da relâmpago, banco |
 | 2026-11-10 | Modal da promoção relâmpago cabe no celular | O cartão não passa da altura da tela (`100dvh`, no máximo `100svh`, com a área segura do iPhone). A foto fica menor. Se o texto passar, só o miolo rola. Fecha no X do canto (44px), no toque no fundo escuro, no Esc ou em **Agora não** | Sorteio, reserva de 1 h, PIX, WhatsApp, cartão e cupom |
 | 2026-11-08 | Aba Usuários separa loja padrão e filiais | `GET /api/admin/users` manda a loja de cada admin. A tela lista **Loja padrão** e **Lojas filiais** | Novo usuário continua na loja padrão. Admin da filial continua nascendo na aba Lojas. O vínculo de vendedor continua na linha |
