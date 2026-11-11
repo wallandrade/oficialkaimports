@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-11 | Anti-padrão: hook depois do `return` em `CategoryPage` | `useGetProducts`, `useLiveTracking` e os `useMemo` ficam antes do `return null` da rota. React #300 na volta para `/home` some | Grade, seller na URL, hero e o banner |
 | 2026-11-11 | Hero da home sai do catálogo já carregado | `buildHomeHero` no browser. Sem rota nova e sem coluna | `soldQty`, preço e o banner |
 | 2026-11-10 | Anti-padrão: modal da relâmpago crescer com a foto | `FlashOfferHost` limita a altura da tela, reduz a foto e deixa o X sempre visível | Sorteio, reserva e o preço |
 | 2026-11-08 | Anti-padrão: Radix `DropdownMenu` no Gerenciar EE (React 19 #185) | Menu nativo em portal no pacote | Etiqueta, PDF, sync, desvincular, cancelar e lista negra |
@@ -194,6 +195,7 @@ Código > memória > suposições.
 
 ## Anti-padrões (não reintroduzir)
 
+- Chamar hook (`useState`, `useMemo`, `useEffect`, `useGetProducts`, `useLiveTracking`) depois de um `return` condicional. Em `CategoryPage` isso variava a contagem ao sair de `/categoria` ou `/:seller/categoria` e o React 19 quebrava com o erro #300. Todos os hooks ficam no topo; o `return null` vem depois.
 - Fixar o hero da home num produto ou categoria (por exemplo Tirzepatida) ou buscar o catálogo de outra loja. O destaque sai do `soldQty` do `GET /api/products` do domínio.
 - Montar promoção relâmpago só no modal, no `promoPrice` do catálogo ou num cupom compartilhado. A vaga fica em `flash_reservations` e o PIX/WhatsApp recalcula com esse preço. O IP do dia é apoio; a chave é o id do navegador.
 - Deixar o modal da relâmpago crescer com a foto (`h-auto` na imagem, sem teto de altura). No iPhone o botão some e não havia X. A foto tem altura máxima, o cartão cabe em `100dvh`/`100svh` e o X fica no canto.
