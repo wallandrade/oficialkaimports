@@ -535,3 +535,27 @@
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(215 16% 47%);
 }
+
+/* Hero da home: o produto sobe e gira devagar; a sombra encolhe junto. */
+@keyframes ka-home-float {
+  0%, 100% { transform: translateY(0) rotate(-2deg); }
+  50% { transform: translateY(-10px) rotate(2deg); }
+}
+@keyframes ka-home-float-shadow {
+  0%, 100% { transform: translateX(-50%) scale(1); opacity: 1; }
+  50% { transform: translateX(-50%) scale(0.82); opacity: 0.6; }
+}
+.ka-home-float {
+  animation: ka-home-float 5s ease-in-out infinite;
+  will-change: transform;
+}
+.ka-home-float-shadow {
+  transform: translateX(-50%);
+  animation: ka-home-float-shadow 5s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ka-home-float,
+  .ka-home-float-shadow {
+    animation: none;
+  }
+}

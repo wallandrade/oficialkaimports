@@ -10,6 +10,8 @@ import { useLiveTracking } from "@/hooks/useLiveTracking";
 import { sortCatalogProducts, topSellerRanksByCategory } from "@/lib/catalog-sales";
 import { isPharmaCompactPreset } from "@/lib/store-theme";
 import { PharmaCatalog } from "@/components/catalog/PharmaCatalog";
+import { HomeHero } from "@/components/home/HomeHero";
+import { shouldShowHomeHero } from "@/lib/home-hero";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -281,9 +283,28 @@ export default function Home() {
   const hasHeroBanner = Boolean(banners["banner_desktop"] || banners["banner_mobile"]);
   const hasCatalogBanner = Boolean(banners["catalog_banner_desktop"] || banners["catalog_banner_mobile"]);
   const shouldRenderHero = hasHeroBanner || !bannersLoaded;
+  const showHomeHero = shouldShowHomeHero({
+    pharma: isPharmaCompact,
+    search: searchString,
+    query: searchQuery,
+    categories: activeCategories,
+    name: nameFilter,
+    brand: activeBrand,
+  });
+  const heroHomeHref = sellerSlug ? `/${encodeURIComponent(sellerSlug)}` : "/";
 
   return (
     <AppLayout>
+      {showHomeHero ? (
+        <HomeHero
+          products={data?.products ?? []}
+          categories={data?.categories ?? []}
+          isLoading={isLoading}
+          homeHref={heroHomeHref}
+          mode={isPharmaCompact ? "pharma" : "path"}
+          sellerSlug={sellerSlug}
+        />
+      ) : null}
       {shouldRenderHero && (
         <section className="w-full overflow-hidden bg-muted/20">
           {hasHeroBanner ? (
