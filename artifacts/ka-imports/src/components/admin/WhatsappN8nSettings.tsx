@@ -27,11 +27,13 @@ export function WhatsappN8nSettings({
   loading,
   onSave,
   onDelete,
+  showDeliveryCorrection = false,
 }: {
   settings: Record<string, string>;
   loading: Record<string, boolean>;
   onSave: (key: string, value: string) => void;
   onDelete: (key: string) => void;
+  showDeliveryCorrection?: boolean;
 }) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [menuError, setMenuError] = useState("");
@@ -45,6 +47,7 @@ export function WhatsappN8nSettings({
     next.n8n_support_attendant_phone = settings.n8n_support_attendant_phone ?? "";
     next.n8n_support_ignore_phones = settings.n8n_support_ignore_phones ?? "";
     next.whatsapp_support_menu = settings.whatsapp_support_menu ?? "";
+    next.n8n_delivery_correction_webhook_url = settings.n8n_delivery_correction_webhook_url ?? "";
     setDrafts(next);
   }, [settings]);
 
@@ -116,6 +119,31 @@ export function WhatsappN8nSettings({
           </label>
         ))}
       </div>
+
+      {showDeliveryCorrection ? (
+        <label className="block">
+          <span className="block text-xs font-medium mb-1">Correção de CPF, CEP ou endereço</span>
+          <span className="flex gap-2">
+            <input
+              type="url"
+              value={drafts.n8n_delivery_correction_webhook_url ?? ""}
+              onChange={(event) => setDrafts((current) => ({ ...current, n8n_delivery_correction_webhook_url: event.target.value }))}
+              placeholder="https://"
+              className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm"
+            />
+            <Button
+              size="sm"
+              onClick={() => save("n8n_delivery_correction_webhook_url", drafts.n8n_delivery_correction_webhook_url || "")}
+              disabled={!!loading.n8n_delivery_correction_webhook_url}
+            >
+              Salvar
+            </Button>
+          </span>
+          <span className="mt-1 block text-xs text-muted-foreground">
+            Só a loja principal. Quando a etiqueta falha por CPF, CEP ou endereço, a loja manda um POST com event, phone, name, orderNumber, fields, message e link. No n8n, leia {`{{ $json.body.message }}`}. Sem URL https, nada é enviado e o admin ainda pode copiar a mensagem.
+          </span>
+        </label>
+      ) : null}
 
       <label className="block">
         <span className="block text-xs font-medium mb-1">Slugs da segunda instância</span>

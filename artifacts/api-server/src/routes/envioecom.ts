@@ -6,6 +6,7 @@ import { getCustomerSession, requireCustomerAuth } from "../middlewares/customer
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 import { actorFromAdminRequest, addOrderEvent } from "../lib/order-events";
 import { notifyOrderTrackingWhatsapp } from "../lib/whatsapp-n8n";
+import { withDeliveryCorrection } from "../lib/delivery-correction";
 import { carrierDisplayName, isAllowedManualCarrier } from "../lib/carrier-loss";
 import {
   attachLossAlerts,
@@ -113,6 +114,25 @@ function requireEnvioEcomAdmin(req: Request, res: Response): { tenantId: string;
     return null;
   }
   return { tenantId: scope.tenantId || DEFAULT_TENANT_ID, isPrimary: !!scope.isPrimary };
+}
+
+async function replyFreightFailure(res: Response, orderId: string, err: unknown): Promise<void> {
+  if (err instanceof EnvioEcomApiError) {
+    console.warn("[EnvioEcom]", {
+      code: err.code,
+      message: err.message,
+      httpStatus: err.httpStatus,
+      details: err.details,
+    });
+    const status = err.httpStatus >= 400 && err.httpStatus < 600 ? err.httpStatus : 400;
+    res.status(status).json(await withDeliveryCorrection(orderId, {
+      error: err.code,
+      message: err.message,
+      details: err.details,
+    }));
+    return;
+  }
+  sendEnvioEcomError(res, err);
 }
 
 function sendEnvioEcomError(res: Response, err: unknown) {
@@ -785,7 +805,7 @@ router.post("/admin/envioecom/orders/:id/quote", requireAdminAuth, async (req, r
     }
     const destination = digitsOnly(order.addressCep);
     if (destination.length !== 8) {
-      res.status(400).json({ error: "INVALID_CEP", message: "CEP de destino inválido no pedido." });
+      res.status(400).json(await withDeliveryCorrection(order.id, { error: "INVALID_CEP", message: "CEP de destino inválido no pedido." }));
       return;
     }
     const config = await loadEnvioEcomConfig(admin.tenantId);
@@ -832,7 +852,7 @@ router.post("/admin/envioecom/orders/:id/quote", requireAdminAuth, async (req, r
       accountName: scoped.account.name,
     });
   } catch (err) {
-    sendEnvioEcomError(res, err);
+    await replyFreightFailure(res, String(req.params.id || ""), err);
   }
 });
 
@@ -1012,12 +1032,23 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
     }
     const destination = digitsOnly(order.addressCep);
     if (destination.length !== 8) {
-      res.status(400).json({ error: "INVALID_CEP", message: "CEP de destino inválido no pedido." });
+      res.status(400).json(await withDeliveryCorrection(order.id, { error: "INVALID_CEP", message: "CEP de destino inválido no pedido." }));
       return;
     }
     const recipientIssue = describeEnvioEcomRecipientIssues(order);
     if (recipientIssue) {
-      res.status(400).json({ error: "INVALID_RECIPIENT", message: recipientIssue });
+      res.status(400).json(await withDeliveryCorrection(order.id, { error: "INVALID_RECIPIENT", message: recipientIssue }));
+      return;
+    }
+    const street = String(order.addressStreet || "").trim();
+    const neighborhood = String(order.addressNeighborhood || "").trim();
+    const city = String(order.addressCity || "").trim();
+    const uf = String(order.addressState || "").trim().toUpperCase().replace(/[^A-Z]/g, "");
+    if (!street || !neighborhood || !city || uf.length !== 2) {
+      res.status(400).json(await withDeliveryCorrection(order.id, {
+        error: "INVALID_ADDRESS",
+        message: "Endereço incompleto no pedido (rua, bairro, cidade e UF são obrigatórios).",
+      }));
       return;
     }
     let workingOrder = order;
@@ -1179,7 +1210,7 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       raw: created,
     });
   } catch (err) {
-    sendEnvioEcomError(res, err);
+    await replyFreightFailure(res, String(req.params.id || ""), err);
   }
 });
 

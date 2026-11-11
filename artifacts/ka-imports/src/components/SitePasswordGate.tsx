@@ -114,7 +114,7 @@ function PasswordScreen({
 
 // Paths that should NEVER be blocked by the site password gate.
 // These are customer-facing payment flows — customers cannot know the admin password.
-const PAYMENT_PATHS = ["/checkout", "/pix/", "/pix", "/success", "/pagamento", "/payment-link"];
+const PAYMENT_PATHS = ["/checkout", "/pix/", "/pix", "/success", "/pagamento", "/payment-link", "/corrigir-entrega"];
 function isPaymentPath(location: string) {
   return PAYMENT_PATHS.some((p) => location === p || location.startsWith(p + "/") || location.startsWith(p + "?"));
 }

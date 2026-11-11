@@ -1,12 +1,13 @@
 # Segurança e performance — KA Imports
 
-> **Última atualização:** 2026-11-08  
+> **Última atualização:** 2026-11-11  
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-11 | Link público de correção de entrega tem limite por IP | `GET` 40 e `POST` 8 a cada 10 minutos. A resposta não leva telefone, e-mail, produtos nem o CPF inteiro | Senha do site, sessão admin e o webhook PIX |
 | 2026-11-08 | PIX aceita o token por transação só pelo hash gravado na criação | `pix_charge_proofs` guarda SHA-256. O corpo não cadastra confiança. `whsec` continua para cobrança que já saiu com ele | Cobrança antiga sem hash e sem `whsec` não confirma sozinha |
 | 2026-11-08 | PIX não liquida sem segredo, transação, valor e status exato; log do webhook não grava o corpo | 403/409 em aviso sem prova. Código PIX, cliente e `whsec` saem dos logs de criação/aviso | Sessão admin, CORS, HMAC da Yury e a marcação manual do admin |
 | 2026-10-28 | Card não pede senha da baixa Yury | Motoboy/Minas saem sem o campo. O KA não guarda essa senha | Fóz e o snapshot |

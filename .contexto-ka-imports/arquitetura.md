@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-11 | Tabela `order_delivery_corrections` e coluna `orders.client_data_corrected_at` | Criadas no boot, só com `ADD`/`CREATE` se ainda não existem. Página `/corrigir-entrega` e modal no admin. Token só para `tenant_loja1` | PIX, hero da home e as colunas que já existiam |
 | 2026-11-11 | Hero da home no front | `HomeHero` logo abaixo do banner de cima, antes das prateleiras. Dados do `useGetProducts` da loja do domínio | API, banco e o modal da relâmpago |
 | 2026-11-08 | Liquidação PIX centralizada em `lib/pix-settlement.ts` | Webhooks de pedido, cobrança e rifa usam a mesma prova. Log do aviso não imprime o corpo | Stack FE/API/DB e o webhook da EnvioEcom |
 | 2026-11-07 | Coluna `paid_source` em `raffle_reservations` | `manual` no pagamento aprovado no admin; `pix` no webhook. O cancelamento manual usa `PATCH /api/admin/raffles/:id/reservations/:reservationId/undo-manual-paid`. A coluna entra no boot (`runtime-schema`) | `transactionId`, números e o status `paid` / `expired` |
@@ -104,7 +105,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 ### Tabelas principais (não exaustivo)
 
 - `tenants`, `admin_users`, `admin_user_tenants`, `admin_sessions`
-- `orders` (incl. `envioecom_*`, `enviado`, `manual_tracking_code`, `inventory_exit_pool`, `inventory_exited_pools`, `inventory_reserved`, `is_prioridade`, `is_procurando_produto`, `is_aguardando_estoque`, `tracking_*`, `bank_deposit_*`, `insurance_plan`, `insurance_keep_amount`, `insurance_cashback_amount`, `insurance_claim_status`, `insurance_reship_count`, `insurance_cashback_granted`, `parent_order_id`, `store_credit_used`, `observation`, `observation_visible_to_customer`), `order_shipments` (N envios EE por pedido; `manual_tracking_code`; unique `(order_id, inventory_pool)`), `order_events` (auditoria do pedido), `order_bank_deposits` (vários PIX OFX por pedido), `custom_charges`, `products`, `coupons`, `sellers`
+- `orders` (incl. `envioecom_*`, `enviado`, `manual_tracking_code`, `inventory_exit_pool`, `inventory_exited_pools`, `inventory_reserved`, `is_prioridade`, `is_procurando_produto`, `is_aguardando_estoque`, `tracking_*`, `bank_deposit_*`, `insurance_plan`, `insurance_keep_amount`, `insurance_cashback_amount`, `insurance_claim_status`, `insurance_reship_count`, `insurance_cashback_granted`, `parent_order_id`, `store_credit_used`, `observation`, `observation_visible_to_customer`, `client_data_corrected_at`), `order_shipments` (N envios EE por pedido; `manual_tracking_code`; unique `(order_id, inventory_pool)`), `order_events` (auditoria do pedido), `order_delivery_corrections` (token do link de CPF/CEP/endereço, só loja 1), `order_bank_deposits` (vários PIX OFX por pedido), `custom_charges`, `products`, `coupons`, `sellers`
 - `customer_users`, `customer_wallet_ledger` (carteira da loja; não é afiliado), `affiliates` (+ referrals/commissions/credit uses/credit adjustments)
 - `kyc_documents`, `site_settings` / `tenant_settings`
 - `shipping_options`, `motoboy_*` (incl. `yury_id` na cobertura), `yury_webhook_events_processed`, `order_logistics_allocations`

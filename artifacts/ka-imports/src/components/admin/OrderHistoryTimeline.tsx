@@ -46,6 +46,10 @@ const ACTION_LABELS: Record<string, string> = {
   split_shipment: "Dividiu o envio",
   split_cleared: "Desfez a divisão",
   motoboy: "Marcou Motoboy",
+  delivery_correction_sent: "WhatsApp de correção enviado ao cliente",
+  delivery_correction_resent: "WhatsApp de correção reenviado ao cliente",
+  delivery_correction_failed: "WhatsApp de correção não enviado",
+  delivery_correction_saved: "Dados corrigidos pelo cliente",
 };
 
 const POOL_LABELS: Record<string, string> = {

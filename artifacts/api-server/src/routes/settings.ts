@@ -88,6 +88,7 @@ const ALLOWED_KEYS = [
   "n8n_support_attendant_phone",
   "n8n_support_ignore_phones",
   "n8n_recovery_webhook_url",
+  "n8n_delivery_correction_webhook_url",
   "n8n_recovery_enabled",
   "n8n_recovery_days",
   "n8n_recovery_daily_limit",
@@ -306,6 +307,7 @@ router.get("/admin/settings", requireAdminAuth, async (req, res) => {
     const allSettings = await getTenantSettingsMap(tenantId);
     const out: Record<string, string> = {};
     for (const key of ALLOWED_KEYS) {
+      if (key === "n8n_delivery_correction_webhook_url" && tenantId !== DEFAULT_TENANT_ID) continue;
       if (key in allSettings) out[key] = allSettings[key]!;
     }
     for (const secretKey of [PIX_GATEWAY_SETTING_KEYS.publicKey, PIX_GATEWAY_SETTING_KEYS.secretKey]) {
@@ -330,6 +332,10 @@ router.put("/admin/settings/:key", requireAdminAuth, async (req, res) => {
     const key = String(req.params.key);
     if (!ALLOWED_KEYS.includes(key)) {
       res.status(400).json({ error: "INVALID_KEY" });
+      return;
+    }
+    if (key === "n8n_delivery_correction_webhook_url" && tenantId !== DEFAULT_TENANT_ID) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "A correção de entrega vale só para a loja principal." });
       return;
     }
     const { value } = req.body as { value?: string };
@@ -471,6 +477,10 @@ router.delete("/admin/settings/:key", requireAdminAuth, async (req, res) => {
     const key = String(req.params.key);
     if (!ALLOWED_KEYS.includes(key)) {
       res.status(400).json({ error: "INVALID_KEY" });
+      return;
+    }
+    if (key === "n8n_delivery_correction_webhook_url" && tenantId !== DEFAULT_TENANT_ID) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "A correção de entrega vale só para a loja principal." });
       return;
     }
     await deleteTenantSetting(tenantId, key);
