@@ -7,7 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
-| 2026-11-11 | Hero da home no front | `HomeHero` acima do banner. Dados do `useGetProducts` da loja do domínio | API, banco e o modal da relâmpago |
+| 2026-11-11 | Hero da home no front | `HomeHero` logo abaixo do banner de cima, antes das prateleiras. Dados do `useGetProducts` da loja do domínio | API, banco e o modal da relâmpago |
 | 2026-11-08 | Liquidação PIX centralizada em `lib/pix-settlement.ts` | Webhooks de pedido, cobrança e rifa usam a mesma prova. Log do aviso não imprime o corpo | Stack FE/API/DB e o webhook da EnvioEcom |
 | 2026-11-07 | Coluna `paid_source` em `raffle_reservations` | `manual` no pagamento aprovado no admin; `pix` no webhook. O cancelamento manual usa `PATCH /api/admin/raffles/:id/reservations/:reservationId/undo-manual-paid`. A coluna entra no boot (`runtime-schema`) | `transactionId`, números e o status `paid` / `expired` |
 | 2026-10-28 | Card não pede senha da baixa Yury | `POST /admin/orders/:id/inventory-exit` e o `enviado` saem sem `password` | Fóz local e o exit da Yury |
@@ -133,7 +133,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 ## Frontend
 
 - Rotas: `artifacts/ka-imports/src/App.tsx` (wouter).
-- Home: `HomeHero` no topo, antes do banner, só sem busca/filtro. Monta o card com o catálogo público já pedido por `useGetProducts` (tenant do domínio). Sem rota nova.
+- Home: o banner de cima continua primeiro. `HomeHero` entra logo abaixo, só sem busca/filtro, antes das prateleiras. Monta o card com o catálogo público já pedido por `useGetProducts` (tenant do domínio). Sem rota nova.
 - Carrinho: Zustand persist `src/store/use-cart.ts`.
 - Admin monolítico: `src/pages/Admin.tsx` (arquivo grande — leitura seletiva). `fetchOrders` usa AbortController + seq e não apaga `envioecomLabelUrl` se o GET vier vazio. `onSetOrderPatched` não zera `packages[]` se o patch vier vazio. Busca de Pedidos/Links: `AdminOrdersChargesSearchShell` (estado + filtro no filho; `onChange` imediato; `goToOrder` semeia). `OrdersSearchInput` começa `readOnly` (anti-autofill) e destrava no `touchStart`/`mouseDown` para o teclado mobile abrir. Visitantes ao vivo: `AdminLiveVisitorStats` (poll 5s próprio). Refresh silencioso de pedidos usa `startTransition`. Troca de data da lista não chama `fetchStatsData`. Aba **Seguro**: `AdminInsurancePanel.tsx` (primary-only). Checkout: `CheckoutInsuranceOffer.tsx` (2 cards, clique de novo = none). Suporte: `Support.tsx` lista pedidos com thumbnail do produto + card de chamado no admin usam `canReship`; modal **Reenvio do chamado** usa `ProductSelect` com `products[].image`. Split de envio: `SplitOrderShipments.tsx` (**Editar divisão** no card já dividido) + `packageId` em `EnvioEcomOrderActions.tsx` (OCR **Etiqueta/Rastreio** por pacote; linha de status se houver barcode mesmo sem status EE); **Trocar produto**: `ReplaceOrderProductModal.tsx`. Últimos envios do CPF: `RelatedCpfShipments.tsx` no card (fechado até o clique); alerta no clique **EnvioEcom** (`EnvioEcomOrderActions`). Cliente em `CustomerOrders.tsx` + `customer-split-shipping.ts` (Envio 1/2 se ainda não `enviado`; colapsa pacote sem etiqueta depois da expedição; “Trocado de X” se `swappedFrom`). Header da loja: busca mobile abre com `flushSync` + `.focus()` no mesmo toque; ícone da lupa é `pointer-events-none`.
 - Proxy/API: requests sob `/api` (Vercel rewrite → Railway).

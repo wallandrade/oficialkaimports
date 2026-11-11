@@ -295,16 +295,6 @@ export default function Home() {
 
   return (
     <AppLayout>
-      {showHomeHero ? (
-        <HomeHero
-          products={data?.products ?? []}
-          categories={data?.categories ?? []}
-          isLoading={isLoading}
-          homeHref={heroHomeHref}
-          mode={isPharmaCompact ? "pharma" : "path"}
-          sellerSlug={sellerSlug}
-        />
-      ) : null}
       {shouldRenderHero && (
         <section className="w-full overflow-hidden bg-muted/20">
           {hasHeroBanner ? (
@@ -333,6 +323,17 @@ export default function Home() {
           )}
         </section>
       )}
+
+      {showHomeHero ? (
+        <HomeHero
+          products={data?.products ?? []}
+          categories={data?.categories ?? []}
+          isLoading={isLoading}
+          homeHref={heroHomeHref}
+          mode={isPharmaCompact ? "pharma" : "path"}
+          sellerSlug={sellerSlug}
+        />
+      ) : null}
 
       {hasCatalogBanner && (
         <section className="w-full bg-background border-b border-border/40">
