@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
 import { useRoute, useLocation } from "wouter";
 import { useGetProducts } from "@workspace/api-client-react";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -14,10 +14,9 @@ export default function CategoryPage() {
   const [sellerMatch, sellerParams] = useRoute("/:seller/categoria/:categoryName");
   const [defaultMatch, defaultParams] = useRoute("/categoria/:categoryName");
   const isPharma = isPharmaCompactPreset(useStoreThemePreset());
+  const { data, isLoading } = useGetProducts();
 
-  if (!sellerMatch && !defaultMatch) {
-    return null;
-  }
+  useLiveTracking("catalog");
 
   const sellerSlug = sellerMatch ? sellerParams?.seller?.toLowerCase() : undefined;
   const categoryParam = sellerMatch
@@ -25,9 +24,6 @@ export default function CategoryPage() {
     : defaultParams?.categoryName;
   const categoryName = categoryParam ? decodeURIComponent(categoryParam) : "";
   const catalogHref = sellerSlug ? `/${encodeURIComponent(sellerSlug)}` : "/";
-  const { data, isLoading } = useGetProducts();
-  
-  useLiveTracking("catalog");
 
   const filteredProducts = useMemo(() => {
     if (!data?.products) return [];
@@ -39,6 +35,10 @@ export default function CategoryPage() {
     () => topSellerRanks(filteredProducts),
     [filteredProducts],
   );
+
+  if (!sellerMatch && !defaultMatch) {
+    return null;
+  }
 
   if (isLoading) {
     return (
