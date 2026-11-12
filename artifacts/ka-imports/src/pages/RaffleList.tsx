@@ -3,7 +3,8 @@ import { Link } from "wouter";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
-import { Loader2, Ticket } from "lucide-react";
+import { Ticket } from "lucide-react";
+import { BrandLoader } from "@/components/BrandLoader";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -40,7 +41,7 @@ export default function RaffleList() {
 
         {loading ? (
           <div className="flex justify-center py-16">
-            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <BrandLoader size="lg" />
           </div>
         ) : raffles.length === 0 ? (
           <div className="text-center py-16 text-muted-foreground">

@@ -3,7 +3,8 @@ import { useRoute, useLocation } from "wouter";
 import { useGetProducts } from "@workspace/api-client-react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ProductCard } from "@/components/product/ProductCard";
-import { Loader2, ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
+import { BrandLoader } from "@/components/BrandLoader";
 import { Button } from "@/components/ui/button";
 import { useLiveTracking } from "@/hooks/useLiveTracking";
 import { sortCatalogProducts, topSellerRanks } from "@/lib/catalog-sales";
@@ -44,7 +45,7 @@ export default function CategoryPage() {
     return (
       <AppLayout>
         <div className="flex items-center justify-center min-h-screen">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <BrandLoader size="lg" />
         </div>
       </AppLayout>
     );

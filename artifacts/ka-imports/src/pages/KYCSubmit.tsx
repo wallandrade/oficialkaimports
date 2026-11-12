@@ -4,6 +4,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { ShieldCheck, Camera, IdCard, FileText, Upload, CheckCircle2, Loader2, AlertCircle, X, MessageCircle, Trash2 } from "lucide-react";
+import { BrandLoader } from "@/components/BrandLoader";
 import { getCheckoutSecurityHeaders } from "@/lib/checkout-security";
 import { getActiveWhatsApp } from "@/lib/utils";
 
@@ -237,7 +238,7 @@ function PhotoUpload({
           className="w-full h-36 rounded-2xl border-2 border-dashed border-border hover:border-primary hover:bg-primary/5 transition-colors flex flex-col items-center justify-center gap-2 text-muted-foreground"
         >
           {loading ? (
-            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <BrandLoader size="md" />
           ) : (
             <>
               <Upload className="w-8 h-8" />
@@ -355,7 +356,7 @@ function CameraOnlyUpload({
           className="w-full h-36 rounded-2xl border-2 border-dashed border-primary/50 hover:bg-primary/5 transition-colors flex flex-col items-center justify-center gap-2 text-primary"
         >
           {loading ? (
-            <Loader2 className="w-8 h-8 animate-spin" />
+            <BrandLoader size="md" />
           ) : (
             <>
               <Camera className="w-8 h-8" />
@@ -450,7 +451,7 @@ export default function KYCSubmit() {
     return (
       <AppLayout minimal>
         <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="w-10 h-10 animate-spin text-primary" />
+          <BrandLoader size="lg" />
         </div>
       </AppLayout>
     );

@@ -4,7 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useEffect } from "react";
-import { Loader2, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
+import { BrandPageLoader } from "@/components/BrandLoader";
 import { SitePasswordGate } from "@/components/SitePasswordGate";
 import SocialProofWidget from "@/components/SocialProofWidget";
 import { FlashOfferHost } from "@/components/flash/FlashOfferHost";
@@ -258,11 +259,7 @@ function applyStoreBrandingFromSettings(settings: Record<string, string>): void 
 }
 
 function PageLoader() {
-  return (
-    <div className="flex items-center justify-center min-h-screen">
-      <Loader2 className="w-8 h-8 animate-spin text-primary" />
-    </div>
-  );
+  return <BrandPageLoader />;
 }
 
 function ReferralShortLink() {

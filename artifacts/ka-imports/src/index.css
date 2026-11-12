@@ -559,3 +559,26 @@
     animation: none;
   }
 }
+
+/* Loader da loja: o arco da logo orbita; as letras KA ficam paradas. */
+@keyframes brand-loader-orbit {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes brand-loader-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.brand-loader-orbit {
+  transform-box: view-box;
+  transform-origin: 256px 256px;
+  animation: brand-loader-orbit 1.2s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .brand-loader-orbit {
+    animation: none;
+  }
+  .brand-loader-svg {
+    animation: brand-loader-pulse 1.4s ease-in-out infinite;
+  }
+}

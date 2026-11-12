@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { formatCurrency, cn } from "@/lib/utils";
 import { getCheckoutSecurityHeaders } from "@/lib/checkout-security";
 import { Loader2, Ticket, Info, Share2, Search, Copy, RefreshCw } from "lucide-react";
+import { BrandLoader } from "@/components/BrandLoader";
 import { toast } from "sonner";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -339,7 +340,7 @@ export default function RaffleDetail() {
     return (
       <AppLayout>
         <div className="flex justify-center py-24">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <BrandLoader size="lg" />
         </div>
       </AppLayout>
     );

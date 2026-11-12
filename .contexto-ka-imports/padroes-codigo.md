@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-11-11
+> **Última atualização:** 2026-11-12
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-12 | Loader de marca no lugar do spinner grande da loja | `BrandLoader` / `BrandPageLoader`. O arco do símbolo gira (1,2s); as letras KA ficam paradas. `prefers-reduced-motion` só pulsa a opacidade | Hero, botões (16–20px), CEP/frete/cupom, skeletons, PIX, checkout e banco |
 | 2026-11-11 | Anti-padrão: hook depois do `return` em `CategoryPage` | `useGetProducts`, `useLiveTracking` e os `useMemo` ficam antes do `return null` da rota. React #300 na volta para `/home` some | Grade, seller na URL, hero e o banner |
 | 2026-11-11 | Hero da home sai do catálogo já carregado | `buildHomeHero` no browser. Sem rota nova e sem coluna | `soldQty`, preço e o banner |
 | 2026-11-10 | Anti-padrão: modal da relâmpago crescer com a foto | `FlashOfferHost` limita a altura da tela, reduz a foto e deixa o X sempre visível | Sorteio, reserva e o preço |
@@ -171,6 +172,7 @@ Código > memória > suposições.
 - Path alias `@/` no FE.
 - Estilo: Tailwind + CVA + `cn` util.
 - Hero da home: `buildHomeHero` (`home-hero.ts`) só com o array de `useGetProducts`. Cor do botão e do gradiente: `--pharma-green*` no tema compacto, senão `--color-primary` da loja. A flutuação é CSS (5s, sobe 10px, gira ±2°); `prefers-reduced-motion` desliga. Não criar coluna nem endpoint para esse card.
+- Loader de tela cheia e de seção grande: `BrandLoader` (`sm` 24, `md` 32, `lg` 48) e `BrandPageLoader`. O SVG usa o símbolo recortado de `public/logo.jpeg` (`src/assets/brand-loader/letters.png` parado, `arc.png` no grupo `.brand-loader-orbit`). A logo de Configurações (`logo`, por filial) continua só no header: é o wordmark largo enviado pela loja, não o símbolo. Botão, login, CEP, frete, cupom e skeleton de card seguem com `Loader2`.
 - Tema da loja: `store_theme_preset` vira `data-store-theme` no `<html>`. `pharma_compact` muda a vitrine da loja 1 (header, lista, card, `/ofertas`, `/categoria`, página do produto com foto em faixa no celular e ao lado da compra a partir de 768px, drawer do carrinho e login em cartão). A home limpa dessa lista são cinco vitrines (`pharma-home-showcases.ts`); busca, categoria, marca, promoção, `vitrine` ou outra ordem voltam à grade de 24. Filial não recebe esse preset no GET público e o PUT recusa gravá-lo. O verde fica em `--pharma-*`. A cor principal da loja continua no checkout e nos outros presets.
 
 ## Codegen (Orval)
@@ -195,6 +197,7 @@ Código > memória > suposições.
 
 ## Anti-padrões (não reintroduzir)
 
+- Trocar o `Loader2` de botão, login, CEP, frete ou cupom pelo `BrandLoader`, ou girar a logo de Configurações (`logo`) no loader. Essa imagem é o wordmark da filial. O arco que gira é o recorte de `public/logo.jpeg`.
 - Chamar hook (`useState`, `useMemo`, `useEffect`, `useGetProducts`, `useLiveTracking`) depois de um `return` condicional. Em `CategoryPage` isso variava a contagem ao sair de `/categoria` ou `/:seller/categoria` e o React 19 quebrava com o erro #300. Todos os hooks ficam no topo; o `return null` vem depois.
 - Fixar o hero da home num produto ou categoria (por exemplo Tirzepatida) ou buscar o catálogo de outra loja. O destaque sai do `soldQty` do `GET /api/products` do domínio.
 - Montar promoção relâmpago só no modal, no `promoPrice` do catálogo ou num cupom compartilhado. A vaga fica em `flash_reservations` e o PIX/WhatsApp recalcula com esse preço. O IP do dia é apoio; a chave é o id do navegador.

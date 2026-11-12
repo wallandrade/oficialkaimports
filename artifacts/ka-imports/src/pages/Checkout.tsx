@@ -8,6 +8,7 @@ import {
   MessageCircle, AlertTriangle, MapPin, Loader2, Tag, X, CheckCircle2, Zap, Minus, Plus, ExternalLink, Camera, IdCard, FileText, Clock, Bike, CalendarDays
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { BrandLoader } from "@/components/BrandLoader";
 import { toast } from "sonner";
 
 import { CheckoutLayout } from "@/components/layout/CheckoutLayout";
@@ -1244,7 +1245,7 @@ export default function Checkout() {
     return (
       <CheckoutLayout>
         <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <BrandLoader size="lg" />
         </div>
       </CheckoutLayout>
     );
@@ -1254,7 +1255,7 @@ export default function Checkout() {
     return (
       <CheckoutLayout>
         <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <BrandLoader size="lg" />
         </div>
       </CheckoutLayout>
     );
