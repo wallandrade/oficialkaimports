@@ -20,6 +20,7 @@ import {
 } from "@/lib/customer-split-shipping";
 import { ShippingStatusTimeline } from "@/components/ShippingStatusTimeline";
 import { Copy, DollarSign, Gift, Loader2, LogOut, Package, Save, Ticket, Users, CheckCircle2, Clock, AlertCircle, MessageCircle, Truck, Wallet, X } from "lucide-react";
+import { BrandLoader } from "@/components/BrandLoader";
 import { toast } from "sonner";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -754,8 +755,8 @@ export default function CustomerOrders() {
                     </div>
                   )}
                   {loading ? (
-                    <div className="py-14 flex items-center justify-center text-muted-foreground border border-border rounded-2xl">
-                      <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                    <div className="py-14 flex flex-col items-center justify-center gap-3 text-muted-foreground border border-border rounded-2xl">
+                      <BrandLoader size="lg" label="Carregando pedidos" />
                       Carregando pedidos...
                     </div>
                   ) : orders.length === 0 ? (
@@ -1175,8 +1176,8 @@ export default function CustomerOrders() {
                   </div>
 
                   {affiliateLoading ? (
-                    <div className="py-12 flex items-center justify-center text-muted-foreground border border-border rounded-2xl bg-white">
-                      <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                    <div className="py-12 flex flex-col items-center justify-center gap-3 text-muted-foreground border border-border rounded-2xl bg-white">
+                      <BrandLoader size="lg" label="Carregando dados da afiliação" />
                       Carregando dados da afiliação...
                     </div>
                   ) : (

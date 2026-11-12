@@ -14,7 +14,8 @@ import {
   pharmaCategoryMatches,
   pharmaCategorySelected,
 } from "@/lib/pharma-home-showcases";
-import { Check, ChevronDown, Loader2, Search, SlidersHorizontal, X } from "lucide-react";
+import { Check, ChevronDown, Search, SlidersHorizontal, X } from "lucide-react";
+import { BrandLoader } from "@/components/BrandLoader";
 
 const PAGE_SIZE = 24;
 
@@ -315,7 +316,7 @@ export function PharmaCatalog({
 
         {isLoading ? (
           <div className="flex flex-col items-center justify-center py-20">
-            <Loader2 className="mb-3 h-10 w-10 animate-spin text-[var(--pharma-green,#22c55e)]" />
+            <BrandLoader size="lg" className="mb-3" />
             <p className="text-sm text-neutral-500">Carregando catálogo...</p>
           </div>
         ) : isError ? (

@@ -3,6 +3,7 @@ import { useRoute, useLocation } from "wouter";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Copy, CheckCircle2, Clock, AlertCircle, MessageCircle, Loader2 } from "lucide-react";
+import { BrandLoader } from "@/components/BrandLoader";
 import { toast } from "sonner";
 import { useGetPixStatus, useGeneratePix } from "@workspace/api-client-react";
 import { fetchAndCacheSellerWhatsApp, makeWhatsAppLink, formatCurrency } from "@/lib/utils";
@@ -251,7 +252,7 @@ export default function PixPayment() {
       <AppLayout minimal>
         <div className="flex-1 flex items-center justify-center">
           <div className="flex flex-col items-center">
-            <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4" />
+            <BrandLoader size="lg" className="mb-4" />
             <p className="text-muted-foreground font-medium">Carregando pagamento...</p>
           </div>
         </div>

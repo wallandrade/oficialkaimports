@@ -4,7 +4,8 @@ import { useRoute } from "wouter";
 import { useGetProducts } from "@workspace/api-client-react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ProductCard } from "@/components/product/ProductCard";
-import { Loader2, ArrowLeft } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
+import { BrandLoader } from "@/components/BrandLoader";
 import { motion } from "framer-motion";
 import { isPharmaCompactPreset, useStoreThemePreset } from "@/lib/store-theme";
 
@@ -94,7 +95,7 @@ export default function OffersPage() {
         {/* Loading State */}
         {isLoading && (
           <div className="flex justify-center items-center min-h-[400px]">
-            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <BrandLoader size="lg" />
           </div>
         )}
 

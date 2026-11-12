@@ -14,7 +14,8 @@ import {
   type SelectedVariant,
   type VariantGroup,
 } from "@/lib/product-variants";
-import { ArrowLeft, Loader2, Minus, Plus, ShoppingCart, Zap } from "lucide-react";
+import { ArrowLeft, Minus, Plus, ShoppingCart, Zap } from "lucide-react";
+import { BrandLoader } from "@/components/BrandLoader";
 import { toast } from "sonner";
 import { isPharmaCompactPreset, useStoreThemePreset } from "@/lib/store-theme";
 
@@ -429,7 +430,7 @@ export default function ProductDetail() {
 
         {isLoading ? (
           <div className="flex justify-center py-20">
-            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <BrandLoader size="lg" />
           </div>
         ) : isError ? (
           <div className="rounded-2xl border border-destructive/20 bg-destructive/5 p-6 text-center">

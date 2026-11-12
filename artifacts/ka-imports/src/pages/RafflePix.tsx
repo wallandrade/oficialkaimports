@@ -3,6 +3,7 @@ import { useRoute, useLocation } from "wouter";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Copy, CheckCircle2, Clock, AlertCircle, Loader2, Ticket } from "lucide-react";
+import { BrandLoader } from "@/components/BrandLoader";
 import { toast } from "sonner";
 import { formatCurrency } from "@/lib/utils";
 
@@ -112,7 +113,7 @@ export default function RafflePix() {
     return (
       <AppLayout>
         <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-muted-foreground">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          <BrandLoader size="lg" />
           <p>Carregando dados do PIX…</p>
         </div>
       </AppLayout>

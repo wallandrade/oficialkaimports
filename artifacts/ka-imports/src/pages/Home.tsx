@@ -3,7 +3,8 @@ import { useSearch, useRoute, useLocation, Link } from "wouter";
 import { useGetProducts } from "@workspace/api-client-react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { ProductCard } from "@/components/product/ProductCard";
-import { Loader2, X, SlidersHorizontal, Search, ArrowRight, Package2, Sparkles } from "lucide-react";
+import { X, SlidersHorizontal, Search, ArrowRight, Package2, Sparkles } from "lucide-react";
+import { BrandLoader } from "@/components/BrandLoader";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { useLiveTracking } from "@/hooks/useLiveTracking";
@@ -468,7 +469,7 @@ export default function Home() {
 
             {isLoading ? (
               <div className="flex flex-col items-center justify-center py-20">
-                <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
+                <BrandLoader size="lg" className="mb-4" />
                 <p className="text-muted-foreground font-medium">Carregando catálogo...</p>
               </div>
             ) : isError ? (
@@ -615,7 +616,7 @@ export default function Home() {
           <div className="min-w-0">
             {isLoading ? (
               <div className="flex flex-col items-center justify-center py-20">
-                <Loader2 className="w-12 h-12 text-primary animate-spin mb-4" />
+                <BrandLoader size="lg" className="mb-4" />
                 <p className="text-muted-foreground font-medium">Carregando catálogo...</p>
               </div>
             ) : isError ? (
