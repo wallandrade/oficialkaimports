@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
 import { installGlobalErrorReporting } from "@/lib/client-error-reporting";
+import { shouldShowMaintenancePage } from "@/lib/maintenance";
 
 function renderBootstrapFallback(): void {
 	const root = document.getElementById("root");
@@ -70,7 +71,9 @@ window.addEventListener("error", () => {
 	}
 });
 
-installGlobalErrorReporting();
+if (!shouldShowMaintenancePage()) {
+	installGlobalErrorReporting();
+}
 
 try {
 	createRoot(document.getElementById("root")!).render(<App />);

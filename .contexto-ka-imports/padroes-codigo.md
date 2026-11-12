@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-12 | Anti-padrão: desligar a manutenção só num dos dois arquivos | `src/lib/maintenance.ts` e `public/tenant-branding.js` andam juntos no mesmo redeploy | API, `/admin` e o override `VITE_MAINTENANCE` do bundle |
 | 2026-11-12 | Loader de marca no lugar do spinner grande da loja | `BrandLoader` / `BrandPageLoader`. O arco do símbolo gira (1,2s); as letras KA ficam paradas. `prefers-reduced-motion` só pulsa a opacidade | Hero, botões (16–20px), CEP/frete/cupom, skeletons, PIX, checkout e banco |
 | 2026-11-11 | Anti-padrão: hook depois do `return` em `CategoryPage` | `useGetProducts`, `useLiveTracking` e os `useMemo` ficam antes do `return null` da rota. React #300 na volta para `/home` some | Grade, seller na URL, hero e o banner |
 | 2026-11-11 | Hero da home sai do catálogo já carregado | `buildHomeHero` no browser. Sem rota nova e sem coluna | `soldQty`, preço e o banner |
@@ -166,7 +167,8 @@ Código > memória > suposições.
 ## Frontend (React + Vite)
 
 - Páginas em `src/pages`, UI Radix/shadcn-like em `src/components/ui`.
-- Routing: **wouter** (não React Router).
+- Routing: **wouter** (não React Router). Manutenção da vitrine: `shouldShowMaintenancePage` em `AppOrMaintenance`, dentro do `WouterRouter` e fora do `QueryClientProvider`. `/admin` não entra na tela.
+- Manutenção: os dois flags ficam juntos — `MAINTENANCE_MODE_DEFAULT` em `src/lib/maintenance.ts` e `MAINTENANCE_MODE` em `public/tenant-branding.js`. `VITE_MAINTENANCE` (`"0"` / `"1"`) só troca o bundle.
 - Estado carrinho: **Zustand** + `persist`.
 - Data fetching: TanStack Query via `@workspace/api-client-react` quando o endpoint está no OpenAPI; muitos fetches manuais ainda existem (admin/checkout).
 - Path alias `@/` no FE.
@@ -197,6 +199,7 @@ Código > memória > suposições.
 
 ## Anti-padrões (não reintroduzir)
 
+- Desligar a manutenção só em `src/lib/maintenance.ts` ou só em `public/tenant-branding.js`. Os dois flags vão para `false` no mesmo redeploy. Script parado com a tela desligada deixa a vitrine sem o `GET /api/settings`. Script ligado com a tela no ar continua chamando a API.
 - Trocar o `Loader2` de botão, login, CEP, frete ou cupom pelo `BrandLoader`, ou girar a logo de Configurações (`logo`) no loader. Essa imagem é o wordmark da filial. O arco que gira é o recorte de `public/logo.jpeg`.
 - Chamar hook (`useState`, `useMemo`, `useEffect`, `useGetProducts`, `useLiveTracking`) depois de um `return` condicional. Em `CategoryPage` isso variava a contagem ao sair de `/categoria` ou `/:seller/categoria` e o React 19 quebrava com o erro #300. Todos os hooks ficam no topo; o `return null` vem depois.
 - Fixar o hero da home num produto ou categoria (por exemplo Tirzepatida) ou buscar o catálogo de outra loja. O destaque sai do `soldQty` do `GET /api/products` do domínio.

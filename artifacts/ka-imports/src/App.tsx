@@ -11,9 +11,11 @@ import SocialProofWidget from "@/components/SocialProofWidget";
 import { FlashOfferHost } from "@/components/flash/FlashOfferHost";
 import { captureReferralFromCurrentUrl } from "@/lib/affiliate";
 import { reportClientError } from "@/lib/client-error-reporting";
+import { shouldShowMaintenancePage } from "@/lib/maintenance";
 import { fetchPublicSiteSettings } from "@/lib/public-settings";
 import { normalizeStoreThemePreset } from "@/lib/store-theme";
 import Home from "@/pages/Home";
+import MaintenancePage from "@/pages/MaintenancePage";
 import CategoryPage from "@/pages/CategoryPage";
 import OffersPage from "@/pages/OffersPage";
 import SellerPage from "@/pages/SellerPage";
@@ -408,16 +410,27 @@ function AppInner() {
   );
 }
 
-function App() {
+function AppOrMaintenance() {
+  const [location] = useLocation();
+  if (shouldShowMaintenancePage(location)) {
+    return <MaintenancePage />;
+  }
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <AppInner />
-        </WouterRouter>
+        <AppInner />
         <Toaster position="top-center" richColors theme="light" />
       </TooltipProvider>
     </QueryClientProvider>
+  );
+}
+
+function App() {
+  return (
+    <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+      <AppOrMaintenance />
+    </WouterRouter>
   );
 }
 
