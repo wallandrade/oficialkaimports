@@ -1,12 +1,13 @@
 # Regras de negócio — KA Imports
 
-> **Última atualização:** 2026-11-11
+> **Última atualização:** 2026-11-12
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-12 | Vitrine em manutenção | Loja principal e filiais no mesmo front mostram “Estamos em manutenção”. `/admin` e `/admin/*` seguem o app. A tela não chama a API | Pedidos, checkout, admin, banco e DNS |
 | 2026-11-11 | Hero no topo da home | O banner de cima continua primeiro. Abaixo dele, o card do produto mais vendido e os cards de categoria, antes das prateleiras. Some com busca ou filtro. Cada domínio usa o próprio `GET /api/products` | Conteúdo do banner, vitrines, modal da relâmpago, banco |
 | 2026-11-10 | Modal da promoção relâmpago cabe no celular | O cartão não passa da altura da tela (`100dvh`, no máximo `100svh`, com a área segura do iPhone). A foto fica menor. Se o texto passar, só o miolo rola. Fecha no X do canto (44px), no toque no fundo escuro, no Esc ou em **Agora não** | Sorteio, reserva de 1 h, PIX, WhatsApp, cartão e cupom |
 | 2026-11-08 | Aba Usuários separa loja padrão e filiais | `GET /api/admin/users` manda a loja de cada admin. A tela lista **Loja padrão** e **Lojas filiais** | Novo usuário continua na loja padrão. Admin da filial continua nascendo na aba Lojas. O vínculo de vendedor continua na linha |
@@ -267,6 +268,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 
 ## Multi-tenant e filiais
 
+- Com `MAINTENANCE_MODE_DEFAULT` ligado, cada domínio da vitrine (loja principal e filial no mesmo front) mostra a tela de manutenção. O admin em `/admin` continua acessível. Nome e logo saem do cache `siteSettings`, senão “KA Imports” e o `BrandLoader`.
 - Resolução pública de tenant por domínio HTTP (`resolvePublicTenantId`).
 - Isolamento por `tenantId` em pedidos, produtos, settings, etc.; legado null/vazio tratado como loja1 em vários `build*TenantWhere`.
 - Sync de produtos loja1 → filial e filas de compra filial existem (`tenant-product-sync`, `filial-purchases`, `filial-purchase-queue`).

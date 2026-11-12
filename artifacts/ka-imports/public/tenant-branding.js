@@ -36,6 +36,11 @@
     // ignore cache parse errors
   }
 
+  // Manter em sincronia com src/lib/maintenance.ts.
+  // Para desligar: MAINTENANCE_MODE = false aqui E MAINTENANCE_MODE_DEFAULT = false lá, depois redeploy.
+  var MAINTENANCE_MODE = true;
+  if (MAINTENANCE_MODE) return;
+
   var url = '/api/settings?domain=' + encodeURIComponent(host);
   fetch(url, { cache: 'no-store' })
     .then(function (response) {
