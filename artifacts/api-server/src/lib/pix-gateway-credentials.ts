@@ -2,15 +2,19 @@ import { db, customChargesTable, ordersTable, raffleReservationsTable, tenantSet
 import { and, eq, isNull, or } from "drizzle-orm";
 import { DEFAULT_TENANT_ID } from "./tenant-context";
 import {
+  canUseSharedPixAccount,
   pickAppcnpayCredentialPair,
   PIX_GATEWAY_SETTING_KEYS,
 } from "./pix-gateway-credentials-core";
 
 export {
+  canUseSharedPixAccount,
   isMaskedGatewaySecret,
   maskGatewaySecret,
   pickAppcnpayCredentialPair,
   PIX_GATEWAY_SETTING_KEYS,
+  PIX_NOT_CONFIGURED_FOR_STORE,
+  resolveDifferenceChargeTenantId,
   type AppcnpayCredentialPair,
 } from "./pix-gateway-credentials-core";
 
@@ -44,6 +48,7 @@ export async function loadAppcnpayCredentialPair(tenantId?: string | null) {
     tenantSecretKey: byKey[PIX_GATEWAY_SETTING_KEYS.secretKey],
     envPublicKey: process.env["GATEWAY_IDENTIFIER"],
     envSecretKey: process.env["GATEWAY_SECRET"],
+    allowEnvFallback: canUseSharedPixAccount(resolvedTenantId, DEFAULT_TENANT_ID),
   });
 }
 

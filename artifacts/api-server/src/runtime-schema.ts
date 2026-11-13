@@ -163,6 +163,25 @@ async function ensureAdminSessionsTenantColumn(databaseName: string): Promise<vo
   }
 }
 
+async function backfillCustomChargeTenantFromLinkedOrder(databaseName: string): Promise<void> {
+  const ready = await tableExists("custom_charges", databaseName)
+    && await tableExists("orders", databaseName)
+    && await columnExists("custom_charges", "tenant_id", databaseName)
+    && await columnExists("custom_charges", "order_id", databaseName)
+    && await columnExists("orders", "id", databaseName)
+    && await columnExists("orders", "tenant_id", databaseName);
+  if (!ready) return;
+
+  await pool.query(`
+    UPDATE custom_charges cc
+    INNER JOIN orders o ON o.id = cc.order_id
+    SET cc.tenant_id = o.tenant_id
+    WHERE (cc.tenant_id IS NULL OR cc.tenant_id = '')
+      AND o.tenant_id IS NOT NULL
+      AND o.tenant_id <> ''
+  `);
+}
+
 async function seedDefaultTenantAndBackfill(databaseName: string): Promise<void> {
   if (!(await tableExists("tenants", databaseName))) return;
 
@@ -175,6 +194,8 @@ async function seedDefaultTenantAndBackfill(databaseName: string): Promise<void>
     `,
     [DEFAULT_TENANT_ID, DEFAULT_TENANT_SLUG, DEFAULT_TENANT_NAME, DEFAULT_TENANT_ID],
   );
+
+  await backfillCustomChargeTenantFromLinkedOrder(databaseName);
 
   const tables = [
     "orders",

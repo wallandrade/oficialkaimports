@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-13 | PIX de filial não usa conta global; Brevo só da loja 1 | Sem par APPCNPay a filial responde `PIX não configurado para esta loja`. DentPeg (`DENTPEG_API_KEY`) só na loja 1. Checkout e rifa da filial não leem `site_settings`. Brevo: `requirePrimaryAdmin`; sync só cliente e pedido `tenant_loja1` ou vazio | Loja 1 continua no env `GATEWAY_IDENTIFIER`/`GATEWAY_SECRET` e no DentPeg. Webhook igual |
 | 2026-11-13 | Rewrite `/api/*` aponta para a DigitalOcean | Destino `https://lobster-app-7f8c2.ondigitalocean.app`. CSP `connect-src` no `vercel.json` do front e no `index.html` usa o mesmo host | Conta EnvioEcom `env`, webhooks e o restante das integrações |
 | 2026-11-08 | Liquidação PIX exige segredo, transação gravada, valor em reais e status exato | Webhook sem prova responde 403/409 e não marca pago. `OK` e substring (`UNPAID`) não pagam. Cupom do PIX não soma de novo no webhook. Log não grava corpo, código PIX nem URL com segredo | Admin ainda marca pago na mão. A tela `/pix` continua lendo o banco (`paid` → `OK`). Callback segue `/api/webhook/pix`. Consulta GET da APPCNPay continua fora da prova |
 | 2026-11-07 | Webhook da rifa grava a origem do pagamento | `confirmRaffleReservationFromPix` grava `raffle_reservations.paid_source = pix` ao confirmar. Se a reserva já estava `paid`, a origem também vira `pix` | Pedido, cobrança custom e a tela `/rifas/pix/:id`. Sem GET de status no gateway |
@@ -110,10 +111,11 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 | Provider | Uso | Código |
 |----------|-----|--------|
 | **APPCNPay** | Default PIX | `artifacts/api-server/src/gateway.ts` + `lib/pix-gateway-credentials.ts` |
-| **DentPeg** | Alternativa; fallback para APPCNPay se limite/`too_big` | `DENTPEG_API_KEY`, `DENTPEG_BASE_URL` (env global, não por loja) |
+| **DentPeg** | Alternativa da loja 1; fallback para APPCNPay se limite/`too_big` | `DENTPEG_API_KEY`, `DENTPEG_BASE_URL` (conta única, só `tenant_loja1`) |
 
-- Seleção: setting `checkout_pix_gateway` / normalizer `normalizePixGatewayProvider`.
-- **Credenciais APPCNPay por loja:** `tenant_settings` `gateway_appcnpay_public_key` + `gateway_appcnpay_secret_key` (as duas juntas). Sem o par, usa env `GATEWAY_IDENTIFIER` / `GATEWAY_SECRET`. Não mistura pública da loja com secret do env. GET admin mascara; PUT com valor `***` é no-op. Admin Configurações: bloco “Credenciais APPCNPay desta loja”; “Usar chaves globais” = DELETE. Chaves **não** vão para `localStorage` nem `PUBLIC_KEYS`.
+- Seleção: setting `checkout_pix_gateway` / normalizer `normalizePixGatewayProvider`. Filial lê só `tenant_settings`. Loja 1 ainda cai em `site_settings` se a chave não estiver no tenant. Checkout (`getSettingValue`) e rifa seguem essa regra. Sem chave na filial, o gateway padrão é APPCNPay.
+- **Credenciais APPCNPay por loja:** `tenant_settings` `gateway_appcnpay_public_key` + `gateway_appcnpay_secret_key` (as duas juntas). Só a loja 1 (`tenant_loja1`, inclusive tenant vazio na chamada) usa env `GATEWAY_IDENTIFIER` / `GATEWAY_SECRET`. Filial sem o par falha com `PIX não configurado para esta loja` e não cobra na conta da loja 1. Não mistura pública da loja com secret do env. GET admin mascara; PUT com valor `***` é no-op. Admin Configurações: bloco “Credenciais APPCNPay desta loja”; “Usar chaves globais” = DELETE. Chaves **não** vão para `localStorage` nem `PUBLIC_KEYS`.
+- **DentPeg:** filial que escolher esse gateway recebe o mesmo erro. A conta única não cobra pedido de filial. Na loja 1, limite/`too_big` continua caindo na APPCNPay.
 - Checkout, `/pix/generate`, cobrança custom, PIX de diferença, rifas passam `tenantId` em `createPixCharge*`.
 - Webhook de confirmação: `POST /api/webhook/pix` e o mesmo leitor em `POST /api/webhook`. No painel APPCNPay: `{origin}/api/webhook/pix`. O segredo continua na query `whsec` porque as cobranças já emitidas apontam para essa URL. `PIX_CALLBACK_BASE_URL`, se existir, fixa o host; sem ela o host segue o pedido. Não é HMAC do corpo.
 - Prova para marcar pago (`lib/pix-settlement.ts`): ou o segredo global (`whsec` / cabeçalho), ou o `token` do corpo igual ao `webhookToken` devolvido na criação daquela `transaction.id`. O token em claro não é gravado: só o SHA-256 em `pix_charge_proofs`, na criação, antes de ligar o pedido. O aviso não cadastra essa prova. Sem hash e sem `whsec`, a resposta é 403 `proof_not_stored` (o gateway reenvia; cobrança antiga sem hash continua sem confirmação automática). Token de outra transação é 403 `token_mismatch`. Valor: `chargeAmount` se existir; senão `originalAmount` em BRL; senão `amount`. Status exato. `PENDING` não paga. `payedAt` não decide.
@@ -165,8 +167,9 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 
 ## E-mail / CRM
 
-- **Brevo**: sync de contatos + checagem de conta (`lib/brevo.ts`, `routes/brevo.ts`).
-- API key via setting `brevo_api_key`.
+- **Brevo**: sync de contatos + checagem de conta (`lib/brevo.ts`, `routes/brevo.ts`). Rotas admin exigem `requirePrimaryAdmin` (superadmin). Admin de filial com `hasGlobalAccess` toma 403.
+- API key via setting global `brevo_api_key` em `site_settings`.
+- Sync só cliente e pedido da loja 1: `tenant_id` = `tenant_loja1`, `NULL` ou `''`. Cliente ou pedido de filial não entra.
 
 ## Catálogo auxiliar
 

@@ -1,5 +1,14 @@
 import { db, customerUsersTable, ordersTable } from "@workspace/db";
-import { eq, isNotNull } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, or, type AnyColumn, type SQL } from "drizzle-orm";
+import { DEFAULT_TENANT_ID } from "./tenant-context";
+
+function mainStoreTenantWhere(column: AnyColumn): SQL {
+  return or(
+    eq(column, DEFAULT_TENANT_ID),
+    isNull(column),
+    eq(column, ""),
+  ) as SQL;
+}
 
 interface BrevoContact {
   email: string;
@@ -42,7 +51,11 @@ export async function syncCustomersToBrevo(listId?: number): Promise<BrevoSyncRe
       })
       .from(customerUsersTable)
       .innerJoin(ordersTable, eq(customerUsersTable.id, ordersTable.userId))
-      .where(isNotNull(ordersTable.userId));
+      .where(and(
+        isNotNull(ordersTable.userId),
+        mainStoreTenantWhere(customerUsersTable.tenantId),
+        mainStoreTenantWhere(ordersTable.tenantId),
+      ));
 
     if (customers.length === 0) {
       return { synced: 0, failed: 0, errors: ["No customers with purchases found"] };

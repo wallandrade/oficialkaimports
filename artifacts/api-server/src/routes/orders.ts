@@ -14,6 +14,7 @@ import {
   PIX_DURATION_MS,
 } from "../gateway";
 import { rememberGatewayChargeProof } from "../lib/pix-charge-proof";
+import { resolveDifferenceChargeTenantId } from "../lib/pix-gateway-credentials-core";
 import { getCustomerSession, requireCustomerAuth } from "../middlewares/customer-auth";
 import {
   applyAffiliateCreditToOrder,
@@ -3241,6 +3242,7 @@ router.post("/admin/orders/:id/difference-charge", requireAdminAuth, async (req,
 
     await db.insert(customChargesTable).values({
       id: chargeId,
+      tenantId: resolveDifferenceChargeTenantId(order.tenantId, adminScope.tenantId),
       orderId: id,
       clientName: order.clientName,
       clientEmail: order.clientEmail,

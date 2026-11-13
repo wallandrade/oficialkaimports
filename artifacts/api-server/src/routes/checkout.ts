@@ -203,6 +203,8 @@ async function getSettingValue(key: string, tenantId = DEFAULT_TENANT_ID): Promi
 
   if (tenantRows[0]?.value != null) return tenantRows[0].value;
 
+  if (tenantId !== DEFAULT_TENANT_ID) return null;
+
   const legacyRows = await db
     .select({ value: siteSettingsTable.value })
     .from(siteSettingsTable)
