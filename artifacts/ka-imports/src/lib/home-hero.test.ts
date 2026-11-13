@@ -35,6 +35,76 @@ test("destaque é o produto à venda com maior soldQty e a foto é a dele", () =
   assert.equal(model?.wide?.fromPrice, 30);
 });
 
+test("destaque prefere Tirzepatida ou Retatrutida mesmo se outra categoria vendeu mais", () => {
+  const model = buildHomeHero([
+    product({ id: "agua", name: "Água 3ml", category: "Água", soldQty: 400, price: 35 }),
+    product({ id: "pep", name: "Kit peptídeo", category: "Peptideo", soldQty: 200, price: 320 }),
+    product({ id: "reta", name: "Reta 10", category: "Retatrutide", soldQty: 12, price: 390 }),
+    product({ id: "tirz", name: "TG Tirzepatida", category: "Tirzepatida", soldQty: 40, price: 220 }),
+  ], ["Água", "Tirzepatida", "Retatrutide", "Peptideo"]);
+
+  assert.equal(model?.hero.productId, "tirz");
+  assert.equal(model?.hero.category, "Tirzepatida");
+  assert.equal(model?.hero.subtitle, "mais vendido");
+  assert.equal(model?.hero.fromPrice, 220);
+  assert.equal(model?.wide?.category, "Água");
+  assert.deepEqual(model?.small.map((card) => card.category), ["Retatrutide", "Peptideo"]);
+});
+
+test("grafia sem acento, maiúsculas e Tirzepatide/Retatrutide entram na mesma escolha", () => {
+  const model = buildHomeHero([
+    product({ id: "agua", name: "Água", category: "Água", soldQty: 99, price: 35 }),
+    product({ id: "t", name: "T inglês", category: "  TIRZEPATÍDE  ", soldQty: 2, price: 500 }),
+    product({ id: "r", name: "Reta", category: "Retatrutída", soldQty: 8, price: 390 }),
+  ], ["Água", "Retatrutída", "  TIRZEPATÍDE  "]);
+
+  assert.equal(model?.hero.productId, "r");
+  assert.equal(model?.hero.category, "Retatrutída");
+  assert.equal(model?.wide?.category, "Água");
+  assert.deepEqual(model?.small.map((card) => card.category), ["TIRZEPATÍDE"]);
+});
+
+test("sem uma das duas à venda, o destaque usa a outra", () => {
+  const model = buildHomeHero([
+    product({ id: "agua", name: "Água", category: "Água", soldQty: 99, price: 35 }),
+    product({ id: "t-out", name: "T esgotada", category: "Tirzepatida", soldQty: 500, isSoldOut: true }),
+    product({ id: "t-off", name: "T inativa", category: "Tirzepatide", soldQty: 400, isActive: false }),
+    product({ id: "t-nofoto", name: "T sem foto", category: "Tirzepatida", soldQty: 300, image: "" }),
+    product({ id: "r", name: "Reta", category: "retatrutide", soldQty: 1, price: 410 }),
+  ], ["Água", "Tirzepatida", "Tirzepatide", "retatrutide"]);
+
+  assert.equal(model?.hero.productId, "r");
+  assert.equal(model?.hero.category, "retatrutide");
+  assert.equal(model?.hero.fromPrice, 410);
+  assert.equal(model?.wide?.category, "Água");
+});
+
+test("sem Tirzepatida nem Retatrutida à venda, o destaque volta ao mais vendido da loja", () => {
+  const model = buildHomeHero([
+    product({ id: "agua", name: "Água", category: "Água", soldQty: 4, price: 35 }),
+    product({ id: "pep", name: "Pep", category: "Peptideo", soldQty: 9, price: 320 }),
+    product({ id: "t", name: "T", category: "Tirzepatida", soldQty: 100, isSoldOut: true }),
+    product({ id: "r", name: "R", category: "Retatrutide", soldQty: 80, image: "ftp://sem-foto" }),
+  ], ["Água", "Peptideo", "Tirzepatida", "Retatrutide"]);
+
+  assert.equal(model?.hero.productId, "pep");
+  assert.equal(model?.hero.category, "Peptideo");
+  assert.equal(model?.wide?.category, "Água");
+});
+
+test("empate entre Tirzepatida e Retatrutida usa a ordem do catálogo, não a de outra linha", () => {
+  const model = buildHomeHero([
+    product({ id: "agua", name: "Água", category: "Água", soldQty: 0, sortOrder: 1, price: 35 }),
+    product({ id: "r", name: "Reta", category: "Retatrutide", soldQty: 0, sortOrder: 5, price: 390 }),
+    product({ id: "t", name: "Tirz", category: "Tirzepatida", soldQty: 0, sortOrder: 2, price: 220 }),
+  ], ["Água", "Retatrutide", "Tirzepatida"]);
+
+  assert.equal(model?.hero.productId, "t");
+  assert.equal(model?.hero.category, "Tirzepatida");
+  assert.equal(model?.hero.subtitle, "em destaque");
+  assert.equal(model?.wide?.category, "Água");
+});
+
 test("cada lista fica na própria loja", () => {
   const loja1 = buildHomeHero([
     product({ id: "a", name: "Produto A", category: "Linha A", price: 12, soldQty: 4 }),

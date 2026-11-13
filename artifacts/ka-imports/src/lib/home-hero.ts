@@ -1,6 +1,6 @@
 import type { PharmaCatalogFilters } from "./pharma-catalog-query";
 import { pharmaCatalogHref, readPharmaFilters } from "./pharma-catalog-query";
-import { isPharmaShowcaseHome } from "./pharma-home-showcases";
+import { isPharmaShowcaseHome, normalizeCategoryKey } from "./pharma-home-showcases";
 import { compareCatalogSales, type CatalogSalesProduct } from "./catalog-sales";
 
 /** Produto do catálogo público. Campos extras vêm no JSON mesmo fora do tipo gerado. */
@@ -80,6 +80,15 @@ function categoryName(product: HomeHeroProduct): string {
   return String(product.category || "").trim();
 }
 
+/**
+ * O card grande prefere estas linhas. A comparação tira acento, junta espaços
+ * e ignora maiúsculas. Tirzepatide e Retatrutide também entram.
+ */
+function isPreferredHeroCategory(category: unknown): boolean {
+  const key = normalizeCategoryKey(category);
+  return key === "tirzepatida" || key === "tirzepatide" || key === "retatrutida" || key === "retatrutide";
+}
+
 function orderCategories(names: string[], preferred: string[]): string[] {
   const rank = new Map(preferred.map((name, index) => [name, index]));
   return [...names].sort((a, b) => {
@@ -108,8 +117,10 @@ function cardFor(category: string, products: HomeHeroProduct[], cover?: HomeHero
 
 /**
  * Hero da home a partir do catálogo já carregado (o da loja do domínio).
- * O destaque é o produto à venda, com foto, de maior `soldQty`.
- * Empate segue `compareCatalogSales`. O título visível é a categoria desse produto.
+ * O destaque prefere Tirzepatida ou Retatrutida (também Tirzepatide/Retatrutide).
+ * Entre elas vale o produto à venda, com foto, de maior `soldQty`.
+ * Empate segue `compareCatalogSales`. Sem nenhuma das duas à venda com foto,
+ * cai no mais vendido de qualquer categoria. O título visível é a categoria desse produto.
  * "A partir de" é o menor preço de 1 unidade dos itens à venda dessa categoria.
  */
 export function buildHomeHero(products: HomeHeroProduct[], categoryOrder: string[] = []): HomeHeroModel | null {
@@ -125,7 +136,8 @@ export function buildHomeHero(products: HomeHeroProduct[], categoryOrder: string
   const ranked = products
     .filter((product) => inStock(product) && categoryName(product) && usableImage(product.image))
     .sort(compareCatalogSales);
-  const best = ranked[0];
+  const preferred = ranked.filter((product) => isPreferredHeroCategory(categoryName(product)));
+  const best = preferred[0] ?? ranked[0];
   if (!best) return null;
 
   const heroCategory = categoryName(best);
