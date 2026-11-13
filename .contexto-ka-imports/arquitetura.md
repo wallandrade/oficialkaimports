@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-13 | Piso do número de pedido da loja 1 | `lib/order-number.ts`: `tenant_loja1` reserva `max(MAX, 2789)+1`. O `WHERE` legado (nulo e `''`) continua o mesmo | Sequência das filiais, schema e as rotas que chamam a função |
 | 2026-11-13 | Manutenção da vitrine desligada | `MAINTENANCE_MODE_DEFAULT` e `MAINTENANCE_MODE` estão `false`. Fora de `/admin` o front monta o app de novo e `tenant-branding.js` chama `GET /api/settings`. A tela e o atalho dos dois flags continuam no código | API, banco, DNS, env e o app em `/admin` e `/admin/*` |
 | 2026-11-13 | API de produção no rewrite e no CSP | `vercel.json` (raiz e `artifacts/ka-imports`) e o `connect-src` de `index.html` apontam para `https://lobster-app-7f8c2.ondigitalocean.app` | `railway.json`, `tenants.ts` e o código em `src/` e `public/` |
 | 2026-11-12 | Tela de manutenção da vitrine | `MAINTENANCE_MODE_DEFAULT` em `src/lib/maintenance.ts` (hoje `true`). Fora de `/admin`, o front mostra `MaintenancePage` e não monta Query/Toaster. `public/tenant-branding.js` não chama `GET /api/settings`. `main.tsx` não instala o report de erro do cliente | API, banco, DNS, env e o app em `/admin` e `/admin/*` |
@@ -148,7 +149,8 @@ Monorepo **pnpm workspaces** + TypeScript.
 
 - Admin: sessão DB + cookie; ver `auth-permissoes.md`.
 - Customer: Bearer token em Map in-memory no processo (`middlewares/customer-auth.ts`). Admin pode redefinir senha (`PATCH /admin/customers/:id/password`) e `removeCustomerSessionsForUser` limpa os tokens daquele `userId` neste processo.
-- Checkout: token de segurança (`checkout-security.ts` + `/api/security/checkout-token` no app). Sem `sellerCode`, `assignNextOrganicSeller` (`lib/seller-round-robin.ts`) escolhe o próximo slug na mesma transação do pedido.
+- Checkout: token de segurança (`checkout-security.ts` + `/api/security/checkout-token` no app). Sem `sellerCode`, `assignNextOrganicSeller` (`lib/seller-round-robin.ts`) escolhe o próximo slug na mesma transação do pedido. O número sequencial sai de `reserveNextOrderNumber` (`lib/order-number.ts`), chamado também em `orders.ts` e no reenvio de `support.ts`. Loja 1 (`tenant_loja1`, com tenant nulo/`''` no máximo) usa piso 2789; filial usa só `MAX+1`.
+
 
 ## Storage / mídia
 
