@@ -13,7 +13,8 @@
     "smoke:tenant:write": "tsx ./src/smoke-tenant-isolation-write.ts",
     "audit:endpoints": "tsx ./src/audit-endpoints-scope.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:costprice": "node --test --import tsx ./src/patch-orders-costprice-core.test.ts"
+    "test:costprice": "node --test --import tsx ./src/patch-orders-costprice-core.test.ts",
+    "backup:db:r2": "node --max-old-space-size=192 ./src/db-backup-r2.mjs"
   },
   "devDependencies": {
     "@aws-sdk/client-s3": "^3.916.0",
