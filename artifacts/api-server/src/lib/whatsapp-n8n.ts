@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { timingSafeEqual } from "crypto";
 import type { ResultSetHeader } from "mysql2";
 import { DEFAULT_TENANT_ID } from "./tenant-context";
+import { whatsappServerEnv } from "./tenant-store-scope";
 import { buildOrderPaidWhatsappMessage } from "./post-payment-message";
 import {
   currentStatusWhatsappNotices,
@@ -82,7 +83,7 @@ function tokensMatch(expected: string, provided: string): boolean {
 }
 
 export async function readSecondInstanceSlugs(tenantId: string): Promise<string[]> {
-  const fromEnv = String(process.env.N8N_SECOND_INSTANCE_SELLER_SLUGS || "").trim();
+  const fromEnv = whatsappServerEnv(tenantId, process.env.N8N_SECOND_INSTANCE_SELLER_SLUGS, DEFAULT_TENANT_ID);
   const raw = fromEnv || await getSettingValue("n8n_second_instance_seller_slugs", tenantId);
   return raw.split(/[,;\s]+/).map((item) => item.trim().toLowerCase()).filter(Boolean);
 }
@@ -95,7 +96,7 @@ export async function sellerUsesSecondInstance(sellerCode: unknown, tenantId: st
 }
 
 export async function readPolyInstanceId(tenantId: string): Promise<string> {
-  const fromEnv = String(process.env.N8N_POLY_INSTANCE_ID || "").trim();
+  const fromEnv = whatsappServerEnv(tenantId, process.env.N8N_POLY_INSTANCE_ID, DEFAULT_TENANT_ID);
   const raw = fromEnv || await getSettingValue("n8n_poly_instance_id", tenantId);
   if (!raw || /\/token\/|https?:/i.test(raw)) return "";
   return raw;
@@ -115,7 +116,7 @@ export async function resolveWhatsappWebhookUrl(input: {
   const spec = EVENTS[input.event];
   const envName = input.secondInstance ? `${spec.env}_POLY` : spec.env;
   const settingName = input.secondInstance ? `${spec.setting}_poly` : spec.setting;
-  const fromEnv = String(process.env[envName] || "").trim();
+  const fromEnv = whatsappServerEnv(input.tenantId, process.env[envName], DEFAULT_TENANT_ID);
   if (isHttpsWebhookUrl(fromEnv)) return fromEnv;
   const fromSetting = await getSettingValue(settingName, input.tenantId);
   if (isHttpsWebhookUrl(fromSetting)) return fromSetting;
@@ -551,7 +552,7 @@ export async function whatsappSupportTokenMatches(provided: unknown): Promise<{ 
 }
 
 export async function readSupportAttendantPhone(tenantId: string): Promise<string | null> {
-  const fromEnv = String(process.env.N8N_SUPPORT_ATTENDANT_PHONE || "").trim();
+  const fromEnv = whatsappServerEnv(tenantId, process.env.N8N_SUPPORT_ATTENDANT_PHONE, DEFAULT_TENANT_ID);
   const raw = fromEnv || await getSettingValue("n8n_support_attendant_phone", tenantId);
   return normalizeWhatsappPhone(raw);
 }

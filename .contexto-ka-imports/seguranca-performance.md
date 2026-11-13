@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-13 | Prova social, n8n, custo, catálogo do pedido, KYC e retorno manual | Pedido pago de outra loja sai do widget. Env n8n não manda evento da filial para a loja 1. Custo da loja 1 não nasce na cópia. Edição, troca, declaração KYC, fila de retorno e estorno de reenvio ficam na loja | Loja 1, inclusive tenant nulo/`''` nesses pontos. Token de suporte do env |
 | 2026-11-13 | Isolamento de loja no Brevo, no PIX e na diferença | Filial não grava a chave Brevo nem exporta os clientes dela. PIX da filial não cai na conta env/DentPeg da loja 1. Diferença grava `tenant_id` | Loja 1, webhook e seller-scoped |
 | 2026-11-08 | PIX aceita o token por transação só pelo hash gravado na criação | `pix_charge_proofs` guarda SHA-256. O corpo não cadastra confiança. `whsec` continua para cobrança que já saiu com ele | Cobrança antiga sem hash e sem `whsec` não confirma sozinha |
 | 2026-11-08 | PIX não liquida sem segredo, transação, valor e status exato; log do webhook não grava o corpo | 403/409 em aviso sem prova. Código PIX, cliente e `whsec` saem dos logs de criação/aviso | Sessão admin, CORS, HMAC da Yury e a marcação manual do admin |
@@ -40,7 +41,7 @@
 - **Cookies admin**: SameSite/Secure sensíveis a produção (`none`+`secure` típico cross-site FE/API).
 - **Erros 500**: menos detalhes em produção.
 - Password gates no FE (site/pagamento).
-- Isolamento tenant/seller (ver `auth-permissoes.md` + smoke scripts).
+- Isolamento tenant/seller (ver `auth-permissoes.md` + smoke scripts). Prova social pública, webhook n8n, custo copiado, catálogo na edição do pedido, declaração KYC, fila de produto voltando e estorno de reenvio usam a loja do visitante, do pedido ou da sessão. Env `N8N_*` de URL e telefone não vale para filial.
 - Credenciais APPCNPay da loja: GET `/api/admin/settings` mascara `gateway_appcnpay_*`; PUT com valor já mascarado não sobrescreve; FE não persiste essas keys em `siteSettings`.
 - Prazo da transportadora no checkout: `envioecom_checkout_carrier_priority` entra em `ALLOWED_KEYS` e não em `PUBLIC_KEYS`. O admin não grava essa chave em `siteSettings`. `GET /api/shipping/delivery-estimate` não exige token de checkout. Limite próprio: 30 cotações reais à EnvioEcom por IP a cada 10 min (cache em memória não conta); acima disso HTTP 429.
 - Baixa Motoboy/Minas na Yury: o card não pede senha e o KA não guarda senha de baixa. O POST `exit` sai sem `password`.

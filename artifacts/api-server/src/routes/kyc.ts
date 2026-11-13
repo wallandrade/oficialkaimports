@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, kycDocumentsTable, ordersTable, sellersTable } from "@workspace/db";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, isNull, or } from "drizzle-orm";
 import crypto from "crypto";
 import { requireAdminAuth, getSessionInfo, getAdminScope } from "./admin-auth";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
@@ -425,7 +425,7 @@ router.patch("/admin/kyc/:orderId", requireAdminAuth, async (req, res) => {
     const scope = getKycAdminScope(req, res);
     if (!scope) return;
 
-    const { orderId } = req.params;
+    const orderId = String(Array.isArray(req.params.orderId) ? req.params.orderId[0] : req.params.orderId || "").trim();
     if (!(await canAccessOrderId(orderId, scope))) {
       res.status(404).json({ error: "KYC_NOT_FOUND" });
       return;
@@ -439,10 +439,14 @@ router.patch("/admin/kyc/:orderId", requireAdminAuth, async (req, res) => {
       declarationDate?: string;
     };
 
+    const kycTenantWhere = scope.tenantId === DEFAULT_TENANT_ID
+      ? or(eq(kycDocumentsTable.tenantId, scope.tenantId), isNull(kycDocumentsTable.tenantId), eq(kycDocumentsTable.tenantId, ""))
+      : eq(kycDocumentsTable.tenantId, scope.tenantId);
+
     const existing = await db
       .select({ id: kycDocumentsTable.id })
       .from(kycDocumentsTable)
-      .where(eq(kycDocumentsTable.orderId, orderId))
+      .where(and(kycTenantWhere, eq(kycDocumentsTable.orderId, orderId)))
       .limit(1);
 
     if (!existing[0]) {
@@ -462,7 +466,7 @@ router.patch("/admin/kyc/:orderId", requireAdminAuth, async (req, res) => {
         adminEditedAt:  new Date(),
         updatedAt:      new Date(),
       })
-      .where(eq(kycDocumentsTable.orderId, orderId));
+      .where(and(kycTenantWhere, eq(kycDocumentsTable.orderId, orderId)));
 
     res.json({ ok: true });
   } catch (err) {

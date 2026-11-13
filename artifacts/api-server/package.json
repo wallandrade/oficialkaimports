@@ -18,7 +18,7 @@
     "test:admin-permissions-local": "node --test --import tsx ./src/routes/admin-permissions.integration.test.ts",
     "test:admin-seller-scope": "node --test --import tsx ./src/lib/admin-seller-scope-core.test.ts ./src/lib/order-events.test.ts",
     "test:admin-seller-scope-local": "node --test --import tsx ./src/routes/admin-seller-scope.integration.test.ts",
-    "test:admin-tenant": "node --test --import tsx ./src/lib/admin-tenant-pick.test.ts"
+    "test:admin-tenant": "node --test --import tsx ./src/lib/admin-tenant-pick.test.ts ./src/lib/tenant-store-scope.test.ts ./src/lib/tenant-product-sync.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.916.0",

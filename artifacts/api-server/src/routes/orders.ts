@@ -30,6 +30,7 @@ import { sendOutboundWebhook } from "../lib/outbound-webhook";
 import { scheduleOrderPaidWhatsapp, notifyOrderTrackingWhatsapp } from "../lib/whatsapp-n8n";
 import { parseFreeShippingMinSubtotalSetting, pickFreeShippingMinSubtotal, resolveShippingCostWithFreeThreshold } from "../lib/free-shipping";
 import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
+import { orderCatalogTenantId } from "../lib/tenant-store-scope";
 import { reserveNextOrderNumber } from "../lib/order-number";
 import { MotoboyScheduleError, reserveMotoboySchedule } from "../lib/motoboy-delivery-schedule";
 import { allocateOrderLogistics, releaseOrderLogistics } from "../lib/order-logistics";
@@ -1039,6 +1040,14 @@ function buildOrderTenantWhere(tenantId: string) {
   }
 
   return eq(ordersTable.tenantId, tenantId);
+}
+
+function buildProductTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(eq(productsTable.tenantId, tenantId), isNull(productsTable.tenantId), eq(productsTable.tenantId, ""));
+  }
+
+  return eq(productsTable.tenantId, tenantId);
 }
 
 function buildAdminOrderWhere(orderId: string, scope: { hasGlobalAccess: boolean; sellerCode: string | null; tenantId: string }) {
@@ -2623,7 +2632,11 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
     const editProductIds = Array.from(new Set(newProducts.map((p) => String(p?.id || "")).filter(Boolean)));
     let editProductRows = new Map<string, typeof productsTable.$inferSelect>();
     if (editProductIds.length > 0) {
-      const rows = await db.select().from(productsTable).where(inArray(productsTable.id, editProductIds));
+      const catalogTenantId = orderCatalogTenantId(current[0].tenantId, adminScope.tenantId, DEFAULT_TENANT_ID);
+      const rows = await db
+        .select()
+        .from(productsTable)
+        .where(and(buildProductTenantWhere(catalogTenantId), inArray(productsTable.id, editProductIds)));
       editProductRows = new Map(rows.map((row) => [row.id, row]));
     }
 
@@ -2872,7 +2885,12 @@ router.post("/admin/orders/:id/replace-product", requireAdminAuth, async (req, r
       res.status(400).json({ error: "REPLACEMENT_REQUIRED", message: "Escolha o produto novo." });
       return;
     }
-    const catalogRows = await db.select().from(productsTable).where(eq(productsTable.id, replacementId)).limit(1);
+    const catalogTenantId = orderCatalogTenantId(current.tenantId, adminScope.tenantId, DEFAULT_TENANT_ID);
+    const catalogRows = await db
+      .select()
+      .from(productsTable)
+      .where(and(buildProductTenantWhere(catalogTenantId), eq(productsTable.id, replacementId)))
+      .limit(1);
     const catalog = catalogRows[0];
     if (!catalog) {
       res.status(404).json({ error: "PRODUCT_NOT_FOUND", message: "Produto novo não encontrado no catálogo." });

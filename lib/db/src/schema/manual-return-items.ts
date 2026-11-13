@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 
 export const manualReturnItemsTable = mysqlTable("manual_return_items", {
   id: varchar("id", { length: 255 }).primaryKey(),
+  tenantId: varchar("tenant_id", { length: 255 }),
   status: varchar("status", { length: 32 }).notNull().default("pending"),
   clientName: varchar("client_name", { length: 255 }).notNull(),
   returningOrder: varchar("returning_order", { length: 255 }),
