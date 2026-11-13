@@ -49,6 +49,18 @@ function buildManualReshipmentsTenantWhere(tenantId: string) {
   return eq(manualReshipmentsTable.tenantId, tenantId);
 }
 
+function buildManualReturnItemsTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(
+      eq(manualReturnItemsTable.tenantId, tenantId),
+      isNull(manualReturnItemsTable.tenantId),
+      eq(manualReturnItemsTable.tenantId, ""),
+    );
+  }
+
+  return eq(manualReturnItemsTable.tenantId, tenantId);
+}
+
 function buildInventoryBalancesTenantWhere(tenantId: string) {
   if (tenantId === DEFAULT_TENANT_ID) {
     return or(
@@ -140,16 +152,13 @@ router.get("/admin/inventory/overview", requireAdminAuth, async (req, res) => {
     if (!tenantScope) return;
 
     const tenantId = tenantScope.tenantId;
-    const canLoadManualQueue = tenantId === DEFAULT_TENANT_ID;
     const [inventory, manualReturnItems] = await Promise.all([
       getInventoryOverview(tenantId),
-      canLoadManualQueue
-        ? db
-            .select()
-            .from(manualReturnItemsTable)
-            .where(eq(manualReturnItemsTable.status, "pending"))
-            .orderBy(desc(manualReturnItemsTable.createdAt))
-        : Promise.resolve([]),
+      db
+        .select()
+        .from(manualReturnItemsTable)
+        .where(and(buildManualReturnItemsTenantWhere(tenantId), eq(manualReturnItemsTable.status, "pending")))
+        .orderBy(desc(manualReturnItemsTable.createdAt)),
     ]);
 
     const pendingReshipments = manualReturnItems.map((item) => ({
@@ -199,6 +208,7 @@ router.post("/admin/manual-return-items", requireAdminAuth, async (req, res) => 
     const id = crypto.randomBytes(8).toString("hex");
     await db.insert(manualReturnItemsTable).values({
       id,
+      tenantId: tenantScope.tenantId,
       status: "pending",
       clientName,
       returningOrder: returningOrder || null,
@@ -232,7 +242,7 @@ router.patch("/admin/manual-return-items/:id/status", requireAdminAuth, async (r
     const existing = await db
       .select({ id: manualReturnItemsTable.id })
       .from(manualReturnItemsTable)
-      .where(eq(manualReturnItemsTable.id, id))
+      .where(and(buildManualReturnItemsTenantWhere(tenantScope.tenantId), eq(manualReturnItemsTable.id, id)))
       .limit(1);
 
     if (!existing[0]) {
@@ -243,7 +253,7 @@ router.patch("/admin/manual-return-items/:id/status", requireAdminAuth, async (r
     await db
       .update(manualReturnItemsTable)
       .set({ status, updatedAt: new Date() })
-      .where(eq(manualReturnItemsTable.id, id));
+      .where(and(buildManualReturnItemsTenantWhere(tenantScope.tenantId), eq(manualReturnItemsTable.id, id)));
 
     res.json({ ok: true, id, status });
   } catch (err) {
@@ -290,7 +300,7 @@ router.post("/admin/inventory/entries", requireAdminAuth, async (req, res) => {
         db
           .select({ productsSnapshot: reshipmentsTable.productsSnapshot })
           .from(reshipmentsTable)
-          .where(eq(reshipmentsTable.id, estornoReferenceId))
+          .where(and(buildReshipmentsTenantWhere(tenantId), eq(reshipmentsTable.id, estornoReferenceId)))
           .limit(1),
         db
           .select({ productsSnapshot: manualReshipmentsTable.productsSnapshot })

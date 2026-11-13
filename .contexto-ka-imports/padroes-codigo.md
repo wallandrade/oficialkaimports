@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-13 | Anti-padrão: env n8n, prova social, custo e catálogo sem loja | Env `N8N_*` de URL/telefone só em `tenant_loja1`. Feed, edição, KYC e retorno manual filtram tenant. Cópia não leva `costPrice` | Loja 1 e o legado nulo/`''` |
 | 2026-11-13 | Anti-padrão: PIX/Brevo/diferença vazando de filial para a loja 1 | Filial sem par APPCNPay falha. DentPeg e env só na loja 1. Brevo é `requirePrimaryAdmin`. Diferença grava tenant | Loja 1 e o webhook |
 | 2026-11-13 | Anti-padrão: piso 2789 em toda loja | `MAIN_STORE_ORDER_NUMBER_FLOOR` só em `tenant_loja1` | Filial continua `MAX(order_number)+1` |
 | 2026-11-12 | Anti-padrão: desligar a manutenção só num dos dois arquivos | `src/lib/maintenance.ts` e `public/tenant-branding.js` andam juntos no mesmo redeploy | API, `/admin` e o override `VITE_MAINTENANCE` do bundle |
@@ -216,6 +217,10 @@ Código > memória > suposições.
 - Polling de status no gateway APPCNPay (bloqueado; usar webhook + BD local).
 - Gravar caso da Yury em `carrier_loss_incidents` ou devolver esse espelho no `GET /api/integrations/loss-blacklist/snapshot`. O mesmo extravio conta duas vezes na cotação deles. Os dois tokens (`LOSS_SYNC_TOKEN` e `YURY_LOSS_SYNC_TOKEN`) não podem ter o mesmo valor.
 - Usar `GATEWAY_IDENTIFIER`/`GATEWAY_SECRET` ou `DENTPEG_API_KEY` no PIX de uma filial. Sem o par em `tenant_settings`, a filial responde `PIX não configurado para esta loja`. O env e a conta DentPeg são só da loja 1. Não misturar pública da loja com secret do env. Não herdar `site_settings` no checkout/rifa da filial.
+- Usar `N8N_ORDER_PAID_WEBHOOK_URL`, `N8N_SUPPORT_ATTENDANT_PHONE`, `N8N_SECOND_INSTANCE_SELLER_SLUGS`, `N8N_POLY_INSTANCE_ID` ou outra URL `N8N_*_WEBHOOK_URL` numa filial. Esses env são só da loja 1 (`whatsappServerEnv`). Filial fica no `tenant_settings` dela. Não listar pedido `paid` da prova social sem a loja do host (loja 1 inclui nulo e `''`).
+- Copiar `products.cost_price` da loja 1 para a filial no sync, ou regravar o custo da filial no update. O insert usa `0.00`. O update não manda `costPrice`.
+- Achar produto na edição ou na troca do pedido só pelo id, sem a loja do pedido (sessão se o pedido não tiver loja). Loja 1 inclui produto legado nulo/`''`.
+- Atualizar declaração KYC, gravar/listar/baixar item de `manual_return_items` ou achar reenvio de estorno sem `tenantId`. Loja 1 inclui linha nula/`''`. O boot não faz backfill dessa fila.
 - Abrir Brevo com `hasGlobalAccess`. As rotas são `requirePrimaryAdmin`. O sync não pode levar cliente ou pedido de filial (loja 1 inclui `tenant_id` null/`''`).
 - Inserir cobrança de diferença sem `tenant_id`. Usar o tenant do pedido, senão o da sessão. O backfill null → loja 1 só roda depois de copiar o tenant do pedido ligado.
 - Devolver chave APPCNPay crua no GET settings, gravar no `localStorage` (`siteSettings`) ou incluir em `PUBLIC_KEYS`. Mascarar no GET; PUT `***` é no-op.

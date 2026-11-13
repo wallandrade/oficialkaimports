@@ -1067,6 +1067,7 @@ async function ensureManualReturnItemsTable(databaseName: string): Promise<void>
     await pool.query(`
       CREATE TABLE manual_return_items (
         id VARCHAR(255) NOT NULL PRIMARY KEY,
+        tenant_id VARCHAR(255) NULL,
         status VARCHAR(32) NOT NULL DEFAULT 'pending',
         client_name VARCHAR(255) NOT NULL,
         returning_order VARCHAR(255) NULL,
@@ -1075,6 +1076,7 @@ async function ensureManualReturnItemsTable(databaseName: string): Promise<void>
         quantity INT NOT NULL DEFAULT 1,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        KEY manual_return_items_tenant_id_idx (tenant_id),
         KEY manual_return_items_status_idx (status),
         KEY manual_return_items_created_at_idx (created_at)
       )
@@ -1083,6 +1085,7 @@ async function ensureManualReturnItemsTable(databaseName: string): Promise<void>
   }
 
   const definitions = [
+    { name: "tenant_id", sql: "ALTER TABLE manual_return_items ADD COLUMN tenant_id VARCHAR(255) NULL" },
     { name: "status", sql: "ALTER TABLE manual_return_items ADD COLUMN status VARCHAR(32) NOT NULL DEFAULT 'pending'" },
     { name: "client_name", sql: "ALTER TABLE manual_return_items ADD COLUMN client_name VARCHAR(255) NOT NULL" },
     { name: "returning_order", sql: "ALTER TABLE manual_return_items ADD COLUMN returning_order VARCHAR(255) NULL" },
@@ -1100,6 +1103,7 @@ async function ensureManualReturnItemsTable(databaseName: string): Promise<void>
   }
 
   const indexes = [
+    { name: "manual_return_items_tenant_id_idx", sql: "ALTER TABLE manual_return_items ADD KEY manual_return_items_tenant_id_idx (tenant_id)" },
     { name: "manual_return_items_status_idx", sql: "ALTER TABLE manual_return_items ADD KEY manual_return_items_status_idx (status)" },
     { name: "manual_return_items_created_at_idx", sql: "ALTER TABLE manual_return_items ADD KEY manual_return_items_created_at_idx (created_at)" },
   ];

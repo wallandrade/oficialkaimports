@@ -1,7 +1,8 @@
 import { Router, type IRouter } from "express";
 import { db, socialProofSettingsTable, socialProofFakeEntriesTable, ordersTable, productsTable } from "@workspace/db";
-import { eq, desc, and, gte, ne } from "drizzle-orm";
+import { eq, desc, and, gte, ne, isNull, or } from "drizzle-orm";
 import { requirePrimaryAdmin } from "./admin-auth";
+import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
 
 const router: IRouter = Router();
 
@@ -107,6 +108,13 @@ function startOfTodaySaoPaulo(): Date {
   return new Date(midnightUtc + offsetMs);
 }
 
+function buildSocialProofOrderTenantWhere(tenantId: string) {
+  if (tenantId === DEFAULT_TENANT_ID) {
+    return or(eq(ordersTable.tenantId, tenantId), isNull(ordersTable.tenantId), eq(ordersTable.tenantId, ""));
+  }
+  return eq(ordersTable.tenantId, tenantId);
+}
+
 async function getSettings() {
   const rows = await db.select().from(socialProofSettingsTable).where(eq(socialProofSettingsTable.id, 1));
   if (rows.length > 0) return rows[0];
@@ -118,8 +126,9 @@ async function getSettings() {
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
 /** GET /api/social-proof/feed — public */
-router.get("/social-proof/feed", async (_req, res) => {
+router.get("/social-proof/feed", async (req, res) => {
   try {
+    const tenantId = await resolvePublicTenantId(req);
     const settings = await getSettings();
     if (!settings.enabled) { res.json({ enabled: false, realEntries: [], fillEntries: [] }); return; }
 
@@ -134,7 +143,11 @@ router.get("/social-proof/feed", async (_req, res) => {
       const orders = await db
         .select()
         .from(ordersTable)
-        .where(and(eq(ordersTable.status, "paid"), gte(ordersTable.createdAt, windowStart)))
+        .where(and(
+          eq(ordersTable.status, "paid"),
+          gte(ordersTable.createdAt, windowStart),
+          buildSocialProofOrderTenantWhere(tenantId),
+        ))
         .orderBy(desc(ordersTable.createdAt))
         .limit(50);
 

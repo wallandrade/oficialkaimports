@@ -145,12 +145,12 @@ async function getTenantSyncConfigs(tenantIds?: string[]): Promise<TenantSyncCon
   });
 }
 
-async function upsertReplicatedProduct(
+export function buildReplicatedProductWrite(
   sourceProduct: typeof productsTable.$inferSelect,
   config: TenantSyncConfig,
-): Promise<void> {
+  now = new Date(),
+) {
   const basePrice = Number(sourceProduct.price || 0);
-  const baseCostPrice = sourceProduct.costPrice == null ? basePrice : Number(sourceProduct.costPrice || 0);
   const basePromoPrice = sourceProduct.promoPrice == null ? null : Number(sourceProduct.promoPrice || 0);
   const adjustedPrice = round2(basePrice * (1 + config.marginPercent / 100) + config.marginFixedBrl);
   const adjustedPromoPrice =
@@ -158,9 +158,8 @@ async function upsertReplicatedProduct(
       ? null
       : round2(basePromoPrice * (1 + config.marginPercent / 100) + config.marginFixedBrl);
 
-  await db
-    .insert(productsTable)
-    .values({
+  return {
+    values: {
       id: buildReplicatedProductId(sourceProduct.id, config.tenantId),
       tenantId: config.tenantId,
       name: sourceProduct.name,
@@ -168,7 +167,7 @@ async function upsertReplicatedProduct(
       category: sourceProduct.category,
       unit: sourceProduct.unit,
       price: formatMoney(adjustedPrice),
-      costPrice: formatMoney(baseCostPrice),
+      costPrice: formatMoney(0),
       promoPrice: adjustedPromoPrice == null ? null : formatMoney(adjustedPromoPrice),
       promoEndsAt: sourceProduct.promoEndsAt,
       bulkDiscountEnabled: Boolean(sourceProduct.bulkDiscountEnabled),
@@ -184,25 +183,35 @@ async function upsertReplicatedProduct(
       isSoldOut: Boolean(sourceProduct.isSoldOut),
       isLaunch: Boolean(sourceProduct.isLaunch),
       sortOrder: Number(sourceProduct.sortOrder || 0),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .onDuplicateKeyUpdate({
-      set: {
-        name: sourceProduct.name,
-        description: sourceProduct.description,
-        category: sourceProduct.category,
-        unit: sourceProduct.unit,
-        variantGroups: sourceProduct.variantGroups,
-        image: sourceProduct.image,
-        brand: sourceProduct.brand,
-        isActive: Boolean(sourceProduct.isActive),
-        isSoldOut: Boolean(sourceProduct.isSoldOut),
-        isLaunch: Boolean(sourceProduct.isLaunch),
-        sortOrder: Number(sourceProduct.sortOrder || 0),
-        updatedAt: new Date(),
-      },
-    });
+      createdAt: now,
+      updatedAt: now,
+    },
+    set: {
+      name: sourceProduct.name,
+      description: sourceProduct.description,
+      category: sourceProduct.category,
+      unit: sourceProduct.unit,
+      variantGroups: sourceProduct.variantGroups,
+      image: sourceProduct.image,
+      brand: sourceProduct.brand,
+      isActive: Boolean(sourceProduct.isActive),
+      isSoldOut: Boolean(sourceProduct.isSoldOut),
+      isLaunch: Boolean(sourceProduct.isLaunch),
+      sortOrder: Number(sourceProduct.sortOrder || 0),
+      updatedAt: now,
+    },
+  };
+}
+
+async function upsertReplicatedProduct(
+  sourceProduct: typeof productsTable.$inferSelect,
+  config: TenantSyncConfig,
+): Promise<void> {
+  const write = buildReplicatedProductWrite(sourceProduct, config);
+  await db
+    .insert(productsTable)
+    .values(write.values)
+    .onDuplicateKeyUpdate({ set: write.set });
 }
 
 export async function isTenantSyncFromLoja1Enabled(tenantId: string): Promise<boolean> {
