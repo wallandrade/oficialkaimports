@@ -7,7 +7,7 @@ import {
   isEnvioEcomAccountConfigured,
 } from "../lib/envioecom-accounts";
 import { getTenantSettingsMap } from "../lib/envioecom-config";
-import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
+import { DEFAULT_TENANT_ID, requirePublicTenantId } from "../lib/tenant-context";
 import {
   CHECKOUT_CARRIER_PRIORITY_KEY,
   EMPTY_CHECKOUT_DELIVERY,
@@ -56,7 +56,8 @@ router.get("/shipping/delivery-estimate", async (req, res) => {
       return;
     }
 
-    const tenantId = await resolvePublicTenantId(req);
+    const tenantId = await requirePublicTenantId(req, res);
+    if (!tenantId) return;
     const settings = await getTenantSettingsMap(tenantId);
     const parsed = parseCheckoutCarrierPriority(settings[CHECKOUT_CARRIER_PRIORITY_KEY]);
     const carriers = parsed.ok ? parsed.carriers : [];

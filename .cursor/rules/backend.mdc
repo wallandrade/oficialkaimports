@@ -7,7 +7,7 @@ globs: artifacts/api-server/**/*.ts
 # Backend
 
 - Registrar rotas novas em `src/routes/` e em `routes/index.ts`
-- Tenant: `resolvePublicTenantId` / `adminScope.tenantId` + `build*TenantWhere` (legado null = loja1)
+- Tenant: `resolvePublicTenantId` (null = domínio sem loja; fallback `tenant_loja1` só em host da loja principal, localhost, `*.vercel.app`, `*.ondigitalocean.app` ou sem host) / `adminScope.tenantId` + `build*TenantWhere` (legado null no banco = loja1)
 - Auth admin: `requireAdminAuth` / `requirePrimaryAdmin` de `admin-auth.ts`
 - PIX: `gateway.ts` + webhook; expiração 24h em `reconciliation.ts` (sem polling de status)
 - Jobs: só adicionar no boot (`index.ts`) se necessário e alinhado aos existentes

@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { Lock, User, Eye, EyeOff, Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fetchPublicSiteSettings } from "@/lib/public-settings";
+import { fallbackSiteName } from "@/lib/store-host";
 import { toast } from "sonner";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -28,7 +29,7 @@ export default function AdminLogin() {
       .catch(() => {});
   }, []);
 
-  const siteName = String(siteSettings.site_name || "").trim() || "KA Imports";
+  const siteName = String(siteSettings.site_name || "").trim() || fallbackSiteName();
   const logo = String(siteSettings.logo || "").trim();
   const logoScale = Math.min(240, Math.max(100, Number(siteSettings.logo_scale ?? 180) || 180));
 

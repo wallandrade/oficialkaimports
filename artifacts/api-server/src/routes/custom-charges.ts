@@ -11,7 +11,7 @@ import {
   normalizePixGatewayProvider,
   PIX_DURATION_MS,
 } from "../gateway";
-import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
+import { DEFAULT_TENANT_ID, requirePublicTenantId } from "../lib/tenant-context";
 import {
   decidePixSettlement,
   pixNoticeLogFields,
@@ -119,7 +119,8 @@ router.post("/custom-charges", async (req, res) => {
   console.log(`[CustomCharge:${requestId}] POST /api/custom-charges`);
 
   try {
-    const tenantId = await resolvePublicTenantId(req as any);
+    const tenantId = await requirePublicTenantId(req as any, res);
+    if (!tenantId) return;
     const { client, address, amount, description, sellerCode } = req.body as {
       client: { name: string; email: string; phone: string; document: string };
       address?: {
@@ -251,7 +252,8 @@ router.post("/custom-charges", async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get("/custom-charges/status/:transactionId", async (req, res) => {
   try {
-    const tenantId = await resolvePublicTenantId(req as any);
+    const tenantId = await requirePublicTenantId(req as any, res);
+    if (!tenantId) return;
     const { transactionId } = req.params;
 
     const rows = await db

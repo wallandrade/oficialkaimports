@@ -3,7 +3,7 @@ import { db, orderBumpsTable } from "@workspace/db";
 import { and, eq, asc, isNull, or } from "drizzle-orm";
 import crypto from "crypto";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
-import { resolvePublicTenantId } from "../lib/tenant-context";
+import { requirePublicTenantId } from "../lib/tenant-context";
 
 const router: IRouter = Router();
 const DEFAULT_TENANT_ID = "tenant_loja1";
@@ -48,7 +48,8 @@ function mapBump(b: typeof orderBumpsTable.$inferSelect) {
 // ---------------------------------------------------------------------------
 router.get("/order-bumps", async (req, res) => {
   try {
-    const tenantId = await resolvePublicTenantId(req as any);
+    const tenantId = await requirePublicTenantId(req as any, res);
+    if (!tenantId) return;
     const { productId } = req.query as Record<string, string>;
     const rows = await db
       .select()

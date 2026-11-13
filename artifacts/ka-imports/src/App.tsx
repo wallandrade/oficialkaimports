@@ -3,7 +3,7 @@ import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { BrandPageLoader } from "@/components/BrandLoader";
 import { SitePasswordGate } from "@/components/SitePasswordGate";
@@ -12,7 +12,9 @@ import { FlashOfferHost } from "@/components/flash/FlashOfferHost";
 import { captureReferralFromCurrentUrl } from "@/lib/affiliate";
 import { reportClientError } from "@/lib/client-error-reporting";
 import { shouldShowMaintenancePage } from "@/lib/maintenance";
-import { fetchPublicSiteSettings } from "@/lib/public-settings";
+import { fetchPublicSiteSettings, loadStorefrontSettings } from "@/lib/public-settings";
+import { fallbackSiteName } from "@/lib/store-host";
+import StoreConfiguringPage from "@/pages/StoreConfiguringPage";
 import { normalizeStoreThemePreset } from "@/lib/store-theme";
 import Home from "@/pages/Home";
 import MaintenancePage from "@/pages/MaintenancePage";
@@ -245,7 +247,7 @@ function upsertMetaTag(
 }
 
 function applyStoreBrandingFromSettings(settings: Record<string, string>): void {
-  const siteName = String(settings.site_name || "").trim() || "KA Imports";
+  const siteName = String(settings.site_name || "").trim() || fallbackSiteName();
   document.title = siteName;
 
   const currentUrl = window.location.href;
@@ -410,6 +412,48 @@ function AppInner() {
   );
 }
 
+function StorefrontGate({ children }: { children: ReactNode }) {
+  const [location] = useLocation();
+  const isAdmin = location.startsWith("/admin");
+  const [status, setStatus] = useState<"pending" | "ready" | "unconfigured">("pending");
+
+  useEffect(() => {
+    if (isAdmin) return;
+
+    let active = true;
+    setStatus("pending");
+    loadStorefrontSettings()
+      .then((result) => {
+        if (!active) return;
+        if (result.state === "unconfigured") {
+          try {
+            localStorage.removeItem("siteSettings");
+          } catch {
+            // ignore storage errors
+          }
+          document.title = "Loja em configuração";
+          setStatus("unconfigured");
+          return;
+        }
+        setStatus("ready");
+      })
+      .catch(() => {
+        if (active) setStatus("ready");
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [isAdmin]);
+
+  if (isAdmin) return <>{children}</>;
+  if (status === "unconfigured") return <StoreConfiguringPage />;
+  if (status !== "ready") {
+    return <div style={{ minHeight: "100vh", background: "#f7f7f8" }} />;
+  }
+  return <>{children}</>;
+}
+
 function AppOrMaintenance() {
   const [location] = useLocation();
   if (shouldShowMaintenancePage(location)) {
@@ -417,12 +461,14 @@ function AppOrMaintenance() {
   }
 
   return (
+    <StorefrontGate>
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <AppInner />
         <Toaster position="top-center" richColors theme="light" />
       </TooltipProvider>
     </QueryClientProvider>
+    </StorefrontGate>
   );
 }
 

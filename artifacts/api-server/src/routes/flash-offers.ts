@@ -12,7 +12,7 @@ import {
 } from "@workspace/db";
 import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
-import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
+import { DEFAULT_TENANT_ID, requirePublicTenantId } from "../lib/tenant-context";
 import { getCustomerSession } from "../middlewares/customer-auth";
 import {
   claimFlashOffer,
@@ -92,7 +92,8 @@ function readVisitor(body: unknown): string {
 router.get("/flash-offers/wait", async (req, res) => {
   try {
     await ensureFlashOfferSchema();
-    const tenantId = await resolvePublicTenantId(req);
+    const tenantId = await requirePublicTenantId(req, res);
+    if (!tenantId) return;
     if (await isFlashForceFirstVisit(tenantId)) {
       const [active] = await db
         .select({ id: flashCampaignsTable.id })
@@ -122,7 +123,8 @@ router.get("/flash-offers/wait", async (req, res) => {
 
 router.post("/flash-offers/draw", async (req, res) => {
   try {
-    const tenantId = await resolvePublicTenantId(req);
+    const tenantId = await requirePublicTenantId(req, res);
+    if (!tenantId) return;
     const visitorKey = readVisitor(req.body);
     if (!visitorKey) {
       res.json({ offers: [], offer: null });
@@ -144,7 +146,8 @@ router.post("/flash-offers/draw", async (req, res) => {
 
 router.post("/flash-offers/claim", async (req, res) => {
   try {
-    const tenantId = await resolvePublicTenantId(req);
+    const tenantId = await requirePublicTenantId(req, res);
+    if (!tenantId) return;
     const session = getCustomerSession(req);
     const claimed = await claimFlashOffer({
       tenantId,
@@ -166,7 +169,8 @@ router.post("/flash-offers/claim", async (req, res) => {
 
 router.post("/flash-offers/release", async (req, res) => {
   try {
-    const tenantId = await resolvePublicTenantId(req);
+    const tenantId = await requirePublicTenantId(req, res);
+    if (!tenantId) return;
     const session = getCustomerSession(req);
     const result = await releaseFlashReservation({
       tenantId,

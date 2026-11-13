@@ -2,20 +2,23 @@ import { ReactNode } from "react";
 import { Link } from "wouter";
 import { ArrowLeft } from "lucide-react";
 import { Footer } from "./Footer";
+import { fallbackSiteName } from "@/lib/store-host";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-function useSiteLogo() {
+function useSiteLogo(): { logo: string | null; siteName: string } {
   try {
-    const cached = JSON.parse(localStorage.getItem("siteSettings") || "{}");
-    return cached.logo ?? null;
+    const cached = JSON.parse(localStorage.getItem("siteSettings") || "{}") as { logo?: unknown; site_name?: unknown };
+    const logo = String(cached.logo ?? "").trim();
+    const siteName = String(cached.site_name ?? "").trim() || fallbackSiteName();
+    return { logo: logo || null, siteName };
   } catch {
-    return null;
+    return { logo: null, siteName: fallbackSiteName() };
   }
 }
 
 export function CheckoutLayout({ children }: { children: ReactNode }) {
-  const logo = useSiteLogo();
+  const { logo, siteName } = useSiteLogo();
   const logoScale = (() => {
     try {
       const cached = JSON.parse(localStorage.getItem("siteSettings") || "{}");
@@ -40,7 +43,7 @@ export function CheckoutLayout({ children }: { children: ReactNode }) {
                   className="overflow-hidden rounded-2xl h-12 border border-primary/10 bg-white/80 px-3 py-1.5"
                   style={{ width: `${logoScale}px`, maxWidth: "48vw" }}
                 >
-                  <img src={logo} alt="KA Imports" className="h-full w-full object-cover" />
+                  <img src={logo} alt={siteName} className="h-full w-full object-cover" />
                 </div>
               )}
             </div>

@@ -3,7 +3,7 @@ import { db, couponsTable } from "@workspace/db";
 import { and, eq, isNull, or } from "drizzle-orm";
 import crypto from "crypto";
 import { getAdminScope, requireAdminAuth, requirePrimaryAdmin } from "./admin-auth";
-import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
+import { DEFAULT_TENANT_ID, requirePublicTenantId } from "../lib/tenant-context";
 
 const router: IRouter = Router();
 
@@ -141,7 +141,8 @@ export function evaluateCouponForProducts(
 // ---------------------------------------------------------------------------
 router.post("/coupons/validate", async (req, res) => {
   try {
-    const tenantId = await resolvePublicTenantId(req as any);
+    const tenantId = await requirePublicTenantId(req as any, res);
+    if (!tenantId) return;
     const { code, orderValue, products } = req.body as {
       code: string;
       orderValue?: number;

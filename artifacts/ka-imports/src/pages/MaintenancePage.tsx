@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { BrandLoader } from "@/components/BrandLoader";
-
-const DEFAULT_SITE_NAME = "KA Imports";
+import { fallbackSiteName } from "@/lib/store-host";
 
 type CachedBranding = {
   siteName: string;
@@ -14,11 +13,11 @@ function readCachedBranding(): CachedBranding {
       site_name?: unknown;
       logo?: unknown;
     };
-    const siteName = String(parsed?.site_name ?? "").trim() || DEFAULT_SITE_NAME;
+    const siteName = String(parsed?.site_name ?? "").trim() || fallbackSiteName();
     const logo = String(parsed?.logo ?? "").trim();
     return { siteName, logo };
   } catch {
-    return { siteName: DEFAULT_SITE_NAME, logo: "" };
+    return { siteName: fallbackSiteName(), logo: "" };
   }
 }
 

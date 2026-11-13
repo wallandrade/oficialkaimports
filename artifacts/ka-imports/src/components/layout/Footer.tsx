@@ -3,6 +3,7 @@ import { MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getActiveWhatsApp } from "@/lib/utils";
 import { fetchPublicSiteSettings } from "@/lib/public-settings";
+import { fallbackSiteName } from "@/lib/store-host";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -71,7 +72,7 @@ export function Footer() {
       .catch(() => {});
   }, []);
 
-  const siteName = String(siteSettings.site_name || "").trim() || "KA IMPORTS";
+  const siteName = String(siteSettings.site_name || "").trim() || fallbackSiteName(undefined, "upper");
 
   return (
     <footer className="ka-main-footer bg-white border-t border-border mt-auto">

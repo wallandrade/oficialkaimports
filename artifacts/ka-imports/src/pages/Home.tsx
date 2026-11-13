@@ -126,10 +126,12 @@ function useSiteBanners() {
   const [isLoaded, setIsLoaded] = useState(false);
   useEffect(() => {
     fetch(`${BASE}/api/settings`)
-      .then((r) => r.json())
-      .then((data: Record<string, string>) => {
-        localStorage.setItem("siteSettings", JSON.stringify(data));
-        setBanners(data);
+      .then(async (r) => {
+        const data = await r.json() as Record<string, unknown>;
+        if (!r.ok || !data || data.store_not_configured === true || data.error === "store_not_configured") return;
+        const settings = data as Record<string, string>;
+        localStorage.setItem("siteSettings", JSON.stringify(settings));
+        setBanners(settings);
       })
       .catch(() => {})
       .finally(() => setIsLoaded(true));

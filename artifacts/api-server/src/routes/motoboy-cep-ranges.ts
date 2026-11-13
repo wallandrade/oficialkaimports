@@ -3,7 +3,7 @@ import { Router, type IRouter } from "express";
 import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
 import { db, motoboyCepRangesTable } from "@workspace/db";
 import { pickMotoboyCepRange } from "../lib/motoboy-cep-range-pick";
-import { resolvePublicTenantId } from "../lib/tenant-context";
+import { requirePublicTenantId } from "../lib/tenant-context";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { isMotoboyCoverageWriteLocked } from "../lib/motoboy-yury-sync";
 
@@ -41,7 +41,8 @@ router.get("/motoboy-cep-ranges/lookup", async (req, res) => {
       return;
     }
 
-    const tenantId = await resolvePublicTenantId(req);
+    const tenantId = await requirePublicTenantId(req, res);
+    if (!tenantId) return;
     const candidates = await db
       .select()
       .from(motoboyCepRangesTable)

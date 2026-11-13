@@ -6,14 +6,15 @@ import {
   SHIPPING_QUEUE_MANUAL_ENABLED_KEY,
   SHIPPING_QUEUE_MANUAL_HOURS_KEY,
 } from "../lib/shipping-queue-deadline";
-import { resolvePublicTenantId } from "../lib/tenant-context";
+import { requirePublicTenantId } from "../lib/tenant-context";
 
 const router: IRouter = Router();
 
 router.get("/shipping-logistics/forecast", async (req, res) => {
   try {
     res.set("Cache-Control", "no-store, no-cache, must-revalidate");
-    const tenantId = await resolvePublicTenantId(req);
+    const tenantId = await requirePublicTenantId(req, res);
+    if (!tenantId) return;
     const forecast = await getOrderLogisticsForecast(tenantId);
     let promisedHours = forecast.promisedHours;
     try {

@@ -13,7 +13,7 @@ import {
 } from "../middlewares/customer-auth";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { normalizeAffiliateCode, registerAffiliateLead, resolveAffiliateByCode } from "../lib/affiliates";
-import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
+import { DEFAULT_TENANT_ID, requirePublicTenantId } from "../lib/tenant-context";
 import { parseOptionalCustomerDocument } from "../lib/customer-document";
 import { attachGuestOrdersForCustomer } from "../lib/customer-guest-orders";
 
@@ -44,7 +44,8 @@ function buildAffiliatesTenantWhere(tenantId: string) {
 }
 
 router.post("/auth/register", async (req, res) => {
-  const tenantId = await resolvePublicTenantId(req as Request);
+  const tenantId = await requirePublicTenantId(req, res);
+  if (!tenantId) return;
   const { name, email, password, affiliateCode, document } = req.body as {
     name?: string;
     email?: string;
@@ -135,7 +136,8 @@ router.post("/auth/register", async (req, res) => {
 });
 
 router.post("/auth/login", async (req, res) => {
-  const tenantId = await resolvePublicTenantId(req as Request);
+  const tenantId = await requirePublicTenantId(req, res);
+  if (!tenantId) return;
   const { email, password, document } = req.body as {
     email?: string;
     password?: string;

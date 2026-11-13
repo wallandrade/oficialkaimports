@@ -3,7 +3,7 @@ import { db, orderShipmentsTable, ordersTable } from "@workspace/db";
 import { and, desc, eq, gte, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { getCustomerSession, requireCustomerAuth } from "../middlewares/customer-auth";
-import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
+import { DEFAULT_TENANT_ID, requirePublicTenantId } from "../lib/tenant-context";
 import { actorFromAdminRequest, addOrderEvent } from "../lib/order-events";
 import { notifyOrderTrackingWhatsapp } from "../lib/whatsapp-n8n";
 import { carrierDisplayName, isAllowedManualCarrier } from "../lib/carrier-loss";
@@ -1851,7 +1851,8 @@ router.post("/admin/envioecom/tracking-board/sync", requireAdminAuth, async (req
 
 router.get("/me/orders/:id/tracking", requireCustomerAuth, async (req, res) => {
   try {
-    const tenantId = await resolvePublicTenantId(req as never);
+    const tenantId = await requirePublicTenantId(req as never, res);
+    if (!tenantId) return;
     const session = getCustomerSession(req);
     if (!session) {
       res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
@@ -1901,7 +1902,8 @@ router.get("/me/orders/:id/tracking", requireCustomerAuth, async (req, res) => {
 
 router.post("/me/orders/tracking-sync", requireCustomerAuth, async (req, res) => {
   try {
-    const tenantId = await resolvePublicTenantId(req as never);
+    const tenantId = await requirePublicTenantId(req as never, res);
+    if (!tenantId) return;
     const session = getCustomerSession(req);
     if (!session) {
       res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });

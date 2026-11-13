@@ -7,6 +7,7 @@ import { useCart } from "@/store/use-cart";
 import { Button } from "@/components/ui/button";
 import { formatCurrency, getActiveWhatsApp } from "@/lib/utils";
 import { fetchPublicSiteSettings } from "@/lib/public-settings";
+import { fallbackSiteName } from "@/lib/store-host";
 import { isPharmaCompactPreset } from "@/lib/store-theme";
 import { pharmaCatalogHref, readPharmaFilters } from "@/lib/pharma-catalog-query";
 import { PharmaStoreChrome } from "@/components/layout/PharmaStoreChrome";
@@ -354,7 +355,7 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
   }, []);
 
   const offersHref = sellerSlug ? `/${encodeURIComponent(sellerSlug)}/ofertas` : "/ofertas";
-  const siteName = String(siteSettings.site_name || "").trim() || "KA Imports";
+  const siteName = String(siteSettings.site_name || "").trim() || fallbackSiteName();
 
   return (
     <>
@@ -435,7 +436,7 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
                   {logo ? (
                     <img
                       src={logo}
-                      alt="KA Imports Logo"
+                      alt={siteName}
                       loading="eager"
                       fetchPriority="high"
                       className="h-full w-full object-cover"
