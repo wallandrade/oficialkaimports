@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-13 | Anti-padrão: PIX/Brevo/diferença vazando de filial para a loja 1 | Filial sem par APPCNPay falha. DentPeg e env só na loja 1. Brevo é `requirePrimaryAdmin`. Diferença grava tenant | Loja 1 e o webhook |
 | 2026-11-13 | Anti-padrão: piso 2789 em toda loja | `MAIN_STORE_ORDER_NUMBER_FLOOR` só em `tenant_loja1` | Filial continua `MAX(order_number)+1` |
 | 2026-11-12 | Anti-padrão: desligar a manutenção só num dos dois arquivos | `src/lib/maintenance.ts` e `public/tenant-branding.js` andam juntos no mesmo redeploy | API, `/admin` e o override `VITE_MAINTENANCE` do bundle |
 | 2026-11-12 | Loader de marca no lugar do spinner grande da loja | `BrandLoader` / `BrandPageLoader`. O arco do símbolo gira (1,2s); as letras KA ficam paradas. `prefers-reduced-motion` só pulsa a opacidade | Hero, botões (16–20px), CEP/frete/cupom, skeletons, PIX, checkout e banco |
@@ -214,7 +215,9 @@ Código > memória > suposições.
 - Assumir PostgreSQL / Prisma / Next / Nest.
 - Polling de status no gateway APPCNPay (bloqueado; usar webhook + BD local).
 - Gravar caso da Yury em `carrier_loss_incidents` ou devolver esse espelho no `GET /api/integrations/loss-blacklist/snapshot`. O mesmo extravio conta duas vezes na cotação deles. Os dois tokens (`LOSS_SYNC_TOKEN` e `YURY_LOSS_SYNC_TOKEN`) não podem ter o mesmo valor.
-- Usar só `GATEWAY_IDENTIFIER`/`GATEWAY_SECRET` para PIX da filial, ou misturar pública da loja com secret do env. Par completo em `tenant_settings` ou fallback env.
+- Usar `GATEWAY_IDENTIFIER`/`GATEWAY_SECRET` ou `DENTPEG_API_KEY` no PIX de uma filial. Sem o par em `tenant_settings`, a filial responde `PIX não configurado para esta loja`. O env e a conta DentPeg são só da loja 1. Não misturar pública da loja com secret do env. Não herdar `site_settings` no checkout/rifa da filial.
+- Abrir Brevo com `hasGlobalAccess`. As rotas são `requirePrimaryAdmin`. O sync não pode levar cliente ou pedido de filial (loja 1 inclui `tenant_id` null/`''`).
+- Inserir cobrança de diferença sem `tenant_id`. Usar o tenant do pedido, senão o da sessão. O backfill null → loja 1 só roda depois de copiar o tenant do pedido ligado.
 - Devolver chave APPCNPay crua no GET settings, gravar no `localStorage` (`siteSettings`) ou incluir em `PUBLIC_KEYS`. Mascarar no GET; PUT `***` é no-op.
 - Tratar `mockup-sandbox` como app de produção.
 - Editar clients Orval gerados.

@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db, siteSettingsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { requireAdminAuth, getAdminScope } from "./admin-auth";
+import { requirePrimaryAdmin } from "./admin-auth";
 import { syncCustomersToBrevo, testBrevoConnection } from "../lib/brevo";
 
 const router: IRouter = Router();
@@ -25,14 +25,8 @@ async function setSetting(key: string, value: string): Promise<void> {
 }
 
 // GET /api/admin/brevo/config — get current Brevo config
-router.get("/admin/brevo/config", requireAdminAuth, async (req, res) => {
+router.get("/admin/brevo/config", requirePrimaryAdmin, async (_req, res) => {
   try {
-    const scope = getAdminScope(req);
-    if (!scope?.hasGlobalAccess) {
-      res.status(403).json({ error: "FORBIDDEN", message: "Only global admin can access this." });
-      return;
-    }
-
     const apiKey = await getSettingValue("brevo_api_key");
     const configured = !!apiKey;
 
@@ -47,14 +41,8 @@ router.get("/admin/brevo/config", requireAdminAuth, async (req, res) => {
 });
 
 // PUT /api/admin/brevo/config — update Brevo API key
-router.put("/admin/brevo/config", requireAdminAuth, async (req, res) => {
+router.put("/admin/brevo/config", requirePrimaryAdmin, async (req, res) => {
   try {
-    const scope = getAdminScope(req);
-    if (!scope?.hasGlobalAccess) {
-      res.status(403).json({ error: "FORBIDDEN", message: "Only global admin can access this." });
-      return;
-    }
-
     const { apiKey } = req.body as { apiKey?: string };
     if (!apiKey || !apiKey.trim()) {
       res.status(400).json({ error: "INVALID_INPUT", message: "API key é obrigatória." });
@@ -82,14 +70,8 @@ router.put("/admin/brevo/config", requireAdminAuth, async (req, res) => {
 });
 
 // POST /api/admin/brevo/sync-customers — sync customers to Brevo
-router.post("/admin/brevo/sync-customers", requireAdminAuth, async (req, res) => {
+router.post("/admin/brevo/sync-customers", requirePrimaryAdmin, async (req, res) => {
   try {
-    const scope = getAdminScope(req);
-    if (!scope?.hasGlobalAccess) {
-      res.status(403).json({ error: "FORBIDDEN", message: "Only global admin can access this." });
-      return;
-    }
-
     const { listId } = req.body as { listId?: number };
 
     console.log(`[BREVO] Starting sync of customers to Brevo${listId ? ` (listId=${listId})` : ""}`);

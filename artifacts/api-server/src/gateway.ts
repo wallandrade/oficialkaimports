@@ -6,7 +6,12 @@
  */
 import crypto from "crypto";
 import { getAppcnpayGatewayHeaders } from "./lib/pix-gateway-credentials";
+import {
+  canUseSharedPixAccount,
+  PIX_NOT_CONFIGURED_FOR_STORE,
+} from "./lib/pix-gateway-credentials-core";
 import { isPaymentConfirmed as isExactPaymentConfirmed } from "./lib/pix-settlement";
+import { DEFAULT_TENANT_ID } from "./lib/tenant-context";
 
 export const GATEWAY_PIX_URL = "https://painel.appcnpay.com/api/v1/gateway/pix/receive";
 export const DENTPEG_BASE_URL = "https://api.dentpeg.com/api/v1";
@@ -184,6 +189,9 @@ export async function createPixCharge(payload: {
   try {
     headers = await getGatewayHeaders(payload.tenantId);
   } catch (err) {
+    if (err instanceof Error && err.message === PIX_NOT_CONFIGURED_FOR_STORE) {
+      throw err;
+    }
     throw new Error("Gateway credentials not configured.");
   }
 
@@ -261,6 +269,9 @@ export async function createPixChargeWithProvider(payload: {
   tenantId?: string | null;
 }): Promise<GatewayPixResponse> {
   if (payload.provider === "dentpeg") {
+    if (!canUseSharedPixAccount(payload.tenantId, DEFAULT_TENANT_ID)) {
+      throw new Error(PIX_NOT_CONFIGURED_FOR_STORE);
+    }
     const amountInCents = Math.round(Number(payload.amount || 0) * 100);
     const maxDentpegAmount = getDentpegMaxAmountCents();
 

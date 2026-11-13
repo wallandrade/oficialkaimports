@@ -73,6 +73,9 @@ async function getActivePixGateway(tenantId: string): Promise<"appcnpay" | "dent
   if (tenantRow[0]?.value != null) {
     return normalizePixGatewayProvider(tenantRow[0].value);
   }
+  if (tenantId !== DEFAULT_TENANT_ID) {
+    return normalizePixGatewayProvider(null);
+  }
   const row = await db
     .select({ value: siteSettingsTable.value })
     .from(siteSettingsTable)
