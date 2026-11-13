@@ -165,11 +165,8 @@ export function shouldShowHomeHero(input: {
   name?: string;
   brand?: string;
 }): boolean {
-  if (input.pharma) return isPharmaShowcaseHome(readPharmaFilters(input.search || ""), 1);
-  return !String(input.query || "").trim()
-    && (input.categories?.length ?? 0) === 0
-    && !String(input.name || "").trim()
-    && !String(input.brand || "").trim();
+  if (!input.pharma) return false;
+  return isPharmaShowcaseHome(readPharmaFilters(input.search || ""), 1);
 }
 
 export function homeHeroCategoryHref(options: {

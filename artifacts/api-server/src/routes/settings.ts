@@ -5,6 +5,12 @@ import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { getR2MissingConfig, isR2Configured, uploadSiteSettingImageToR2 } from "../lib/r2";
 import { DEFAULT_TENANT_ID, requirePublicTenantId, resolveExplicitDomainTenant, resolvePublicTenantId } from "../lib/tenant-context";
 import {
+  isPharmaCompactForbidden,
+  publicStoreIdentity,
+  publicStoreThemePreset,
+  storeThemePresetWriteError,
+} from "../lib/store-theme-preset";
+import {
   isMaskedGatewaySecret,
   maskGatewaySecret,
   PIX_GATEWAY_SETTING_KEYS,
@@ -249,15 +255,12 @@ router.get("/settings", async (_req, res) => {
     const out: Record<string, string> = {};
     for (const key of PUBLIC_KEYS) {
       if (!(key in allSettings)) continue;
-      if (
-        key === "store_theme_preset"
-        && tenantId !== DEFAULT_TENANT_ID
-        && String(allSettings[key] || "").trim().toLowerCase() === "pharma_compact"
-      ) {
-        continue;
-      }
+      if (key === "store_theme_preset") continue;
       out[key] = allSettings[key]!;
     }
+    const themePreset = publicStoreThemePreset(tenantId, allSettings.store_theme_preset);
+    if (themePreset) out.store_theme_preset = themePreset;
+    Object.assign(out, publicStoreIdentity(tenantId));
     res.json(out);
   } catch {
     res.json({});
@@ -277,7 +280,9 @@ router.get("/admin/settings", requireAdminAuth, async (req, res) => {
     const allSettings = await getTenantSettingsMap(tenantId);
     const out: Record<string, string> = {};
     for (const key of ALLOWED_KEYS) {
-      if (key in allSettings) out[key] = allSettings[key]!;
+      if (!(key in allSettings)) continue;
+      if (key === "store_theme_preset" && isPharmaCompactForbidden(tenantId, allSettings[key])) continue;
+      out[key] = allSettings[key]!;
     }
     for (const secretKey of [PIX_GATEWAY_SETTING_KEYS.publicKey, PIX_GATEWAY_SETTING_KEYS.secretKey]) {
       if (out[secretKey]) out[secretKey] = maskGatewaySecret(out[secretKey]!);
@@ -314,12 +319,9 @@ router.put("/admin/settings/:key", requireAdminAuth, async (req, res) => {
       res.json({ ok: true, value: stored });
       return;
     }
-    if (
-      key === "store_theme_preset"
-      && tenantId !== DEFAULT_TENANT_ID
-      && String(value || "").trim().toLowerCase() === "pharma_compact"
-    ) {
-      res.status(400).json({ error: "INVALID_INPUT", message: "Este tema não está disponível para filiais." });
+    const themeWriteError = key === "store_theme_preset" ? storeThemePresetWriteError(tenantId, value) : null;
+    if (themeWriteError) {
+      res.status(400).json({ error: "INVALID_INPUT", message: themeWriteError });
       return;
     }
     if (
@@ -339,6 +341,9 @@ router.put("/admin/settings/:key", requireAdminAuth, async (req, res) => {
       }
     } else {
       let storedValue = value;
+      if (key === "store_theme_preset") {
+        storedValue = String(value).trim().toLowerCase();
+      }
       if (key === MOTOBOY_SLOT_HOURS_KEY) {
         const parsed = validateMotoboySlotHours(value);
         if (!parsed.ok) {

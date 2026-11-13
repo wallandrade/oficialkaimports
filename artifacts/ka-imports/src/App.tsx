@@ -15,7 +15,7 @@ import { shouldShowMaintenancePage } from "@/lib/maintenance";
 import { fetchPublicSiteSettings, loadStorefrontSettings } from "@/lib/public-settings";
 import { fallbackSiteName } from "@/lib/store-host";
 import StoreConfiguringPage from "@/pages/StoreConfiguringPage";
-import { normalizeStoreThemePreset } from "@/lib/store-theme";
+import { resolveStoreThemePreset } from "@/lib/store-theme";
 import Home from "@/pages/Home";
 import MaintenancePage from "@/pages/MaintenancePage";
 import CategoryPage from "@/pages/CategoryPage";
@@ -185,7 +185,7 @@ function getReadableForeground(hexColor: string): string {
 
 function applyThemePresetFromSettings(settings: Record<string, string>): void {
   const root = document.documentElement;
-  const preset = normalizeStoreThemePreset(String(settings.store_theme_preset || ""));
+  const preset = resolveStoreThemePreset(String(settings.store_theme_preset || ""), { settings });
 
   if (preset === "default") {
     root.removeAttribute("data-store-theme");
