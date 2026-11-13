@@ -27,6 +27,12 @@ export function isMainStoreHostname(hostname: string): boolean {
   return configured.has(host);
 }
 
+/** Só os domínios públicos da loja principal. Não inclui localhost nem preview. */
+export function isKaImportsStoreHost(hostname: string): boolean {
+  const host = normalizeHost(hostname);
+  return host === "ka-imports.com" || host === "www.ka-imports.com";
+}
+
 export function currentHostname(): string {
   if (typeof window === "undefined") return "";
   return window.location.hostname || "";

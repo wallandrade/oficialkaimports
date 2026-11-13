@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { formatCurrency, getActiveWhatsApp } from "@/lib/utils";
 import { fetchPublicSiteSettings } from "@/lib/public-settings";
 import { fallbackSiteName } from "@/lib/store-host";
-import { isPharmaCompactPreset } from "@/lib/store-theme";
+import { resolveStoreThemePreset } from "@/lib/store-theme";
 import { pharmaCatalogHref, readPharmaFilters } from "@/lib/pharma-catalog-query";
 import { PharmaStoreChrome } from "@/components/layout/PharmaStoreChrome";
 import { PharmaLoginDialog } from "@/components/layout/PharmaLoginDialog";
@@ -175,7 +175,7 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
   const isLoggedIn = useMemo(() => Boolean(getCustomerToken()), [authStamp]);
   const searchString = useSearch();
   const siteSettings = usePublicSiteSettings();
-  const isPharma = isPharmaCompactPreset(siteSettings.store_theme_preset || "");
+  const isPharma = resolveStoreThemePreset(siteSettings.store_theme_preset || "", { settings: siteSettings }) === "pharma_compact";
   const pharmaFilters = readPharmaFilters(searchString);
   const isPharmaRef = useRef(isPharma);
   isPharmaRef.current = isPharma;

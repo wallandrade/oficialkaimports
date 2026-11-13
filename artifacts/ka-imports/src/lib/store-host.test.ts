@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { fallbackSiteName, isMainStoreHostname, isStoreNotConfiguredPayload } from "./store-host.ts";
+import { fallbackSiteName, isKaImportsStoreHost, isMainStoreHostname, isStoreNotConfiguredPayload } from "./store-host.ts";
 
 test("hostname da loja principal usa KA Imports; o resto usa Loja", () => {
   assert.equal(isMainStoreHostname("ka-imports.com"), true);
@@ -13,6 +13,10 @@ test("hostname da loja principal usa KA Imports; o resto usa Loja", () => {
   assert.equal(fallbackSiteName("ka-imports.com"), "KA Imports");
   assert.equal(fallbackSiteName("ka-imports.com", "upper"), "KA IMPORTS");
   assert.equal(fallbackSiteName("www.fh-imports.site"), "Loja");
+  assert.equal(isKaImportsStoreHost("ka-imports.com"), true);
+  assert.equal(isKaImportsStoreHost("www.ka-imports.com"), true);
+  assert.equal(isKaImportsStoreHost("www.fh-imports.site"), false);
+  assert.equal(isKaImportsStoreHost("localhost"), false);
 });
 
 test("resposta da API marca loja não configurada", () => {

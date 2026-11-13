@@ -132,7 +132,7 @@ test("hero só na home limpa", () => {
   assert.equal(shouldShowHomeHero({ pharma: true, search: "?promo=1" }), false);
   assert.equal(shouldShowHomeHero({ pharma: true, search: "?vitrine=vendidos" }), false);
   assert.equal(shouldShowHomeHero({ pharma: true, search: "?ordem=menor" }), false);
-  assert.equal(shouldShowHomeHero({ pharma: false, query: "" }), true);
+  assert.equal(shouldShowHomeHero({ pharma: false, query: "" }), false);
   assert.equal(shouldShowHomeHero({ pharma: false, query: "agua" }), false);
   assert.equal(shouldShowHomeHero({ pharma: false, categories: ["Botox"] }), false);
   assert.equal(shouldShowHomeHero({ pharma: false, name: "tirz" }), false);

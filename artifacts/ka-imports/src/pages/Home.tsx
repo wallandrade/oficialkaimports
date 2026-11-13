@@ -9,7 +9,7 @@ import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { useLiveTracking } from "@/hooks/useLiveTracking";
 import { sortCatalogProducts, topSellerRanksByCategory } from "@/lib/catalog-sales";
-import { isPharmaCompactPreset } from "@/lib/store-theme";
+import { resolveStoreThemePreset } from "@/lib/store-theme";
 import { PharmaCatalog } from "@/components/catalog/PharmaCatalog";
 import { HomeHero } from "@/components/home/HomeHero";
 import { shouldShowHomeHero } from "@/lib/home-hero";
@@ -161,9 +161,9 @@ export default function Home() {
       ? `/${encodeURIComponent(sellerSlug)}/produto/${encodeURIComponent(catalogBannerProductId)}`
       : `${BASE}/produto/${encodeURIComponent(catalogBannerProductId)}`)
     : "";
-  const themePreset = String(banners["store_theme_preset"] || "").trim().toLowerCase();
+  const themePreset = resolveStoreThemePreset(String(banners["store_theme_preset"] || ""), { settings: banners });
   const isMarketplaceShowcase = themePreset === "market_showcase";
-  const isPharmaCompact = isPharmaCompactPreset(themePreset);
+  const isPharmaCompact = themePreset === "pharma_compact";
   const [featuredCategory, setFeaturedCategory] = useState("");
 
   useLiveTracking("catalog");
