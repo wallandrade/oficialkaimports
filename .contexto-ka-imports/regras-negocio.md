@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-13 | Pedidos novos da loja principal começam em 2790 | `reserveNextOrderNumber` usa `max(MAX(order_number), 2789)+1` só em `tenant_loja1` (linhas com tenant nulo ou vazio entram nesse máximo). O primeiro pedido novo é 2790 | Filiais continuam `MAX+1`. Checkout, PIX e o lock `GET_LOCK` |
 | 2026-11-13 | Vitrine fora de manutenção | `MAINTENANCE_MODE_DEFAULT` e `MAINTENANCE_MODE` estão `false`. A loja volta a montar o app e `tenant-branding.js` volta a chamar `GET /api/settings`. O código da tela permanece | Pedidos, checkout, admin, banco e DNS |
 | 2026-11-12 | Vitrine em manutenção | Loja principal e filiais no mesmo front mostram “Estamos em manutenção”. `/admin` e `/admin/*` seguem o app. A tela não chama a API | Pedidos, checkout, admin, banco e DNS |
 | 2026-11-11 | Hero no topo da home | O banner de cima continua primeiro. Abaixo dele, o card do produto mais vendido e os cards de categoria, antes das prateleiras. Some com busca ou filtro. Cada domínio usa o próprio `GET /api/products` | Conteúdo do banner, vitrines, modal da relâmpago, banco |
@@ -218,6 +219,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 
 ## Pedidos e pagamento
 
+- Número do pedido (`reserveNextOrderNumber` em `lib/order-number.ts`): por loja, `MAX(order_number)+1` dentro de `GET_LOCK`. Na loja principal (`tenant_loja1`, incluindo linhas legadas com tenant nulo ou `''`) o próximo é `max(MAX, 2789)+1` (`MAIN_STORE_ORDER_NUMBER_FLOOR`). O primeiro pedido novo sai **2790**. Pedidos abaixo de 2790 estão no banco antigo da Railway e podem ser importados depois. Filial não usa esse piso.
 - Fluxo PIX preferencial: `POST /api/checkout/pix` cria pedido + cobrança no gateway (`artifacts/api-server/src/routes/checkout.ts`). APPCNPay usa o par de chaves da loja em `tenant_settings` quando as duas existem; senão as globais do servidor.
 - WhatsApp do cliente (não é o Pushcut): na primeira ida para `paid`/`completed` sai o mesmo texto de **Copiar pós-pagamento**, mais a filmagem se houver URL https. Se o n8n recusar, tenta de novo em 15 s e em 60 s. O frete avisa dentro do persist da EnvioEcom. O rastreio inclui os itens daquele pacote (`order_shipments.items` no dividido; `orders.products` no envio único), no formato `💊 2x Nome`, antes do código e do link. Se o pedido está dividido e outro pacote ainda não tem código utilizável, o mesmo aviso diz que o envio foi parcial e que outro rastreio vem. O último pacote não repete essa frase. Postado, saiu e entregue continuam só com o número. Saiu para entrega inclui `em rota`. Rastreio, postado e saiu repetem no próximo persist se a chave do pacote ainda não foi gravada. Pago, frete, atendimento e recuperação saem do **35 99211-9139**, pela URL principal, com `sender` `5535992119139`. Falha do n8n apaga a marca e não segura o pedido. Detalhe em `integracoes.md`.
 - Status observados no código: `pending`, `awaiting_payment`, `paid`, `cancelled` (e fluxos admin de marcação manual).
