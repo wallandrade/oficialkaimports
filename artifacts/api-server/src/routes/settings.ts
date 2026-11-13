@@ -33,6 +33,16 @@ import {
   SHIPPING_QUEUE_MANUAL_ENABLED_KEY,
   SHIPPING_QUEUE_MANUAL_HOURS_KEY,
 } from "../lib/shipping-queue-deadline";
+import {
+  decideSiteProtection,
+  isSiteReleaseEnabled,
+  normalizeSiteReleaseAt,
+  normalizeSiteReleaseMessage,
+  SITE_RELEASE_AT_KEY,
+  SITE_RELEASE_ENABLED_KEY,
+  SITE_RELEASE_KEYS,
+  SITE_RELEASE_MESSAGE_KEY,
+} from "../lib/site-release";
 
 const router: IRouter = Router();
 
@@ -55,6 +65,7 @@ const PUBLIC_KEYS  = [
 const ALLOWED_KEYS = [
   ...PUBLIC_KEYS,
   "site_password", "payment_password",
+  ...SITE_RELEASE_KEYS,
   TENANT_SYNC_PRODUCTS_FROM_LOJA1_KEY,
   TENANT_SUPPLY_MARGIN_PERCENT_KEY,
   TENANT_SUPPLY_MARGIN_FIXED_BRL_KEY,
@@ -371,6 +382,30 @@ router.put("/admin/settings/:key", requireAdminAuth, async (req, res) => {
       if (key === SHIPPING_QUEUE_MANUAL_ENABLED_KEY) {
         storedValue = isManualShippingDeadlineEnabled(value) ? "1" : "0";
       }
+      if (key === SITE_RELEASE_ENABLED_KEY) {
+        storedValue = isSiteReleaseEnabled(value) ? "1" : "0";
+      }
+      if (key === SITE_RELEASE_AT_KEY) {
+        const parsed = normalizeSiteReleaseAt(value);
+        if (!parsed.ok) {
+          res.status(400).json({ error: "INVALID_INPUT", message: parsed.message });
+          return;
+        }
+        storedValue = parsed.value;
+      }
+      if (key === SITE_RELEASE_MESSAGE_KEY) {
+        const parsed = normalizeSiteReleaseMessage(value);
+        if (!parsed.ok) {
+          res.status(400).json({ error: "INVALID_INPUT", message: parsed.message });
+          return;
+        }
+        if (!parsed.value) {
+          await deleteTenantSetting(tenantId, key);
+          res.json({ ok: true });
+          return;
+        }
+        storedValue = parsed.value;
+      }
       if (IMAGE_SETTING_KEYS.has(key) && value.startsWith("data:image/")) {
         if (!isR2Configured()) {
           res.status(503).json({
@@ -428,11 +463,12 @@ router.get("/is-protected", async (_req, res) => {
     const tenantId = await requirePublicTenantId(_req as any, res);
     if (!tenantId) return;
     const settings = await getTenantSettingsMap(tenantId);
-    const siteProtected = Boolean(settings.site_password);
-    const paymentProtected = Boolean(settings.payment_password);
-    res.json({ site: siteProtected, payment: paymentProtected });
+    const decision = decideSiteProtection(settings, new Date());
+    res.set("Cache-Control", "no-store");
+    res.json(decision);
   } catch {
-    res.json({ site: false, payment: false });
+    res.set("Cache-Control", "no-store");
+    res.json({ site: false, payment: false, release: null });
   }
 });
 

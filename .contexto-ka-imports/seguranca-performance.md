@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-13 | Abertura da senha do site no servidor | `GET /api/is-protected` decide com a hora do servidor e manda `Cache-Control: no-store`. A contagem da tela usa o tempo decorrido, não o relógio do celular, e pergunta de novo ao zerar. As chaves `site_release_*` não vão para `PUBLIC_KEYS` nem para o `localStorage` | Quem já tem a senha entra. Falha da primeira consulta continua abrindo a vitrine, como antes. A senha em si não é devolvida |
 | 2026-11-13 | Prova social, n8n, custo, catálogo do pedido, KYC e retorno manual | Pedido pago de outra loja sai do widget. Env n8n não manda evento da filial para a loja 1. Custo da loja 1 não nasce na cópia. Edição, troca, declaração KYC, fila de retorno e estorno de reenvio ficam na loja | Loja 1, inclusive tenant nulo/`''` nesses pontos. Token de suporte do env |
 | 2026-11-13 | Isolamento de loja no Brevo, no PIX e na diferença | Filial não grava a chave Brevo nem exporta os clientes dela. PIX da filial não cai na conta env/DentPeg da loja 1. Diferença grava `tenant_id` | Loja 1, webhook e seller-scoped |
 | 2026-11-08 | PIX aceita o token por transação só pelo hash gravado na criação | `pix_charge_proofs` guarda SHA-256. O corpo não cadastra confiança. `whsec` continua para cobrança que já saiu com ele | Cobrança antiga sem hash e sem `whsec` não confirma sozinha |
