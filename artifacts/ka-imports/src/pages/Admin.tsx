@@ -5261,6 +5261,9 @@ export default function Admin() {
         "envioecom_checkout_carrier_priority",
         "shipping_queue_manual_enabled",
         "shipping_queue_manual_hours",
+        "site_release_enabled",
+        "site_release_at",
+        "site_release_message",
       ]);
       setSettings((p) => ({
         ...p,
@@ -5299,6 +5302,9 @@ export default function Admin() {
         key === "envioecom_checkout_carrier_priority"
         || key === "shipping_queue_manual_enabled"
         || key === "shipping_queue_manual_hours"
+        || key === "site_release_enabled"
+        || key === "site_release_at"
+        || key === "site_release_message"
       ) {
         toast.success("Configuração removida.");
         return;
@@ -21816,6 +21822,9 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
 }) {
   const [sitePw, setSitePw] = useState(settings["site_password"] ?? "");
   const [paymentPw, setPaymentPw] = useState(settings["payment_password"] ?? "");
+  const [siteReleaseEnabled, setSiteReleaseEnabled] = useState(["1", "true", "on", "yes", "enabled"].includes(String(settings["site_release_enabled"] ?? "").trim().toLowerCase()));
+  const [siteReleaseAt, setSiteReleaseAt] = useState(settings["site_release_at"] ?? "");
+  const [siteReleaseMessage, setSiteReleaseMessage] = useState(settings["site_release_message"] ?? "");
   const [outboundUrl, setOutboundUrl] = useState(settings["outbound_webhook_url"] ?? "");
   const [outboundSecret, setOutboundSecret] = useState(settings["outbound_webhook_secret"] ?? "");
   const [showSitePw, setShowSitePw] = useState(false);
@@ -21863,6 +21872,9 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
     else if (preset === "market_showcase") setStoreThemePreset("market_showcase");
     else if (preset === "pharma_compact" && canUsePharmaTheme) setStoreThemePreset("pharma_compact");
     else setStoreThemePreset("default");
+    setSiteReleaseEnabled(["1", "true", "on", "yes", "enabled"].includes(String(settings["site_release_enabled"] ?? "").trim().toLowerCase()));
+    setSiteReleaseAt(settings["site_release_at"] ?? "");
+    setSiteReleaseMessage(settings["site_release_message"] ?? "");
     setPromoCountdownEnabled(!["0", "false", "off", "no", "disabled"].includes(String(settings["promo_countdown_enabled"] ?? "0").toLowerCase()));
     setPromoCountdownDateTime(settings["promo_countdown_datetime"] ?? "");
     setPromoCountdownText(settings["promo_countdown_text"] ?? "");
@@ -22715,6 +22727,75 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
             {settings["site_password"] && (
               <p className="text-xs text-emerald-600 mt-2 flex items-center gap-1"><CheckCircle className="w-3 h-3" />Proteção ativa</p>
             )}
+
+            <div className="mt-4 space-y-3 border-t border-border/60 pt-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold">Liberar site automaticamente</p>
+                  <p className="text-xs text-muted-foreground">Na data marcada, a loja abre sozinha. A senha continua salva para quem entrar antes. Desligado, nada muda. Vale só para esta loja.</p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={siteReleaseEnabled}
+                  aria-label="Liberar site automaticamente"
+                  onClick={() => setSiteReleaseEnabled((value) => !value)}
+                  className={`relative h-6 w-11 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${siteReleaseEnabled ? "bg-primary" : "bg-muted"}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${siteReleaseEnabled ? "translate-x-5" : ""}`} />
+                </button>
+              </div>
+
+              <div>
+                <label htmlFor="site-release-at" className="mb-1 block text-xs font-medium">Liberar em</label>
+                <input
+                  id="site-release-at"
+                  type="datetime-local"
+                  value={siteReleaseAt}
+                  onChange={(e) => setSiteReleaseAt(e.target.value)}
+                  className="h-10 w-full rounded-xl border-2 border-border px-3 text-sm outline-none focus:border-primary"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">Horário de Brasília.</p>
+              </div>
+
+              <div>
+                <label htmlFor="site-release-message" className="mb-1 block text-xs font-medium">Mensagem da contagem</label>
+                <input
+                  id="site-release-message"
+                  type="text"
+                  maxLength={80}
+                  value={siteReleaseMessage}
+                  onChange={(e) => setSiteReleaseMessage(e.target.value)}
+                  placeholder="Promoção começa em"
+                  className="h-10 w-full rounded-xl border-2 border-border px-3 text-sm outline-none focus:border-primary"
+                />
+              </div>
+
+              <Button
+                size="sm"
+                onClick={() => {
+                  if (siteReleaseEnabled && !siteReleaseAt.trim()) {
+                    toast.error("Selecione a data e a hora de Brasília para liberar o site.");
+                    return;
+                  }
+                  onSave("site_release_enabled", siteReleaseEnabled ? "1" : "0");
+                  if (siteReleaseAt.trim()) onSave("site_release_at", siteReleaseAt.trim());
+                  else onDelete("site_release_at");
+                  const message = siteReleaseMessage.trim();
+                  if (message) onSave("site_release_message", message);
+                  else onDelete("site_release_message");
+                }}
+                disabled={!!loading["site_release_enabled"] || !!loading["site_release_at"] || !!loading["site_release_message"]}
+              >
+                {(loading["site_release_enabled"] || loading["site_release_at"] || loading["site_release_message"])
+                  ? <Loader2 className="w-4 h-4 animate-spin" />
+                  : "Salvar liberação"}
+              </Button>
+
+              {["1", "true", "on", "yes", "enabled"].includes(String(settings["site_release_enabled"] ?? "").trim().toLowerCase()) && (
+                <p className="text-xs text-emerald-600 flex items-center gap-1"><CheckCircle className="w-3 h-3" />Liberação automática ligada</p>
+              )}
+            </div>
           </div>
           {/* Payment password */}
           <div className="bg-card border border-border/60 rounded-2xl p-5 shadow-sm">
