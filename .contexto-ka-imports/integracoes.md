@@ -1,12 +1,13 @@
 # Integrações externas — KA Imports
 
-> **Última atualização:** 2026-11-08
+> **Última atualização:** 2026-11-13
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-13 | Rewrite `/api/*` aponta para a DigitalOcean | Destino `https://lobster-app-7f8c2.ondigitalocean.app`. CSP `connect-src` no `vercel.json` do front e no `index.html` usa o mesmo host | Conta EnvioEcom `env`, webhooks e o restante das integrações |
 | 2026-11-08 | Liquidação PIX exige segredo, transação gravada, valor em reais e status exato | Webhook sem prova responde 403/409 e não marca pago. `OK` e substring (`UNPAID`) não pagam. Cupom do PIX não soma de novo no webhook. Log não grava corpo, código PIX nem URL com segredo | Admin ainda marca pago na mão. A tela `/pix` continua lendo o banco (`paid` → `OK`). Callback segue `/api/webhook/pix`. Consulta GET da APPCNPay continua fora da prova |
 | 2026-11-07 | Webhook da rifa grava a origem do pagamento | `confirmRaffleReservationFromPix` grava `raffle_reservations.paid_source = pix` ao confirmar. Se a reserva já estava `paid`, a origem também vira `pix` | Pedido, cobrança custom e a tela `/rifas/pix/:id`. Sem GET de status no gateway |
 | 2026-11-03 | WhatsApp de rastreio avisa envio parcial | Com 2 ou mais pacotes, se outro ainda não tem código utilizável (barcode real ou rastreio manual; `EC…` não conta), a mensagem diz que o pedido foi enviado parcialmente e que outro rastreio vem. O último pacote, quando os outros já têm código, não leva essa frase | Pedido sem divisão. Postado, saiu e entregue. Aviso já marcado não sai de novo |
@@ -219,7 +220,7 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 
 ## Front hosting ↔ API
 
-- Vercel rewrite `/api/*` → Railway production URL (ver `vercel.json` raiz e/ou `artifacts/ka-imports/vercel.json`).
+- Vercel rewrite `/api/*` → `https://lobster-app-7f8c2.ondigitalocean.app` (ver `vercel.json` raiz e `artifacts/ka-imports/vercel.json`).
 
 ## Regra de leitura
 
