@@ -6,7 +6,7 @@
  * O build também respeita `VITE_MAINTENANCE`: `"0"` desliga, `"1"` liga;
  * qualquer outro valor usa a constante daqui.
  */
-export const MAINTENANCE_MODE_DEFAULT = true;
+export const MAINTENANCE_MODE_DEFAULT = false;
 
 const viteMaintenanceFlag = import.meta.env.VITE_MAINTENANCE;
 

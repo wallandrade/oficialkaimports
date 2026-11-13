@@ -38,7 +38,7 @@
 
   // Manter em sincronia com src/lib/maintenance.ts.
   // Para desligar: MAINTENANCE_MODE = false aqui E MAINTENANCE_MODE_DEFAULT = false lá, depois redeploy.
-  var MAINTENANCE_MODE = true;
+  var MAINTENANCE_MODE = false;
   if (MAINTENANCE_MODE) return;
 
   var url = '/api/settings?domain=' + encodeURIComponent(host);
