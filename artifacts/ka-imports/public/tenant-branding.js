@@ -2,6 +2,17 @@
   var host = window.location && window.location.hostname ? window.location.hostname : "";
   if (!host) return;
 
+  function isMainStoreHost(value) {
+    var name = String(value || "").trim().toLowerCase();
+    if (!name) return false;
+    if (name === "localhost" || name === "127.0.0.1" || name === "::1") return true;
+    if (name === "vercel.app" || name.endsWith(".vercel.app")) return true;
+    if (name === "ondigitalocean.app" || name.endsWith(".ondigitalocean.app")) return true;
+    return name === "ka-imports.com" || name === "www.ka-imports.com";
+  }
+
+  document.title = isMainStoreHost(host) ? "KA Imports" : "Loja";
+
   function upsertMeta(attr, key, content) {
     var selector = 'meta[' + attr + '="' + key + '"]';
     var meta = document.head.querySelector(selector);
@@ -29,7 +40,7 @@
 
   try {
     var cached = JSON.parse(localStorage.getItem('siteSettings') || '{}');
-    if (cached && cached.site_name) {
+    if (isMainStoreHost(host) && cached && cached.site_name) {
       applyBranding(cached.site_name);
     }
   } catch (_err) {
@@ -44,17 +55,32 @@
   var url = '/api/settings?domain=' + encodeURIComponent(host);
   fetch(url, { cache: 'no-store' })
     .then(function (response) {
-      if (!response.ok) return null;
-      return response.json();
+      return response.json().then(function (data) {
+        return { ok: response.ok, data: data };
+      }).catch(function () {
+        return null;
+      });
     })
-    .then(function (data) {
-      if (!data || typeof data !== 'object') return;
+    .then(function (result) {
+      if (!result || !result.data || typeof result.data !== 'object') return;
+      if (result.data.store_not_configured === true || result.data.error === 'store_not_configured') {
+        try {
+          localStorage.removeItem('siteSettings');
+        } catch (_err) {
+          // ignore storage errors
+        }
+        var path = window.location.pathname || "";
+        var isAdmin = path === "/admin" || path.indexOf("/admin/") === 0;
+        if (!isAdmin) document.title = "Loja em configuração";
+        return;
+      }
+      if (!result.ok) return;
       try {
-        localStorage.setItem('siteSettings', JSON.stringify(data));
+        localStorage.setItem('siteSettings', JSON.stringify(result.data));
       } catch (_err) {
         // ignore storage errors
       }
-      applyBranding(data.site_name);
+      applyBranding(result.data.site_name || (isMainStoreHost(host) ? 'KA Imports' : 'Loja'));
     })
     .catch(function () {
       // ignore fetch errors

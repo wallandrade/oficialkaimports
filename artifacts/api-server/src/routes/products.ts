@@ -4,7 +4,7 @@ import { and, eq, asc, desc, isNull, or, inArray } from "drizzle-orm";
 import crypto from "crypto";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { getR2MissingConfig, isR2Configured, uploadProductImageToR2 } from "../lib/r2";
-import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
+import { DEFAULT_TENANT_ID, requirePublicTenantId } from "../lib/tenant-context";
 import { removeLoja1ProductFromEnabledFiliais, syncLoja1ProductToEnabledFiliais } from "../lib/tenant-product-sync";
 import {
   isWithinCostOverwriteWindow,
@@ -302,7 +302,8 @@ function canManageProducts(scope: ReturnType<typeof getAdminScope>): boolean {
  */
 router.get("/products", async (req, res) => {
   try {
-    const tenantId = await resolvePublicTenantId(req);
+    const tenantId = await requirePublicTenantId(req, res);
+    if (!tenantId) return;
     const rows = await db
       .select()
       .from(productsTable)

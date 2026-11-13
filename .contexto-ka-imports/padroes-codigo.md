@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-13 | Anti-padrão: domínio desconhecido cair em `tenant_loja1` | `resolvePublicTenantId` devolve `null`. Vitrine 404. Settings `{ store_not_configured: true }` | Webhook, healthz, admin por sessão, host da loja principal e o app `*.ondigitalocean.app` |
 | 2026-11-13 | Anti-padrão: env n8n, prova social, custo e catálogo sem loja | Env `N8N_*` de URL/telefone só em `tenant_loja1`. Feed, edição, KYC e retorno manual filtram tenant. Cópia não leva `costPrice` | Loja 1 e o legado nulo/`''` |
 | 2026-11-13 | Anti-padrão: PIX/Brevo/diferença vazando de filial para a loja 1 | Filial sem par APPCNPay falha. DentPeg e env só na loja 1. Brevo é `requirePrimaryAdmin`. Diferença grava tenant | Loja 1 e o webhook |
 | 2026-11-13 | Anti-padrão: piso 2789 em toda loja | `MAIN_STORE_ORDER_NUMBER_FLOOR` só em `tenant_loja1` | Filial continua `MAX(order_number)+1` |
@@ -155,7 +156,7 @@ Código > memória > suposições.
 - Rotas em `artifacts/api-server/src/routes/*.ts`, agregadas em `routes/index.ts`.
 - Helpers de domínio em `src/lib/*`.
 - Middleware customer em `src/middlewares/*`; admin auth exportado de `routes/admin-auth.ts`.
-- Tenant: sempre considerar `resolvePublicTenantId` / `adminScope.tenantId` e helpers `build*TenantWhere` (legado null = loja1).
+- Tenant: `resolvePublicTenantId` pode ser `null` (loja não configurada naquele domínio). `adminScope.tenantId` e helpers `build*TenantWhere` seguem iguais (legado null no banco = loja1).
 - Validação: Zod (`zod/v4` em vários schemas Drizzle; catalog também tem zod 3 — **seguir o padrão do arquivo tocado**).
 - Erros: JSON `{ error, message }` (e `details` fora de produção em alguns pontos).
 - Testes pontuais: `node --test` + tsx (ex.: `free-shipping.test.ts`, `order-logistics.test.ts`, `order-shipments-logic.test.ts`).
@@ -202,6 +203,7 @@ Código > memória > suposições.
 
 ## Anti-padrões (não reintroduzir)
 
+- Fazer `resolvePublicTenantId` cair em `tenant_loja1` para qualquer host que não esteja em `tenants.domain`. O fallback só vale para a loja principal (`MAIN_STORE_DOMAINS`), localhost, `*.vercel.app`, `*.ondigitalocean.app` e pedido sem host. Referer não entra nessa decisão. Domínio desconhecido responde `store_not_configured` e não cria pedido.
 - Aplicar `MAIN_STORE_ORDER_NUMBER_FLOOR` (2789) na sequência de uma filial. O piso existe só para `tenant_loja1` (o máximo já inclui tenant nulo e `''`). Filial segue `MAX(order_number)+1`.
 - Desligar a manutenção só em `src/lib/maintenance.ts` ou só em `public/tenant-branding.js`. Os dois flags vão para `false` no mesmo redeploy. Script parado com a tela desligada deixa a vitrine sem o `GET /api/settings`. Script ligado com a tela no ar continua chamando a API.
 - Trocar o `Loader2` de botão, login, CEP, frete ou cupom pelo `BrandLoader`, ou girar a logo de Configurações (`logo`) no loader. Essa imagem é o wordmark da filial. O arco que gira é o recorte de `public/logo.jpeg`.

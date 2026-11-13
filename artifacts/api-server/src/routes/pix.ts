@@ -24,7 +24,7 @@ import { rememberGatewayChargeProof } from "../lib/pix-charge-proof";
 import { ensureOrderCommission } from "../lib/affiliates";
 import { sendOutboundWebhook } from "../lib/outbound-webhook";
 import { scheduleOrderPaidWhatsapp } from "../lib/whatsapp-n8n";
-import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
+import { DEFAULT_TENANT_ID, requirePublicTenantId } from "../lib/tenant-context";
 import { enqueueFilialOrderPurchaseRequest } from "../lib/filial-purchase-queue";
 import { allocateOrderLogistics } from "../lib/order-logistics";
 
@@ -63,7 +63,8 @@ async function getActivePixGateway(tenantId: string): Promise<"appcnpay" | "dent
 // ---------------------------------------------------------------------------
 router.post("/pix/generate", async (req, res) => {
   try {
-    const tenantId = await resolvePublicTenantId(req as any);
+    const tenantId = await requirePublicTenantId(req as any, res);
+    if (!tenantId) return;
     const { client, amount, shippingType, includeInsurance, orderId } = req.body as {
       client: { name: string; email: string; phone: string; document: string };
       amount: number;
@@ -207,7 +208,8 @@ router.post("/pix/generate", async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get("/pix/status/:transactionId", async (req, res) => {
   try {
-    const tenantId = await resolvePublicTenantId(req as any);
+    const tenantId = await requirePublicTenantId(req as any, res);
+    if (!tenantId) return;
     const { transactionId } = req.params;
 
     const rows = await db
@@ -279,7 +281,8 @@ router.get("/pix/status/:transactionId", async (req, res) => {
 // ---------------------------------------------------------------------------
 router.post("/pix/callback/:token", async (req, res) => {
   try {
-    const tenantId = await resolvePublicTenantId(req as any);
+    const tenantId = await requirePublicTenantId(req as any, res);
+    if (!tenantId) return;
     const token = String(req.params.token || "").trim();
     const gate = legacyPixCallbackGate({
       enabled: ENABLE_LEGACY_PIX_CALLBACK,

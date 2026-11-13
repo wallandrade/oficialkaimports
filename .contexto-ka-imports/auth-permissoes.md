@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-13 | Vitrine sem tenant não usa a loja 1 | Host desconhecido: 404 `store_not_configured`. Fallback `tenant_loja1` só na loja principal, local, preview e app da API | Login admin continua por usuário e sessão. Webhooks não resolvem tenant pelo host |
 | 2026-11-13 | Declaração KYC, catálogo do pedido e fila de retorno na loja da sessão | `PATCH /admin/kyc/:orderId` não grava documento de outra loja. Troca e edição de produto leem o catálogo da loja do pedido. Retorno manual grava e filtra `tenant_id` | Seller-scoped continua sem editar pedido. Loja 1 inclui legado nulo/`''` |
 | 2026-11-13 | Brevo só para o superadmin | `GET/PUT /api/admin/brevo/config` e `POST /api/admin/brevo/sync-customers` usam `requirePrimaryAdmin`. Admin de filial com `hasGlobalAccess` toma 403 | A chave continua global em `site_settings`. Sync não inclui cliente de filial |
 | 2026-11-08 | `GET /api/admin/users` devolve `tenantId` e `tenantName` | Aba Usuários separa loja padrão e filiais. A loja segue o login: vínculo fora de `tenant_loja1`, owner primeiro | Criar, senha, acesso, apagar e o vínculo de vendedor. Novo usuário continua só da loja padrão. Admin de filial continua na aba Lojas |
@@ -96,7 +97,7 @@ Código > memória > tipagens.
 
 ## Isolamento multi-tenant
 
-- Público: host → `tenants.domain` → `tenantId` (fallback `tenant_loja1`).
+- Público: host → `tenants.domain` → `tenantId`. Sem match, `tenant_loja1` só se o host/origin for da loja principal (`MAIN_STORE_DOMAINS`), localhost, `*.vercel.app`, `*.ondigitalocean.app`, ou se não houver host. Qualquer outro domínio: `null` e a rota pública responde 404 `store_not_configured`. Admin não usa esse fallback: a loja vem da sessão.
 - Admin: escopo por tenant + seller; primary gerencia tenants (`routes/tenants.ts`).
 - Queries: muitos `or(eq(tenantId), isNull, eq(""))` para loja1 legado.
 

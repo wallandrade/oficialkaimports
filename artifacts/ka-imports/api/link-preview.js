@@ -4,6 +4,15 @@ function getHeader(headers, key) {
   return String(value || "").trim();
 }
 
+function isMainStoreHost(value) {
+  var name = String(value || "").trim().toLowerCase();
+  if (!name) return false;
+  if (name === "localhost" || name === "127.0.0.1" || name === "::1") return true;
+  if (name === "vercel.app" || name.endsWith(".vercel.app")) return true;
+  if (name === "ondigitalocean.app" || name.endsWith(".ondigitalocean.app")) return true;
+  return name === "ka-imports.com" || name === "www.ka-imports.com";
+}
+
 function normalizeHost(raw) {
   return String(raw || "")
     .split(",")[0]
@@ -34,9 +43,12 @@ async function fetchSiteSettings(apiUrl) {
       },
       signal: controller.signal,
     });
-    if (!response.ok) return null;
     const data = await response.json();
     if (!data || typeof data !== "object") return null;
+    if (data.store_not_configured === true || data.error === "store_not_configured") {
+      return { store_not_configured: true };
+    }
+    if (!response.ok) return null;
     return data;
   } catch {
     return null;
@@ -60,8 +72,13 @@ export default async function handler(req, res) {
     : "";
 
   const settings = settingsUrl ? await fetchSiteSettings(settingsUrl) : null;
-  const siteName = String(settings?.site_name || "").trim() || "KA Imports";
-  const description = `Confira os produtos da loja ${siteName}.`;
+  const unconfigured = settings?.store_not_configured === true;
+  const siteName = unconfigured
+    ? "Loja"
+    : (String(settings?.site_name || "").trim() || (isMainStoreHost(host) ? "KA Imports" : "Loja"));
+  const description = unconfigured
+    ? "Loja em configuração."
+    : `Confira os produtos da loja ${siteName}.`;
   const logo = String(settings?.logo || "").trim();
 
   const html = `<!doctype html>

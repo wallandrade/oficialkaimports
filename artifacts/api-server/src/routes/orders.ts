@@ -29,7 +29,7 @@ import { getR2MissingConfig, isR2Configured, uploadOrderTrackingLabelToR2 } from
 import { sendOutboundWebhook } from "../lib/outbound-webhook";
 import { scheduleOrderPaidWhatsapp, notifyOrderTrackingWhatsapp } from "../lib/whatsapp-n8n";
 import { parseFreeShippingMinSubtotalSetting, pickFreeShippingMinSubtotal, resolveShippingCostWithFreeThreshold } from "../lib/free-shipping";
-import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
+import { DEFAULT_TENANT_ID, requirePublicTenantId } from "../lib/tenant-context";
 import { orderCatalogTenantId } from "../lib/tenant-store-scope";
 import { reserveNextOrderNumber } from "../lib/order-number";
 import { MotoboyScheduleError, reserveMotoboySchedule } from "../lib/motoboy-delivery-schedule";
@@ -1225,7 +1225,8 @@ function csvField(value: unknown): string {
 // ---------------------------------------------------------------------------
 router.post("/orders", async (req, res) => {
   try {
-    const tenantId = await resolvePublicTenantId(req as any);
+    const tenantId = await requirePublicTenantId(req as any, res);
+    if (!tenantId) return;
     const purchaseIp = getPurchaseIp(req) || "IP_NAO_ENCONTRADO";
     const customerSession = getCustomerSession(req);
     const guestAccessToken = customerSession ? null : buildGuestAccessToken();
@@ -1747,7 +1748,8 @@ router.post("/orders", async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get("/me/orders", requireCustomerAuth, async (req, res) => {
   try {
-    const tenantId = await resolvePublicTenantId(req as any);
+    const tenantId = await requirePublicTenantId(req as any, res);
+    if (!tenantId) return;
     const customerSession = getCustomerSession(req);
     if (!customerSession) {
       res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
@@ -1774,7 +1776,8 @@ router.get("/me/orders", requireCustomerAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get("/me/orders/:id", requireCustomerAuth, async (req, res) => {
   try {
-    const tenantId = await resolvePublicTenantId(req as any);
+    const tenantId = await requirePublicTenantId(req as any, res);
+    if (!tenantId) return;
     const customerSession = getCustomerSession(req);
     if (!customerSession) {
       res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
@@ -1810,7 +1813,8 @@ router.get("/me/orders/:id", requireCustomerAuth, async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get("/orders/guest/:id", async (req, res) => {
   try {
-    const tenantId = await resolvePublicTenantId(req as any);
+    const tenantId = await requirePublicTenantId(req as any, res);
+    if (!tenantId) return;
     const { id } = req.params;
     const token = String((req.query as Record<string, string>).token || "").trim();
 

@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { db, sellersTable } from "@workspace/db";
 import { and, eq, isNull, or } from "drizzle-orm";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
-import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
+import { DEFAULT_TENANT_ID, requirePublicTenantId } from "../lib/tenant-context";
 
 const router: IRouter = Router();
 
@@ -111,7 +111,8 @@ async function saveSellerInOwnStore(input: {
 /** GET /api/sellers — public, returns all sellers [{slug, whatsapp}] */
 router.get("/sellers", async (req, res) => {
   try {
-    const tenantId = await resolvePublicTenantId(req);
+    const tenantId = await requirePublicTenantId(req, res);
+    if (!tenantId) return;
     const rows = await db.select({
       slug:     sellersTable.slug,
       whatsapp: sellersTable.whatsapp,
@@ -125,7 +126,8 @@ router.get("/sellers", async (req, res) => {
 /** GET /api/sellers/:slug — public, returns single seller or 404 */
 router.get("/sellers/:slug", async (req, res) => {
   try {
-    const tenantId = await resolvePublicTenantId(req);
+    const tenantId = await requirePublicTenantId(req, res);
+    if (!tenantId) return;
     const slug = String(req.params.slug);
     const rows = await db.select({
       slug:     sellersTable.slug,

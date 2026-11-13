@@ -5,7 +5,7 @@ import { db, ordersTable, productsTable, supportTicketsTable } from "@workspace/
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { broadcastNotification } from "./notifications";
 import { createOrRefreshReshipment } from "../lib/reshipments";
-import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
+import { DEFAULT_TENANT_ID, requirePublicTenantId } from "../lib/tenant-context";
 import { reserveNextOrderNumber } from "../lib/order-number";
 import {
   evaluateCanReship,
@@ -252,7 +252,8 @@ async function applyAddressChangeToOrder(params: {
 // ---------------------------------------------------------------------------
 router.post("/support/orders-by-cpf", async (req, res) => {
   try {
-    const tenantId = await resolvePublicTenantId(req as any);
+    const tenantId = await requirePublicTenantId(req as any, res);
+    if (!tenantId) return;
     const cpf = onlyDigits(req.body?.cpf);
     if (cpf.length !== 11) {
       res.status(400).json({ error: "INVALID_INPUT", message: "CPF invalido." });
@@ -333,7 +334,8 @@ router.post("/support/orders-by-cpf", async (req, res) => {
 // ---------------------------------------------------------------------------
 router.post("/support/tickets", async (req, res) => {
   try {
-    const tenantId = await resolvePublicTenantId(req as any);
+    const tenantId = await requirePublicTenantId(req as any, res);
+    if (!tenantId) return;
     const cpf = onlyDigits(req.body?.cpf);
     const orderId = String(req.body?.orderId ?? "").trim();
     const description = String(req.body?.description ?? "").trim();

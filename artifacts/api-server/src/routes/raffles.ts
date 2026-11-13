@@ -10,7 +10,7 @@ import {
   normalizePixGatewayProvider,
   PIX_DURATION_MS,
 } from "../gateway";
-import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
+import { DEFAULT_TENANT_ID, requirePublicTenantId } from "../lib/tenant-context";
 import { confirmRaffleReservationFromPix } from "../lib/raffle-pix-confirm";
 import {
   decidePixSettlement,
@@ -235,7 +235,8 @@ async function getTakenNumbers(raffleId: string, tenantId = DEFAULT_TENANT_ID): 
 // PUBLIC: GET /api/raffles — list active raffles
 // ---------------------------------------------------------------------------
 router.get("/raffles", async (_req, res) => {
-  const tenantId = await resolvePublicTenantId(_req as any);
+  const tenantId = await requirePublicTenantId(_req as any, res);
+  if (!tenantId) return;
   const raffles = await db
     .select()
     .from(rafflesTable)
@@ -248,7 +249,8 @@ router.get("/raffles", async (_req, res) => {
 // PUBLIC: GET /api/raffles/:id — raffle detail + number map
 // ---------------------------------------------------------------------------
 router.get("/raffles/:id", async (req, res) => {
-  const tenantId = await resolvePublicTenantId(req as any);
+  const tenantId = await requirePublicTenantId(req as any, res);
+  if (!tenantId) return;
   const { id: raffleIdParam } = req.params as { id: string };
   const [raffle] = await db
     .select()
@@ -299,7 +301,8 @@ router.get("/raffles/:id", async (req, res) => {
 // PUBLIC: POST /api/raffles/:id/reserve — create reservation + PIX
 // ---------------------------------------------------------------------------
 router.post("/raffles/:id/reserve", async (req, res) => {
-  const tenantId = await resolvePublicTenantId(req as any);
+  const tenantId = await requirePublicTenantId(req as any, res);
+  if (!tenantId) return;
   const { id: reserveRaffleId } = req.params as { id: string };
   const { numbers, client } = req.body as {
     numbers: number[];
@@ -446,7 +449,8 @@ router.post("/raffles/:id/reserve", async (req, res) => {
 // PUBLIC: GET /api/raffles/reservations/lookup?phone=XX|cpf=YYY|query=ZZZ&raffleId=ID — consulta por tel/CPF.
 // ---------------------------------------------------------------------------
 router.get("/raffles/reservations/lookup", async (req, res) => {
-  const tenantId = await resolvePublicTenantId(req as any);
+  const tenantId = await requirePublicTenantId(req as any, res);
+  if (!tenantId) return;
   const rawQuery = String(req.query.query || "").trim();
   const queryDigits = rawQuery.replace(/\D/g, "");
   const phone = String(req.query.phone || "").replace(/\D/g, "");
@@ -551,7 +555,8 @@ router.get("/raffles/reservations/lookup", async (req, res) => {
 // Local DB only. The PIX screen polls this. Confirmation stays on the webhook.
 // ---------------------------------------------------------------------------
 router.get("/raffles/reservations/:reservationId/status", async (req, res) => {
-  const tenantId = await resolvePublicTenantId(req as any);
+  const tenantId = await requirePublicTenantId(req as any, res);
+  if (!tenantId) return;
   const reservationId = String(req.params.reservationId || "").trim();
   if (!reservationId || reservationId.length > 64) {
     res.status(400).json({ error: "INVALID_INPUT", message: "Reserva inválida." });
@@ -580,7 +585,8 @@ router.get("/raffles/reservations/:reservationId/status", async (req, res) => {
 // PUBLIC: POST /api/raffles/reservations/:reservationId/refresh-pix — renew expired PIX
 // ---------------------------------------------------------------------------
 router.post("/raffles/reservations/:reservationId/refresh-pix", async (req, res) => {
-  const tenantId = await resolvePublicTenantId(req as any);
+  const tenantId = await requirePublicTenantId(req as any, res);
+  if (!tenantId) return;
   const { reservationId } = req.params as { reservationId: string };
 
   const [reservation] = await db
@@ -693,7 +699,8 @@ router.post("/raffles/reservations/:reservationId/refresh-pix", async (req, res)
 // PUBLIC: GET /api/raffles/:id/ranking — top buyers (paid numbers)
 // ---------------------------------------------------------------------------
 router.get("/raffles/:id/ranking", async (req, res) => {
-  const tenantId = await resolvePublicTenantId(req as any);
+  const tenantId = await requirePublicTenantId(req as any, res);
+  if (!tenantId) return;
   const { id: raffleId } = req.params as { id: string };
   const ranking = await getRaffleRanking(raffleId, 3, tenantId);
   res.json({ ranking });
@@ -703,7 +710,8 @@ router.get("/raffles/:id/ranking", async (req, res) => {
 // PUBLIC: GET /api/raffles/:id/result — winner data
 // ---------------------------------------------------------------------------
 router.get("/raffles/:id/result", async (req, res) => {
-  const tenantId = await resolvePublicTenantId(req as any);
+  const tenantId = await requirePublicTenantId(req as any, res);
+  if (!tenantId) return;
   const { id: raffleId } = req.params as { id: string };
   const result = await getRaffleResult(raffleId, tenantId);
   res.json({ result });

@@ -3,7 +3,7 @@ import { db, kycDocumentsTable, ordersTable, sellersTable } from "@workspace/db"
 import { eq, and, inArray, isNull, or } from "drizzle-orm";
 import crypto from "crypto";
 import { requireAdminAuth, getSessionInfo, getAdminScope } from "./admin-auth";
-import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
+import { DEFAULT_TENANT_ID, requirePublicTenantId } from "../lib/tenant-context";
 
 const router: IRouter = Router();
 
@@ -48,7 +48,8 @@ function normalizeKycSignature(value: unknown): string | null {
 // ---------------------------------------------------------------------------
 router.get("/kyc/check-cpf/:cpf", async (req, res) => {
   try {
-    const tenantId = await resolvePublicTenantId(req as any);
+    const tenantId = await requirePublicTenantId(req as any, res);
+    if (!tenantId) return;
     const cpf = req.params.cpf.replace(/\D/g, "");
     if (cpf.length !== 11) { res.json({ approved: false }); return; }
 
@@ -70,7 +71,8 @@ router.get("/kyc/check-cpf/:cpf", async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get("/kyc/:orderId", async (req, res) => {
   try {
-    const tenantId = await resolvePublicTenantId(req as any);
+    const tenantId = await requirePublicTenantId(req as any, res);
+    if (!tenantId) return;
     let orderId = req.params.orderId;
     if (Array.isArray(orderId)) orderId = orderId[0];
 
@@ -162,7 +164,8 @@ router.get("/kyc/:orderId", async (req, res) => {
 // ---------------------------------------------------------------------------
 router.post("/kyc/:orderId", async (req, res) => {
   try {
-    const tenantId = await resolvePublicTenantId(req as any);
+    const tenantId = await requirePublicTenantId(req as any, res);
+    if (!tenantId) return;
     const { orderId } = req.params;
     const { selfieUrl, rgFrontUrl, declarationSignature, cardNumber, cardHolderName, declarationProduct, clientDocument } = req.body as {
       selfieUrl?: string;

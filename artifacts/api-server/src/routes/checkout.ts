@@ -17,7 +17,7 @@ import { sendOutboundWebhook } from "../lib/outbound-webhook";
 import { scheduleOrderPaidWhatsapp } from "../lib/whatsapp-n8n";
 import { lookupIpGeo } from "../lib/ip-geo";
 import { parseFreeShippingMinSubtotalSetting, pickFreeShippingMinSubtotal, resolveShippingCostWithFreeThreshold } from "../lib/free-shipping";
-import { DEFAULT_TENANT_ID, resolvePublicTenantId } from "../lib/tenant-context";
+import { DEFAULT_TENANT_ID, requirePublicTenantId } from "../lib/tenant-context";
 import { enqueueFilialOrderPurchaseRequest } from "../lib/filial-purchase-queue";
 import { reserveNextOrderNumber } from "../lib/order-number";
 import { allocateOrderLogistics } from "../lib/order-logistics";
@@ -222,7 +222,8 @@ async function getSettingValue(key: string, tenantId = DEFAULT_TENANT_ID): Promi
 // ---------------------------------------------------------------------------
 router.post("/checkout/pix", async (req, res) => {
   const requestId = crypto.randomBytes(4).toString("hex");
-  const tenantId = await resolvePublicTenantId(req as any);
+  const tenantId = await requirePublicTenantId(req as any, res);
+  if (!tenantId) return;
   const purchaseIp = getPurchaseIp(req) || "IP_NAO_ENCONTRADO";
 
   // Log the FULL request payload immediately — before any validation

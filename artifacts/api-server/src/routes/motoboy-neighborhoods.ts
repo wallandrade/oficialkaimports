@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { Router, type IRouter } from "express";
 import { and, asc, eq } from "drizzle-orm";
 import { db, motoboyNeighborhoodsTable } from "@workspace/db";
-import { resolvePublicTenantId } from "../lib/tenant-context";
+import { requirePublicTenantId } from "../lib/tenant-context";
 import { getMotoboyAvailability, MotoboyScheduleError } from "../lib/motoboy-delivery-schedule";
 import { normalizeMotoboyPlaceName } from "../lib/motoboy-neighborhood-normalize";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
@@ -31,7 +31,8 @@ router.get("/motoboy-neighborhoods/lookup", async (req, res) => {
       return;
     }
 
-    const tenantId = await resolvePublicTenantId(req);
+    const tenantId = await requirePublicTenantId(req, res);
+    if (!tenantId) return;
     const neighborhoods = await db
       .select()
       .from(motoboyNeighborhoodsTable)
@@ -55,7 +56,8 @@ router.get("/motoboy-neighborhoods/lookup", async (req, res) => {
 
 router.get("/motoboy-delivery/availability", async (req, res) => {
   try {
-    const tenantId = await resolvePublicTenantId(req);
+    const tenantId = await requirePublicTenantId(req, res);
+    if (!tenantId) return;
     const availability = await getMotoboyAvailability(tenantId, {
       neighborhoodId: req.query.neighborhoodId,
       deliveryAreaType: req.query.deliveryAreaType,

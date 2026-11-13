@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-13 | Domínio sem loja não serve a vitrine da loja 1 | `tenant-context.ts` + `StoreConfiguringPage`. `GET /api/settings?domain=` segue a mesma regra. Título padrão em `index.html` é “Loja”; `tenant-branding.js` coloca “KA Imports” só no host da loja principal | Rewrite Vercel → DigitalOcean, admin por sessão, webhooks |
 | 2026-11-13 | `manual_return_items.tenant_id` e env n8n só na loja 1 | Coluna no schema e no boot (`runtime-schema`). Fila filtra a loja. Webhook n8n da filial não usa env | Backfill null → loja 1 não inclui essa tabela. Loja 1 segue no env |
 | 2026-11-13 | PIX da filial não cai no env | Sem par próprio a filial falha. Env e DentPeg só na loja 1. Diferença grava `tenant_id` antes do backfill null → loja 1 | Webhook por `transactionId`. Loja 1 segue no env |
 | 2026-11-13 | Piso do número de pedido da loja 1 | `lib/order-number.ts`: `tenant_loja1` reserva `max(MAX, 2789)+1`. O `WHERE` legado (nulo e `''`) continua o mesmo | Sequência das filiais, schema e as rotas que chamam a função |
