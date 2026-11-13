@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-11-12
+> **Última atualização:** 2026-11-13
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-13 | API de produção no rewrite e no CSP | `vercel.json` (raiz e `artifacts/ka-imports`) e o `connect-src` de `index.html` apontam para `https://lobster-app-7f8c2.ondigitalocean.app` | `railway.json`, `tenants.ts` e o código em `src/` e `public/` |
 | 2026-11-12 | Tela de manutenção da vitrine | `MAINTENANCE_MODE_DEFAULT` em `src/lib/maintenance.ts` (hoje `true`). Fora de `/admin`, o front mostra `MaintenancePage` e não monta Query/Toaster. `public/tenant-branding.js` não chama `GET /api/settings`. `main.tsx` não instala o report de erro do cliente | API, banco, DNS, env e o app em `/admin` e `/admin/*` |
 | 2026-11-12 | Loader de marca na vitrine | Suspense, home, categoria, produto, ofertas, farmácia, checkout, PIX, KYC, rifas e pedidos do cliente mostram o símbolo da KA. Só o arco gira | Hero, pagamentos, API, banco e os spinners de botão |
 | 2026-11-11 | Hero da home no front | `HomeHero` logo abaixo do banner de cima, antes das prateleiras. Dados do `useGetProducts` da loja do domínio | API, banco e o modal da relâmpago |
@@ -139,7 +140,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 - Home: o banner de cima continua primeiro. `HomeHero` entra logo abaixo, só sem busca/filtro, antes das prateleiras. Monta o card com o catálogo público já pedido por `useGetProducts` (tenant do domínio). Sem rota nova.
 - Carrinho: Zustand persist `src/store/use-cart.ts`.
 - Admin monolítico: `src/pages/Admin.tsx` (arquivo grande — leitura seletiva). `fetchOrders` usa AbortController + seq e não apaga `envioecomLabelUrl` se o GET vier vazio. `onSetOrderPatched` não zera `packages[]` se o patch vier vazio. Busca de Pedidos/Links: `AdminOrdersChargesSearchShell` (estado + filtro no filho; `onChange` imediato; `goToOrder` semeia). `OrdersSearchInput` começa `readOnly` (anti-autofill) e destrava no `touchStart`/`mouseDown` para o teclado mobile abrir. Visitantes ao vivo: `AdminLiveVisitorStats` (poll 5s próprio). Refresh silencioso de pedidos usa `startTransition`. Troca de data da lista não chama `fetchStatsData`. Aba **Seguro**: `AdminInsurancePanel.tsx` (primary-only). Checkout: `CheckoutInsuranceOffer.tsx` (2 cards, clique de novo = none). Suporte: `Support.tsx` lista pedidos com thumbnail do produto + card de chamado no admin usam `canReship`; modal **Reenvio do chamado** usa `ProductSelect` com `products[].image`. Split de envio: `SplitOrderShipments.tsx` (**Editar divisão** no card já dividido) + `packageId` em `EnvioEcomOrderActions.tsx` (OCR **Etiqueta/Rastreio** por pacote; linha de status se houver barcode mesmo sem status EE); **Trocar produto**: `ReplaceOrderProductModal.tsx`. Últimos envios do CPF: `RelatedCpfShipments.tsx` no card (fechado até o clique); alerta no clique **EnvioEcom** (`EnvioEcomOrderActions`). Cliente em `CustomerOrders.tsx` + `customer-split-shipping.ts` (Envio 1/2 se ainda não `enviado`; colapsa pacote sem etiqueta depois da expedição; “Trocado de X” se `swappedFrom`). Header da loja: busca mobile abre com `flushSync` + `.focus()` no mesmo toque; ícone da lupa é `pointer-events-none`.
-- Proxy/API: requests sob `/api` (Vercel rewrite → Railway).
+- Proxy/API: requests sob `/api` (Vercel rewrite → DigitalOcean App Platform).
 - SW: `public/sw.js` — **somente notificações admin**, não PWA offline/sync.
 
 ## Auth (resumo)
@@ -158,8 +159,8 @@ Monorepo **pnpm workspaces** + TypeScript.
 | Camada | Evidência |
 |--------|-----------|
 | FE prod | `vercel.json` → `https://ka-imports.com` / `www` (CORS default no `app.ts`) |
-| API prod | Rewrite Vercel → `https://oficialkaimports-production.up.railway.app/api/...` |
-| Railway | `railway.json` start: `pnpm --filter @workspace/api-server start-only` |
+| API prod | Rewrite Vercel → `https://lobster-app-7f8c2.ondigitalocean.app/api/...` |
+| Railway | `railway.json` continua no repo; a API de produção não usa mais essa URL |
 | Nixpacks | `nixpacks.toml` (Node 22, pnpm 9, filter api-server) |
 | Replit | `.replit` / `replit.md` (legado/dev — docs podem estar desatualizados) |
 
