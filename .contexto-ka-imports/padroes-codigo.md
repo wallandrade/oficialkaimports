@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-11-13
+> **Última atualização:** 2026-11-14
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-14 | Anti-padrão: gravar o canal Shopee só no navegador ou sem a loja | A seta chama o PATCH. O `WHERE` é o mesmo da leitura do pedido (tenant e seller). O cliente não recebe `shippingVia` | Status, PIX, estoque e o card Motoboy |
 | 2026-11-13 | Card grande da home prefere Tirzepatida ou Retatrutida | `buildHomeHero` filtra essas linhas (e Tirzepatide/Retatrutide) antes do `soldQty`. Sem as duas à venda com foto, o fallback é o mais vendido de qualquer categoria | Vitrines, cards de baixo e filiais sem essas linhas |
 | 2026-11-13 | Anti-padrão: liberar a senha do site só no relógio do celular | A hora vale em `decideSiteProtection`. A tela consulta `GET /api/is-protected` de novo ao zerar. Filial não copia o agendamento da loja 1 | Senha de pagamento e o cronômetro do topo |
 | 2026-11-13 | Anti-padrão: hero da farmácia em qualquer tema | Sem `pharma_compact` na loja 1, a home não monta o card de categoria. Filial sem preset fica em `default`. `GET /api/settings` manda `tenant_id` e `is_main_store` | Loja 1 com `pharma_compact`: header, hero, cinco vitrines e card PIX |
@@ -206,6 +207,7 @@ Código > memória > suposições.
 
 ## Anti-padrões (não reintroduzir)
 
+- Mover o pedido para Envio Shopee só no estado do navegador, ou atualizar `shipping_via` pelo `id` sem a loja. A seta persiste em `PATCH /api/admin/orders/:id/shipping-channel` com `buildAdminOrderWhere` (tenant e, no seller-scoped, `seller_code`). Outra loja e outro vendedor respondem 404. Não devolver `shippingVia` em `mapOrder(..., { forCustomer: true })`. O campo não muda status, PIX, estoque, automação nem WhatsApp.
 - Liberar a senha do site quando o relógio do celular chega em zero, sem `GET /api/is-protected`. A contagem pode andar na tela; quem entra sem senha é o servidor (`decideSiteProtection`). Não copiar `site_release_*` da loja 1 para a filial e não misturar com `payment_password` nem com `promo_countdown_*`.
 - Fazer `resolvePublicTenantId` cair em `tenant_loja1` para qualquer host que não esteja em `tenants.domain`. O fallback só vale para a loja principal (`MAIN_STORE_DOMAINS`), localhost, `*.vercel.app`, `*.ondigitalocean.app` e pedido sem host. Referer não entra nessa decisão. Domínio desconhecido responde `store_not_configured` e não cria pedido.
 - Aplicar `MAIN_STORE_ORDER_NUMBER_FLOOR` (2789) na sequência de uma filial. O piso existe só para `tenant_loja1` (o máximo já inclui tenant nulo e `''`). Filial segue `MAX(order_number)+1`.

@@ -35,6 +35,7 @@ const ACTION_LABELS: Record<string, string> = {
   priority: "Alterou prioridade",
   searching: "Alterou procurando produto",
   waiting_stock: "Alterou aguardando estoque",
+  shipping_channel: "Alterou o canal de envio",
   observation: "Alterou observações",
   whatsapp_group: "Alterou grupo WhatsApp",
   tracking: "Vinculou rastreio",
@@ -90,6 +91,7 @@ function payloadText(event: OrderHistoryEvent): string {
   }
   if (event.action === "priority") parts.push(payload.on ? "Prioridade ligada" : "Prioridade desligada");
   if (event.action === "searching") parts.push(payload.on ? "Marcou procurando produto" : "Removeu procurando produto");
+  if (event.action === "shipping_channel") parts.push(payload.shippingVia === "shopee" ? "Envio Shopee" : "Envio normal");
   if (event.action === "observation") {
     parts.push(payload.visibleToCustomer ? "Cliente vê na conta" : "Só interno");
   }
