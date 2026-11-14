@@ -18633,6 +18633,8 @@ function CustomersPanel({
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [walletBalanceLoading, setWalletBalanceLoading] = useState(false);
   const walletRequestId = useRef(0);
+  const walletIdempotencyKey = useRef("");
+  const walletSubmitLock = useRef(false);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return customers;
@@ -18657,10 +18659,6 @@ function CustomersPanel({
       toast.error("Apenas administrador principal pode alterar a senha do cliente.");
       return;
     }
-    if (!passwordCustomer.hasAccount) {
-      toast.error("Este comprador não possui conta cadastrada (compra como convidado).");
-      return;
-    }
     const password = passwordDraft.trim();
     if (password.length < 8) {
       toast.error("A senha deve ter pelo menos 8 caracteres.");
@@ -18669,7 +18667,7 @@ function CustomersPanel({
 
     setPasswordSaving(true);
     try {
-      const res = await fetch(`${BASE}/api/admin/customers/${passwordCustomer.id}/password`, {
+      const res = await fetch(`${BASE}/api/admin/customers/${encodeURIComponent(passwordCustomer.id)}/password`, {
         method: "PATCH",
         headers: authHeaders(),
         body: JSON.stringify({ password }),
@@ -18679,10 +18677,13 @@ function CustomersPanel({
         toast.error(data.message || "Erro ao alterar senha.");
         return;
       }
-      toast.success(`Senha de "${passwordCustomer.name}" atualizada.`);
+      toast.success(passwordCustomer.hasAccount
+        ? `Senha de "${passwordCustomer.name}" atualizada.`
+        : `Conta de "${passwordCustomer.name}" aberta e senha definida.`);
       setPasswordCustomer(null);
       setPasswordDraft("");
       setShowPasswordDraft(false);
+      onRefresh();
     } catch {
       toast.error("Erro ao alterar senha.");
     } finally {
@@ -18698,6 +18699,7 @@ function CustomersPanel({
     setWalletReason("");
     setWalletBalance(null);
     setWalletBalanceLoading(true);
+    walletIdempotencyKey.current = crypto.randomUUID();
     void (async () => {
       try {
         const res = await fetch(`${BASE}/api/admin/wallet/${encodeURIComponent(customer.id)}`, {
@@ -18733,10 +18735,6 @@ function CustomersPanel({
       toast.error("Sem permissão para adicionar saldo.");
       return;
     }
-    if (!walletCustomer.hasAccount) {
-      toast.error("Este comprador não possui conta cadastrada (compra como convidado).");
-      return;
-    }
     const amount = parseCustomerWalletAmount(walletAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
       toast.error("Informe um valor maior que zero.");
@@ -18748,7 +18746,10 @@ function CustomersPanel({
       return;
     }
 
+    if (walletSubmitLock.current) return;
+    walletSubmitLock.current = true;
     setWalletSaving(true);
+    const createdFromGuest = !walletCustomer.hasAccount;
     try {
       const res = await fetch(`${BASE}/api/admin/wallet/adjust`, {
         method: "POST",
@@ -18757,22 +18758,27 @@ function CustomersPanel({
           customerUserId: walletCustomer.id,
           amount,
           reason,
+          idempotencyKey: walletIdempotencyKey.current,
         }),
       });
-      const data = await res.json().catch(() => ({})) as { message?: string; availableCredit?: number };
+      const data = await res.json().catch(() => ({})) as { message?: string; availableCredit?: number; createdAccount?: boolean };
       if (!res.ok) {
         toast.error(data.message || "Erro ao adicionar saldo.");
         return;
       }
       const available = Number(data.availableCredit || 0);
-      toast.success(`Saldo de "${walletCustomer.name}" atualizado. Disponível: ${formatCurrency(available)}.`);
+      toast.success(createdFromGuest || data.createdAccount
+        ? `Conta de "${walletCustomer.name}" aberta e saldo atualizado. Disponível: ${formatCurrency(available)}. O cliente define a senha em Criar conta, ou você em Alterar senha.`
+        : `Saldo de "${walletCustomer.name}" atualizado. Disponível: ${formatCurrency(available)}.`);
       setWalletCustomer(null);
       setWalletAmount("");
       setWalletReason("");
       setWalletBalance(null);
+      onRefresh();
     } catch {
       toast.error("Erro ao adicionar saldo.");
     } finally {
+      walletSubmitLock.current = false;
       setWalletSaving(false);
     }
   };
@@ -18900,9 +18906,9 @@ function CustomersPanel({
                           setPasswordDraft("");
                           setShowPasswordDraft(false);
                         }}
-                        disabled={!canImpersonate || !c.hasAccount || passwordSaving}
+                        disabled={!canImpersonate || passwordSaving}
                         className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg border border-border bg-white hover:bg-muted text-xs font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
-                        title={!canImpersonate ? "Apenas administrador principal pode alterar a senha" : !c.hasAccount ? "Comprador sem cadastro (convidado)" : "Alterar senha do cliente"}
+                        title={!canImpersonate ? "Apenas administrador principal pode alterar a senha" : !c.hasAccount ? "Abre a conta do convidado e define a senha" : "Alterar senha do cliente"}
                       >
                         <Lock className="w-3.5 h-3.5" />
                         Alterar senha
@@ -18910,9 +18916,9 @@ function CustomersPanel({
                       <button
                         type="button"
                         onClick={() => openWalletModal(c)}
-                        disabled={!canAdjustWallet || !c.hasAccount || walletSaving}
+                        disabled={!canAdjustWallet || walletSaving}
                         className="inline-flex items-center gap-1.5 px-3 h-8 rounded-lg border border-border bg-white hover:bg-muted text-xs font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
-                        title={!canAdjustWallet ? "Sem permissão para adicionar saldo" : !c.hasAccount ? "Comprador sem cadastro (convidado)" : "Adicionar saldo na carteira do cliente"}
+                        title={!canAdjustWallet ? "Sem permissão para adicionar saldo" : !c.hasAccount ? "Abre a conta do convidado e adiciona saldo" : "Adicionar saldo na carteira do cliente"}
                       >
                         <Wallet className="w-3.5 h-3.5" />
                         Adicionar saldo
@@ -18933,6 +18939,7 @@ function CustomersPanel({
               <h3 className="text-lg font-bold text-foreground">Alterar senha</h3>
               <p className="text-sm text-muted-foreground mt-1">
                 Nova senha para {passwordCustomer.name} ({passwordCustomer.email}).
+                {!passwordCustomer.hasAccount && " Ao salvar, a loja abre a conta deste e-mail e define esta senha."}
               </p>
             </div>
             <div className="relative">
@@ -18983,6 +18990,7 @@ function CustomersPanel({
               <h3 className="text-lg font-bold text-foreground">Adicionar saldo</h3>
               <p className="text-sm text-muted-foreground mt-1">
                 Carteira da loja de {walletCustomer.name} ({walletCustomer.email}). O cliente usa esse valor no checkout.
+                {!walletCustomer.hasAccount && " Este comprador ainda é convidado: ao adicionar, a loja abre a conta sem senha e credita o saldo."}
               </p>
             </div>
             <p className="text-sm font-medium text-foreground">

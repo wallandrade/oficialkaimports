@@ -1,12 +1,13 @@
 # Auth e permissões — KA Imports
 
-> **Última atualização:** 2026-11-13
+> **Última atualização:** 2026-11-14
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-14 | Convidado recebe saldo e pode ganhar senha | `POST /api/admin/wallet/adjust` com `guest:<email>` cria a conta na loja da sessão e credita. `PATCH .../password` no mesmo id abre a conta e grava a senha. Os dois exigem `hasGlobalAccess`. Seller-scoped 403. Outra loja 404, sem linha e sem saldo. Login da conta sem senha é 401 `PASSWORD_NOT_SET`; **Criar conta** define a senha | Impersonar continua só em conta já existente. Superadmin não lê carteira de outra loja |
 | 2026-11-13 | Vitrine sem tenant não usa a loja 1 | Host desconhecido: 404 `store_not_configured`. Fallback `tenant_loja1` só na loja principal, local, preview e app da API | Login admin continua por usuário e sessão. Webhooks não resolvem tenant pelo host |
 | 2026-11-13 | Declaração KYC, catálogo do pedido e fila de retorno na loja da sessão | `PATCH /admin/kyc/:orderId` não grava documento de outra loja. Troca e edição de produto leem o catálogo da loja do pedido. Retorno manual grava e filtra `tenant_id` | Seller-scoped continua sem editar pedido. Loja 1 inclui legado nulo/`''` |
 | 2026-11-13 | Brevo só para o superadmin | `GET/PUT /api/admin/brevo/config` e `POST /api/admin/brevo/sync-customers` usam `requirePrimaryAdmin`. Admin de filial com `hasGlobalAccess` toma 403 | A chave continua global em `site_settings`. Sync não inclui cliente de filial |
@@ -68,7 +69,7 @@ Código > memória > tipagens.
 - Fila de produto voltando (`POST/PATCH /api/admin/manual-return-items` e a lista no overview): `hasGlobalAccess` e a loja da sessão. Item de outra loja não aparece e o status responde 404. Loja 1 inclui linha antiga sem tenant.
 - Rifas no admin: aba visível com `isPrimary || tenant ≠ tenant_loja1` (igual Produtos). API `/api/admin/raffles*` exige `requireStoreWideAdmin` (`hasGlobalAccess`) e a loja da sessão. Seller-scoped toma 403 antes de procurar o id. Apagar rifa de outra loja ou id inexistente responde 404. Não há `?tenantId=` nesta rota.
 - Configurações (`GET`/`PUT`/`DELETE /api/admin/settings*`): `canManageSettings` = `isPrimary` **ou** `tenantId ≠ tenant_loja1`. Chaves APPCNPay (`gateway_appcnpay_public_key` / `_secret_key`) estão na allowlist admin, **fora** de `PUBLIC_KEYS`; GET devolve mascarado; PUT com `***` não grava. Escopo é o `tenantId` da sessão (filial não lê/grava as chaves da loja 1). Chaves `checkout_insurance_*` estão em `PUBLIC_KEYS` (checkout lê o GET público). Aba **Seguro** no FE: `isPrimary || tenant ≠ tenant_loja1` (igual Rifas). Seller-scoped da loja 1 não vê.
-- Carteira: `GET /api/me/wallet` exige customer auth. `GET /api/admin/wallet/:userId` e o ajuste exigem `hasGlobalAccess` e o cliente da loja da sessão. Seller-scoped toma 403. Id de outra loja ou inexistente responde 404, sem saldo. Não há parâmetro para o superadmin ler a carteira de outra loja.
+- Carteira: `GET /api/me/wallet` exige customer auth. `GET /api/admin/wallet/:userId` e o ajuste exigem `hasGlobalAccess` e o cliente da loja da sessão. `guest:<email>` no GET não cria conta: 0 se houver pedido na loja, 404 se não. O POST cria a conta, gruda os pedidos e credita. `idempotencyKey` igual não lança a mesma linha de novo. Seller-scoped toma 403. Id de outra loja ou inexistente responde 404, sem saldo. Não há parâmetro para o superadmin ler a carteira de outra loja. O e-mail único passou a ser por loja (`tenant_id` + `email`).
 - Procurando produto (`PATCH /api/admin/orders/:id/procurando-produto`): `requireAdminAuth` + escopo do pedido (igual prioridade). Seller-scoped só o próprio `sellerCode`. Não exige primary.
 - Detalhe do pedido (`GET /api/admin/orders/:id`): mesmo escopo da lista. Usado para comprovante/etiqueta em `data:` que a lista não envia.
 - Rate limit de login admin (janela/tentativas/block via env).
@@ -84,7 +85,7 @@ Código > memória > tipagens.
 - Tenant da sessão = tenant resolvido no registro/login **ou** o `tenantId` do `customer_users` na impersonação admin.
 - Impersonar (`POST /api/admin/customers/:id/impersonate`): `hasGlobalAccess`. A filial só abre cliente do próprio tenant; id de outra loja ou inexistente responde 404, sem token. O superadmin (`isPrimary`) continua podendo abrir cliente de outra loja. Seller-scoped 403. A nova aba abre `/minha-conta/pedidos#customerToken=…` (hash, não query); o FE grava em `sessionStorage` e tira o hash. `/auth/me` usa o tenant da sessão com o mesmo legado null/vazio da loja 1.
 - Vendedores (`POST /api/admin/sellers`): o slug continua sendo chave global. Se a linha é de outra loja, a resposta é 409 e WhatsApp/comissão não mudam, inclusive quando dois saves chegam juntos. A mesma loja ainda atualiza o próprio slug. Linha antiga com tenant vazio conta como loja 1. Seller-scoped continua sem este CRUD.
-- Redefinir senha (`PATCH /api/admin/customers/:id/password`): só `hasGlobalAccess`; cliente do próprio `tenantId`; mínimo 8; PBKDF2 + salt novos; `removeCustomerSessionsForUser`. Convidado (`guest:`) 400. Seller-scoped 403. FE: botão **Alterar senha** na aba Clientes (mesmo `isPrimary` do impersonar). Log só `customerId` + admin, sem a senha.
+- Redefinir senha (`PATCH /api/admin/customers/:id/password`): só `hasGlobalAccess`; cliente do próprio `tenantId`; mínimo 8; PBKDF2 + salt novos; `removeCustomerSessionsForUser`. Id `guest:<email>` abre a conta na loja (pedidos guest grudam) e só então grava a senha. Sem pedido desse e-mail na loja: 404. Seller-scoped 403. FE: botão **Alterar senha** na aba Clientes (mesmo `isPrimary` do impersonar), também no convidado. Log só `customerId` + admin, sem a senha. Conta aberta pelo saldo fica com salt `nopass:` até **Criar conta** ou este PATCH.
 
 ## Site / payment password gate
 
