@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-11-13
+> **Última atualização:** 2026-11-14
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-14 | Conta de convidado por loja | `customer_users` troca o único de `email` pelo par `(tenant_id, email)`, no schema e no boot depois do backfill null → loja 1. `lib/customer-guest-account.ts` abre a conta. O crédito usa o id da linha no ledger como hash da `idempotencyKey` | Carteira continua `customer_wallet_ledger`. Sessão do cliente continua em memória |
 | 2026-11-13 | Card grande da home prefere Tirzepatida ou Retatrutida | A escolha continua em `buildHomeHero`, no catálogo já carregado. Sem as duas linhas à venda, o card usa o mais vendido de qualquer categoria | Banner, vitrines e o tema das filiais |
 | 2026-11-13 | Agendamento da senha do site | `lib/site-release.ts`. Chaves em `tenant_settings` (`site_release_enabled`, `site_release_at`, `site_release_message`), sem coluna nova. `GET /api/is-protected` devolve `release` e `Cache-Control: no-store`. A tela `SitePasswordGate` mostra os cartões e consulta de novo quando a contagem zera | `payment` na mesma resposta. `POST /api/verify-password`. Cronômetro do topo |
 | 2026-11-13 | Settings públicos dizem qual loja é | `GET /api/settings` inclui `tenant_id` e `is_main_store` (`1` só em `tenant_loja1`). Filial sem tema válido recebe `store_theme_preset: default`. O hero da home só monta com `pharma_compact` | Banner, catálogo e os outros três presets |

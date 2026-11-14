@@ -512,7 +512,7 @@ async function ensureCustomerUsersTable(databaseName: string): Promise<void> {
       salt VARCHAR(255) NOT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE KEY customer_users_email_unique (email)
+      UNIQUE KEY customer_users_tenant_email_unique (tenant_id, email)
     )
   `);
 }
@@ -521,6 +521,24 @@ async function ensureCustomerUsersDocumentColumn(databaseName: string): Promise<
   if (!(await tableExists("customer_users", databaseName))) return;
   if (await columnExists("customer_users", "document", databaseName)) return;
   await pool.query("ALTER TABLE customer_users ADD COLUMN document VARCHAR(32) NULL AFTER email");
+}
+
+async function ensureCustomerUsersTenantEmailUnique(databaseName: string): Promise<void> {
+  if (!(await tableExists("customer_users", databaseName))) return;
+  if (await indexExists("customer_users", "customer_users_tenant_email_unique", databaseName)) return;
+
+  const [dupes] = await pool.query(
+    "SELECT tenant_id, email FROM customer_users GROUP BY tenant_id, email HAVING COUNT(*) > 1 LIMIT 1",
+  );
+  if (Array.isArray(dupes) && dupes.length > 0) {
+    console.warn("[RuntimeSchema] customer_users tem e-mail repetido na mesma loja. Índice único por loja não foi criado.");
+    return;
+  }
+
+  if (await indexExists("customer_users", "customer_users_email_unique", databaseName)) {
+    await pool.query("ALTER TABLE customer_users DROP INDEX customer_users_email_unique");
+  }
+  await pool.query("ALTER TABLE customer_users ADD UNIQUE KEY customer_users_tenant_email_unique (tenant_id, email)");
 }
 
 async function ensureAffiliatesTables(databaseName: string): Promise<void> {
@@ -1927,6 +1945,7 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureCustomerWalletLedgerTable(databaseName);
     await ensureFlashOfferTables(databaseName);
     await seedDefaultTenantAndBackfill(databaseName);
+    await ensureCustomerUsersTenantEmailUnique(databaseName);
     if (isYuryMotoboySyncConfigured()) {
       console.log("[RuntimeSchema] Skipping Motoboy seed; Yury coverage sync is configured.");
     } else {

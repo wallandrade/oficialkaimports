@@ -16,6 +16,7 @@ import { normalizeAffiliateCode, registerAffiliateLead, resolveAffiliateByCode }
 import { DEFAULT_TENANT_ID, requirePublicTenantId } from "../lib/tenant-context";
 import { parseOptionalCustomerDocument } from "../lib/customer-document";
 import { attachGuestOrdersForCustomer } from "../lib/customer-guest-orders";
+import { ensureGuestCustomerAccount, isUnsetCustomerPassword, parseGuestCustomerEmail, pickTenantCustomer } from "../lib/customer-guest-account";
 
 const router: IRouter = Router();
 
@@ -73,14 +74,73 @@ router.post("/auth/register", async (req, res) => {
   const normalizedEmail = email.trim().toLowerCase();
 
   try {
-    const existing = await db
-      .select({ id: customerUsersTable.id })
+    const existingRows = await db
+      .select({
+        id: customerUsersTable.id,
+        tenantId: customerUsersTable.tenantId,
+        name: customerUsersTable.name,
+        email: customerUsersTable.email,
+        document: customerUsersTable.document,
+        salt: customerUsersTable.salt,
+      })
       .from(customerUsersTable)
-      .where(and(eq(customerUsersTable.tenantId, tenantId), eq(customerUsersTable.email, normalizedEmail)))
-      .limit(1);
+      .where(and(buildCustomerUsersTenantWhere(tenantId), eq(customerUsersTable.email, normalizedEmail)))
+      .limit(5);
+    const existing = pickTenantCustomer(existingRows, tenantId);
 
-    if (existing.length > 0) {
-      res.status(409).json({ error: "CONFLICT", message: "Já existe uma conta com esse e-mail." });
+    if (existing && isUnsetCustomerPassword(existing.salt)) {
+      const salt = generateSalt();
+      const nextDocument = String(existing.document || "").replace(/\D/g, "") || parsedDocument.document;
+      await db
+        .update(customerUsersTable)
+        .set({
+          name: name.trim(),
+          passwordHash: hashPassword(password, salt),
+          salt,
+          document: nextDocument,
+          updatedAt: new Date(),
+        })
+        .where(eq(customerUsersTable.id, existing.id));
+
+      const normalizedAffiliateCode = normalizeAffiliateCode(affiliateCode);
+      if (normalizedAffiliateCode) {
+        const affiliate = await resolveAffiliateByCode(normalizedAffiliateCode, tenantId);
+        if (affiliate && affiliate.userId !== existing.id) {
+          await registerAffiliateLead({
+            tenantId,
+            affiliateUserId: affiliate.userId,
+            referredUserId: existing.id,
+            referredEmail: normalizedEmail,
+          });
+        }
+      }
+
+      await attachGuestOrdersForCustomer({
+        userId: existing.id,
+        email: normalizedEmail,
+        document: nextDocument,
+        tenantId,
+      });
+      removeCustomerSessionsForUser(existing.id);
+
+      const session = createCustomerSession({ tenantId, userId: existing.id, email: normalizedEmail, name: name.trim() });
+      res.status(201).json({
+        token: session.token,
+        expiresIn: session.expiresInSeconds,
+        user: {
+          id: existing.id,
+          name: name.trim(),
+          email: normalizedEmail,
+        },
+      });
+      return;
+    }
+
+    if (existing) {
+      res.status(409).json({
+        error: "CONFLICT",
+        message: "Já existe uma conta com esse e-mail. Entre com a senha ou peça para a loja redefinir.",
+      });
       return;
     }
 
@@ -155,12 +215,20 @@ router.post("/auth/login", async (req, res) => {
     const users = await db
       .select()
       .from(customerUsersTable)
-      .where(and(eq(customerUsersTable.tenantId, tenantId), eq(customerUsersTable.email, normalizedEmail)))
-      .limit(1);
+      .where(and(buildCustomerUsersTenantWhere(tenantId), eq(customerUsersTable.email, normalizedEmail)))
+      .limit(5);
 
-    const user = users[0];
+    const user = pickTenantCustomer(users, tenantId);
     if (!user) {
       res.status(401).json({ error: "INVALID_CREDENTIALS", message: "E-mail ou senha inválidos." });
+      return;
+    }
+
+    if (isUnsetCustomerPassword(user.salt)) {
+      res.status(401).json({
+        error: "PASSWORD_NOT_SET",
+        message: "Esta conta ainda não tem senha. Em Criar conta, use o mesmo e-mail e escolha uma senha.",
+      });
       return;
     }
 
@@ -569,33 +637,41 @@ router.patch("/admin/customers/:id/password", requireAdminAuth, async (req, res)
       return;
     }
 
-    if (!customerId || customerId.startsWith("guest:")) {
-      res.status(400).json({ error: "INVALID_INPUT", message: "Cliente sem conta cadastrada." });
-      return;
-    }
-
     const nextPassword = String(password || "");
-    if (nextPassword.length < 8) {
-      res.status(400).json({ error: "INVALID_INPUT", message: "A senha deve ter pelo menos 8 caracteres." });
+    if (!customerId || nextPassword.length < 8) {
+      res.status(400).json({
+        error: "INVALID_INPUT",
+        message: nextPassword.length < 8 ? "A senha deve ter pelo menos 8 caracteres." : "Cliente inválido.",
+      });
       return;
     }
 
-    const users = await db
-      .select({
-        id: customerUsersTable.id,
-        email: customerUsersTable.email,
-      })
-      .from(customerUsersTable)
-      .where(and(
-        eq(customerUsersTable.id, customerId),
-        buildCustomerUsersTenantWhere(adminScope.tenantId),
-      ))
-      .limit(1);
-
-    const user = users[0];
-    if (!user) {
-      res.status(404).json({ error: "NOT_FOUND", message: "Cliente não encontrado." });
-      return;
+    const guestEmail = parseGuestCustomerEmail(customerId);
+    let user: { id: string; email: string } | undefined;
+    if (guestEmail) {
+      const ensured = await ensureGuestCustomerAccount({ tenantId: adminScope.tenantId, email: guestEmail });
+      if (!ensured.ok) {
+        res.status(ensured.status).json({ error: ensured.error, message: ensured.message });
+        return;
+      }
+      user = { id: ensured.customer.id, email: ensured.customer.email };
+    } else {
+      const users = await db
+        .select({
+          id: customerUsersTable.id,
+          email: customerUsersTable.email,
+        })
+        .from(customerUsersTable)
+        .where(and(
+          eq(customerUsersTable.id, customerId),
+          buildCustomerUsersTenantWhere(adminScope.tenantId),
+        ))
+        .limit(1);
+      user = users[0];
+      if (!user) {
+        res.status(404).json({ error: "NOT_FOUND", message: "Cliente não encontrado." });
+        return;
+      }
     }
 
     const salt = generateSalt();

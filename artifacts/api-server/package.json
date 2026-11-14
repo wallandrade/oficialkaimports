@@ -16,6 +16,7 @@
     "test:pix-settlement": "node --test --import tsx ./src/lib/pix-settlement.test.ts ./src/lib/pix-charge-proof-core.test.ts",
     "test:pix-webhook-local": "node --test --import tsx ./src/routes/pix-webhook.integration.test.ts",
     "test:admin-permissions-local": "node --test --import tsx ./src/routes/admin-permissions.integration.test.ts",
+    "test:guest-wallet-local": "node --test --import tsx ./src/lib/customer-guest-account-core.test.ts ./src/routes/guest-wallet.integration.test.ts",
     "test:admin-seller-scope": "node --test --import tsx ./src/lib/admin-seller-scope-core.test.ts ./src/lib/order-events.test.ts",
     "test:admin-seller-scope-local": "node --test --import tsx ./src/routes/admin-seller-scope.integration.test.ts",
     "test:admin-tenant": "node --test --import tsx ./src/lib/admin-tenant-pick.test.ts ./src/lib/tenant-store-scope.test.ts ./src/lib/tenant-product-sync.test.ts ./src/lib/tenant-context.test.ts",

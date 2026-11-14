@@ -40,6 +40,34 @@ export async function listWalletEntries(userId: string, tenantId = DEFAULT_TENAN
   }));
 }
 
+export class WalletIdempotencyConflict extends Error {
+  constructor() {
+    super("IDEMPOTENCY_CONFLICT");
+    this.name = "WalletIdempotencyConflict";
+  }
+}
+
+function isDuplicateEntry(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const record = error as { code?: string; errno?: number; cause?: unknown };
+  if (record.code === "ER_DUP_ENTRY" || record.errno === 1062) return true;
+  return isDuplicateEntry(record.cause);
+}
+
+function walletLedgerId(input: {
+  tenantId: string;
+  userId: string;
+  type: WalletLedgerType;
+  idempotencyKey?: string | null;
+}): string {
+  const key = String(input.idempotencyKey || "").trim();
+  if (!key) return crypto.randomBytes(8).toString("hex");
+  return crypto
+    .createHash("sha256")
+    .update(["wallet", input.tenantId, input.userId, input.type, key].join("\0"))
+    .digest("hex");
+}
+
 export async function creditWallet(input: {
   tenantId: string;
   userId: string;
@@ -47,20 +75,40 @@ export async function creditWallet(input: {
   type: WalletLedgerType;
   orderId?: string | null;
   note?: string | null;
+  idempotencyKey?: string | null;
 }): Promise<number> {
   const amount = roundMoney(input.amount);
   if (amount === 0 || !input.userId) return 0;
   if (input.type !== "admin_adjust" && input.type !== "store_credit_use" && amount < 0) return 0;
 
-  await db.insert(customerWalletLedgerTable).values({
-    id: crypto.randomBytes(8).toString("hex"),
-    tenantId: input.tenantId,
-    userId: input.userId,
-    orderId: input.orderId || null,
-    type: input.type,
-    amount: String(amount),
-    note: input.note || null,
-  });
+  const id = walletLedgerId(input);
+  const note = input.note || null;
+  try {
+    await db.insert(customerWalletLedgerTable).values({
+      id,
+      tenantId: input.tenantId,
+      userId: input.userId,
+      orderId: input.orderId || null,
+      type: input.type,
+      amount: String(amount),
+      note,
+    });
+  } catch (err) {
+    if (!input.idempotencyKey || !isDuplicateEntry(err)) throw err;
+    const [existing] = await db
+      .select()
+      .from(customerWalletLedgerTable)
+      .where(eq(customerWalletLedgerTable.id, id))
+      .limit(1);
+    if (!existing) throw err;
+    const same = existing.userId === input.userId
+      && String(existing.tenantId || "") === String(input.tenantId || "")
+      && existing.type === input.type
+      && roundMoney(Number(existing.amount)) === amount
+      && String(existing.note || "") === String(note || "");
+    if (!same) throw new WalletIdempotencyConflict();
+    return 0;
+  }
 
   return amount;
 }
