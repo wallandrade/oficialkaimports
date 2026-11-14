@@ -505,6 +505,7 @@ async function ensureCustomerUsersTable(databaseName: string): Promise<void> {
   await pool.query(`
     CREATE TABLE customer_users (
       id VARCHAR(255) NOT NULL PRIMARY KEY,
+      tenant_id VARCHAR(255) NULL,
       name VARCHAR(255) NOT NULL,
       email VARCHAR(255) NOT NULL,
       document VARCHAR(32) NULL,
