@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-14 | Anti-padrão: senha conhecida na conta aberta pelo saldo, ou creditar o e-mail de outra loja | Conta nova usa salt `nopass:` + PBKDF2 de segredo aleatório. Login não aceita essa conta. **Criar conta** no mesmo e-mail define a senha. O índice único é `(tenant_id, email)` | Seller-scoped segue 403. Impersonar não abre convidado |
 | 2026-11-14 | Anti-padrão: gravar o canal Shopee só no navegador ou sem a loja | A seta chama o PATCH. O `WHERE` é o mesmo da leitura do pedido (tenant e seller). O cliente não recebe `shippingVia` | Status, PIX, estoque e o card Motoboy |
 | 2026-11-13 | Card grande da home prefere Tirzepatida ou Retatrutida | `buildHomeHero` filtra essas linhas (e Tirzepatide/Retatrutide) antes do `soldQty`. Sem as duas à venda com foto, o fallback é o mais vendido de qualquer categoria | Vitrines, cards de baixo e filiais sem essas linhas |
 | 2026-11-13 | Anti-padrão: liberar a senha do site só no relógio do celular | A hora vale em `decideSiteProtection`. A tela consulta `GET /api/is-protected` de novo ao zerar. Filial não copia o agendamento da loja 1 | Senha de pagamento e o cronômetro do topo |
@@ -336,7 +337,7 @@ Código > memória > suposições.
 - Somar venda, custo ou comissão do filho de reenvio no dashboard / lote do vendedor, mostrar o total/lucro reais nesse card, ou gravar `sellerCommissionRateSnapshot` > 0 no create (mesmo com qtd extra). No card do filho, total e Lucro est. ficam R$ 0. Usar `isReshipmentChildOrder(observation, parentOrderId)`. Venda/custo/comissão ficam no pedido original.
 - Misturar carteira da loja (`customer_wallet_ledger`) com crédito de afiliado. Cashback só no status EnvioEcom **entregue**; “Marcar enviado” / Motoboy não creditam.
 - Fazer `.reverse()` cego no `status_history` da EnvioEcom, ou ordenar com `Date.parse` (falha em `22/09/2026 08:08:08`). Usar `historyEventTimeMs` (unix, ISO, `dd/mm/aaaa hh:mm:ss`), gravar do mais antigo para o mais novo e mostrar o mais novo em cima. Não gravar só o campo `status` da API: se o evento mais novo tiver rank ≥ (`envioecomTrackingRank`), ele é o `envioecomStatus`. A mesma lista de trânsito vale na Minha conta (`hasCustomerLeftOrigin`). “Aguardando ser coletado” não pode casar o marcador `coletado`.
-- Hashear senha de `customer_users` com SHA256 do admin, aceitar `PATCH` em id `guest:`, ou deixar seller-scoped resetar senha. Usar PBKDF2 (`hashPassword` do middleware de cliente), `hasGlobalAccess` e filtro de tenant.
+- Hashear senha de `customer_users` com SHA256 do admin, gravar senha conhecida na conta aberta pelo saldo, ou deixar seller-scoped resetar senha. Usar PBKDF2 (`hashPassword` do middleware de cliente), salt `nopass:` enquanto o cliente não escolheu senha, `hasGlobalAccess` e filtro de tenant. `PATCH` em `guest:<email>` só depois de abrir a conta na loja da sessão. Não reusar a linha de outra loja.
 
 ## Idioma
 
