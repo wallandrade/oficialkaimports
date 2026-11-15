@@ -243,6 +243,11 @@ export default function Checkout() {
   const [checkoutMode, setCheckoutMode] = useState<"standard" | "fast">("standard");
   const [checkoutModeLoaded, setCheckoutModeLoaded] = useState(false);
   const [fastLookupStatus, setFastLookupStatus] = useState<"idle" | "checking" | "motoboy" | "unsupported" | "consult">("idle");
+  const fastLookupStatusRef = useRef(fastLookupStatus);
+  const setFastLookup = useCallback((status: typeof fastLookupStatus) => {
+    fastLookupStatusRef.current = status;
+    setFastLookupStatus(status);
+  }, []);
   const [motoboyConsultHint, setMotoboyConsultHint] = useState(false);
   const [fastWhatsappOpening, setFastWhatsappOpening] = useState(false);
   const [freeShippingMinSubtotal, setFreeShippingMinSubtotal] = useState<number | null>(null);
@@ -250,6 +255,7 @@ export default function Checkout() {
   const [motoboyEligibleProductIds, setMotoboyEligibleProductIds] = useState<string[]>([]);
   const [pendingCheckoutRetry, setPendingCheckoutRetry] = useState<RetryAction | null>(null);
   const priceSyncRetryCountRef = useRef<Record<RetryAction, number>>({ pix: 0, whatsapp: 0, card: 0 });
+  const motoboyLookupSeq = useRef(0);
   const [productCategoryById, setProductCategoryById] = useState<Map<string, string>>(new Map());
   const [productCatalogById, setProductCatalogById] = useState<Map<string, { id: string; name: string; price: number; promoPrice?: number | null; promoEndsAt?: string | null; image?: string | null; unit?: string; category?: string; description?: string; isActive?: boolean; isSoldOut?: boolean; stock?: number }>>(new Map());
 
@@ -1088,6 +1094,60 @@ export default function Checkout() {
     setValue("phone", formatted, { shouldValidate: false });
   }, [setValue]);
 
+  const refreshMotoboyCoverage = useCallback(async (
+    rawCep: string,
+    opts?: { selectIfFast?: boolean; address?: { rua?: string; bairro?: string; cidade?: string; uf?: string; numero?: string } },
+  ) => {
+    const seq = ++motoboyLookupSeq.current;
+    const rua = opts?.address?.rua ?? String(getValues("street") || "");
+    const numero = opts?.address?.numero ?? String(getValues("number") || "");
+    const bairro = opts?.address?.bairro ?? String(getValues("neighborhood") || "");
+    const cidade = opts?.address?.cidade ?? String(getValues("city") || "");
+    const uf = opts?.address?.uf ?? String(getValues("state") || "");
+    try {
+      const coverage = await fetchMotoboyCoverage(BASE, {
+        cep: rawCep,
+        bairro,
+        cidade,
+        rua,
+        numero,
+        uf,
+      });
+      if (seq !== motoboyLookupSeq.current) return;
+
+      if (coverage.consult) {
+        setMotoboyShippingOption(null);
+        setMotoboyConsultHint(true);
+        setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
+        setFastLookup("consult");
+      } else if (coverage.match) {
+        const option = coverageToShippingOption(coverage.match);
+        setMotoboyShippingOption(option);
+        setMotoboyConsultHint(false);
+        if (opts?.selectIfFast !== false && checkoutMode === "fast" && isCartMotoboyEligible) setSelectedShippingId(option.id);
+        if (opts?.selectIfFast !== false && checkoutMode === "fast" && !isCartMotoboyEligible) {
+          setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
+        }
+        setFastLookup("motoboy");
+      } else {
+        setMotoboyShippingOption(null);
+        setMotoboyConsultHint(false);
+        setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
+        setFastLookup("unsupported");
+      }
+    } catch {
+      if (seq !== motoboyLookupSeq.current) return;
+      // O blur do número não apaga uma cotação que já chegou. Se o CEP ainda
+      // estava em "checking", esta chamada cancelou a anterior: sem o erro a tela fica presa.
+      if (opts?.selectIfFast === false && fastLookupStatusRef.current !== "checking") return;
+      setMotoboyShippingOption(null);
+      setMotoboyConsultHint(false);
+      setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
+      setFastLookup("idle");
+      toast.error("Erro ao consultar a disponibilidade do motoboy. Tente novamente.");
+    }
+  }, [checkoutMode, getValues, isCartMotoboyEligible, setFastLookup, shippingOptions]);
+
   const handleCEPChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const formatted = formatCEP(e.target.value);
     setCepDisplay(formatted);
@@ -1096,14 +1156,14 @@ export default function Checkout() {
     const rawCep = formatted.replace(/\D/g, "");
     if (rawCep.length < 8) {
       setCepCity("");
-      setFastLookupStatus("idle");
+      setFastLookup("idle");
       setMotoboyConsultHint(false);
       setMotoboyShippingOption(null);
       setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
     }
     if (rawCep.length === 8) {
       setCepCity("");
-      setFastLookupStatus("checking");
+      setFastLookup("checking");
       setMotoboyConsultHint(false);
       setCepLoading(true);
       try {
@@ -1126,49 +1186,24 @@ export default function Checkout() {
           if (!data.logradouro) {
             toast.info("CEP encontrado, mas sem rua cadastrada. Preencha o endereço manualmente.");
           }
-          try {
-            const coverage = await fetchMotoboyCoverage(BASE, {
-              cep: rawCep,
+          await refreshMotoboyCoverage(rawCep, {
+            address: {
+              rua: data.logradouro ?? "",
               bairro: data.bairro ?? "",
               cidade: data.localidade ?? "",
-            });
-
-            if (coverage.consult) {
-              setMotoboyShippingOption(null);
-              setMotoboyConsultHint(true);
-              setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
-              setFastLookupStatus("consult");
-            } else if (coverage.match) {
-              const option = coverageToShippingOption(coverage.match);
-              setMotoboyShippingOption(option);
-              setMotoboyConsultHint(false);
-              if (checkoutMode === "fast" && isCartMotoboyEligible) setSelectedShippingId(option.id);
-              if (checkoutMode === "fast" && !isCartMotoboyEligible) {
-                setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
-              }
-              setFastLookupStatus("motoboy");
-            } else {
-              setMotoboyShippingOption(null);
-              setMotoboyConsultHint(false);
-              setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
-              setFastLookupStatus("unsupported");
-            }
-          } catch {
-            setMotoboyShippingOption(null);
-            setMotoboyConsultHint(false);
-            setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
-            setFastLookupStatus("idle");
-            toast.error("Erro ao consultar a disponibilidade do motoboy. Tente novamente.");
-          }
+              uf: data.uf ?? "",
+              numero: String(getValues("number") || ""),
+            },
+          });
         } else {
-          setFastLookupStatus("idle");
+          setFastLookup("idle");
           setMotoboyConsultHint(false);
           setMotoboyShippingOption(null);
           setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
           toast.error("CEP não encontrado. Preencha o endereço manualmente.");
         }
       } catch {
-        setFastLookupStatus("idle");
+        setFastLookup("idle");
         setMotoboyConsultHint(false);
         setMotoboyShippingOption(null);
         setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
@@ -1177,7 +1212,7 @@ export default function Checkout() {
         setCepLoading(false);
       }
     }
-  }, [checkoutMode, isCartMotoboyEligible, setValue, shippingOptions]);
+  }, [getValues, refreshMotoboyCoverage, setFastLookup, setValue, shippingOptions]);
 
   const handleFastWhatsApp = useCallback(async () => {
     const name = String(getValues("name") || "").trim();
@@ -2060,7 +2095,14 @@ export default function Checkout() {
                   <Input
                     label="Número *"
                     placeholder="123"
-                    {...register("number")}
+                    {...register("number", {
+                      onBlur: () => {
+                        const rawCep = String(getValues("cep") || cepDisplay).replace(/\D/g, "");
+                        if (rawCep.length === 8) {
+                          void refreshMotoboyCoverage(rawCep, { selectIfFast: false });
+                        }
+                      },
+                    })}
                     error={errors.number?.message}
                   />
                 </div>

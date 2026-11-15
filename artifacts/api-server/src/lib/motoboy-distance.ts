@@ -8,8 +8,11 @@ export const MOTOBOY_DISTANCE_SETTING_KEYS = {
 
 export const DEFAULT_MOTOBOY_ORIGIN_CEP = "01001000";
 
-/** Praça da Sé — fallback se a BrasilAPI não devolver coordenadas do CEP origem. */
+/** Praça da Sé. A rota do motoboy sai daqui; o CEP de origem não é geocodificado. */
 export const SE_COORDINATES = { lat: -23.550385, lng: -46.633956 };
+
+/** Abaixo disso, fora do centro, a distância é tratada como falha de geolocalização. */
+export const MOTOBOY_MIN_TRUSTED_KM = 1;
 
 export const MOTOBOY_DISTANCE_SLOT_ID = "dist";
 
@@ -206,6 +209,39 @@ export type MotoboyDistanceQuote =
   | { outcome: "priced"; price: number; km: number; billedKm: number; label: string }
   | { outcome: "consult"; km: number; billedKm: number }
   | { outcome: "unavailable" };
+
+export function isTrustedMotoboyDistance(input: {
+  cep?: string | null;
+  bairro?: string | null;
+  cidade?: string | null;
+  km?: number | null;
+}): boolean {
+  const km = Number(input.km);
+  if (!Number.isFinite(km)) return false;
+  if (isCentroSe({ cep: input.cep, bairro: input.bairro, cidade: input.cidade })) return true;
+  return km >= MOTOBOY_MIN_TRUSTED_KM;
+}
+
+const GEO_SOURCE_LABELS: Record<string, string> = {
+  google: "Google",
+  awesomeapi: "AwesomeAPI",
+  nominatim: "Nominatim",
+  brasilapi: "BrasilAPI",
+};
+
+export function formatMotoboyKm(km: number): string {
+  const rounded = Math.round(km * 10) / 10;
+  if (!Number.isFinite(rounded)) return "";
+  if (Math.abs(rounded - Math.round(rounded)) < 0.001) return String(Math.round(rounded));
+  return rounded.toFixed(1);
+}
+
+export function formatMotoboyDistanceNotes(label: string, km: number | null, source?: string | null): string {
+  if (km == null || !Number.isFinite(Number(km))) return `Motoboy — ${label}`;
+  const viaName = source ? GEO_SOURCE_LABELS[source] ?? source : "";
+  const via = viaName ? `, ${viaName}` : "";
+  return `Motoboy — ${label} (${formatMotoboyKm(Number(km))} km${via})`;
+}
 
 export function quoteMotoboyDistance(input: {
   cep?: string | null;
