@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-15 | Anti-padrão: tratar 429 da AwesomeAPI como silêncio e parar no Nominatim de texto livre | Loga a fonte e o motivo, sem endereço. Tenta rua+cidade e o Photon antes da faixa de CEP | Não apaga “São Paulo - Faixa Geral” |
 | 2026-11-15 | Anti-padrão: geocodificar o CEP do Motoboy na BrasilAPI e cobrar 0 km como “Até 10 km” | Endereço completo no servidor. Centroide e menos de 1 km fora da Sé viram cotação indisponível (faixa de CEP se já existir) | Faixas, centro R$ 50 e o XOR km/bairro |
 | 2026-11-15 | Anti-padrão: logar erro de banco com o SQL | `sanitizeForLog` + `console` em `safe-log.ts`. Resposta HTTP não devolve o comando. `ER_DUP_ENTRY` no cadastro segue 409 amigável | Sem cliente Better Stack no código. Sucesso do cadastro ainda devolve o e-mail da sessão |
 | 2026-11-15 | Anti-padrão: gravar caso antigo da lista negra com `order_id` vazio | Sem pedido o valor é NULL. A repetição não usa a chave `order_id` + `package_id`. Número antigo + CEP + transportadora; sem número, inclui cidade, UF e bairro | Pedido real continua com id e pacote |
@@ -261,7 +262,7 @@ Código > memória > suposições.
 - **Marcar Reenvio Enviado** debitar `inventory_balances` (Fóz) quando o pedido já tem baixa Motoboy/Minas no card. Se `inventory_exited_pools` já tem pool, só marca o status. Sem baixa ainda: Motoboy/Minas vai na Yury; Fóz só se o pool for loja.
 - Exigir cidade da faixa CEP igual à ViaCEP para mostrar Motoboy (CEP na faixa já libera; cidade só desempata).
 - Lookup Motoboy em duas chamadas no frontend (bairro depois faixa). Usar `GET /api/motoboy-coverage/lookup`. Km e bairro são XOR (`shouldLookupNeighborhoods = !distanceEnabled`).
-- Geocodar CEP no browser. O geocode do Motoboy fica no servidor: Google → AwesomeAPI → Nominatim (User-Agent e 1 req/s) → BrasilAPI. Não aceitar o centroide da cidade nem cobrar “Até 10 km” quando a distância fica abaixo de 1 km fora da Sé. Settings `motoboy_distance_*` não entram em `PUBLIC_KEYS`.
+- Geocodar CEP no browser. O geocode do Motoboy fica no servidor: Google → AwesomeAPI → Nominatim (texto e rua+cidade) → Photon → BrasilAPI. 429 da AwesomeAPI não encerra a cadeia. Não aceitar o centroide da cidade nem cobrar “Até 10 km” quando a distância fica abaixo de 1 km fora da Sé. Não logar rua, número ou CEP na falha. Settings `motoboy_distance_*` não entram em `PUBLIC_KEYS`.
 - Cobrar Motoboy com Haversine (linha reta) como km principal, multiplicar linha reta por 1,3, ou pedir rota no front (Google no browser). Usar `resolveMotoboyDistanceKm` no lookup; Haversine só se a API de rota falhar. A origem é a coordenada da Sé, não o geocode do CEP de partida.
 - Misturar centro R$ 50 com a faixa “até 10 km” (R$ 70), ou cair na faixa CEP depois de `consult` (>200 km).
 - Criar um `neighborhood_id` diferente por km; cotação por distância usa sempre `"dist"`.

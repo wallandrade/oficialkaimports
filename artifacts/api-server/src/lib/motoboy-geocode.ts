@@ -2,7 +2,7 @@ import { haversineKm, normalizeCep, SE_COORDINATES } from "./motoboy-distance";
 
 export type GeoCoordinates = { lat: number; lng: number };
 
-export type GeocodeSource = "google" | "awesomeapi" | "nominatim" | "brasilapi";
+export type GeocodeSource = "google" | "awesomeapi" | "nominatim" | "photon" | "brasilapi";
 
 export type GeocodeHit = { coords: GeoCoordinates; source: GeocodeSource };
 
@@ -34,7 +34,7 @@ const SAME_ORIGIN_RADIUS_KM = 0.05;
 
 const cache = new Map<string, CacheEntry>();
 const HIT_TTL_MS = 24 * 60 * 60 * 1000;
-const MISS_TTL_MS = 60 * 60 * 1000;
+const MISS_TTL_MS = 10 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 5000;
 const USER_AGENT = "oficialkaimports-motoboy/1.0 (cotacao de frete motoboy)";
 const NOMINATIM_GAP_MS = 1100;
@@ -43,7 +43,9 @@ const BRASIL_API_CEP_V2 = "https://brasilapi.com.br/api/cep/v2";
 const AWESOME_API_CEP = "https://cep.awesomeapi.com.br/json";
 const VIA_CEP = "https://viacep.com.br/ws";
 const NOMINATIM_SEARCH = "https://nominatim.openstreetmap.org/search";
+const PHOTON_SEARCH = "https://photon.komoot.io/api/";
 const GOOGLE_GEOCODE = "https://maps.googleapis.com/maps/api/geocode/json";
+const SLOW_FETCH_TIMEOUT_MS = 8000;
 
 let nominatimQueue: Promise<void> = Promise.resolve();
 let lastNominatimAt = 0;
@@ -117,6 +119,42 @@ const NOMINATIM_CITY_TYPES = new Set([
   "country",
 ]);
 
+function foldPlace(raw: unknown): string {
+  return cleanText(raw)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+export function parsePhotonCoordinates(
+  data: unknown,
+  hint?: { street?: string | null; city?: string | null },
+): GeoCoordinates | null {
+  if (!data || typeof data !== "object") return null;
+  const features = (data as { features?: unknown }).features;
+  if (!Array.isArray(features)) return null;
+  const street = foldPlace(hint?.street).replace(/^(rua|avenida|av|travessa|alameda|praca)\s+/, "");
+  const city = foldPlace(hint?.city);
+  for (const feature of features) {
+    if (!feature || typeof feature !== "object") continue;
+    const props = (feature as { properties?: Record<string, unknown> }).properties ?? {};
+    const country = foldPlace(props.countrycode || props.country);
+    if (country && country !== "br" && country !== "brazil" && country !== "brasil") continue;
+    const featureCity = foldPlace(props.city);
+    if (city && featureCity && featureCity !== city) continue;
+    const name = foldPlace(props.name || props.street);
+    if (street && name && !name.includes(street) && !street.includes(name)) continue;
+    const raw = (feature as { geometry?: { coordinates?: unknown } }).geometry?.coordinates;
+    if (!Array.isArray(raw) || raw.length < 2) continue;
+    const lng = Number(raw[0]);
+    const lat = Number(raw[1]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    if (lat === 0 && lng === 0) continue;
+    return { lat, lng };
+  }
+  return null;
+}
+
 export function parseNominatimCoordinates(data: unknown): GeoCoordinates | null {
   if (!Array.isArray(data)) return null;
   for (const row of data) {
@@ -189,20 +227,40 @@ function googleMapsApiKey(): string {
   return String(process.env.GOOGLE_MAPS_API_KEY ?? "").trim();
 }
 
-async function fetchJson(url: string, extraHeaders?: Record<string, string>): Promise<unknown | null> {
+type FetchOutcome = {
+  data: unknown | null;
+  status: number | null;
+  reason: "ok" | "timeout" | "network" | "http";
+};
+
+function logGeocodeFailure(source: GeocodeSource, reason: string, status?: number | null): void {
+  console.warn("[motoboy-geocode] fonte falhou", {
+    source,
+    reason,
+    status: status ?? null,
+  });
+}
+
+async function fetchJson(
+  url: string,
+  timeoutMs = FETCH_TIMEOUT_MS,
+  extraHeaders?: Record<string, string>,
+): Promise<FetchOutcome> {
   try {
     const res = await fetch(url, {
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
       headers: {
         Accept: "application/json",
         "User-Agent": USER_AGENT,
         ...extraHeaders,
       },
     });
-    if (!res.ok) return null;
-    return await res.json() as unknown;
-  } catch {
-    return null;
+    if (!res.ok) return { data: null, status: res.status, reason: "http" };
+    return { data: await res.json() as unknown, status: res.status, reason: "ok" };
+  } catch (err) {
+    const name = err instanceof Error ? err.name : "";
+    const reason = name === "TimeoutError" || name === "AbortError" ? "timeout" : "network";
+    return { data: null, status: null, reason };
   }
 }
 
@@ -230,7 +288,7 @@ async function fillAddress(input: MotoboyGeocodeInput): Promise<ResolvedAddress>
   const number = normalizeHouseNumber(input.number);
   if (cep.length === 8 && (!street || !city || !state)) {
     const data = await fetchJson(`${VIA_CEP}/${cep}/json/`);
-    const via = parseViaCepAddress(data);
+    const via = parseViaCepAddress(data.data);
     if (via) {
       street = street || via.street;
       neighborhood = neighborhood || via.neighborhood;
@@ -241,9 +299,22 @@ async function fillAddress(input: MotoboyGeocodeInput): Promise<ResolvedAddress>
   return { cep, street, number, neighborhood, city, state };
 }
 
-function accept(coords: GeoCoordinates | null): GeoCoordinates | null {
-  if (!coords || isRejectedGeocode(coords)) return null;
+function accept(source: GeocodeSource, coords: GeoCoordinates | null): GeoCoordinates | null {
+  if (!coords) {
+    logGeocodeFailure(source, "empty");
+    return null;
+  }
+  if (isRejectedGeocode(coords)) {
+    logGeocodeFailure(source, "rejected");
+    return null;
+  }
   return coords;
+}
+
+function failureReason(result: FetchOutcome): string {
+  if (result.status === 429) return "quota";
+  if (result.reason === "http") return "http";
+  return result.reason;
 }
 
 async function geocodeGoogle(address: ResolvedAddress): Promise<GeocodeHit | null> {
@@ -255,36 +326,99 @@ async function geocodeGoogle(address: ResolvedAddress): Promise<GeocodeHit | nul
     language: "pt-BR",
     key,
   });
-  const data = await fetchJson(`${GOOGLE_GEOCODE}?${params.toString()}`);
-  const coords = accept(parseGoogleGeocodeCoordinates(data));
+  const result = await fetchJson(`${GOOGLE_GEOCODE}?${params.toString()}`);
+  if (result.reason !== "ok") {
+    logGeocodeFailure("google", failureReason(result), result.status);
+    return null;
+  }
+  const coords = accept("google", parseGoogleGeocodeCoordinates(result.data));
   return coords ? { coords, source: "google" } : null;
+}
+
+function awesomeApiToken(): string {
+  return String(process.env.AWESOMEAPI_TOKEN ?? "").trim();
 }
 
 async function geocodeAwesome(cep: string): Promise<GeocodeHit | null> {
   if (cep.length !== 8) return null;
-  const data = await fetchJson(`${AWESOME_API_CEP}/${cep}`);
-  const coords = accept(parseAwesomeApiCoordinates(data));
+  const params = new URLSearchParams();
+  const token = awesomeApiToken();
+  if (token) params.set("token", token);
+  const query = params.toString();
+  const result = await fetchJson(`${AWESOME_API_CEP}/${cep}${query ? `?${query}` : ""}`);
+  if (result.reason !== "ok") {
+    logGeocodeFailure("awesomeapi", failureReason(result), result.status);
+    return null;
+  }
+  const coords = accept("awesomeapi", parseAwesomeApiCoordinates(result.data));
   return coords ? { coords, source: "awesomeapi" } : null;
+}
+
+async function nominatimSearch(params: URLSearchParams): Promise<GeocodeHit | null> {
+  const result = await withNominatimSlot(() => fetchJson(
+    `${NOMINATIM_SEARCH}?${params.toString()}`,
+    SLOW_FETCH_TIMEOUT_MS,
+  ));
+  if (result.reason !== "ok") {
+    logGeocodeFailure("nominatim", failureReason(result), result.status);
+    return null;
+  }
+  const coords = accept("nominatim", parseNominatimCoordinates(result.data));
+  return coords ? { coords, source: "nominatim" } : null;
 }
 
 async function geocodeNominatim(address: ResolvedAddress): Promise<GeocodeHit | null> {
   const q = formatMotoboyGeocodeQuery(address);
-  if (!q || q === "Brasil") return null;
-  const params = new URLSearchParams({
+  if (q && q !== "Brasil") {
+    const freeform = await nominatimSearch(new URLSearchParams({
+      format: "jsonv2",
+      limit: "1",
+      countrycodes: "br",
+      q,
+    }));
+    if (freeform) return freeform;
+  }
+  if (!address.street || !address.city) return null;
+  const structured = new URLSearchParams({
     format: "jsonv2",
     limit: "1",
     countrycodes: "br",
-    q,
+    street: address.street,
+    city: address.city,
   });
-  const data = await withNominatimSlot(() => fetchJson(`${NOMINATIM_SEARCH}?${params.toString()}`));
-  const coords = accept(parseNominatimCoordinates(data));
-  return coords ? { coords, source: "nominatim" } : null;
+  if (address.state.length > 2) structured.set("state", address.state);
+  return nominatimSearch(structured);
+}
+
+async function geocodePhoton(address: ResolvedAddress): Promise<GeocodeHit | null> {
+  const q = [address.street, address.neighborhood, address.city, address.state].filter(Boolean).join(", ");
+  if (!q) return null;
+  const params = new URLSearchParams({
+    q,
+    limit: "5",
+    lat: String(SE_COORDINATES.lat),
+    lon: String(SE_COORDINATES.lng),
+  });
+  const result = await fetchJson(`${PHOTON_SEARCH}?${params.toString()}`, SLOW_FETCH_TIMEOUT_MS);
+  if (result.reason !== "ok") {
+    logGeocodeFailure("photon", failureReason(result), result.status);
+    return null;
+  }
+  const coords = accept("photon", parsePhotonCoordinates(result.data, {
+    street: address.street,
+    city: address.city,
+  }));
+  return coords ? { coords, source: "photon" } : null;
 }
 
 async function geocodeBrasil(cep: string): Promise<GeocodeHit | null> {
   if (cep.length !== 8) return null;
-  const data = await fetchJson(`${BRASIL_API_CEP_V2}/${cep}`);
-  const coords = accept(parseBrasilApiCoordinates(data));
+  const result = await fetchJson(`${BRASIL_API_CEP_V2}/${cep}`);
+  if (result.reason !== "ok") {
+    logGeocodeFailure("brasilapi", failureReason(result), result.status);
+    return null;
+  }
+  const coords = accept("brasilapi", parseBrasilApiCoordinates(result.data));
   return coords ? { coords, source: "brasilapi" } : null;
 }
 
@@ -296,7 +430,8 @@ export function clearMotoboyGeocodeCacheForTests(): void {
 
 /**
  * Geocode do destino por endereço (rua, número, bairro, cidade, UF).
- * Cadeia: Google (se houver chave) → AwesomeAPI → Nominatim → BrasilAPI.
+ * Cadeia: Google (se houver chave) → AwesomeAPI → Nominatim (texto, depois rua+cidade)
+ * → Photon → BrasilAPI. Centroide e ponto igual à Sé são descartados.
  * Centroide da cidade e ponto igual à Sé são descartados. Origem não entra aqui.
  * Cache em memória por CEP + número (acerto 24h, erro 1h).
  */
@@ -315,6 +450,7 @@ export async function geocodeMotoboyDestination(input: MotoboyGeocodeInput): Pro
     () => geocodeGoogle(address),
     () => geocodeAwesome(address.cep),
     () => geocodeNominatim(address),
+    () => geocodePhoton(address),
     () => geocodeBrasil(address.cep),
   ];
   for (const provider of providers) {

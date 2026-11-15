@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-15 | Geocode do Motoboy tenta Photon se Nominatim e AwesomeAPI falharem | Falha de fonte vira `console.warn` com source e reason, sem rua nem CEP. Cache de erro cai para 10 min | Lookup continua km antes da faixa de CEP |
 | 2026-11-15 | Lookup Motoboy geocodifica endereço no servidor | `motoboy-geocode.ts` tenta Google → AwesomeAPI → Nominatim → BrasilAPI. Origem fixa na Sé. `geoSource` no match | `GET /api/motoboy-coverage/lookup`. Rota de rua em `motoboy-route.ts`. Faixas iguais |
 | 2026-11-15 | `carrier_loss_incidents.order_id` aceita NULL | Schema Drizzle e o boot (`runtime-schema`: cria a tabela já assim e, se a coluna for NOT NULL, `MODIFY COLUMN`). A chave única `(order_id, package_id)` e o índice da cotação ficam | Pedido com id continua na mesma chave. Não apaga linha |
 | 2026-11-15 | Sitemap lê o catálogo na DigitalOcean | `api/sitemap.js` chama `https://lobster-app-7f8c2.ondigitalocean.app/api/products` com `x-forwarded-host` do visitante. O preview da Vercel exige login, então a função não pede `/api/products` nela mesma | As URLs do XML continuam no host da visita. O proxy `/api/*` do browser não mudou |
@@ -138,7 +139,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 - Health: `GET /healthz`.
 - Jobs no boot: reconciliação (expiração 24h), raffle expiry, reconcile logistics, pull de cobertura Motoboy Yury (15 min, se token), pull de estoque Motoboy/Minas Yury (3 min, se token).
 - Aviso de postagem: `GET /api/shipping-logistics/forecast` (público, por tenant). `promisedHours` pode ser o manual (`shipping-queue-deadline.ts`); `availableSlots` sai de `getOrderLogisticsForecast`. A gravação da vaga não lê essas settings.
-- Checkout Motoboy: `GET /api/motoboy-coverage/lookup` (público, por tenant). Geocode do destino no servidor (`motoboy-geocode.ts`: Google → AwesomeAPI → Nominatim → BrasilAPI; cache CEP+número). Origem fixa na Sé. Km de rua em `motoboy-route.ts` (`resolveMotoboyAddressDistance` + `resolveMotoboyDistanceKm`). Settings de km em `ALLOWED_KEYS`, fora de `PUBLIC_KEYS`.
+- Checkout Motoboy: `GET /api/motoboy-coverage/lookup` (público, por tenant). Geocode do destino no servidor (`motoboy-geocode.ts`: Google → AwesomeAPI → Nominatim → Photon → BrasilAPI; cache CEP+número, erro 10 min). Origem fixa na Sé. Km de rua em `motoboy-route.ts`. A faixa de CEP só entra se o km não tiver coordenada. Settings de km em `ALLOWED_KEYS`, fora de `PUBLIC_KEYS`.
 - Webhook cobertura Motoboy: `POST /api/webhooks/yury/motoboy-coverage` (body cru + HMAC) **antes** de `express.json()`.
 - Webhook estoque Yury: `POST /api/webhooks/yury/inventory` (mesmo HMAC; grava `balances`, não o delta).
 - Baixa no pedido: `POST /api/admin/orders/:id/inventory-exit` (Fóz local ou Yury Motoboy/Minas) a partir do card (1:1); após split a baixa é por pacote (`debitPackageInventory`, `referenceId = pkg:{id}`). `ensureOrderMarkedEnviado` no split debita cada pacote. `GET/POST /admin/orders/:id/shipments` aloca/lista `packages[]`. Motoboy/Minas chamam o exit da Yury sem senha no body.

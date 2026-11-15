@@ -226,6 +226,7 @@ const GEO_SOURCE_LABELS: Record<string, string> = {
   google: "Google",
   awesomeapi: "AwesomeAPI",
   nominatim: "Nominatim",
+  photon: "Photon",
   brasilapi: "BrasilAPI",
 };
 
