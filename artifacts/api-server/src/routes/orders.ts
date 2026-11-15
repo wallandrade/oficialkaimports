@@ -92,6 +92,7 @@ import {
   isObservationVisibleToCustomer,
   observationForCustomerApi,
 } from "../lib/order-observation-visibility";
+import { parseShippingVia, storedShippingVia } from "../lib/shipping-via";
 import { listEnvioEcomAccounts } from "../lib/envioecom-accounts";
 import {
   RELATED_CPF_SHIPMENT_SCAN_LIMIT,
@@ -3513,6 +3514,7 @@ function mapOrder(o: typeof ordersTable.$inferSelect, options?: { light?: boolea
     isProcurandoProduto:    !!(o as any).isProcurandoProduto,
     isAguardandoEstoque:    !!(o as any).isAguardandoEstoque,
     enviado:                !!o.enviado,
+    ...(forCustomer ? {} : { shippingVia: storedShippingVia(o.shippingVia) }),
     inventoryReserved:      Boolean((o as { inventoryReserved?: unknown }).inventoryReserved),
     inventoryExitPool:      parseKaInventoryExitPool((o as { inventoryExitPool?: unknown }).inventoryExitPool),
     inventoryExitedPools:   parseKaInventoryExitedPools((o as { inventoryExitedPools?: unknown }).inventoryExitedPools),
@@ -3841,6 +3843,58 @@ router.patch("/admin/orders/:id/aguardando-estoque", requireAdminAuth, async (re
   } catch (err) {
     console.error("Update order waiting stock error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao atualizar flag de aguardando estoque." });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/admin/orders/:id/shipping-channel
+// Marca a coluna Envio Shopee. Não muda status, PIX, estoque nem WhatsApp.
+// ---------------------------------------------------------------------------
+router.patch("/admin/orders/:id/shipping-channel", requireAdminAuth, async (req, res) => {
+  try {
+    const adminScope = ensureSellerScopeOnOrderQuery(req, res);
+    if (!adminScope) return;
+
+    let id = req.params.id;
+    if (Array.isArray(id)) id = id[0];
+
+    const body = req.body as { shippingVia?: unknown } | null;
+    if (!body || typeof body !== "object" || Array.isArray(body) || !Object.prototype.hasOwnProperty.call(body, "shippingVia")) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Informe shippingVia." });
+      return;
+    }
+    const shippingVia = parseShippingVia(body.shippingVia);
+    if (shippingVia === undefined) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "Canal de envio inválido." });
+      return;
+    }
+
+    const existing = await db
+      .select({ id: ordersTable.id })
+      .from(ordersTable)
+      .where(buildAdminOrderWhere(id, adminScope))
+      .limit(1);
+    if (!existing[0]) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
+
+    await db.update(ordersTable).set({
+      shippingVia,
+      updatedAt: new Date(),
+    }).where(buildAdminOrderWhere(id, adminScope));
+
+    await addOrderEvent({
+      orderId: id,
+      tenantId: adminScope.tenantId,
+      action: "shipping_channel",
+      ...actorFromAdminRequest(req),
+      payload: { shippingVia },
+    });
+    res.json({ ok: true, id, shippingVia });
+  } catch (err) {
+    console.error("Update shipping channel error:", err);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao salvar o canal de envio." });
   }
 });
 

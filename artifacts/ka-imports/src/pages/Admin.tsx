@@ -1,4 +1,11 @@
 import { getPendingShipmentCopy, pendingShipmentResumoHeading } from "@/lib/pending-shipment-copy";
+import {
+  SHIP_QUEUE_COPY_HEADING,
+  buildShipQueueCopyText,
+  isMotoboyDashboardOrder,
+  isWaitingDashboardShipment,
+  splitShipQueueOrders,
+} from "@/lib/ship-queue-columns";
 import { AdminFlashOffersPanel } from "@/components/admin/AdminFlashOffersPanel";
 import { WhatsappN8nSettings } from "@/components/admin/WhatsappN8nSettings";
 import { WhatsappRecoveryPanel } from "@/components/admin/WhatsappRecoveryPanel";
@@ -656,12 +663,7 @@ function logisticsOrderBlock(order: any): string {
 }
 
 function isMotoboyShippingOrder(order: any): boolean {
-  const shipping = String(order?.shippingType || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLowerCase();
-  return shipping.includes("motoboy") || Boolean(order?.motoboyDeliveryDate && order?.motoboyDeliveryTime);
+  return isMotoboyDashboardOrder(order);
 }
 
 type OrdersListTabId = "normal" | "reenvios" | "aguardando_estoque" | "motoboy";
@@ -891,7 +893,7 @@ function formatRaffleDescriptionPreview(value: string | undefined | null): strin
 
 import React, { useState, useEffect, useCallback, useRef, useMemo, startTransition, type ReactNode } from "react";
 import { useLocation } from "wouter";
-import { Loader2, Save, Plus, Trash2, X, CheckCircle, XCircle, Zap, Info, Pencil, MessageCircle, Tag, Bell, RefreshCw, Download, LogOut, QrCode, LinkIcon, Ticket, ShoppingBag, Clock, Upload, ChevronDown, ChevronUp, Copy, Users, Percent, Calendar, DollarSign, ShieldCheck, CreditCard, Truck, RotateCcw, UserPlus, Eye, EyeOff, ToggleLeft, Webhook, ImageOff, Lock, AlertTriangle, Star, Send, Mail, Store, Bike, MapPin, Search, Warehouse, Wallet } from "lucide-react";
+import { Loader2, Save, Plus, Trash2, X, CheckCircle, XCircle, Zap, Info, Pencil, MessageCircle, Tag, Bell, RefreshCw, Download, LogOut, QrCode, LinkIcon, Ticket, ShoppingBag, Clock, Upload, ChevronDown, ChevronUp, Copy, Users, Percent, Calendar, DollarSign, ShieldCheck, CreditCard, Truck, RotateCcw, UserPlus, Eye, EyeOff, ToggleLeft, Webhook, ImageOff, Lock, AlertTriangle, Star, Send, Mail, Store, Bike, MapPin, Search, Warehouse, Wallet, ArrowLeft, ArrowRight, Package } from "lucide-react";
 import { IconLucide } from "@/components/ui/IconLucide";
 
 import { toast } from "sonner";
@@ -2321,6 +2323,7 @@ export default function Admin() {
   const [orders, setOrders] = useState<AdminOrder[]>([]);
   const [shipQueueOrders, setShipQueueOrders] = useState<AdminOrder[]>([]);
   const [shipQueueReady, setShipQueueReady] = useState(false);
+  const [shippingViaSavingId, setShippingViaSavingId] = useState<string | null>(null);
   const [charges, setCharges] = useState<CustomCharge[]>([]);
   const [sellerAllOrders, setSellerAllOrders] = useState<AdminOrder[]>([]);
   const [sellerAllCharges, setSellerAllCharges] = useState<CustomCharge[]>([]);
@@ -7180,11 +7183,7 @@ export default function Admin() {
     });
   };
 
-  const isOrderWaitingShipment = (o: AdminOrder) => {
-    const isActiveReshipment = isActiveReshipmentOrder(o);
-    const isPendingNormalShipment = (o.status === "paid" || o.status === "completed") && !o.enviado && !hasEnvioEcomLabelReady(o as any);
-    return isPendingNormalShipment || isActiveReshipment;
-  };
+  const isOrderWaitingShipment = (o: AdminOrder) => isWaitingDashboardShipment(o);
   const ordersParaEnviar = orders.filter(isOrderWaitingShipment);
   const ordersParaEnviarCopyBase = ordersParaEnviarDedupForCopy(ordersParaEnviar);
   const shipQueueParaEnviar = shipQueueOrders.filter(isOrderWaitingShipment);
@@ -7192,6 +7191,9 @@ export default function Admin() {
     return new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime();
   });
   const shipQueueNormalPorAtraso = shipQueueParaEnviarPorAtraso.filter((order) => !isMotoboyShippingOrder(order));
+  const shipQueueSplit = splitShipQueueOrders(shipQueueNormalPorAtraso);
+  const shipQueuePostalPorAtraso = shipQueueSplit.normal;
+  const shipQueueShopeePorAtraso = shipQueueSplit.shopee;
   const shipQueueMotoboyPorAtraso = shipQueueParaEnviarPorAtraso.filter((order) => isMotoboyShippingOrder(order));
   const logisticsCopyGroups = (() => {
     const byPromisedHours = new Map<number, { promisedHours: number; orders: AdminOrder[] }>();
@@ -7497,13 +7499,20 @@ export default function Admin() {
     }
   };
 
-  const copyShipQueueTxt = async (kind: "normal" | "motoboy", event?: React.MouseEvent<HTMLButtonElement>) => {
+  const copyShipQueueTxt = async (
+    kind: "normal" | "shopee" | "motoboy",
+    rows: AdminOrder[],
+    event?: React.MouseEvent<HTMLButtonElement>,
+  ) => {
     event?.preventDefault();
     event?.stopPropagation();
     if (!shipQueueReady) return;
-    const rows = kind === "motoboy" ? shipQueueMotoboyPorAtraso : shipQueueNormalPorAtraso;
     if (rows.length === 0) {
-      toast.info(kind === "motoboy" ? "Nenhum motoboy faltando enviar." : "Nenhum pedido faltando enviar.");
+      toast.info(kind === "motoboy"
+        ? "Nenhum motoboy faltando enviar."
+        : kind === "shopee"
+          ? "Nenhum pedido da Shopee para enviar."
+          : "Nenhum pedido faltando enviar.");
       return;
     }
     const blocks = rows.map((order) => {
@@ -7511,24 +7520,64 @@ export default function Admin() {
       if (kind === "motoboy" && !pending.isPartialSplit) return motoboyOrderBlock(order);
       return logisticsOrderBlock(order);
     });
-    const heading = kind === "motoboy" ? "MOTOBOY PARA ENVIAR" : "PEDIDOS PARA ENVIAR";
-    const text = [
-      copyStoreLabel ? `Loja: ${copyStoreLabel}` : null,
-      `${heading}: ${rows.length}`,
-      "",
-      blocks.join("\n\n"),
-    ].filter((line) => line != null).join("\n");
+    const text = buildShipQueueCopyText({
+      heading: SHIP_QUEUE_COPY_HEADING[kind],
+      storeLabel: copyStoreLabel,
+      blocks,
+    });
     try {
       const mode = await copyText(text);
       const count = rows.length;
       const noun = kind === "motoboy" ? "motoboy" : "pedido";
-      toast.success(mode === "manual"
-        ? "Texto aberto para copia manual."
-        : `${count} ${noun}${count !== 1 ? "s" : ""} para enviar copiado${count !== 1 ? "s" : ""}.`);
+      const copied = kind === "shopee"
+        ? `${count} pedido${count !== 1 ? "s" : ""} da Shopee copiado${count !== 1 ? "s" : ""}.`
+        : `${count} ${noun}${count !== 1 ? "s" : ""} para enviar copiado${count !== 1 ? "s" : ""}.`;
+      toast.success(mode === "manual" ? "Texto aberto para copia manual." : copied);
     } catch {
       toast.error(kind === "motoboy"
         ? "Nao foi possivel copiar os motoboys para enviar."
-        : "Nao foi possivel copiar os pedidos para enviar.");
+        : kind === "shopee"
+          ? "Nao foi possivel copiar os pedidos da Shopee."
+          : "Nao foi possivel copiar os pedidos para enviar.");
+    }
+  };
+  const moveShipChannel = async (
+    order: AdminOrder,
+    shippingVia: "shopee" | null,
+    event: React.MouseEvent<HTMLButtonElement>,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (shippingViaSavingId) return;
+    const previous = String((order as { shippingVia?: string | null }).shippingVia || "").trim().toLowerCase() === "shopee" ? "shopee" : null;
+    if (previous === shippingVia) return;
+    const apply = (list: AdminOrder[]) => list.map((row) => (row.id === order.id ? { ...row, shippingVia } : row));
+    const revert = (list: AdminOrder[]) => list.map((row) => (row.id === order.id ? { ...row, shippingVia: previous } : row));
+    setShippingViaSavingId(order.id);
+    setShipQueueOrders(apply);
+    setOrders(apply);
+    setSellerAllOrders(apply);
+    setStatsOrdersData(apply);
+    try {
+      const res = await fetch(`${BASE}/api/admin/orders/${encodeURIComponent(order.id)}/shipping-channel`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({ shippingVia }),
+      });
+      if (res.status === 401) {
+        handleUnauthorized();
+        throw new Error("unauthorized");
+      }
+      if (!res.ok) throw new Error("save failed");
+      toast.success(shippingVia === "shopee" ? "Pedido marcado como Envio Shopee." : "Pedido voltou para envio normal.");
+    } catch {
+      setShipQueueOrders(revert);
+      setOrders(revert);
+      setSellerAllOrders(revert);
+      setStatsOrdersData(revert);
+      toast.error("Nao foi possivel mover o pedido.");
+    } finally {
+      setShippingViaSavingId(null);
     }
   };
 
@@ -7621,29 +7670,45 @@ export default function Admin() {
 
   const renderShipQueueCard = (input: {
     title: string;
-    kind: "normal" | "motoboy";
+    kind: "normal" | "shopee" | "motoboy";
     rows: AdminOrder[];
     emptyLabel: string;
     loadingLabel: string;
+    tone?: "amber" | "orange";
+    className?: string;
+    onTransfer?: (order: AdminOrder, event: React.MouseEvent<HTMLButtonElement>) => void;
+    transferLabel?: string;
+    transferIcon?: React.ReactNode;
   }) => {
-    const box = "mt-3 rounded-xl border p-4 bg-amber-50 border-amber-300 cursor-pointer hover:bg-amber-100 transition";
-    const titleClass = "text-xs font-semibold text-amber-700 uppercase tracking-wide flex items-center gap-1.5";
-    const buttonClass = "inline-flex items-center gap-1 h-7 px-2 rounded-lg border border-amber-300 bg-white text-[11px] font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50";
-    const badgeClass = "text-[10px] bg-amber-200 text-amber-800 px-2 py-0.5 rounded-full font-bold";
-    const muted = "text-sm text-amber-700/80";
-    const rowIdle = "bg-white/70 border-amber-100";
-    const nameClass = "text-sm font-medium text-amber-900 truncate";
-    const metaClass = "text-xs text-amber-700/80";
-    const amountClass = "text-xs font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full whitespace-nowrap";
-    const moreClass = "ml-1 text-[10px] font-semibold text-amber-800";
-    const zoomClass = "pointer-events-none absolute -bottom-1 -right-1 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full border border-amber-300 bg-white shadow-sm";
-    const zoomIcon = "h-2 w-2 text-amber-800";
-    const Icon = input.kind === "motoboy" ? Bike : Truck;
+    const orange = input.tone === "orange";
+    const box = `${input.className ?? "mt-3"} rounded-xl border p-4 cursor-pointer transition ${orange ? "bg-orange-50 border-orange-300 hover:bg-orange-100" : "bg-amber-50 border-amber-300 hover:bg-amber-100"}`;
+    const titleClass = `text-xs font-semibold uppercase tracking-wide flex items-center gap-1.5 ${orange ? "text-orange-700" : "text-amber-700"}`;
+    const buttonClass = `inline-flex items-center gap-1 h-7 px-2 rounded-lg border bg-white text-[11px] font-semibold disabled:opacity-50 ${orange ? "border-orange-300 text-orange-800 hover:bg-orange-100" : "border-amber-300 text-amber-800 hover:bg-amber-100"}`;
+    const badgeClass = `text-[10px] px-2 py-0.5 rounded-full font-bold ${orange ? "bg-orange-200 text-orange-800" : "bg-amber-200 text-amber-800"}`;
+    const muted = orange ? "text-sm text-orange-700/80" : "text-sm text-amber-700/80";
+    const rowIdle = orange ? "bg-white/70 border-orange-100" : "bg-white/70 border-amber-100";
+    const nameClass = `text-sm font-medium truncate ${orange ? "text-orange-950" : "text-amber-900"}`;
+    const metaClass = `text-xs ${orange ? "text-orange-700/80" : "text-amber-700/80"}`;
+    const amountClass = `text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${orange ? "text-orange-800 bg-orange-100" : "text-amber-700 bg-amber-100"}`;
+    const moreClass = `ml-1 text-[10px] font-semibold ${orange ? "text-orange-800" : "text-amber-800"}`;
+    const zoomClass = `pointer-events-none absolute -bottom-1 -right-1 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full border bg-white shadow-sm ${orange ? "border-orange-300" : "border-amber-300"}`;
+    const zoomIcon = orange ? "h-2 w-2 text-orange-800" : "h-2 w-2 text-amber-800";
+    const Icon = input.kind === "motoboy" ? Bike : input.kind === "shopee" ? Package : Truck;
+    const titleAttr = input.kind === "motoboy"
+      ? "Ver pedidos de motoboy"
+      : input.kind === "shopee"
+        ? "Ver envios pela Shopee"
+        : "Ver pedidos para enviar";
+    const copyTitle = input.kind === "motoboy"
+      ? "Copiar só os motoboys que ainda faltam enviar"
+      : input.kind === "shopee"
+        ? "Copiar só os pedidos da Shopee que ainda faltam enviar"
+        : "Copiar só os pedidos normais que ainda faltam enviar";
     return (
       <div
         className={box}
         onClick={() => setTab("orders")}
-        title={input.kind === "motoboy" ? "Ver pedidos de motoboy" : "Ver pedidos para enviar"}
+        title={titleAttr}
       >
         <div className="flex items-center justify-between gap-2 mb-2">
           <p className={titleClass}>
@@ -7654,8 +7719,8 @@ export default function Admin() {
               type="button"
               className={buttonClass}
               disabled={!shipQueueReady || input.rows.length === 0}
-              title={input.kind === "motoboy" ? "Copiar só os motoboys que ainda faltam enviar" : "Copiar só os pedidos normais que ainda faltam enviar"}
-              onClick={(event) => { void copyShipQueueTxt(input.kind, event); }}
+              title={copyTitle}
+              onClick={(event) => { void copyShipQueueTxt(input.kind, input.rows, event); }}
             >
               <Copy className="w-3.5 h-3.5" />
               Copiar TXT
@@ -7737,15 +7802,29 @@ export default function Admin() {
                       <p className={metaClass}>#{getOrderDisplayId(o)} · {formatDateBR(o.createdAt)}</p>
                     </div>
                   </div>
-                  <div className="flex flex-col items-end gap-1 shrink-0">
-                    {lateToShip && (
-                      <span className="text-[10px] font-bold text-red-700 bg-red-100 border border-red-200 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                        {waitingDays} dias sem enviar
+                  <div className="flex items-center gap-1 shrink-0">
+                    <div className="flex flex-col items-end gap-1">
+                      {lateToShip && (
+                        <span className="text-[10px] font-bold text-red-700 bg-red-100 border border-red-200 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                          {waitingDays} dias sem enviar
+                        </span>
+                      )}
+                      <span className={amountClass}>
+                        {formatCurrency(Number(o.total) || 0)}
                       </span>
-                    )}
-                    <span className={amountClass}>
-                      {formatCurrency(Number(o.total) || 0)}
-                    </span>
+                    </div>
+                    {input.onTransfer ? (
+                      <button
+                        type="button"
+                        title={input.transferLabel}
+                        aria-label={input.transferLabel}
+                        disabled={shippingViaSavingId === o.id}
+                        onClick={(event) => input.onTransfer?.(o, event)}
+                        className="shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-full border border-current/20 bg-white hover:bg-black/5 disabled:opacity-50"
+                      >
+                        {shippingViaSavingId === o.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : input.transferIcon}
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               );
@@ -8009,13 +8088,31 @@ export default function Admin() {
             </div>
           </div>
 
-          {renderShipQueueCard({
-            title: "Pedidos para Enviar",
-            kind: "normal",
-            rows: shipQueueNormalPorAtraso,
-            emptyLabel: "Nenhum pedido normal faltando enviar.",
-            loadingLabel: "Carregando pedidos para enviar...",
-          })}
+          <div className="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {renderShipQueueCard({
+              title: "Pedidos para Enviar",
+              kind: "normal",
+              rows: shipQueuePostalPorAtraso,
+              emptyLabel: "Nenhum pedido normal faltando enviar.",
+              loadingLabel: "Carregando pedidos para enviar...",
+              className: "",
+              onTransfer: (order, event) => { void moveShipChannel(order, "shopee", event); },
+              transferLabel: "Mover para Envio Shopee",
+              transferIcon: <ArrowRight className="w-3.5 h-3.5" />,
+            })}
+            {renderShipQueueCard({
+              title: "Envio Shopee",
+              kind: "shopee",
+              tone: "orange",
+              rows: shipQueueShopeePorAtraso,
+              emptyLabel: "Nenhum pedido marcado para a Shopee.",
+              loadingLabel: "Carregando envios da Shopee...",
+              className: "",
+              onTransfer: (order, event) => { void moveShipChannel(order, null, event); },
+              transferLabel: "Voltar para Pedidos para enviar",
+              transferIcon: <ArrowLeft className="w-3.5 h-3.5" />,
+            })}
+          </div>
           {renderShipQueueCard({
             title: "Motoboy para Enviar",
             kind: "motoboy",
