@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-11-14
+> **Última atualização:** 2026-11-15
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-15 | Anti-padrão: deixar `ssl-mode` na URI do mysql2 | O pool monta `ssl` em `lib/db/src/pool-config.ts`. O sitemap usa `/produto/:id` e `/categoria/:nome` do Wouter | O backup R2, que já tirava o parâmetro |
 | 2026-11-14 | Anti-padrão: gravar o canal Shopee só no navegador ou sem a loja | A seta chama o PATCH. O `WHERE` é o mesmo da leitura do pedido (tenant e seller). O cliente não recebe `shippingVia` | Status, PIX, estoque e o card Motoboy |
 | 2026-11-13 | Card grande da home prefere Tirzepatida ou Retatrutida | `buildHomeHero` filtra essas linhas (e Tirzepatide/Retatrutide) antes do `soldQty`. Sem as duas à venda com foto, o fallback é o mais vendido de qualquer categoria | Vitrines, cards de baixo e filiais sem essas linhas |
 | 2026-11-13 | Anti-padrão: liberar a senha do site só no relógio do celular | A hora vale em `decideSiteProtection`. A tela consulta `GET /api/is-protected` de novo ao zerar. Filial não copia o agendamento da loja 1 | Senha de pagamento e o cronômetro do topo |
@@ -207,6 +208,8 @@ Código > memória > suposições.
 
 ## Anti-padrões (não reintroduzir)
 
+- Passar `DATABASE_URL` com `?ssl-mode=REQUIRED` direto no `uri` do `mysql2`. O driver trata o parâmetro como opção e avisa no boot. `mysqlPoolOptionsFromUrl` tira `ssl-mode` e `sslmode`. Com `DATABASE_CA_CERT`, o TLS verifica o PEM. Sem o PEM, e com modo diferente de `DISABLED`, o TLS fica `{ rejectUnauthorized: false }`, igual ao backup. URL sem esses parâmetros não liga SSL.
+- Inventar path de sitemap (`/products`, `/category`) ou repetir cada produto em `/:seller/produto/:id`. O router público sem seller é `/produto/:id` e `/categoria/:nome`, com `encodeURIComponent`. `/sitemap.xml` reescreve para `/api/sitemap` antes do proxy da API. O fallback da SPA não pode engolir `/robots.txt` nem `/sitemap.xml`.
 - Mover o pedido para Envio Shopee só no estado do navegador, ou atualizar `shipping_via` pelo `id` sem a loja. A seta persiste em `PATCH /api/admin/orders/:id/shipping-channel` com `buildAdminOrderWhere` (tenant e, no seller-scoped, `seller_code`). Outra loja e outro vendedor respondem 404. Não devolver `shippingVia` em `mapOrder(..., { forCustomer: true })`. O campo não muda status, PIX, estoque, automação nem WhatsApp.
 - Liberar a senha do site quando o relógio do celular chega em zero, sem `GET /api/is-protected`. A contagem pode andar na tela; quem entra sem senha é o servidor (`decideSiteProtection`). Não copiar `site_release_*` da loja 1 para a filial e não misturar com `payment_password` nem com `promo_countdown_*`.
 - Fazer `resolvePublicTenantId` cair em `tenant_loja1` para qualquer host que não esteja em `tenants.domain`. O fallback só vale para a loja principal (`MAIN_STORE_DOMAINS`), localhost, `*.vercel.app`, `*.ondigitalocean.app` e pedido sem host. Referer não entra nessa decisão. Domínio desconhecido responde `store_not_configured` e não cria pedido.

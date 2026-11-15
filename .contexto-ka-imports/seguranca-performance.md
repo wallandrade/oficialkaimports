@@ -1,12 +1,13 @@
 # Segurança e performance — KA Imports
 
-> **Última atualização:** 2026-11-13  
+> **Última atualização:** 2026-11-15
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-15 | TLS do pool MySQL e `robots.txt` | Sem `DATABASE_CA_CERT`, o pool cifra quando a URL pedia SSL, com `rejectUnauthorized: false`. Com o PEM, a verificação fica ligada. `robots.txt` pede para não indexar `/admin`, `/checkout`, `/login`, `/pagamento`, `/payment-link`, `/pix/`, `/rifas/pix/` e `/*/checkout`. Isso não substitui login nem auth | CORS, CSP, webhook, senha do site e o backup R2 |
 | 2026-11-13 | Abertura da senha do site no servidor | `GET /api/is-protected` decide com a hora do servidor e manda `Cache-Control: no-store`. A contagem da tela usa o tempo decorrido, não o relógio do celular, e pergunta de novo ao zerar. As chaves `site_release_*` não vão para `PUBLIC_KEYS` nem para o `localStorage` | Quem já tem a senha entra. Falha da primeira consulta continua abrindo a vitrine, como antes. A senha em si não é devolvida |
 | 2026-11-13 | Prova social, n8n, custo, catálogo do pedido, KYC e retorno manual | Pedido pago de outra loja sai do widget. Env n8n não manda evento da filial para a loja 1. Custo da loja 1 não nasce na cópia. Edição, troca, declaração KYC, fila de retorno e estorno de reenvio ficam na loja | Loja 1, inclusive tenant nulo/`''` nesses pontos. Token de suporte do env |
 | 2026-11-13 | Isolamento de loja no Brevo, no PIX e na diferença | Filial não grava a chave Brevo nem exporta os clientes dela. PIX da filial não cai na conta env/DentPeg da loja 1. Diferença grava `tenant_id` | Loja 1, webhook e seller-scoped |
@@ -49,6 +50,8 @@
 - Lista de extravio entre lojas: `GET /api/integrations/loss-blacklist/snapshot` não usa cookie de admin nem token de checkout. `LOSS_SYNC_TOKEN` e `YURY_LOSS_SYNC_TOKEN` são senhas diferentes. O JSON publicado não leva cliente, CPF, telefone, CEP de 8 dígitos, rastreio nem número de pedido. O pull não envia o token da nossa lista.
 - Login EnvioEcom da loja: só `GET /admin/envioecom/accounts` (`hasGlobalAccess`) devolve e-mail e senha das contas `tenant` e extras. Primary da loja 1 recebe também `stores` (nome de cada loja + esses logins). Filial não recebe `stores`. Conta `env` (Railway) não devolve senha e não entra em `stores`. Status, config e respostas de POST/PUT seguem mascarados, sem senha. Token permanece mascarado.
 - **CSP do FE** (`index.html` + `vercel.json`): `default-src 'self'`; `object-src 'none'`; `frame-ancestors 'none'`; `frame-src 'self' blob: data: https:` (comprovante PDF no admin usa iframe + blob). `img-src` já permite `data:`/`blob:`/`https:`.
+- **MySQL do pool**: `ssl-mode` sai da URI. TLS com `DATABASE_CA_CERT` verifica o certificado. Sem o PEM, o modo diferente de `DISABLED` usa `rejectUnauthorized: false` (tráfego cifrado, certificado do servidor não checado), igual a `scripts/src/db-backup-r2.mjs`.
+- **`robots.txt`**: só pede ao robô para não listar admin, checkout, login e pagamento. A rota continua no ar.
 
 ## Ops / health
 

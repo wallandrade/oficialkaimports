@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-11-14
+> **Última atualização:** 2026-11-15
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-15 | `robots.txt`, `/sitemap.xml` e pool MySQL sem `ssl-mode` | O `vercel.json` que vale no deploy do front é `artifacts/ka-imports/vercel.json` (o HTML no ar traz o CSP e o `X-Frame-Options` desse arquivo). `public/robots.txt` responde em `/robots.txt`. `/sitemap.xml` reescreve para a função `api/sitemap.js`, na frente do proxy `/api/*`. A função chama `GET /api/products` no mesmo host e lista `/`, `/ofertas`, `/frete`, `/suporte`, `/kyc`, `/rifas`, `/categoria/:nome` e `/produto/:id`. O pool em `lib/db` tira `ssl-mode` e `sslmode` da URI. Com `DATABASE_CA_CERT`, o TLS verifica o PEM. Sem o PEM, e com modo diferente de `DISABLED`, o TLS fica `rejectUnauthorized: false`, igual ao backup. Sem esses parâmetros, o pool não liga SSL | `drizzle.config.ts` segue com a URI original. O destino do proxy `/api/:path*` não mudou. URL de seller (`/:seller/...`) não entra no sitemap |
 | 2026-11-14 | Coluna `orders.shipping_via` e `PATCH /api/admin/orders/:id/shipping-channel` | `VARCHAR(16) NULL` no schema Drizzle e no boot (`runtime-schema`, `columnExists` + `ALTER TABLE`). O `UPDATE` usa `buildAdminOrderWhere` (loja e, no seller-scoped, o vendedor). `mapOrder` só inclui `shippingVia` quando não é `forCustomer` | Status, PIX, estoque, webhook e n8n |
 | 2026-11-13 | Card grande da home prefere Tirzepatida ou Retatrutida | A escolha continua em `buildHomeHero`, no catálogo já carregado. Sem as duas linhas à venda, o card usa o mais vendido de qualquer categoria | Banner, vitrines e o tema das filiais |
 | 2026-11-13 | Agendamento da senha do site | `lib/site-release.ts`. Chaves em `tenant_settings` (`site_release_enabled`, `site_release_at`, `site_release_message`), sem coluna nova. `GET /api/is-protected` devolve `release` e `Cache-Control: no-store`. A tela `SitePasswordGate` mostra os cartões e consulta de novo quando a contagem zera | `payment` na mesma resposta. `POST /api/verify-password`. Cronômetro do topo |
@@ -109,6 +110,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 ## Banco
 
 - Dialect: **MySQL** — `drizzle.config.ts`, `lib/db/src/index.ts`.
+- Pool: `mysqlPoolOptionsFromUrl` (`lib/db/src/pool-config.ts`) tira `ssl-mode` / `sslmode` da `DATABASE_URL` antes do `mysql2`. `DATABASE_CA_CERT` liga TLS com verificação. Sem o PEM, modo `REQUIRED` (ou qualquer um fora de `DISABLED`) liga TLS com `rejectUnauthorized: false`. URL sem esses parâmetros não manda `ssl` (MySQL local).
 - Schema: `lib/db/src/schema/*.ts` (export em `schema/index.ts`).
 - Push: `drizzle-kit push` (scripts no `lib/db` e no start do api-server).
 - Runtime schema extras: `artifacts/api-server/src/runtime-schema.ts`.
@@ -152,7 +154,8 @@ Monorepo **pnpm workspaces** + TypeScript.
 - Home: o banner de cima continua primeiro. `HomeHero` entra logo abaixo só na loja 1 com `pharma_compact` e a query limpa, antes das vitrines. Monta o card com o catálogo público já pedido por `useGetProducts` (tenant do domínio). O card grande prefere Tirzepatida ou Retatrutida; sem as duas à venda com foto, usa o mais vendido de qualquer categoria. Sem rota nova. Filial sem preset usa o tema `default`.
 - Carrinho: Zustand persist `src/store/use-cart.ts`.
 - Admin monolítico: `src/pages/Admin.tsx` (arquivo grande — leitura seletiva). `fetchOrders` usa AbortController + seq e não apaga `envioecomLabelUrl` se o GET vier vazio. `onSetOrderPatched` não zera `packages[]` se o patch vier vazio. Busca de Pedidos/Links: `AdminOrdersChargesSearchShell` (estado + filtro no filho; `onChange` imediato; `goToOrder` semeia). `OrdersSearchInput` começa `readOnly` (anti-autofill) e destrava no `touchStart`/`mouseDown` para o teclado mobile abrir. Visitantes ao vivo: `AdminLiveVisitorStats` (poll 5s próprio). Refresh silencioso de pedidos usa `startTransition`. Troca de data da lista não chama `fetchStatsData`. Aba **Seguro**: `AdminInsurancePanel.tsx` (primary-only). Checkout: `CheckoutInsuranceOffer.tsx` (2 cards, clique de novo = none). Suporte: `Support.tsx` lista pedidos com thumbnail do produto + card de chamado no admin usam `canReship`; modal **Reenvio do chamado** usa `ProductSelect` com `products[].image`. Split de envio: `SplitOrderShipments.tsx` (**Editar divisão** no card já dividido) + `packageId` em `EnvioEcomOrderActions.tsx` (OCR **Etiqueta/Rastreio** por pacote; linha de status se houver barcode mesmo sem status EE); **Trocar produto**: `ReplaceOrderProductModal.tsx`. Últimos envios do CPF: `RelatedCpfShipments.tsx` no card (fechado até o clique); alerta no clique **EnvioEcom** (`EnvioEcomOrderActions`). Cliente em `CustomerOrders.tsx` + `customer-split-shipping.ts` (Envio 1/2 se ainda não `enviado`; colapsa pacote sem etiqueta depois da expedição; “Trocado de X” se `swappedFrom`). Header da loja: busca mobile abre com `flushSync` + `.focus()` no mesmo toque; ícone da lupa é `pointer-events-none`.
-- Proxy/API: requests sob `/api` (Vercel rewrite → DigitalOcean App Platform).
+- Proxy/API: requests sob `/api` (Vercel rewrite → DigitalOcean App Platform). A função `api/link-preview.js` e `api/sitemap.js` ficam no front e não passam por esse proxy: a Vercel entrega o arquivo da função antes do rewrite. `/sitemap.xml` aponta para `/api/sitemap`. `/robots.txt` é o `public/robots.txt`.
+- Sitemap: páginas fixas `/`, `/ofertas`, `/frete`, `/suporte`, `/kyc`, `/rifas`, mais `/categoria/${encodeURIComponent(nome)}` e `/produto/${encodeURIComponent(id)}` dos produtos ativos de `GET /api/products`. Esgotado entra. Inativo não entra. Sem slug de seller. `lastmod` do produto usa `createdAt` (o GET público não manda `updatedAt`). Falha do catálogo responde 503.
 - SW: `public/sw.js` — **somente notificações admin**, não PWA offline/sync.
 
 ## Auth (resumo)
@@ -171,8 +174,9 @@ Monorepo **pnpm workspaces** + TypeScript.
 
 | Camada | Evidência |
 |--------|-----------|
-| FE prod | `vercel.json` → `https://ka-imports.com` / `www` (CORS default no `app.ts`) |
+| FE prod | `artifacts/ka-imports/vercel.json` (Root Directory do projeto). O `vercel.json` da raiz do repo repete o proxy e o rewrite do sitemap, mas não é o arquivo que a Vercel aplica: o HTML no ar tem o CSP e o `X-Frame-Options` só do arquivo do front |
 | API prod | Rewrite Vercel → `https://lobster-app-7f8c2.ondigitalocean.app/api/...` |
+| SEO | `/robots.txt` estático. `/sitemap.xml` → função `artifacts/ka-imports/api/sitemap.js`. O fallback da SPA já ignora os dois nomes |
 | Railway | `railway.json` continua no repo; a API de produção não usa mais essa URL |
 | Nixpacks | `nixpacks.toml` (Node 22, pnpm 9, filter api-server) |
 | Replit | `.replit` / `replit.md` (legado/dev — docs podem estar desatualizados) |
