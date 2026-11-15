@@ -273,13 +273,19 @@ function isPaymentPath(location: string) {
   return PAYMENT_PATHS.some((p) => location === p || location.startsWith(p + "/") || location.startsWith(p + "?"));
 }
 
+function isDeliveryCorrectionPath(location: string) {
+  const path = location.split("?")[0] || "";
+  return path === "/corrigir-entrega" || path.startsWith("/corrigir-entrega/");
+}
+
 export function SitePasswordGate({ children }: { children: ReactNode }) {
   const [location] = useLocation();
 
   const isAdminPath   = location.startsWith("/admin");
   const isKycPath     = location.startsWith("/kyc");
   const isPmtPath     = isPaymentPath(location);
-  const isExemptPath  = isAdminPath || isKycPath || isPmtPath;
+  const isCorrectionPath = isDeliveryCorrectionPath(location);
+  const isExemptPath  = isAdminPath || isKycPath || isPmtPath || isCorrectionPath;
 
   const [unlocked, setUnlocked] = useState<boolean>(() => {
     if (isExemptPath) return true;

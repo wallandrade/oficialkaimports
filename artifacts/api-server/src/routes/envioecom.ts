@@ -5,6 +5,7 @@ import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { getCustomerSession, requireCustomerAuth } from "../middlewares/customer-auth";
 import { DEFAULT_TENANT_ID, requirePublicTenantId } from "../lib/tenant-context";
 import { actorFromAdminRequest, addOrderEvent } from "../lib/order-events";
+import { withDeliveryCorrection } from "../lib/delivery-correction";
 import { notifyOrderTrackingWhatsapp } from "../lib/whatsapp-n8n";
 import { carrierDisplayName, isAllowedManualCarrier } from "../lib/carrier-loss";
 import {
@@ -117,14 +118,24 @@ function requireEnvioEcomAdmin(req: Request, res: Response): { tenantId: string;
   return { tenantId: scope.tenantId || DEFAULT_TENANT_ID, isPrimary: !!scope.isPrimary };
 }
 
-function sendEnvioEcomError(res: Response, err: unknown) {
+function sendEnvioEcomError(res: Response, err: unknown, orderId?: string) {
+  const send = (status: number, body: { error: string; message: string; details?: unknown }) => {
+    if (!orderId) {
+      res.status(status).json(body);
+      return;
+    }
+    void withDeliveryCorrection(orderId, body).then((payload) => {
+      if (!res.headersSent) res.status(status).json(payload);
+    }).catch(() => {
+      if (!res.headersSent) res.status(status).json(body);
+    });
+  };
   if (err instanceof ShipmentItemConfigError) {
-    res.status(400).json({ error: "INVALID_INPUT", message: err.message });
+    send(400, { error: "INVALID_INPUT", message: err.message });
     return;
   }
   if (err instanceof OrderShipmentError) {
-    const status = err.code === "NEED_PACKAGE_ID" || err.code === "PACKAGE_NOT_FOUND" ? 400 : 400;
-    res.status(status).json({ error: err.code, message: err.message });
+    send(400, { error: err.code, message: err.message });
     return;
   }
   if (err instanceof EnvioEcomApiError) {
@@ -134,7 +145,7 @@ function sendEnvioEcomError(res: Response, err: unknown) {
       httpStatus: err.httpStatus,
       details: err.details,
     });
-    res.status(err.httpStatus >= 400 && err.httpStatus < 600 ? err.httpStatus : 400).json({
+    send(err.httpStatus >= 400 && err.httpStatus < 600 ? err.httpStatus : 400, {
       error: err.code,
       message: err.message,
       details: err.details,
@@ -142,7 +153,7 @@ function sendEnvioEcomError(res: Response, err: unknown) {
     return;
   }
   console.error("[EnvioEcom]", err);
-  res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro na integração EnvioEcom." });
+  send(500, { error: "INTERNAL_ERROR", message: "Erro na integração EnvioEcom." });
 }
 
 function rejectNoAccounts(res: Response) {
@@ -787,7 +798,7 @@ router.post("/admin/envioecom/orders/:id/quote", requireAdminAuth, async (req, r
     }
     const destination = digitsOnly(order.addressCep);
     if (destination.length !== 8) {
-      res.status(400).json({ error: "INVALID_CEP", message: "CEP de destino inválido no pedido." });
+      res.status(400).json(await withDeliveryCorrection(order.id, { error: "INVALID_CEP", message: "CEP de destino inválido no pedido." }));
       return;
     }
     const config = await loadEnvioEcomConfig(admin.tenantId);
@@ -834,7 +845,7 @@ router.post("/admin/envioecom/orders/:id/quote", requireAdminAuth, async (req, r
       accountName: scoped.account.name,
     });
   } catch (err) {
-    sendEnvioEcomError(res, err);
+    sendEnvioEcomError(res, err, String(req.params.id || ""));
   }
 });
 
@@ -1050,12 +1061,12 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
     }
     const destination = digitsOnly(order.addressCep);
     if (destination.length !== 8) {
-      res.status(400).json({ error: "INVALID_CEP", message: "CEP de destino inválido no pedido." });
+      res.status(400).json(await withDeliveryCorrection(order.id, { error: "INVALID_CEP", message: "CEP de destino inválido no pedido." }));
       return;
     }
     const recipientIssue = describeEnvioEcomRecipientIssues(order);
     if (recipientIssue) {
-      res.status(400).json({ error: "INVALID_RECIPIENT", message: recipientIssue });
+      res.status(400).json(await withDeliveryCorrection(order.id, { error: "INVALID_RECIPIENT", message: recipientIssue }));
       return;
     }
     let workingOrder = order;
@@ -1217,7 +1228,7 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       raw: created,
     });
   } catch (err) {
-    sendEnvioEcomError(res, err);
+    sendEnvioEcomError(res, err, String(req.params.id || ""));
   }
 });
 

@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-15 | Anti-padrão: correção de entrega fora da loja 1 ou com URL de n8n no código | Só CPF/CNPJ, CEP de destino e endereço da loja 1. Telefone, e-mail, origem, conta, motoboy e filial ficam de fora. A URL https vem da setting ou do env | SuperFrete continua inexistente. O log não leva token nem dado do cliente |
 | 2026-11-15 | Anti-padrão: tratar 429 da AwesomeAPI como silêncio e parar no Nominatim de texto livre | Loga a fonte e o motivo, sem endereço. Tenta rua+cidade e o Photon antes da faixa de CEP | Não apaga “São Paulo - Faixa Geral” |
 | 2026-11-15 | Anti-padrão: geocodificar o CEP do Motoboy na BrasilAPI e cobrar 0 km como “Até 10 km” | Endereço completo no servidor. Centroide e menos de 1 km fora da Sé viram cotação indisponível (faixa de CEP se já existir) | Faixas, centro R$ 50 e o XOR km/bairro |
 | 2026-11-15 | Anti-padrão: logar erro de banco com o SQL | `sanitizeForLog` + `console` em `safe-log.ts`. Resposta HTTP não devolve o comando. `ER_DUP_ENTRY` no cadastro segue 409 amigável | Sem cliente Better Stack no código. Sucesso do cadastro ainda devolve o e-mail da sessão |
@@ -215,6 +216,7 @@ Código > memória > suposições.
 
 ## Anti-padrões (não reintroduzir)
 
+- Disparar a correção de entrega (`deliveryCorrection`) para filial, motoboy, retirada, telefone, e-mail, CEP de origem (`ORIGIN_CEP_REQUIRED`) ou erro de conta EnvioEcom. O fluxo vale só para a loja 1 (`tenant_loja1`, inclusive tenant nulo ou vazio) em CPF/CNPJ, CEP de destino e endereço. Não gravar a URL do n8n no código nem no seed: ela fica em `n8n_delivery_correction_webhook_url` ou no env `N8N_DELIVERY_CORRECTION_WEBHOOK_URL`. Não logar o token, o CPF, o telefone, o endereço nem o corpo do POST.
 - Logar `err` do mysql2/Drizzle com `sql`, `sqlMessage`, `query`, `values` ou `params`, ou devolver `err.message` / `err.stack` na resposta. O comando traz e-mail, hash e salt; o stdout do App Platform vai para o Better Stack. O `console` já passa por `sanitizeForLog` (`safe-log-install.ts`). Erro de banco no log: `code`, `errno`, `sqlState` e frase genérica (`Registro duplicado` quando for `ER_DUP_ENTRY`). Não gravar corpo de request, e-mail, senha, hash, salt, token, CPF, telefone, endereço, cookie nem header `authorization`. Não contornar o console com `process.stdout.write`.
 - Passar `DATABASE_URL` com `?ssl-mode=REQUIRED` direto no `uri` do `mysql2`. O driver trata o parâmetro como opção e avisa no boot. `mysqlPoolOptionsFromUrl` tira `ssl-mode` e `sslmode`. Com `DATABASE_CA_CERT`, o TLS verifica o PEM. Sem o PEM, e com modo diferente de `DISABLED`, o TLS fica `{ rejectUnauthorized: false }`, igual ao backup. URL sem esses parâmetros não liga SSL.
 - Inventar path de sitemap (`/products`, `/category`) ou repetir cada produto em `/:seller/produto/:id`. O router público sem seller é `/produto/:id` e `/categoria/:nome`, com `encodeURIComponent`. `/sitemap.xml` reescreve para `/api/sitemap` antes do proxy da API. O fallback da SPA não pode engolir `/robots.txt` nem `/sitemap.xml`.

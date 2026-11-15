@@ -8,6 +8,7 @@ import {
 } from "@/lib/ship-queue-columns";
 import { AdminFlashOffersPanel } from "@/components/admin/AdminFlashOffersPanel";
 import { WhatsappN8nSettings } from "@/components/admin/WhatsappN8nSettings";
+import type { AdminOrderClientCorrection } from "@/lib/admin-page-types";
 import { WhatsappRecoveryPanel } from "@/components/admin/WhatsappRecoveryPanel";
 import { WhatsAppGroupCampaignCard } from "@/components/admin/WhatsAppGroupCampaignCard";
 import { orderToPostPaymentText } from "@/lib/post-payment-message";
@@ -16610,6 +16611,11 @@ function OrdersPanel({
                           </span>
                         )}
                         {statusBadge(order.status)}
+                        {(order as AdminOrderClientCorrection).clientDataCorrectedAt ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 text-xs font-semibold border border-emerald-200">
+                            Dados corrigidos pelo cliente
+                          </span>
+                        ) : null}
                         {isCard ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 text-xs font-semibold border border-purple-200">
                             <CreditCard className="w-3 h-3" />Cartão{order.cardInstallments ? ` · ${order.cardInstallments}x` : ""}

@@ -8,6 +8,7 @@ import { hasEnvioEcomLabelReady } from "@/lib/pending-shipment-copy";
 import { fetchRelatedCpfShipments, type RelatedCpfShipmentsResult } from "@/lib/related-cpf-shipments";
 import { openShipmentLabelPdf } from "@/lib/shipment-label-download";
 import { RelatedCpfWarningBox } from "@/components/admin/RelatedCpfShipments";
+import { DeliveryCorrectionModal, type DeliveryCorrectionNotice } from "@/components/DeliveryCorrectionModal";
 
 export { hasEnvioEcomLabelReady };
 
@@ -41,6 +42,7 @@ export type EnvioEcomOrderFields = {
   id: string;
   orderNumber?: number | null;
   clientName?: string;
+  clientPhone?: string | null;
   shippingType?: string;
   enviado?: boolean;
   trackingCode?: string | null;
@@ -298,11 +300,18 @@ function formatErrorDetails(details: unknown): string {
 }
 
 async function readErrorPayload(res: Response) {
-  const data = await res.json().catch(() => ({})) as { message?: string; error?: string; details?: unknown };
+  const data = await res.json().catch(() => ({})) as {
+    message?: string;
+    error?: string;
+    details?: unknown;
+    deliveryCorrection?: DeliveryCorrectionNotice;
+  };
   const details = formatErrorDetails(data.details);
+  const notice = data.deliveryCorrection?.message ? data.deliveryCorrection : null;
   return {
     error: String(data.error || "").trim(),
     message: [data.message || data.error, details].filter(Boolean).join(" — ") || "Erro EnvioEcom",
+    deliveryCorrection: notice,
   };
 }
 
@@ -356,6 +365,8 @@ export function EnvioEcomOrderActions({
   const [lossCarrier, setLossCarrier] = useState(DEFAULT_CARRIER_FILTERS[0]);
   const [lossActive, setLossActive] = useState(false);
   const [pendingQuoteAccountId, setPendingQuoteAccountId] = useState<string | null>(null);
+  const [deliveryCorrection, setDeliveryCorrection] = useState<DeliveryCorrectionNotice | null>(null);
+  const [deliveryCorrectionBusy, setDeliveryCorrectionBusy] = useState(false);
   const boundPackage = packageId ? (order.packages || []).find((pkg) => pkg.id === packageId) : null;
   const bound: EnvioEcomOrderFields = boundPackage ? bindOrderFieldsToPackage(order, boundPackage) : order;
   function withPackageId<T extends Record<string, unknown>>(body: T): T & { packageId?: string } {
@@ -454,7 +465,11 @@ export function EnvioEcomOrderActions({
           ...(accountId ? { accountId } : {}),
         })),
       });
-      if (!res.ok) throw new Error(await readError(res));
+      if (!res.ok) {
+        const body = await readErrorPayload(res);
+        if (body.deliveryCorrection) setDeliveryCorrection(body.deliveryCorrection);
+        throw new Error(body.message);
+      }
       const data = await res.json() as {
         quotes?: QuoteOption[];
         unavailableCarriers?: Array<{ carrier?: string; reason?: string; message?: string }>;
@@ -501,7 +516,11 @@ export function EnvioEcomOrderActions({
           accountId: quoteAccountId || undefined,
         })),
       });
-      if (!res.ok) throw new Error(await readError(res));
+      if (!res.ok) {
+        const body = await readErrorPayload(res);
+        if (body.deliveryCorrection) setDeliveryCorrection(body.deliveryCorrection);
+        throw new Error(body.message);
+      }
       const data = await res.json() as { order?: EnvioEcomOrderFields };
       await patchFromResponse(data);
       setQuoteOpen(false);
@@ -510,6 +529,27 @@ export function EnvioEcomOrderActions({
       toast.error(err instanceof Error ? err.message : "Falha ao criar envio.");
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function resendDeliveryCorrection() {
+    if (!deliveryCorrection) return;
+    setDeliveryCorrectionBusy(true);
+    try {
+      const res = await fetch(`${BASE}/api/admin/orders/${order.id}/delivery-correction/resend`, {
+        method: "POST",
+        headers: adminHeaders(),
+      });
+      const data = await res.json().catch(() => ({})) as { message?: string; deliveryCorrection?: DeliveryCorrectionNotice };
+      if (!res.ok || !data.deliveryCorrection) {
+        toast.error(data.message || "Não foi possível reenviar.");
+        return;
+      }
+      setDeliveryCorrection(data.deliveryCorrection);
+    } catch {
+      toast.error("Erro ao reenviar o WhatsApp.");
+    } finally {
+      setDeliveryCorrectionBusy(false);
     }
   }
 
@@ -1264,6 +1304,15 @@ export function EnvioEcomOrderActions({
           </div>
         </div>
       )}
+      {deliveryCorrection ? (
+        <DeliveryCorrectionModal
+          notice={deliveryCorrection}
+          phone={String(order.clientPhone || "")}
+          busy={deliveryCorrectionBusy}
+          onClose={() => setDeliveryCorrection(null)}
+          onResend={() => { void resendDeliveryCorrection(); }}
+        />
+      ) : null}
     </>
   );
 }

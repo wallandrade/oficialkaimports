@@ -22,10 +22,11 @@ function pathnameOnly(path: string): string {
   return raw.startsWith("/") ? raw : `/${raw}`;
 }
 
-/** `/admin` e qualquer rota abaixo (`/admin/login`, etc.). */
+/** `/admin` e a página pública de correção de entrega ficam fora da manutenção. */
 export function isMaintenanceExemptPath(path: string): boolean {
   const normalized = pathnameOnly(path);
-  return normalized === "/admin" || normalized.startsWith("/admin/");
+  if (normalized === "/admin" || normalized.startsWith("/admin/")) return true;
+  return normalized === "/corrigir-entrega" || normalized.startsWith("/corrigir-entrega/");
 }
 
 export function shouldShowMaintenancePage(pathname?: string): boolean {

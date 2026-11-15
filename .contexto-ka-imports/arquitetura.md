@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-15 | Tabela `order_delivery_corrections` e coluna `orders.client_data_corrected_at` | Schema Drizzle e o boot (`runtime-schema`: `CREATE TABLE` e `ALTER TABLE`). Página `/corrigir-entrega`. Rotas públicas e `POST /api/admin/orders/:id/delivery-correction/resend` | Sem SuperFrete. Histórico continua em `order_events` (`delivery_correction_sent`, `delivery_correction_failed`, `delivery_correction_saved`) |
 | 2026-11-15 | Geocode do Motoboy tenta Photon se Nominatim e AwesomeAPI falharem | Falha de fonte vira `console.warn` com source e reason, sem rua nem CEP. Cache de erro cai para 10 min | Lookup continua km antes da faixa de CEP |
 | 2026-11-15 | Lookup Motoboy geocodifica endereço no servidor | `motoboy-geocode.ts` tenta Google → AwesomeAPI → Nominatim → BrasilAPI. Origem fixa na Sé. `geoSource` no match | `GET /api/motoboy-coverage/lookup`. Rota de rua em `motoboy-route.ts`. Faixas iguais |
 | 2026-11-15 | `carrier_loss_incidents.order_id` aceita NULL | Schema Drizzle e o boot (`runtime-schema`: cria a tabela já assim e, se a coluna for NOT NULL, `MODIFY COLUMN`). A chave única `(order_id, package_id)` e o índice da cotação ficam | Pedido com id continua na mesma chave. Não apaga linha |
