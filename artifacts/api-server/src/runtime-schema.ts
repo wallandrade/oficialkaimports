@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { pool } from "@workspace/db";
+import { CARRIER_LOSS_ORDER_ID_NULLABLE_SQL } from "./lib/carrier-loss";
 import { DEFAULT_MOTOBOY_NEIGHBORHOODS } from "./lib/default-motoboy-neighborhoods";
 import { isYuryMotoboySyncConfigured } from "./lib/motoboy-yury-config";
 
@@ -25,6 +26,20 @@ async function tableExists(tableName: string, databaseName: string): Promise<boo
   );
 
   return Array.isArray(rows) && rows.length > 0;
+}
+
+async function columnIsNullable(tableName: string, columnName: string, databaseName: string): Promise<boolean> {
+  const [rows] = await pool.query(
+    `
+      SELECT IS_NULLABLE AS nullable
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?
+      LIMIT 1
+    `,
+    [databaseName, tableName, columnName],
+  );
+  const row = Array.isArray(rows) ? (rows[0] as { nullable?: string } | undefined) : undefined;
+  return String(row?.nullable || "").toUpperCase() === "YES";
 }
 
 async function columnExists(tableName: string, columnName: string, databaseName: string): Promise<boolean> {
@@ -1310,11 +1325,11 @@ async function ensureOrderShipmentColumns(databaseName: string): Promise<void> {
 }
 
 async function ensureCarrierLossIncidentsTable(databaseName: string): Promise<void> {
-  if (await tableExists("carrier_loss_incidents", databaseName)) return;
-  await pool.query(`
+  if (!(await tableExists("carrier_loss_incidents", databaseName))) {
+    await pool.query(`
     CREATE TABLE carrier_loss_incidents (
       id VARCHAR(255) NOT NULL PRIMARY KEY,
-      order_id VARCHAR(255) NOT NULL,
+      order_id VARCHAR(255) NULL,
       package_id VARCHAR(255) NOT NULL DEFAULT '',
       tenant_id VARCHAR(255) NOT NULL,
       carrier_key VARCHAR(128) NOT NULL,
@@ -1338,6 +1353,9 @@ async function ensureCarrierLossIncidentsTable(databaseName: string): Promise<vo
       KEY carrier_loss_incidents_quote_idx (tenant_id, city_key, state, removed_at, occurred_at)
     )
   `);
+  }
+  if (await columnIsNullable("carrier_loss_incidents", "order_id", databaseName)) return;
+  await pool.query(CARRIER_LOSS_ORDER_ID_NULLABLE_SQL);
 }
 
 async function ensureCarrierLossPeerIncidentsTable(databaseName: string): Promise<void> {
