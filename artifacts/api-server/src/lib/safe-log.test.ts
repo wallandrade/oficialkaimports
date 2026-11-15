@@ -139,6 +139,22 @@ test("log operacional sem segredo permanece", () => {
   assert.equal(sanitizeForLog(line), line);
 });
 
+test("resposta HTTP mantém data de coluna como ISO", () => {
+  const createdAt = new Date("2026-11-13T15:09:00.000Z");
+  const body = sanitizeHttpBody({
+    id: "cus_1",
+    createdAt,
+    submittedAt: createdAt,
+    approvedAt: null,
+    invalid: new Date(Number.NaN),
+  }) as { createdAt: string; submittedAt: string; approvedAt: null; invalid: null };
+  assert.equal(body.createdAt, "2026-11-13T15:09:00.000Z");
+  assert.equal(body.submittedAt, body.createdAt);
+  assert.equal(body.approvedAt, null);
+  assert.equal(body.invalid, null);
+  assert.equal(JSON.stringify(sanitizeHttpBody({ createdAt })), JSON.stringify({ createdAt }));
+});
+
 test("resposta HTTP não devolve SQL e o cadastro duplicado continua amigável", () => {
   const friendly = "Já existe uma conta com esse e-mail. Entre com a senha ou peça para a loja redefinir.";
   const kept = sanitizeHttpBody({

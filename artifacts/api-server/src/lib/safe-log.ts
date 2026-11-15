@@ -276,6 +276,10 @@ function sanitizeLogString(value: string, depth: number): string {
   return redactInlineSecrets(capped);
 }
 
+function dateForJson(value: Date): string | null {
+  return Number.isNaN(value.getTime()) ? null : value.toISOString();
+}
+
 function isOpaqueRuntimeObject(value: object): boolean {
   const name = value.constructor?.name || "";
   return (
@@ -298,7 +302,7 @@ function sanitizeValue(value: unknown, depth: number, seen: WeakSet<object>): un
   if (typeof value === "function") return "[function]";
   if (typeof value !== "object") return null;
   if (Buffer.isBuffer(value) || value instanceof Uint8Array) return "[binary]";
-  if (value instanceof Date) return value.toISOString();
+  if (value instanceof Date) return dateForJson(value);
   if (depth > MAX_DEPTH) return "[depth]";
   if (seen.has(value)) return "[circular]";
   if (isOpaqueRuntimeObject(value)) return "[request]";
@@ -345,6 +349,7 @@ function sanitizeHttpValue(value: unknown, depth: number, seen: WeakSet<object>)
     return value;
   }
   if (value == null || typeof value !== "object") return value;
+  if (value instanceof Date) return dateForJson(value);
   if (depth > 12) return null;
   if (seen.has(value)) return null;
   if (isDatabaseError(value)) {
