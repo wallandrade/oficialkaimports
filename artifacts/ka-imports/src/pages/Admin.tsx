@@ -11,6 +11,7 @@ import { WhatsappN8nSettings } from "@/components/admin/WhatsappN8nSettings";
 import { WhatsappRecoveryPanel } from "@/components/admin/WhatsappRecoveryPanel";
 import { WhatsAppGroupCampaignCard } from "@/components/admin/WhatsAppGroupCampaignCard";
 import { orderToPostPaymentText } from "@/lib/post-payment-message";
+import { storeNotificationIcon } from "@/lib/store-logo";
 import {
   emptyVariantGroupDraft,
   parseVariantGroupDrafts,
@@ -3290,14 +3291,19 @@ export default function Admin() {
 
   const showPushNotification = useCallback(async (title: string, body: string) => {
     if (Notification.permission !== "granted") return;
+    let icon = "/favicon.svg";
+    try {
+      const cached = JSON.parse(localStorage.getItem("siteSettings") || "{}") as Record<string, string>;
+      icon = storeNotificationIcon(cached);
+    } catch { /* filial continua no favicon compartilhado */ }
     try {
       if (swRef.current) {
         await swRef.current.showNotification(title, {
-          body, icon: "/favicon.svg", badge: "/favicon.svg",
+          body, icon, badge: icon,
           vibrate: [200, 100, 200], tag: "ka-imports-admin", renotify: true,
         });
       } else {
-        new Notification(title, { body, icon: "/favicon.svg" });
+        new Notification(title, { body, icon });
       }
     } catch { /* ignore */ }
   }, []);

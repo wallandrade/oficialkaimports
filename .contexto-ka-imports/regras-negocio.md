@@ -1,12 +1,13 @@
 # Regras de negócio — KA Imports
 
-> **Última atualização:** 2026-11-14
+> **Última atualização:** 2026-11-15
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-15 | Logo nova só na loja principal | Sem imagem em Configurações, o topo, o rodapé, o login e a manutenção de `tenant_loja1` mostram o wordmark de `/brand/ka/`. O ícone da aba também. Filial com ou sem logo própria não muda | O campo `logo` do admin. Quem salvar uma imagem continua vendo essa imagem no lugar do padrão. Favicon laranja compartilhado das filiais |
 | 2026-11-14 | Admin credita convidado na carteira | Em Clientes, **Adicionar saldo** abre a conta daquele e-mail na loja do admin (`guest:<email>`), gruda os pedidos guest e credita `admin_adjust`. A senha nasce inutilizável (`salt` `nopass:`). O cliente define a senha em **Criar conta** com o mesmo e-mail; se a conta já tinha senha, o cadastro continua 409. **Alterar senha** no convidado faz a mesma abertura e grava a senha. Dois cliques com a mesma `idempotencyKey` creditam uma vez. E-mail pode existir nas duas lojas | Seller-scoped continua 403. Aba Seguro segue por ID. Saldo de afiliado não entra. Impersonar convidado continua desligado |
 | 2026-11-14 | Card Pedidos para Enviar ganha a coluna Envio Shopee | A seta grava `orders.shipping_via` (`shopee` ou nulo) em `PATCH /api/admin/orders/:id/shipping-channel`. Cada lado tem o próprio contador e o próprio Copiar TXT. No celular as colunas ficam uma embaixo da outra. Etiqueta pronta ou enviado tira das duas | Status, PIX, estoque, automações, WhatsApp/n8n e o card Motoboy. A lista do cliente não devolve `shippingVia` |
 | 2026-11-13 | Card grande da home prefere Tirzepatida ou Retatrutida | Na loja 1 (`pharma_compact`), o destaque escolhe a mais vendida entre essas duas linhas (também Tirzepatide/Retatrutide, sem acento e sem diferença de maiúsculas). Se só uma tem item à venda com foto, usa essa. Se nenhuma tem, continua o mais vendido de qualquer categoria | Cards de baixo, vitrines, preço “a partir de” e o tema das filiais |

@@ -1,9 +1,14 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Loader2, Lock, Mail, User, CreditCard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { saveCustomerToken } from "@/lib/customer-auth";
 import { getStoredReferralCode } from "@/lib/affiliate";
+import { fetchPublicSiteSettings } from "@/lib/public-settings";
+import { isMainStoreFromSettings } from "@/lib/store-theme-preset";
+import { resolveStoreLogo } from "@/lib/store-logo";
+import { StoreWordmark } from "@/components/layout/StoreWordmark";
+import { fallbackSiteName } from "@/lib/store-host";
 import { toast } from "sonner";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -31,6 +36,23 @@ export default function CustomerLogin() {
   const [document, setDocument] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [siteSettings, setSiteSettings] = useState<Record<string, string>>(() => {
+    try { return JSON.parse(localStorage.getItem("siteSettings") || "{}"); } catch { return {}; }
+  });
+
+  useEffect(() => {
+    fetchPublicSiteSettings()
+      .then((data) => {
+        if (!data) return;
+        localStorage.setItem("siteSettings", JSON.stringify(data));
+        setSiteSettings(data);
+      })
+      .catch(() => {});
+  }, []);
+
+  const branding = resolveStoreLogo(siteSettings);
+  const showBrand = isMainStoreFromSettings(siteSettings) && Boolean(branding.src);
+  const siteName = String(siteSettings.site_name || "").trim() || fallbackSiteName();
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -104,6 +126,15 @@ export default function CustomerLogin() {
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-100 to-slate-200 flex items-center justify-center px-4 py-10">
       <div className="w-full max-w-md bg-white border border-border rounded-3xl shadow-xl p-7 sm:p-8">
         <div className="text-center mb-6">
+          {showBrand && branding.src ? (
+            <div className="mb-4 flex justify-center">
+              {branding.isDefault ? (
+                <StoreWordmark src={branding.src} alt={siteName} variant="login" />
+              ) : (
+                <img src={branding.src} alt={siteName} className="h-auto max-h-14 w-auto max-w-[220px] object-contain" />
+              )}
+            </div>
+          ) : null}
           <h1 className="text-2xl font-bold text-foreground">Entrar na sua conta</h1>
           <p className="text-sm text-muted-foreground mt-1">Acompanhe seus pedidos com segurança.</p>
         </div>

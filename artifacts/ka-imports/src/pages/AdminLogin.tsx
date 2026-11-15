@@ -5,6 +5,8 @@ import { Lock, User, Eye, EyeOff, Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { fetchPublicSiteSettings } from "@/lib/public-settings";
 import { fallbackSiteName } from "@/lib/store-host";
+import { resolveStoreLogo } from "@/lib/store-logo";
+import { StoreWordmark } from "@/components/layout/StoreWordmark";
 import { toast } from "sonner";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -30,7 +32,8 @@ export default function AdminLogin() {
   }, []);
 
   const siteName = String(siteSettings.site_name || "").trim() || fallbackSiteName();
-  const logo = String(siteSettings.logo || "").trim();
+  const branding = resolveStoreLogo(siteSettings);
+  const logo = branding.src || "";
   const logoScale = Math.min(240, Math.max(100, Number(siteSettings.logo_scale ?? 180) || 180));
 
   const handleSubmit = async (e: FormEvent) => {
@@ -83,7 +86,9 @@ export default function AdminLogin() {
         {/* Logo / Header */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center min-h-20 bg-white rounded-2xl shadow-2xl shadow-primary/20 mb-4 border border-border/10 px-4 py-3">
-            {logo ? (
+            {logo && branding.isDefault ? (
+              <StoreWordmark src={logo} alt={siteName} variant="login" />
+            ) : logo ? (
               <div style={{ width: `${logoScale}px`, maxWidth: "50vw" }} className="flex items-center justify-center">
                 <img src={logo} alt={siteName} className="max-h-16 w-full object-contain" />
               </div>

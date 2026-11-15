@@ -14,6 +14,8 @@ import { reportClientError } from "@/lib/client-error-reporting";
 import { shouldShowMaintenancePage } from "@/lib/maintenance";
 import { fetchPublicSiteSettings, loadStorefrontSettings } from "@/lib/public-settings";
 import { fallbackSiteName } from "@/lib/store-host";
+import { isMainStoreFromSettings } from "@/lib/store-theme-preset";
+import { configuredStoreLogo, mainStoreShareImage } from "@/lib/store-logo";
 import StoreConfiguringPage from "@/pages/StoreConfiguringPage";
 import { resolveStoreThemePreset } from "@/lib/store-theme";
 import Home from "@/pages/Home";
@@ -260,6 +262,15 @@ function applyStoreBrandingFromSettings(settings: Record<string, string>): void 
   upsertMetaTag("name", "description", description);
   upsertMetaTag("property", "og:description", description);
   upsertMetaTag("name", "twitter:description", description);
+
+  if (!isMainStoreFromSettings(settings)) return;
+  const shareImage = configuredStoreLogo(settings) || mainStoreShareImage(settings) || "";
+  if (!shareImage) return;
+  const absolute = /^https?:\/\//i.test(shareImage)
+    ? shareImage
+    : new URL(shareImage, window.location.origin).href;
+  upsertMetaTag("property", "og:image", absolute);
+  upsertMetaTag("name", "twitter:image", absolute);
 }
 
 function PageLoader() {

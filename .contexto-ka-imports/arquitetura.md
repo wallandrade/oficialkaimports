@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-11-14
+> **Última atualização:** 2026-11-15
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-15 | Marca visual só da loja principal | `public/brand/ka/` + `resolveStoreLogo`. `tenant-branding.js` aponta favicon/manifest para essa pasta quando a loja é `tenant_loja1`. O preview de link (`api/link-preview.js`) usa `og.png` se não houver `logo` | `public/favicon.svg` e a logo salva de cada filial. `BrandLoader` |
 | 2026-11-14 | Conta de convidado por loja | `customer_users` troca o único de `email` pelo par `(tenant_id, email)`, no schema e no boot depois do backfill null → loja 1. Tabela criada do zero já nasce com `tenant_id`. `lib/customer-guest-account.ts` abre a conta. O crédito usa o id da linha no ledger como hash da `idempotencyKey` | Carteira continua `customer_wallet_ledger`. Sessão do cliente continua em memória |
 | 2026-11-14 | Coluna `orders.shipping_via` e `PATCH /api/admin/orders/:id/shipping-channel` | `VARCHAR(16) NULL` no schema Drizzle e no boot (`runtime-schema`, `columnExists` + `ALTER TABLE`). O `UPDATE` usa `buildAdminOrderWhere` (loja e, no seller-scoped, o vendedor). `mapOrder` só inclui `shippingVia` quando não é `forCustomer` | Status, PIX, estoque, webhook e n8n |
 | 2026-11-13 | Card grande da home prefere Tirzepatida ou Retatrutida | A escolha continua em `buildHomeHero`, no catálogo já carregado. Sem as duas linhas à venda, o card usa o mais vendido de qualquer categoria | Banner, vitrines e o tema das filiais |
@@ -148,7 +149,8 @@ Monorepo **pnpm workspaces** + TypeScript.
 
 ## Frontend
 
-- Rotas: `artifacts/ka-imports/src/App.tsx` (wouter). Com manutenção ligada, `App` só monta o `WouterRouter`; `AppOrMaintenance` mostra `MaintenancePage` em qualquer rota que não seja `/admin` ou `/admin/*`. `/admin` continua `QueryClientProvider` + `AppInner`. A tela lê `site_name` e `logo` do `localStorage` `siteSettings` (sem API) e usa `BrandLoader` se não houver logo.
+- Rotas: `artifacts/ka-imports/src/App.tsx` (wouter). Com manutenção ligada, `App` só monta o `WouterRouter`; `AppOrMaintenance` mostra `MaintenancePage` em qualquer rota que não seja `/admin` ou `/admin/*`. `/admin` continua `QueryClientProvider` + `AppInner`. A tela lê `site_name` e `logo` do `localStorage` `siteSettings` (sem API). Sem logo, a loja principal mostra o wordmark de `/brand/ka/header.svg`; as outras continuam no `BrandLoader`.
+- Marca: `src/lib/store-logo.ts`. Header, checkout, rodapé, login e manutenção usam `logo` do admin quando existe. Sem ele, só `tenant_loja1` usa o wordmark. Tema `editorial_noir` usa `header-on-dark.svg`. Favicon da aba: `public/tenant-branding.js` (loja 1 → `/brand/ka/favicon.svg` + png 32, apple-touch 180 e manifest; filial → `/favicon.svg`).
 - Manutenção desligada: `MAINTENANCE_MODE_DEFAULT = false` em `src/lib/maintenance.ts` **e** `MAINTENANCE_MODE = false` em `public/tenant-branding.js`. Para ligar de novo, os dois voltam a `true` no mesmo redeploy. `VITE_MAINTENANCE=0` ou `=1` só vale no bundle do Vite; o script público continua no próprio flag.
 - Home: o banner de cima continua primeiro. `HomeHero` entra logo abaixo só na loja 1 com `pharma_compact` e a query limpa, antes das vitrines. Monta o card com o catálogo público já pedido por `useGetProducts` (tenant do domínio). O card grande prefere Tirzepatida ou Retatrutida; sem as duas à venda com foto, usa o mais vendido de qualquer categoria. Sem rota nova. Filial sem preset usa o tema `default`.
 - Carrinho: Zustand persist `src/store/use-cart.ts`.
