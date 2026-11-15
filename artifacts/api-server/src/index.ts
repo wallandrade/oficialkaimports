@@ -1,3 +1,4 @@
+import "./lib/safe-log-install";
 import app from "./app";
 import { startReconciliationJob } from "./reconciliation";
 import { ensureRuntimeSchema } from "./runtime-schema";
@@ -28,13 +29,13 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 // Prevent unhandled promise rejections from crashing the server
-process.on("unhandledRejection", (reason, promise) => {
-  console.error("[Server] Unhandled Rejection at:", promise, "reason:", reason);
+process.on("unhandledRejection", (reason) => {
+  console.error("[Server] Unhandled Rejection:", reason);
 });
 
 // Prevent uncaught exceptions from crashing the server
 process.on("uncaughtException", (err) => {
-  console.error("[Server] Uncaught Exception:", err.message, err.stack);
+  console.error("[Server] Uncaught Exception:", err);
   // Do NOT exit — keep the server running
 });
 

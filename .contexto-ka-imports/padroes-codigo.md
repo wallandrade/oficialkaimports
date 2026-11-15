@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-15 | Anti-padrão: logar erro de banco com o SQL | `sanitizeForLog` + `console` em `safe-log.ts`. Resposta HTTP não devolve o comando. `ER_DUP_ENTRY` no cadastro segue 409 amigável | Sem cliente Better Stack no código. Sucesso do cadastro ainda devolve o e-mail da sessão |
 | 2026-11-15 | Anti-padrão: gravar caso antigo da lista negra com `order_id` vazio | Sem pedido o valor é NULL. A repetição não usa a chave `order_id` + `package_id`. Número antigo + CEP + transportadora; sem número, inclui cidade, UF e bairro | Pedido real continua com id e pacote |
 | 2026-11-15 | Anti-padrão: deixar `ssl-mode` na URI do mysql2 | O pool monta `ssl` em `lib/db/src/pool-config.ts`. O sitemap usa `/produto/:id` e `/categoria/:nome` do Wouter | O backup R2, que já tirava o parâmetro |
 | 2026-11-15 | Logo padrão só da loja principal | Sem `logo` em Configurações, `tenant_loja1` usa `public/brand/ka/header.svg` (texto branco em `header-on-dark.svg` no tema `editorial_noir`). Favicon, apple-touch e manifest saem de `tenant-branding.js` só nessa loja. `public/favicon.svg` continua o ícone laranja das filiais | Upload de `logo` no admin. `BrandLoader` (arco de `logo.jpeg`). Tema e nome das filiais |
@@ -212,6 +213,7 @@ Código > memória > suposições.
 
 ## Anti-padrões (não reintroduzir)
 
+- Logar `err` do mysql2/Drizzle com `sql`, `sqlMessage`, `query`, `values` ou `params`, ou devolver `err.message` / `err.stack` na resposta. O comando traz e-mail, hash e salt; o stdout do App Platform vai para o Better Stack. O `console` já passa por `sanitizeForLog` (`safe-log-install.ts`). Erro de banco no log: `code`, `errno`, `sqlState` e frase genérica (`Registro duplicado` quando for `ER_DUP_ENTRY`). Não gravar corpo de request, e-mail, senha, hash, salt, token, CPF, telefone, endereço, cookie nem header `authorization`. Não contornar o console com `process.stdout.write`.
 - Passar `DATABASE_URL` com `?ssl-mode=REQUIRED` direto no `uri` do `mysql2`. O driver trata o parâmetro como opção e avisa no boot. `mysqlPoolOptionsFromUrl` tira `ssl-mode` e `sslmode`. Com `DATABASE_CA_CERT`, o TLS verifica o PEM. Sem o PEM, e com modo diferente de `DISABLED`, o TLS fica `{ rejectUnauthorized: false }`, igual ao backup. URL sem esses parâmetros não liga SSL.
 - Inventar path de sitemap (`/products`, `/category`) ou repetir cada produto em `/:seller/produto/:id`. O router público sem seller é `/produto/:id` e `/categoria/:nome`, com `encodeURIComponent`. `/sitemap.xml` reescreve para `/api/sitemap` antes do proxy da API. O fallback da SPA não pode engolir `/robots.txt` nem `/sitemap.xml`.
 - Mover o pedido para Envio Shopee só no estado do navegador, ou atualizar `shipping_via` pelo `id` sem a loja. A seta persiste em `PATCH /api/admin/orders/:id/shipping-channel` com `buildAdminOrderWhere` (tenant e, no seller-scoped, `seller_code`). Outra loja e outro vendedor respondem 404. Não devolver `shippingVia` em `mapOrder(..., { forCustomer: true })`. O campo não muda status, PIX, estoque, automação nem WhatsApp.

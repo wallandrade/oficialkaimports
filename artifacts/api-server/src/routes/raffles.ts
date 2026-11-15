@@ -829,7 +829,7 @@ router.post("/admin/raffles", requireAdminAuth, requireStoreWideAdmin, async (re
     res.json(created);
   } catch (err) {
     console.error("[Raffles] POST create error:", err);
-    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao criar rifa: " + (err instanceof Error ? err.message : String(err)) });
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao criar rifa." });
   }
 });
 
