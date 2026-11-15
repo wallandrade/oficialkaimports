@@ -2,6 +2,10 @@ import { historyEventTimeMs } from "./envioecom-status";
 
 export const CARRIER_LOSS_WINDOW_MS = 180 * 24 * 60 * 60 * 1000;
 
+/** Boot da API. A chave única (order_id, package_id) continua; pedido antigo fica com order_id NULL. */
+export const CARRIER_LOSS_ORDER_ID_NULLABLE_SQL =
+  "ALTER TABLE carrier_loss_incidents MODIFY COLUMN order_id VARCHAR(255) NULL";
+
 export const MANUAL_CARRIER_OPTIONS = [
   "Correios Sedex",
   "Correios Pac",
@@ -247,6 +251,219 @@ export function lossAlertForCarrier(
     (a, b) => b.occurredAt.getTime() - a.occurredAt.getTime(),
   )[0];
   return { level, message: lossAlertMessage(cited) };
+}
+
+export type ManualLossDraft = {
+  orderId: null;
+  packageId: "";
+  carrierKey: string;
+  carrierName: string;
+  cityKey: string;
+  cityName: string;
+  state: string;
+  neighborhoodKey: string;
+  neighborhoodName: string | null;
+  cep: string;
+  regionKey: string;
+  incidentType: CarrierLossType;
+  source: "manual";
+  rawStatus: string | null;
+  orderNumber: number | null;
+  occurredAt: Date;
+};
+
+export type UnlinkedLossDedupe =
+  | { kind: "order"; orderNumber: number; cep: string; carrierKey: string }
+  | {
+    kind: "place";
+    cep: string;
+    carrierKey: string;
+    cityKey: string;
+    state: string;
+    neighborhoodKey: string;
+  };
+
+export type ManualLossDraftResult =
+  | { ok: true; draft: ManualLossDraft; dedupe: UnlinkedLossDedupe }
+  | { ok: false; error: string; message: string };
+
+function bodyField(body: Record<string, unknown>, ...keys: string[]): unknown {
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(body, key)) continue;
+    const value = body[key];
+    if (value == null) continue;
+    if (typeof value === "string" && value.trim() === "") continue;
+    return value;
+  }
+  return undefined;
+}
+
+function parseLegacyOrderNumber(value: unknown): { ok: true; orderNumber: number | null } | { ok: false } {
+  if (value == null || (typeof value === "string" && value.trim() === "")) return { ok: true, orderNumber: null };
+  const text = String(value).trim();
+  if (!/^\d+$/.test(text)) return { ok: false };
+  const parsed = Number(text);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) return { ok: false };
+  return { ok: true, orderNumber: parsed };
+}
+
+/** Caso antigo, sem linha em `orders`. A repetição usa número + CEP + transportadora. */
+export function unlinkedLossDedupe(input: {
+  orderNumber: number | null;
+  cep: string;
+  carrierKey: string;
+  cityKey: string;
+  state: string;
+  neighborhoodKey: string;
+}): UnlinkedLossDedupe {
+  if (input.orderNumber != null && input.orderNumber > 0) {
+    return {
+      kind: "order",
+      orderNumber: input.orderNumber,
+      cep: input.cep,
+      carrierKey: input.carrierKey,
+    };
+  }
+  return {
+    kind: "place",
+    cep: input.cep,
+    carrierKey: input.carrierKey,
+    cityKey: input.cityKey,
+    state: input.state,
+    neighborhoodKey: input.neighborhoodKey,
+  };
+}
+
+export function buildManualCarrierLossDraft(body: unknown, now = new Date()): ManualLossDraftResult {
+  const record = body && typeof body === "object" ? body as Record<string, unknown> : {};
+  const carrierRaw = String(bodyField(record, "carrier", "carrierName") || "").trim();
+  if (!carrierRaw) {
+    return { ok: false, error: "CARRIER_REQUIRED", message: "Escolha a transportadora." };
+  }
+  if (!isAllowedManualCarrier(carrierRaw)) {
+    return { ok: false, error: "INVALID_CARRIER", message: "Transportadora não aceita." };
+  }
+  const cityName = String(bodyField(record, "city", "cityName") || "").trim();
+  const state = stateCode(bodyField(record, "state"));
+  const cep = cepDigits(bodyField(record, "cep"));
+  if (!cityName) return { ok: false, error: "INVALID_ADDRESS", message: "Informe a cidade." };
+  if (!state) return { ok: false, error: "INVALID_ADDRESS", message: "Informe a UF com 2 letras." };
+  if (cep.length !== 8) return { ok: false, error: "INVALID_ADDRESS", message: "Informe o CEP com 8 dígitos." };
+  const neighborhoodName = String(bodyField(record, "neighborhood", "neighborhoodName") || "").trim();
+  const orderNumber = parseLegacyOrderNumber(bodyField(record, "orderNumber", "order_number"));
+  if (!orderNumber.ok) {
+    return { ok: false, error: "INVALID_ORDER_NUMBER", message: "Número do pedido antigo inválido." };
+  }
+  const typeRaw = String(bodyField(record, "incidentType", "incident_type") || "manual").trim().toLowerCase();
+  if (!isSharedLossKind(typeRaw)) {
+    return { ok: false, error: "INVALID_TYPE", message: "Tipo do caso não aceito." };
+  }
+  const occurredRaw = bodyField(record, "occurredAt", "occurred_at");
+  let occurredAt = now;
+  if (occurredRaw != null) {
+    const parsed = new Date(String(occurredRaw));
+    if (Number.isNaN(parsed.getTime())) {
+      return { ok: false, error: "INVALID_DATE", message: "Data do caso inválida." };
+    }
+    occurredAt = parsed;
+  }
+  const rawStatus = String(bodyField(record, "rawStatus", "raw_status") || "").trim().slice(0, 4000) || null;
+  const draft: ManualLossDraft = {
+    orderId: null,
+    packageId: "",
+    carrierKey: carrierKey(carrierRaw),
+    carrierName: carrierDisplayName(carrierRaw),
+    cityKey: foldPlace(cityName),
+    cityName,
+    state,
+    neighborhoodKey: foldPlace(neighborhoodName),
+    neighborhoodName: neighborhoodName || null,
+    cep,
+    regionKey: lossRegionKey(cityName, state, cep),
+    incidentType: typeRaw,
+    source: "manual",
+    rawStatus,
+    orderNumber: orderNumber.orderNumber,
+    occurredAt,
+  };
+  return {
+    ok: true,
+    draft,
+    dedupe: unlinkedLossDedupe(draft),
+  };
+}
+
+export function lossAlertsFromStoreRows(
+  rows: Array<{
+    orderId?: string | null;
+    cityKey: string;
+    state: string;
+    regionKey: string;
+    carrierKey: string;
+    carrierName: string;
+    neighborhoodKey: string;
+    neighborhoodName: string | null;
+    incidentType: string;
+    orderNumber: number | null;
+    occurredAt: Date | string;
+    cityName: string;
+  }>,
+  destination: { city?: string | null; state?: string | null; cep?: string | null },
+): CarrierLossAlertIncident[] {
+  const cityName = String(destination.city || "").trim();
+  const state = stateCode(destination.state);
+  const cep = cepDigits(destination.cep);
+  const region = lossRegionKey(cityName, state, cep);
+  if (!foldPlace(cityName) || !state || cep.length !== 8 || lossLookupCityKeys(cityName, state).length === 0) {
+    return [];
+  }
+  const place = { city: cityName, state, regionKey: region };
+  return rows
+    .filter((row) => lossIncidentMatchesDestination(
+      { cityKey: row.cityKey, state: row.state, regionKey: row.regionKey },
+      place,
+    ))
+    .map((row) => {
+      const numeric = Number(row.orderNumber);
+      const orderNumber = Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : null;
+      const occurredAt = row.occurredAt instanceof Date ? row.occurredAt : new Date(row.occurredAt);
+      return {
+        carrierKey: row.carrierKey,
+        carrierName: row.carrierName,
+        neighborhoodKey: row.neighborhoodKey || "",
+        neighborhoodName: row.neighborhoodName,
+        regionKey: row.regionKey,
+        incidentType: row.incidentType,
+        orderNumber,
+        occurredAt: Number.isNaN(occurredAt.getTime()) ? new Date(0) : occurredAt,
+        cityName: row.cityName,
+        state: stateCode(row.state),
+        fromPeer: false,
+      };
+    });
+}
+
+export function storeLossListOrder(row: {
+  orderId?: string | null;
+  orderNumber?: number | null;
+}): { orderId: string | null; orderNumber: number | null; legacy: boolean; orderLabel: string } {
+  const numeric = Number(row.orderNumber);
+  const orderNumber = Number.isFinite(numeric) && numeric > 0 ? Math.trunc(numeric) : null;
+  const orderId = String(row.orderId || "").trim() || null;
+  if (!orderId) {
+    return {
+      orderId: null,
+      orderNumber,
+      legacy: true,
+      orderLabel: orderNumber ? String(orderNumber) : "Sem pedido",
+    };
+  }
+  return {
+    orderId,
+    orderNumber,
+    legacy: false,
+    orderLabel: orderNumber ? String(orderNumber) : orderId,
+  };
 }
 
 export function lossAlertMessage(incident: CarrierLossAlertIncident): string {

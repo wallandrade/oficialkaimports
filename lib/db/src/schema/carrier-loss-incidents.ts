@@ -2,7 +2,7 @@ import { index, int, mysqlTable, text, timestamp, uniqueIndex, varchar } from "d
 
 export const carrierLossIncidentsTable = mysqlTable("carrier_loss_incidents", {
   id: varchar("id", { length: 255 }).primaryKey(),
-  orderId: varchar("order_id", { length: 255 }).notNull(),
+  orderId: varchar("order_id", { length: 255 }),
   packageId: varchar("package_id", { length: 255 }).notNull().default(""),
   tenantId: varchar("tenant_id", { length: 255 }).notNull(),
   carrierKey: varchar("carrier_key", { length: 128 }).notNull(),

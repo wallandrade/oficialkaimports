@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-15 | Anti-padrão: gravar caso antigo da lista negra com `order_id` vazio | Sem pedido o valor é NULL. A repetição não usa a chave `order_id` + `package_id`. Número antigo + CEP + transportadora; sem número, inclui cidade, UF e bairro | Pedido real continua com id e pacote |
 | 2026-11-15 | Anti-padrão: deixar `ssl-mode` na URI do mysql2 | O pool monta `ssl` em `lib/db/src/pool-config.ts`. O sitemap usa `/produto/:id` e `/categoria/:nome` do Wouter | O backup R2, que já tirava o parâmetro |
 | 2026-11-15 | Logo padrão só da loja principal | Sem `logo` em Configurações, `tenant_loja1` usa `public/brand/ka/header.svg` (texto branco em `header-on-dark.svg` no tema `editorial_noir`). Favicon, apple-touch e manifest saem de `tenant-branding.js` só nessa loja. `public/favicon.svg` continua o ícone laranja das filiais | Upload de `logo` no admin. `BrandLoader` (arco de `logo.jpeg`). Tema e nome das filiais |
 | 2026-11-14 | Anti-padrão: senha conhecida na conta aberta pelo saldo, ou creditar o e-mail de outra loja | Conta nova usa salt `nopass:` + PBKDF2 de segredo aleatório. Login não aceita essa conta. **Criar conta** no mesmo e-mail define a senha. O índice único é `(tenant_id, email)` | Seller-scoped segue 403. Impersonar não abre convidado |
@@ -232,6 +233,7 @@ Código > memória > suposições.
 - Assumir PostgreSQL / Prisma / Next / Nest.
 - Polling de status no gateway APPCNPay (bloqueado; usar webhook + BD local).
 - Gravar caso da Yury em `carrier_loss_incidents` ou devolver esse espelho no `GET /api/integrations/loss-blacklist/snapshot`. O mesmo extravio conta duas vezes na cotação deles. Os dois tokens (`LOSS_SYNC_TOKEN` e `YURY_LOSS_SYNC_TOKEN`) não podem ter o mesmo valor.
+- Gravar caso antigo da lista negra com `order_id` `''` no lugar de NULL. A chave única não segura NULL, então a repetição é número + CEP + transportadora (sem número: cidade, UF, bairro, CEP e transportadora).
 - Usar `GATEWAY_IDENTIFIER`/`GATEWAY_SECRET` ou `DENTPEG_API_KEY` no PIX de uma filial. Sem o par em `tenant_settings`, a filial responde `PIX não configurado para esta loja`. O env e a conta DentPeg são só da loja 1. Não misturar pública da loja com secret do env. Não herdar `site_settings` no checkout/rifa da filial.
 - Usar `N8N_ORDER_PAID_WEBHOOK_URL`, `N8N_SUPPORT_ATTENDANT_PHONE`, `N8N_SECOND_INSTANCE_SELLER_SLUGS`, `N8N_POLY_INSTANCE_ID` ou outra URL `N8N_*_WEBHOOK_URL` numa filial. Esses env são só da loja 1 (`whatsappServerEnv`). Filial fica no `tenant_settings` dela. Não listar pedido `paid` da prova social sem a loja do host (loja 1 inclui nulo e `''`).
 - Copiar `products.cost_price` da loja 1 para a filial no sync, ou regravar o custo da filial no update. O insert usa `0.00`. O update não manda `costPrice`.

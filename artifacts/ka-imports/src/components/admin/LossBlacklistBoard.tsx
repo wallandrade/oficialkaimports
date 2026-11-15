@@ -1,9 +1,10 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useState, type FormEvent } from "react";
 import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ShippingStatusTimeline } from "@/components/ShippingStatusTimeline";
 import { formatDateBR } from "@/lib/utils";
+import { lossBlacklistRowView } from "@/components/admin/loss-blacklist-row";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -21,10 +22,30 @@ type LossEvent = {
   at?: string | null;
 };
 
+const MANUAL_CARRIERS = [
+  "Correios Sedex",
+  "Correios Pac",
+  "Correios Mini Envios",
+  "J&T Express envioEcom",
+  "Jadlog envioEcom",
+  "Ponto Loggi envioEcom",
+  "BUSLOG envioEcom",
+];
+
+const INCIDENT_TYPES = [
+  { value: "manual", label: "Manual" },
+  { value: "extravio", label: "Extravio" },
+  { value: "roubo", label: "Roubo" },
+  { value: "furto", label: "Furto" },
+  { value: "sinistro", label: "Sinistro" },
+];
+
 export type LossBlacklistItem = {
   id: string;
   origin?: "store" | "peer" | null;
-  orderId: string;
+  orderId?: string | null;
+  legacy?: boolean | null;
+  orderLabel?: string | null;
   packageId?: string | null;
   orderNumber?: number | null;
   clientName?: string | null;
@@ -51,12 +72,6 @@ const TYPE_LABEL: Record<string, string> = {
   manual: "Manual",
 };
 
-function displayOrderNumber(item: LossBlacklistItem): string {
-  const numeric = Number(item.orderNumber);
-  if (Number.isFinite(numeric) && numeric > 0) return String(Math.trunc(numeric));
-  return item.orderId;
-}
-
 function placeLabel(item: LossBlacklistItem): string {
   const city = [item.cityName, item.state].filter(Boolean).join("/");
   const neighborhood = String(item.neighborhoodName || "").trim();
@@ -82,6 +97,7 @@ export function LossBlacklistBoard({
   const [truncated, setTruncated] = useState(false);
   const [peer, setPeer] = useState<{ enabled: boolean; ok: boolean }>({ enabled: false, ok: false });
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQ(q.trim()), 300);
@@ -116,7 +132,7 @@ export function LossBlacklistBoard({
     return () => {
       cancelled = true;
     };
-  }, [debouncedQ, includeRemoved]);
+  }, [debouncedQ, includeRemoved, reloadKey]);
 
   async function removeFromList(item: LossBlacklistItem) {
     if (!window.confirm("Tirar da lista negra de extravio?")) return;
@@ -125,8 +141,11 @@ export function LossBlacklistBoard({
       const params = new URLSearchParams();
       if (item.packageId) params.set("packageId", item.packageId);
       const query = params.toString();
+      const legacy = lossBlacklistRowView(item).legacy;
       const res = await fetch(
-        `${BASE}/api/admin/envioecom/orders/${item.orderId}/loss-blacklist${query ? `?${query}` : ""}`,
+        legacy
+          ? `${BASE}/api/admin/envioecom/loss-blacklist/${item.id}`
+          : `${BASE}/api/admin/envioecom/orders/${item.orderId}/loss-blacklist${query ? `?${query}` : ""}`,
         { method: "DELETE", headers: adminHeaders() },
       );
       const data = await res.json().catch(() => ({})) as { message?: string };
@@ -169,6 +188,7 @@ export function LossBlacklistBoard({
           A lista da outra loja não respondeu. Mostrando só a nossa.
         </p>
       ) : null}
+      <LegacyLossForm onCreated={() => setReloadKey((value) => value + 1)} />
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
@@ -178,7 +198,7 @@ export function LossBlacklistBoard({
         <div className="space-y-6">
           <LossBlock
             title="Esta loja"
-            hint="Extravios gravados aqui. Dá para tirar da lista."
+            hint="Extravios gravados aqui, inclusive pedido antigo sem cadastro. Dá para tirar da lista."
             items={items.filter((item) => item.origin !== "peer")}
             expandedId={expandedId}
             removingId={removingId}
@@ -249,6 +269,7 @@ function LossBlock({
             <tbody>
               {items.map((item) => {
                 const peerRow = item.origin === "peer";
+                const view = lossBlacklistRowView(item);
                 const open = expandedId === item.id;
                 const removed = !!item.removedAt;
                 return (
@@ -258,8 +279,10 @@ function LossBlock({
                       onClick={() => onToggle(open ? null : item.id)}
                     >
                       <td className="px-3 py-2 align-top">
-                        {peerRow ? (
-                          <span className="font-semibold text-foreground">Outra loja</span>
+                        {peerRow || !view.opensOrder ? (
+                          <span className="font-semibold text-foreground">
+                            {peerRow ? "Outra loja" : `#${view.label}`}
+                          </span>
                         ) : (
                           <button
                             type="button"
@@ -269,9 +292,12 @@ function LossBlock({
                               onOpenOrder?.(item);
                             }}
                           >
-                            #{displayOrderNumber(item)}
+                            #{view.label}
                           </button>
                         )}
+                        {view.legacy ? (
+                          <p className="text-xs text-muted-foreground">Pedido antigo</p>
+                        ) : null}
                         {!peerRow && item.packageId ? (
                           <p className="text-xs text-muted-foreground">Pacote</p>
                         ) : null}
@@ -326,13 +352,19 @@ function LossBlock({
                             <p className="text-sm text-foreground">Caso da outra loja. Dá para tirar só na lista de lá.</p>
                           ) : (
                             <>
+                              {view.legacy ? (
+                                <p className="mb-2 text-sm text-foreground">
+                                  Pedido antigo, sem cadastro nesta loja.
+                                  {item.cep ? ` CEP ${item.cep}.` : ""}
+                                </p>
+                              ) : null}
                               {item.rawStatus ? (
                                 <p className="mb-3 text-xs text-muted-foreground">Registro: {item.rawStatus}</p>
                               ) : null}
                               <ShippingStatusTimeline
                                 events={item.events || []}
                                 title="Caminho na EnvioEcom"
-                                emptyText="Sem histórico EnvioEcom neste envio."
+                                emptyText={view.legacy ? "Sem rastreio. Este caso não tem pedido no sistema." : "Sem histórico EnvioEcom neste envio."}
                               />
                             </>
                           )}
@@ -346,6 +378,180 @@ function LossBlock({
           </table>
         </div>
       )}
+    </section>
+  );
+}
+
+function LegacyLossForm({ onCreated }: { onCreated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [carrier, setCarrier] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
+  const [neighborhood, setNeighborhood] = useState("");
+  const [cep, setCep] = useState("");
+  const [orderNumber, setOrderNumber] = useState("");
+  const [incidentType, setIncidentType] = useState("manual");
+  const [rawStatus, setRawStatus] = useState("");
+  const [occurredAt, setOccurredAt] = useState("");
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      const body: Record<string, string> = {
+        carrier,
+        city: city.trim(),
+        state: state.trim().toUpperCase(),
+        cep: cep.replace(/\D/g, ""),
+        incidentType,
+      };
+      if (neighborhood.trim()) body.neighborhood = neighborhood.trim();
+      if (orderNumber.trim()) body.orderNumber = orderNumber.trim();
+      if (rawStatus.trim()) body.rawStatus = rawStatus.trim();
+      if (occurredAt) {
+        const parsed = new Date(occurredAt);
+        if (Number.isNaN(parsed.getTime())) throw new Error("Data do caso inválida.");
+        body.occurredAt = parsed.toISOString();
+      }
+      const res = await fetch(`${BASE}/api/admin/envioecom/loss-blacklist`, {
+        method: "POST",
+        headers: adminHeaders(),
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({})) as { message?: string };
+      if (!res.ok) throw new Error(data.message || "Falha ao gravar o caso antigo.");
+      toast.success("Caso antigo gravado na lista negra.");
+      setCarrier("");
+      setCity("");
+      setState("");
+      setNeighborhood("");
+      setCep("");
+      setOrderNumber("");
+      setIncidentType("manual");
+      setRawStatus("");
+      setOccurredAt("");
+      setOpen(false);
+      onCreated();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao gravar o caso antigo.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="rounded-xl border border-border bg-white">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between px-3 py-2 text-left text-sm font-semibold"
+        onClick={() => setOpen((value) => !value)}
+      >
+        Caso antigo sem pedido
+        {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+      </button>
+      {open ? (
+        <form onSubmit={(event) => void submit(event)} className="grid gap-3 border-t border-border px-3 py-3 sm:grid-cols-2">
+          <p className="sm:col-span-2 text-sm text-muted-foreground">
+            Para extravio de antes, quando o pedido não existe nesta loja. O mesmo número, CEP e transportadora atualiza a linha em vez de criar outra.
+          </p>
+          <label className="text-sm font-medium">
+            Transportadora
+            <select
+              required
+              value={carrier}
+              onChange={(event) => setCarrier(event.target.value)}
+              className="mt-1 h-11 w-full rounded-xl border-2 border-border bg-white px-3 text-sm outline-none focus:border-primary"
+            >
+              <option value="">Escolha</option>
+              {MANUAL_CARRIERS.map((option) => (
+                <option key={option} value={option}>{option.replace(/\s+envioEcom$/i, "")}</option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm font-medium">
+            Tipo
+            <select
+              value={incidentType}
+              onChange={(event) => setIncidentType(event.target.value)}
+              className="mt-1 h-11 w-full rounded-xl border-2 border-border bg-white px-3 text-sm outline-none focus:border-primary"
+            >
+              {INCIDENT_TYPES.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm font-medium">
+            Cidade
+            <input
+              required
+              value={city}
+              onChange={(event) => setCity(event.target.value)}
+              className="mt-1 h-11 w-full rounded-xl border-2 border-border bg-white px-3 text-sm outline-none focus:border-primary"
+            />
+          </label>
+          <label className="text-sm font-medium">
+            UF
+            <input
+              required
+              maxLength={2}
+              value={state}
+              onChange={(event) => setState(event.target.value.toUpperCase())}
+              className="mt-1 h-11 w-full rounded-xl border-2 border-border bg-white px-3 text-sm uppercase outline-none focus:border-primary"
+            />
+          </label>
+          <label className="text-sm font-medium">
+            Bairro
+            <input
+              value={neighborhood}
+              onChange={(event) => setNeighborhood(event.target.value)}
+              className="mt-1 h-11 w-full rounded-xl border-2 border-border bg-white px-3 text-sm outline-none focus:border-primary"
+            />
+          </label>
+          <label className="text-sm font-medium">
+            CEP
+            <input
+              required
+              inputMode="numeric"
+              value={cep}
+              onChange={(event) => setCep(event.target.value)}
+              placeholder="00000000"
+              className="mt-1 h-11 w-full rounded-xl border-2 border-border bg-white px-3 text-sm outline-none focus:border-primary"
+            />
+          </label>
+          <label className="text-sm font-medium">
+            Número antigo
+            <input
+              value={orderNumber}
+              onChange={(event) => setOrderNumber(event.target.value)}
+              inputMode="numeric"
+              className="mt-1 h-11 w-full rounded-xl border-2 border-border bg-white px-3 text-sm outline-none focus:border-primary"
+            />
+          </label>
+          <label className="text-sm font-medium">
+            Data
+            <input
+              type="datetime-local"
+              value={occurredAt}
+              onChange={(event) => setOccurredAt(event.target.value)}
+              className="mt-1 h-11 w-full rounded-xl border-2 border-border bg-white px-3 text-sm outline-none focus:border-primary"
+            />
+          </label>
+          <label className="sm:col-span-2 text-sm font-medium">
+            Observação
+            <input
+              value={rawStatus}
+              onChange={(event) => setRawStatus(event.target.value)}
+              className="mt-1 h-11 w-full rounded-xl border-2 border-border bg-white px-3 text-sm outline-none focus:border-primary"
+            />
+          </label>
+          <div className="sm:col-span-2">
+            <Button type="submit" disabled={saving}>
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Gravar caso antigo"}
+            </Button>
+          </div>
+        </form>
+      ) : null}
     </section>
   );
 }

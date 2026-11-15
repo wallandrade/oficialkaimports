@@ -9,10 +9,12 @@ import { notifyOrderTrackingWhatsapp } from "../lib/whatsapp-n8n";
 import { carrierDisplayName, isAllowedManualCarrier } from "../lib/carrier-loss";
 import {
   attachLossAlerts,
+  createUnlinkedCarrierLoss,
   getCarrierLossState,
   listCarrierLossBoard,
   lossPackageId,
   removeCarrierLoss,
+  removeUnlinkedCarrierLoss,
   upsertCarrierLoss,
 } from "../lib/carrier-loss-store";
 import { attachDeliveryHints } from "../lib/carrier-delivery-hint-store";
@@ -851,6 +853,42 @@ router.get("/admin/envioecom/loss-blacklist", requireAdminAuth, async (req, res)
       includeRemoved: String(query.includeRemoved || "") === "1",
     });
     res.json(board);
+  } catch (err) {
+    sendEnvioEcomError(res, err);
+  }
+});
+
+router.post("/admin/envioecom/loss-blacklist", requireAdminAuth, async (req, res) => {
+  try {
+    const admin = requireEnvioEcomAdmin(req, res);
+    if (!admin) return;
+    const result = await createUnlinkedCarrierLoss({ tenantId: admin.tenantId, body: req.body });
+    if (!result.ok) {
+      res.status(400).json({ error: result.error, message: result.message });
+      return;
+    }
+    res.json({
+      ok: true,
+      id: result.id,
+      active: true,
+      reopened: result.result === "reopened",
+      orderId: null,
+    });
+  } catch (err) {
+    sendEnvioEcomError(res, err);
+  }
+});
+
+router.delete("/admin/envioecom/loss-blacklist/:id", requireAdminAuth, async (req, res) => {
+  try {
+    const admin = requireEnvioEcomAdmin(req, res);
+    if (!admin) return;
+    const result = await removeUnlinkedCarrierLoss(String(req.params.id || ""), admin.tenantId);
+    if (result.result === "missing") {
+      res.status(404).json({ error: "NOT_FOUND", message: "Este caso não está na lista negra." });
+      return;
+    }
+    res.json({ ok: true, active: false });
   } catch (err) {
     sendEnvioEcomError(res, err);
   }

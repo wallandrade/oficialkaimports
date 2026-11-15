@@ -11,15 +11,19 @@ import {
   cepDigits,
   classifyCarrierLoss,
   foldPlace,
+  buildManualCarrierLossDraft,
   lossAlertForCarrier,
-  lossIncidentMatchesDestination,
+  lossAlertsFromStoreRows,
   lossLookupCityKeys,
   lossRegionKey,
   nextOccurredAt,
   stateCode,
+  storeLossListOrder,
   type CarrierLossAlertIncident,
   type CarrierLossPhrase,
   type CarrierLossType,
+  type ManualLossDraft,
+  type UnlinkedLossDedupe,
 } from "./carrier-loss";
 import { trackingEventsNewestFirst, type EnvioEcomHistoryEvent } from "./envioecom-status";
 import { DEFAULT_TENANT_ID } from "./tenant-context";
@@ -132,6 +136,105 @@ export async function upsertCarrierLoss(input: {
   return updateLossRow(existing, fields, now);
 }
 
+export async function createUnlinkedCarrierLoss(input: {
+  tenantId?: string | null;
+  body: unknown;
+}): Promise<
+  | { ok: false; error: string; message: string }
+  | { ok: true; id: string; result: "created" | "updated" | "reopened" }
+> {
+  const now = new Date();
+  const built = buildManualCarrierLossDraft(input.body, now);
+  if (!built.ok) return built;
+  const tenantId = tenantKey(input.tenantId);
+  const fields = draftFields(built.draft, tenantId, now);
+  const existing = await findUnlinkedLossRow(tenantId, built.dedupe);
+  if (!existing) {
+    const id = `cli_${crypto.randomBytes(8).toString("hex")}`;
+    try {
+      await db.insert(carrierLossIncidentsTable).values({
+        id,
+        orderId: null,
+        packageId: "",
+        ...fields,
+        occurredAt: built.draft.occurredAt,
+        removedAt: null,
+        createdAt: now,
+      });
+      return { ok: true, id, result: "created" };
+    } catch (err) {
+      if (!isDuplicateKey(err)) throw err;
+      const raced = await findUnlinkedLossRow(tenantId, built.dedupe);
+      if (!raced) throw err;
+      return updateUnlinkedLossRow(raced, fields, built.draft.occurredAt, now);
+    }
+  }
+  return updateUnlinkedLossRow(existing, fields, built.draft.occurredAt, now);
+}
+
+async function findUnlinkedLossRow(tenantId: string, dedupe: UnlinkedLossDedupe): Promise<LossRow | null> {
+  const conditions = [
+    isNull(carrierLossIncidentsTable.orderId),
+    eq(carrierLossIncidentsTable.tenantId, tenantId),
+    eq(carrierLossIncidentsTable.carrierKey, dedupe.carrierKey),
+    eq(carrierLossIncidentsTable.cep, dedupe.cep),
+  ];
+  if (dedupe.kind === "order") {
+    conditions.push(eq(carrierLossIncidentsTable.orderNumber, dedupe.orderNumber));
+  } else {
+    conditions.push(isNull(carrierLossIncidentsTable.orderNumber));
+    conditions.push(eq(carrierLossIncidentsTable.cityKey, dedupe.cityKey));
+    conditions.push(eq(carrierLossIncidentsTable.state, dedupe.state));
+    conditions.push(eq(carrierLossIncidentsTable.neighborhoodKey, dedupe.neighborhoodKey));
+  }
+  const rows = await db
+    .select()
+    .from(carrierLossIncidentsTable)
+    .where(and(...conditions))
+    .orderBy(desc(carrierLossIncidentsTable.occurredAt))
+    .limit(1);
+  return rows[0] || null;
+}
+
+function draftFields(draft: ManualLossDraft, tenantId: string, now: Date) {
+  return {
+    tenantId,
+    carrierKey: draft.carrierKey,
+    carrierName: draft.carrierName,
+    cityKey: draft.cityKey,
+    cityName: draft.cityName,
+    state: draft.state,
+    neighborhoodKey: draft.neighborhoodKey,
+    neighborhoodName: draft.neighborhoodName,
+    cep: draft.cep,
+    regionKey: draft.regionKey,
+    incidentType: draft.incidentType,
+    source: draft.source,
+    rawStatus: draft.rawStatus,
+    orderNumber: draft.orderNumber,
+    updatedAt: now,
+  };
+}
+
+async function updateUnlinkedLossRow(
+  existing: LossRow,
+  fields: ReturnType<typeof draftFields>,
+  occurredAt: Date,
+  now: Date,
+): Promise<{ ok: true; id: string; result: "updated" | "reopened" }> {
+  const removedAt = asDate(existing.removedAt);
+  const reopening = removedAt != null;
+  await db
+    .update(carrierLossIncidentsTable)
+    .set({
+      ...fields,
+      removedAt: null,
+      occurredAt: reopening ? occurredAt : (asDate(existing.occurredAt) || occurredAt),
+    })
+    .where(eq(carrierLossIncidentsTable.id, existing.id));
+  return { ok: true, id: existing.id, result: reopening ? "reopened" : "updated" };
+}
+
 async function updateLossRow(
   existing: LossRow,
   fields: {
@@ -207,7 +310,9 @@ export async function recordAutomaticCarrierLoss(input: {
 export type CarrierLossBoardItem = {
   id: string;
   origin: "store" | "peer";
-  orderId: string;
+  orderId: string | null;
+  legacy: boolean;
+  orderLabel: string;
   packageId: string | null;
   orderNumber: number | null;
   clientName: string | null;
@@ -244,7 +349,7 @@ export async function listCarrierLossBoard(input: {
     .where(and(...conditions))
     .orderBy(desc(carrierLossIncidentsTable.occurredAt));
 
-  const orderIds = [...new Set(rows.map((row) => row.orderId).filter(Boolean))];
+  const orderIds = [...new Set(rows.flatMap((row) => (row.orderId ? [row.orderId] : [])))];
   const packageIds = [...new Set(rows.map((row) => row.packageId).filter(Boolean))];
   const orders = orderIds.length
     ? await db
@@ -275,16 +380,22 @@ export async function listCarrierLossBoard(input: {
   const query = foldPlace(input.q);
 
   const items = rows.flatMap((row) => {
-    const order = orderById.get(row.orderId);
+    const order = row.orderId ? orderById.get(row.orderId) : undefined;
     const pkg = row.packageId ? packageById.get(row.packageId) : null;
     const history = row.packageId ? pkg?.envioecomStatusHistory : order?.envioecomStatusHistory;
     const shipment = row.packageId ? pkg : order;
+    const identity = storeLossListOrder({
+      orderId: row.orderId,
+      orderNumber: row.orderNumber ?? order?.orderNumber ?? null,
+    });
     const item: CarrierLossBoardItem = {
       id: row.id,
       origin: "store",
-      orderId: row.orderId,
+      orderId: identity.orderId,
+      legacy: identity.legacy,
+      orderLabel: identity.orderLabel,
       packageId: row.packageId || null,
-      orderNumber: row.orderNumber ?? order?.orderNumber ?? null,
+      orderNumber: identity.orderNumber,
       clientName: order?.clientName ?? null,
       carrierName: row.carrierName,
       cityName: row.cityName,
@@ -346,7 +457,9 @@ async function listPeerLossBoardItems(
     const item: CarrierLossBoardItem = {
       id: row.id,
       origin: "peer",
-      orderId: "",
+      orderId: null,
+      legacy: false,
+      orderLabel: "Outra loja",
       packageId: null,
       orderNumber: null,
       clientName: null,
@@ -402,6 +515,32 @@ export async function removeCarrierLoss(
   return { result: "removed", carrierName: row.carrierName };
 }
 
+export async function removeUnlinkedCarrierLoss(
+  id: string,
+  tenantId: string,
+): Promise<{ result: "removed" | "missing" | "already"; carrierName: string | null }> {
+  const key = String(id || "").trim();
+  if (!key) return { result: "missing", carrierName: null };
+  const rows = await db
+    .select()
+    .from(carrierLossIncidentsTable)
+    .where(and(
+      eq(carrierLossIncidentsTable.id, key),
+      eq(carrierLossIncidentsTable.tenantId, tenantKey(tenantId)),
+      isNull(carrierLossIncidentsTable.orderId),
+    ))
+    .limit(1);
+  const row = rows[0];
+  if (!row) return { result: "missing", carrierName: null };
+  if (row.removedAt) return { result: "already", carrierName: row.carrierName };
+  const now = new Date();
+  await db
+    .update(carrierLossIncidentsTable)
+    .set({ removedAt: now, updatedAt: now })
+    .where(eq(carrierLossIncidentsTable.id, row.id));
+  return { result: "removed", carrierName: row.carrierName };
+}
+
 export async function attachLossAlerts<T extends Record<string, unknown>>(
   tenantId: string | null | undefined,
   destination: {
@@ -435,22 +574,11 @@ export async function attachLossAlerts<T extends Record<string, unknown>>(
       isNull(carrierLossIncidentsTable.removedAt),
       gte(carrierLossIncidentsTable.occurredAt, since),
     ));
-  const lossPlace = { city: cityName, state, regionKey: region };
-  const ownIncidents: CarrierLossAlertIncident[] = rows
-    .filter((row) => lossIncidentMatchesDestination(row, lossPlace))
-    .map((row) => ({
-      carrierKey: row.carrierKey,
-      carrierName: row.carrierName,
-      neighborhoodKey: row.neighborhoodKey || "",
-      neighborhoodName: row.neighborhoodName,
-      regionKey: row.regionKey,
-      incidentType: row.incidentType,
-      orderNumber: row.orderNumber,
-      occurredAt: asDate(row.occurredAt) || new Date(0),
-      cityName: row.cityName,
-      state: row.state,
-      fromPeer: false,
-    }));
+  const ownIncidents = lossAlertsFromStoreRows(rows, {
+    city: cityName,
+    state,
+    cep: destination.cep,
+  });
   let peerIncidents: CarrierLossAlertIncident[] = [];
   try {
     peerIncidents = await listPeerLossAlerts(city, state, region, since);
