@@ -17,6 +17,7 @@ import {
   parseBrasilApiCoordinates,
   parseGoogleGeocodeCoordinates,
   parseNominatimCoordinates,
+  parsePhotonCoordinates,
   SAO_PAULO_CITY_CENTROID,
 } from "./motoboy-geocode";
 import { clearMotoboyRouteCacheForTests, resolveMotoboyAddressDistance } from "./motoboy-route";
@@ -75,6 +76,24 @@ test("parseAwesomeApi e Nominatim e Google", () => {
     status: "OK",
     results: [{ geometry: { location: SAO_PAULO_CITY_CENTROID, location_type: "APPROXIMATE" } }],
   }), null);
+});
+
+test("Photon escolhe a rua na cidade e ignora outro lugar", () => {
+  const coords = parsePhotonCoordinates({
+    features: [
+      {
+        properties: { name: "Parque da Luz", city: "São Paulo", countrycode: "BR" },
+        geometry: { coordinates: [-46.63, -23.53] },
+      },
+      {
+        properties: { name: "Rua da Boquena", city: "São Paulo", countrycode: "BR" },
+        geometry: { coordinates: [-46.4959003, -23.5022398] },
+      },
+    ],
+  }, { street: "Rua da Boquena", city: "São Paulo" });
+  assert.ok(coords);
+  assert.equal(coords.lat, -23.5022398);
+  assert.equal(coords.lng, -46.4959003);
 });
 
 test("query junta rua, número, bairro, cidade e UF", () => {
@@ -382,6 +401,103 @@ test("cotação por endereço com APIs mockadas", async (t) => {
     assert.equal(distance.geoSource, "nominatim");
     assert.equal(distance.km, 23.9);
     assert.equal(calls.some((url) => url.includes("viacep")), true);
+    const quote = quoteMotoboyDistance({
+      cep: "05893120",
+      bairro: "Capão Redondo",
+      cidade: "São Paulo",
+      km: distance.km,
+    });
+    assert.equal(quote.outcome, "priced");
+    if (quote.outcome === "priced") assert.equal(quote.price, 100);
+  });
+
+  await t.test("AwesomeAPI 429 usa Nominatim estruturado e cobra R$ 100", async () => {
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map((item) => typeof item === "string" ? item : JSON.stringify(item)).join(" "));
+    };
+    try {
+      install((url) => {
+        if (url.includes("awesomeapi")) {
+          assert.equal(url.includes("token="), false);
+          return new Response(JSON.stringify({ status: 429, code: "QuotaExceeded", lat: "-23.6", lng: "-46.7" }), {
+            status: 429,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        if (url.includes("nominatim")) {
+          if (url.includes("street=")) {
+            return jsonResponse([{ lat: "-23.5022398", lon: "-46.4959003", addresstype: "residential" }]);
+          }
+          return jsonResponse([]);
+        }
+        if (url.includes("router.project-osrm.org")) {
+          return jsonResponse({ code: "Ok", routes: [{ distance: 19700 }] });
+        }
+        return viaCep(url) ?? jsonResponse({}, 404);
+      });
+      const distance = await resolveMotoboyAddressDistance({
+        cep: "03819-190",
+        street: "Rua da Boquena",
+        number: "13",
+        neighborhood: "Parque Císper",
+        city: "São Paulo",
+        state: "SP",
+      });
+      assert.equal(distance.geoSource, "nominatim");
+      assert.equal(distance.km, 19.7);
+      const quote = quoteMotoboyDistance({
+        cep: "03819190",
+        bairro: "Parque Císper",
+        cidade: "São Paulo",
+        km: distance.km,
+      });
+      assert.equal(quote.outcome, "priced");
+      if (quote.outcome === "priced") {
+        assert.equal(quote.price, 100);
+        assert.equal(quote.label, "16–30 km");
+      }
+      const logged = warnings.join("\n");
+      assert.match(logged, /awesomeapi/);
+      assert.match(logged, /quota/);
+      assert.equal(logged.includes("03819"), false);
+      assert.equal(logged.includes("Boquena"), false);
+      assert.equal(logged.includes("QuotaExceeded"), false);
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
+  await t.test("Nominatim vazio cai no Photon e cobra R$ 100", async () => {
+    install((url) => {
+      if (url.includes("awesomeapi")) {
+        return new Response("{}", { status: 429, headers: { "content-type": "application/json" } });
+      }
+      if (url.includes("nominatim")) return jsonResponse([]);
+      if (url.includes("photon.komoot.io")) {
+        return jsonResponse({
+          features: [{
+            properties: { name: "Rua Liberal Bruant", city: "São Paulo", countrycode: "BR" },
+            geometry: { coordinates: [CAPAO.lng, CAPAO.lat] },
+          }],
+        });
+      }
+      if (url.includes("router.project-osrm.org")) {
+        return jsonResponse({ code: "Ok", routes: [{ distance: 23900 }] });
+      }
+      return viaCep(url) ?? jsonResponse({}, 404);
+    });
+    const distance = await resolveMotoboyAddressDistance({
+      cep: "05893-120",
+      street: "Rua Liberal Bruant",
+      number: "182",
+      neighborhood: "Capão Redondo",
+      city: "São Paulo",
+      state: "SP",
+    });
+    assert.equal(distance.geoSource, "photon");
+    assert.equal(distance.km, 23.9);
     const quote = quoteMotoboyDistance({
       cep: "05893120",
       bairro: "Capão Redondo",

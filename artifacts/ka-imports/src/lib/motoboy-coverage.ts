@@ -5,7 +5,7 @@ export type MotoboyCoverageMatch = {
   label: string;
   notes: string | null;
   km: number | null;
-  geoSource?: "google" | "awesomeapi" | "nominatim" | "brasilapi" | null;
+  geoSource?: "google" | "awesomeapi" | "nominatim" | "photon" | "brasilapi" | null;
 };
 
 export type MotoboyCoverageResult = {
