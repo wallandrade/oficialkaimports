@@ -226,7 +226,7 @@ router.post("/checkout/pix", async (req, res) => {
   if (!tenantId) return;
   const purchaseIp = getPurchaseIp(req) || "IP_NAO_ENCONTRADO";
 
-  // Log the FULL request payload immediately — before any validation
+  // Flags only. The checkout body (client, address, document) must not be logged.
   console.log(`[CHECKOUT/PIX:${requestId}] Request received`, JSON.stringify({
     hasClient: Boolean(req.body?.client?.name && req.body?.client?.email),
     shippingType: req.body?.shippingType,

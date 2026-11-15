@@ -1,4 +1,6 @@
-import express, { type Express } from "express";
+import "./lib/safe-log-install";
+import express, { type ErrorRequestHandler, type Express } from "express";
+import { publicErrorMessage, sanitizeHttpBody } from "./lib/safe-log";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import router from "./routes";
@@ -376,6 +378,18 @@ const app: Express = express();
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
 
+app.use((_req, res, next) => {
+  const originalJson = res.json.bind(res);
+  res.json = ((body?: unknown) => {
+    try {
+      return originalJson(sanitizeHttpBody(body));
+    } catch {
+      return originalJson({ error: true, message: "Erro interno." });
+    }
+  }) as typeof res.json;
+  next();
+});
+
 if (!process.env.CORS_ALLOWED_ORIGINS) {
   console.info("[SECURITY] CORS_ALLOWED_ORIGINS não definido. Usando fallback interno.");
 }
@@ -687,14 +701,22 @@ app.get("/health", (req, res) => {
 
 app.use("/api", router);
 
-// Middleware global de tratamento de erros
-app.use((err, req, res, next) => {
+// Middleware global de tratamento de erros. A mensagem pública nunca inclui SQL.
+const reportUnhandledError: ErrorRequestHandler = (err, _req, res, next) => {
   console.error("[GLOBAL ERROR]", err);
-  res.status(err.status || 500).json({
+  if (res.headersSent) {
+    next();
+    return;
+  }
+  const record = err as { status?: number; statusCode?: number };
+  const status = Number(record?.status || record?.statusCode || 500);
+  const safeStatus = Number.isInteger(status) && status >= 400 && status < 600 ? status : 500;
+  res.status(safeStatus).json({
     error: true,
-    message: err.message || "Internal Server Error",
-    stack: process.env.NODE_ENV === "development" ? err.stack : undefined,
+    message: publicErrorMessage(err, "Internal Server Error"),
   });
-});
+};
+
+app.use(reportUnhandledError);
 
 export default app;

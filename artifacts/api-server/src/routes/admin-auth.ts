@@ -5,6 +5,7 @@ import { inArray, lt, eq } from "drizzle-orm";
 import { loadAdminAccessFacts, saveSellerScope, clearSellerScope, listSellerSlugsForTenant, assertSellerInTenant } from "../lib/admin-seller-scope";
 import { resolveSellerAccess } from "../lib/admin-seller-scope-core";
 import { pickPreferredAdminTenant } from "../lib/admin-tenant-pick";
+import { publicErrorMessage } from "../lib/safe-log";
 
 const router: IRouter = Router();
 const TOKEN_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
@@ -53,7 +54,11 @@ const adminLoginRateBuckets = new Map<string, { count: number; resetAt: number; 
 
 function respondInternalError(res: Response, message: string, err: unknown) {
   if (!IS_PRODUCTION) {
-    res.status(500).json({ error: "INTERNAL_ERROR", message, details: String(err) });
+    res.status(500).json({
+      error: "INTERNAL_ERROR",
+      message,
+      details: publicErrorMessage(err, message),
+    });
     return;
   }
   res.status(500).json({ error: "INTERNAL_ERROR", message });
@@ -612,7 +617,7 @@ router.post("/admin/login", async (req, res) => {
       tenantId: live.tenantId,
     });
   } catch (err) {
-    console.error("[AdminAuth] login error:", err, JSON.stringify(err, Object.getOwnPropertyNames(err)));
+    console.error("[AdminAuth] login error:", err);
     respondInternalError(res, "Erro ao autenticar.", err);
   }
 });

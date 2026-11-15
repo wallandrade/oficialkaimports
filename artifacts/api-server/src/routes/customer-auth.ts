@@ -17,6 +17,7 @@ import { DEFAULT_TENANT_ID, requirePublicTenantId } from "../lib/tenant-context"
 import { parseOptionalCustomerDocument } from "../lib/customer-document";
 import { attachGuestOrdersForCustomer } from "../lib/customer-guest-orders";
 import { ensureGuestCustomerAccount, isUnsetCustomerPassword, parseGuestCustomerEmail, pickTenantCustomer } from "../lib/customer-guest-account";
+import { isDuplicateDatabaseError } from "../lib/safe-log";
 
 const router: IRouter = Router();
 
@@ -191,6 +192,13 @@ router.post("/auth/register", async (req, res) => {
     });
   } catch (err) {
     console.error("[CustomerAuth] register error:", err);
+    if (isDuplicateDatabaseError(err)) {
+      res.status(409).json({
+        error: "CONFLICT",
+        message: "Já existe uma conta com esse e-mail. Entre com a senha ou peça para a loja redefinir.",
+      });
+      return;
+    }
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao criar conta." });
   }
 });
