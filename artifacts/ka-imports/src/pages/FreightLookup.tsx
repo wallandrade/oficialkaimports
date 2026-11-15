@@ -150,7 +150,13 @@ export default function FreightLookup() {
     void (async () => {
       try {
         const viaCep = await fetch(`https://viacep.com.br/ws/${cepDigits}/json/`);
-        const address = await viaCep.json() as { erro?: boolean; bairro?: string; localidade?: string };
+        const address = await viaCep.json() as {
+          erro?: boolean;
+          logradouro?: string;
+          bairro?: string;
+          localidade?: string;
+          uf?: string;
+        };
         if (cancelled) return;
         if (address.erro) {
           setMotoboy(null);
@@ -162,6 +168,8 @@ export default function FreightLookup() {
           cep: cepDigits,
           bairro: address.bairro ?? "",
           cidade: address.localidade ?? "",
+          rua: address.logradouro ?? "",
+          uf: address.uf ?? "",
         });
         if (cancelled) return;
 

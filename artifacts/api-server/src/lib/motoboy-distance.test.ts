@@ -3,9 +3,11 @@ import test from "node:test";
 
 import {
   billedKmFromDistance,
+  formatMotoboyDistanceNotes,
   haversineKm,
   isCentroSe,
   isMotoboyDistanceSlotId,
+  isTrustedMotoboyDistance,
   parseMotoboyDistanceConfig,
   parseMotoboyDistanceEnabled,
   priceForBilledKm,
@@ -92,6 +94,21 @@ test("acima de 200 km = consultar", () => {
 test("sem km e sem centro = unavailable", () => {
   const q = quoteMotoboyDistance({ cep: "04038001", bairro: "Vila Mariana", cidade: "São Paulo" });
   assert.equal(q.outcome, "unavailable");
+});
+
+test("menos de 1 km fora do centro não é distância confiável; centro é", () => {
+  assert.equal(isTrustedMotoboyDistance({ cep: "05893120", bairro: "Capão Redondo", cidade: "São Paulo", km: 0 }), false);
+  assert.equal(isTrustedMotoboyDistance({ cep: "05893120", bairro: "Capão Redondo", cidade: "São Paulo", km: 0.4 }), false);
+  assert.equal(isTrustedMotoboyDistance({ cep: "05893120", bairro: "Capão Redondo", cidade: "São Paulo", km: 23.9 }), true);
+  assert.equal(isTrustedMotoboyDistance({ cep: "01001000", bairro: "Sé", cidade: "São Paulo", km: 0.2 }), true);
+});
+
+test("nota do frete mostra km e fonte", () => {
+  assert.equal(
+    formatMotoboyDistanceNotes("16–30 km", 23.9, "awesomeapi"),
+    "Motoboy — 16–30 km (23.9 km, AwesomeAPI)",
+  );
+  assert.equal(formatMotoboyDistanceNotes("Sé e centro", null, null), "Motoboy — Sé e centro");
 });
 
 test("parse config preenche defaults", () => {

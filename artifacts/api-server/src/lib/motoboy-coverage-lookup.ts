@@ -3,19 +3,19 @@ import { and, eq, gte, lte } from "drizzle-orm";
 import { pickMotoboyCepRange } from "./motoboy-cep-range-pick";
 import { normalizeMotoboyPlaceName } from "./motoboy-neighborhood-normalize";
 import {
+  formatMotoboyDistanceNotes,
   MOTOBOY_DISTANCE_SETTING_KEYS,
   MOTOBOY_DISTANCE_SLOT_ID,
   motoboyCepRangeSlotId,
   normalizeCep,
   parseMotoboyDistanceConfig,
   parseMotoboyDistanceEnabled,
-  parseMotoboyOriginCep,
   quoteMotoboyDistance,
   shouldLookupMotoboyNeighborhoods,
   type MotoboyDistanceConfig,
 } from "./motoboy-distance";
-import { geocodeCepBrasilApi, geocodeOriginCep } from "./motoboy-geocode";
-import { resolveMotoboyDistanceKm } from "./motoboy-route";
+import type { GeocodeSource } from "./motoboy-geocode";
+import { resolveMotoboyAddressDistance } from "./motoboy-route";
 
 export type MotoboyCoverageMatch = {
   source: "neighborhood" | "distance" | "cep_range";
@@ -24,6 +24,7 @@ export type MotoboyCoverageMatch = {
   label: string;
   notes: string | null;
   km: number | null;
+  geoSource?: GeocodeSource | null;
 };
 
 export type MotoboyCoverageResult = {
@@ -33,7 +34,6 @@ export type MotoboyCoverageResult = {
 
 type DistanceSettings = {
   enabled: boolean;
-  originCep: string;
   config: MotoboyDistanceConfig;
 };
 
@@ -56,14 +56,12 @@ async function getSettingValue(tenantId: string, key: string): Promise<string | 
 }
 
 async function loadDistanceSettings(tenantId: string): Promise<DistanceSettings> {
-  const [enabledRaw, originRaw, configRaw] = await Promise.all([
+  const [enabledRaw, configRaw] = await Promise.all([
     getSettingValue(tenantId, MOTOBOY_DISTANCE_SETTING_KEYS.enabled),
-    getSettingValue(tenantId, MOTOBOY_DISTANCE_SETTING_KEYS.originCep),
     getSettingValue(tenantId, MOTOBOY_DISTANCE_SETTING_KEYS.config),
   ]);
   return {
     enabled: parseMotoboyDistanceEnabled(enabledRaw),
-    originCep: parseMotoboyOriginCep(originRaw),
     config: parseMotoboyDistanceConfig(configRaw),
   };
 }
@@ -105,17 +103,14 @@ async function findCepRange(tenantId: string, cep: string, cidade: string) {
   return pickMotoboyCepRange(rows, cidade);
 }
 
-function distanceNotes(label: string, km: number | null): string {
-  if (km == null) return `Motoboy — ${label}`;
-  const shown = km < 10 ? km.toFixed(1) : String(Math.round(km));
-  return `Motoboy — ${label} (${shown} km)`;
-}
-
 export async function lookupMotoboyCoverage(input: {
   tenantId: string;
   cep?: string | null;
   bairro?: string | null;
   cidade?: string | null;
+  rua?: string | null;
+  numero?: string | null;
+  uf?: string | null;
 }): Promise<MotoboyCoverageResult> {
   const cep = normalizeCep(input.cep);
   const bairro = String(input.bairro ?? "").trim();
@@ -140,18 +135,21 @@ export async function lookupMotoboyCoverage(input: {
   }
 
   if (settings.enabled && cep.length === 8) {
-    const destCoords = await geocodeCepBrasilApi(cep);
-    let km: number | null = null;
-    if (destCoords) {
-      const originCoords = await geocodeOriginCep(settings.originCep);
-      km = await resolveMotoboyDistanceKm(originCoords, destCoords);
-    }
+    // A rota sai da coordenada fixa da Sé. O CEP de partida salvo no admin não é geocodificado.
+    const distance = await resolveMotoboyAddressDistance({
+      cep,
+      street: input.rua,
+      number: input.numero,
+      neighborhood: bairro,
+      city: cidade,
+      state: input.uf,
+    });
 
     const quote = quoteMotoboyDistance({
       cep,
       bairro,
       cidade,
-      km,
+      km: distance.km,
       config: settings.config,
     });
 
@@ -163,8 +161,9 @@ export async function lookupMotoboyCoverage(input: {
           id: MOTOBOY_DISTANCE_SLOT_ID,
           price: quote.price,
           label: quote.label,
-          notes: distanceNotes(quote.label, quote.km),
+          notes: formatMotoboyDistanceNotes(quote.label, quote.km, distance.geoSource),
           km: quote.km,
+          geoSource: distance.geoSource,
         },
       };
     }

@@ -5,6 +5,7 @@ export type MotoboyCoverageMatch = {
   label: string;
   notes: string | null;
   km: number | null;
+  geoSource?: "google" | "awesomeapi" | "nominatim" | "brasilapi" | null;
 };
 
 export type MotoboyCoverageResult = {
@@ -51,12 +52,15 @@ export function coverageToShippingOption(match: MotoboyCoverageMatch): MotoboySh
 
 export async function fetchMotoboyCoverage(
   base: string,
-  input: { cep: string; bairro?: string; cidade?: string },
+  input: { cep: string; bairro?: string; cidade?: string; rua?: string; numero?: string; uf?: string },
 ): Promise<MotoboyCoverageResult> {
   const params = new URLSearchParams();
   params.set("cep", input.cep);
   if (input.bairro) params.set("bairro", input.bairro);
   if (input.cidade) params.set("cidade", input.cidade);
+  if (input.rua) params.set("rua", input.rua);
+  if (input.numero) params.set("numero", input.numero);
+  if (input.uf) params.set("uf", input.uf);
   const res = await fetch(`${base}/api/motoboy-coverage/lookup?${params.toString()}`);
   if (!res.ok) return { match: null, consult: false };
   const data = await res.json() as MotoboyCoverageResult;

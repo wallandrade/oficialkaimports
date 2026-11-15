@@ -102,7 +102,7 @@ export function MotoboyDistanceCard({ settings, loading, onSave }: Props) {
 
       <div className={`rounded-xl border px-3 py-2 text-xs mb-4 ${enabled ? "border-green-200 bg-green-50 text-green-800" : "border-border bg-muted/40 text-muted-foreground"}`}>
         {enabled
-          ? "Ativo: checkout cobra por km (bairro cadastrado ignorado). Faixa de CEP só se o CEP não tiver coordenadas."
+          ? "Ativo: checkout cobra por km a partir da Praça da Sé (bairro cadastrado ignorado). A opção mostra os km e a fonte. Sem coordenada confiável, usa a faixa de CEP se houver — não cobra “Até 10 km”."
           : "Desligado: checkout volta a usar bairro cadastrado e faixa de CEP."}
       </div>
 
@@ -119,7 +119,7 @@ export function MotoboyDistanceCard({ settings, loading, onSave }: Props) {
             className="w-full h-10 px-3 rounded-xl border-2 border-border outline-none focus:border-primary text-sm font-mono"
             disabled={!enabled}
           />
-          <p className="text-[11px] text-muted-foreground mt-1">Padrão: Sé (01001-000).</p>
+          <p className="text-[11px] text-muted-foreground mt-1">Padrão: Sé (01001-000). A rota usa a coordenada fixa da Praça da Sé, não o geocode deste CEP.</p>
         </div>
         <div>
           <label className="block text-xs font-medium mb-1">Sé e centro (R$)</label>

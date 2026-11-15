@@ -1,5 +1,5 @@
-import type { GeoCoordinates } from "./motoboy-geocode";
-import { haversineKm } from "./motoboy-distance";
+import { geocodeMotoboyDestination, type GeocodeSource, type GeoCoordinates, type MotoboyGeocodeInput } from "./motoboy-geocode";
+import { haversineKm, isTrustedMotoboyDistance, SE_COORDINATES } from "./motoboy-distance";
 
 type CacheEntry = { km: number | null; at: number };
 
@@ -131,4 +131,25 @@ export async function resolveMotoboyDistanceKm(
 
   cache.set(key, { km: null, at: Date.now() });
   return fallback;
+}
+
+export type MotoboyAddressDistance = {
+  km: number | null;
+  geoSource: GeocodeSource | null;
+  coords: GeoCoordinates | null;
+};
+
+/** Origem fixa na Sé. Menos de 1 km fora do centro vira falha (não cobra a faixa de 10 km). */
+export async function resolveMotoboyAddressDistance(input: MotoboyGeocodeInput): Promise<MotoboyAddressDistance> {
+  const geo = await geocodeMotoboyDestination(input);
+  if (!geo) return { km: null, geoSource: null, coords: null };
+  const routed = await resolveMotoboyDistanceKm(SE_COORDINATES, geo.coords);
+  const trusted = isTrustedMotoboyDistance({
+    cep: input.cep,
+    bairro: input.neighborhood,
+    cidade: input.city,
+    km: routed,
+  });
+  if (!trusted) return { km: null, geoSource: null, coords: geo.coords };
+  return { km: routed, geoSource: geo.source, coords: geo.coords };
 }
