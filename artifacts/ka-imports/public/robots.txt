@@ -1,0 +1,11 @@
+User-agent: *
+Disallow: /admin
+Disallow: /checkout
+Disallow: /login
+Disallow: /pagamento
+Disallow: /payment-link
+Disallow: /pix/
+Disallow: /rifas/pix/
+Disallow: /*/checkout
+
+Sitemap: https://www.ka-imports.com/sitemap.xml

@@ -1,5 +1,6 @@
 import { drizzle } from "drizzle-orm/mysql2";
 import mysql from "mysql2/promise";
+import { mysqlPoolOptionsFromUrl } from "./pool-config";
 import * as schema from "./schema";
 
 if (!process.env.DATABASE_URL) {
@@ -8,8 +9,13 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
+const fromUrl = mysqlPoolOptionsFromUrl(
+  process.env.DATABASE_URL,
+  process.env.DATABASE_CA_CERT,
+);
+
 export const pool = mysql.createPool({
-  uri: process.env.DATABASE_URL,
+  ...fromUrl,
   waitForConnections: true,
   connectionLimit: 10,
   maxIdle: 10,
