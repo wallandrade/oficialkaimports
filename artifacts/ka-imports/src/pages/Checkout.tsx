@@ -243,6 +243,11 @@ export default function Checkout() {
   const [checkoutMode, setCheckoutMode] = useState<"standard" | "fast">("standard");
   const [checkoutModeLoaded, setCheckoutModeLoaded] = useState(false);
   const [fastLookupStatus, setFastLookupStatus] = useState<"idle" | "checking" | "motoboy" | "unsupported" | "consult">("idle");
+  const fastLookupStatusRef = useRef(fastLookupStatus);
+  const setFastLookup = useCallback((status: typeof fastLookupStatus) => {
+    fastLookupStatusRef.current = status;
+    setFastLookupStatus(status);
+  }, []);
   const [motoboyConsultHint, setMotoboyConsultHint] = useState(false);
   const [fastWhatsappOpening, setFastWhatsappOpening] = useState(false);
   const [freeShippingMinSubtotal, setFreeShippingMinSubtotal] = useState<number | null>(null);
@@ -1114,7 +1119,7 @@ export default function Checkout() {
         setMotoboyShippingOption(null);
         setMotoboyConsultHint(true);
         setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
-        setFastLookupStatus("consult");
+        setFastLookup("consult");
       } else if (coverage.match) {
         const option = coverageToShippingOption(coverage.match);
         setMotoboyShippingOption(option);
@@ -1123,23 +1128,25 @@ export default function Checkout() {
         if (opts?.selectIfFast !== false && checkoutMode === "fast" && !isCartMotoboyEligible) {
           setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
         }
-        setFastLookupStatus("motoboy");
+        setFastLookup("motoboy");
       } else {
         setMotoboyShippingOption(null);
         setMotoboyConsultHint(false);
         setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
-        setFastLookupStatus("unsupported");
+        setFastLookup("unsupported");
       }
     } catch {
       if (seq !== motoboyLookupSeq.current) return;
-      if (opts?.selectIfFast === false) return;
+      // O blur do número não apaga uma cotação que já chegou. Se o CEP ainda
+      // estava em "checking", esta chamada cancelou a anterior: sem o erro a tela fica presa.
+      if (opts?.selectIfFast === false && fastLookupStatusRef.current !== "checking") return;
       setMotoboyShippingOption(null);
       setMotoboyConsultHint(false);
       setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
-      setFastLookupStatus("idle");
+      setFastLookup("idle");
       toast.error("Erro ao consultar a disponibilidade do motoboy. Tente novamente.");
     }
-  }, [checkoutMode, getValues, isCartMotoboyEligible, shippingOptions]);
+  }, [checkoutMode, getValues, isCartMotoboyEligible, setFastLookup, shippingOptions]);
 
   const handleCEPChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const formatted = formatCEP(e.target.value);
@@ -1149,14 +1156,14 @@ export default function Checkout() {
     const rawCep = formatted.replace(/\D/g, "");
     if (rawCep.length < 8) {
       setCepCity("");
-      setFastLookupStatus("idle");
+      setFastLookup("idle");
       setMotoboyConsultHint(false);
       setMotoboyShippingOption(null);
       setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
     }
     if (rawCep.length === 8) {
       setCepCity("");
-      setFastLookupStatus("checking");
+      setFastLookup("checking");
       setMotoboyConsultHint(false);
       setCepLoading(true);
       try {
@@ -1189,14 +1196,14 @@ export default function Checkout() {
             },
           });
         } else {
-          setFastLookupStatus("idle");
+          setFastLookup("idle");
           setMotoboyConsultHint(false);
           setMotoboyShippingOption(null);
           setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
           toast.error("CEP não encontrado. Preencha o endereço manualmente.");
         }
       } catch {
-        setFastLookupStatus("idle");
+        setFastLookup("idle");
         setMotoboyConsultHint(false);
         setMotoboyShippingOption(null);
         setSelectedShippingId((current) => current?.startsWith("motoboy_") ? shippingOptions[0]?.id || null : current);
@@ -1205,7 +1212,7 @@ export default function Checkout() {
         setCepLoading(false);
       }
     }
-  }, [getValues, refreshMotoboyCoverage, setValue, shippingOptions]);
+  }, [getValues, refreshMotoboyCoverage, setFastLookup, setValue, shippingOptions]);
 
   const handleFastWhatsApp = useCallback(async () => {
     const name = String(getValues("name") || "").trim();
