@@ -20,6 +20,7 @@ const FIELDS: Array<{ key: string; label: string; placeholder?: string }> = [
   { key: "n8n_support_menu_webhook_url", label: "Atendimento (lista)", placeholder: "https://" },
   { key: "n8n_support_menu_webhook_url_poly", label: "Atendimento lista (segunda instância)", placeholder: "https://" },
   { key: "n8n_recovery_webhook_url", label: "Recuperação", placeholder: "https://" },
+  { key: "n8n_delivery_correction_webhook_url", label: "Correção de entrega", placeholder: "https://" },
 ];
 
 export function WhatsappN8nSettings({
@@ -93,7 +94,7 @@ export function WhatsappN8nSettings({
           WhatsApp (n8n)
         </h2>
         <p className="text-muted-foreground text-sm">
-          A loja manda telefone, texto e o remetente 35 99211-9139 para o n8n. Sem URL https, o aviso não sai. A filmagem sem URL não envia. Pedido, rastreio, atendimento e recuperação usam só a URL principal, desse número.
+          A loja manda telefone, texto e o remetente 35 99211-9139 para o n8n. Sem URL https, o aviso não sai. A filmagem sem URL não envia. Pedido, rastreio, atendimento e recuperação usam só a URL principal, desse número. A correção de CPF, CEP e endereço também só sai da loja principal; sem essa URL o admin ainda copia a mensagem ou abre o WhatsApp.
         </p>
       </div>
 

@@ -3514,6 +3514,7 @@ function mapOrder(o: typeof ordersTable.$inferSelect, options?: { light?: boolea
     isProcurandoProduto:    !!(o as any).isProcurandoProduto,
     isAguardandoEstoque:    !!(o as any).isAguardandoEstoque,
     enviado:                !!o.enviado,
+    clientDataCorrectedAt:  o.clientDataCorrectedAt instanceof Date ? o.clientDataCorrectedAt.toISOString() : null,
     ...(forCustomer ? {} : { shippingVia: storedShippingVia(o.shippingVia) }),
     inventoryReserved:      Boolean((o as { inventoryReserved?: unknown }).inventoryReserved),
     inventoryExitPool:      parseKaInventoryExitPool((o as { inventoryExitPool?: unknown }).inventoryExitPool),

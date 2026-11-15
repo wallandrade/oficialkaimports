@@ -148,6 +148,7 @@ const KYCPolicy           = lazy(() => import("@/pages/KYCPolicy"));
 const KYCSubmit           = lazy(() => import("@/pages/KYCSubmit"));
 const Support             = lazy(() => import("@/pages/Support"));
 const FreightLookup       = lazy(() => import("@/pages/FreightLookup"));
+const CorrigirEntrega     = lazy(() => import("@/pages/CorrigirEntrega"));
 const RaffleList          = lazy(() => import("@/pages/RaffleList"));
 const RaffleDetail        = lazy(() => import("@/pages/RaffleDetail"));
 const RafflePix           = lazy(() => import("@/pages/RafflePix"));
@@ -330,6 +331,7 @@ function Router() {
         <Route path="/kyc/:orderId"     component={KYCSubmit} />
         <Route path="/suporte"          component={Support} />
         <Route path="/frete"            component={FreightLookup} />
+        <Route path="/corrigir-entrega" component={CorrigirEntrega} />
         <Route path="/rifas/consulta"   component={RaffleConsulta} />
         <Route path="/rifas/pix/:id"    component={RafflePix} />
         <Route path="/rifas/:id"        component={RaffleDetail} />
