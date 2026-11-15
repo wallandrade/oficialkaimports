@@ -12,6 +12,8 @@ import { resolveStoreThemePreset } from "@/lib/store-theme";
 import { pharmaCatalogHref, readPharmaFilters } from "@/lib/pharma-catalog-query";
 import { PharmaStoreChrome } from "@/components/layout/PharmaStoreChrome";
 import { PharmaLoginDialog } from "@/components/layout/PharmaLoginDialog";
+import { StoreWordmark } from "@/components/layout/StoreWordmark";
+import { resolveStoreLogo } from "@/lib/store-logo";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -175,11 +177,13 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
   const isLoggedIn = useMemo(() => Boolean(getCustomerToken()), [authStamp]);
   const searchString = useSearch();
   const siteSettings = usePublicSiteSettings();
-  const isPharma = resolveStoreThemePreset(siteSettings.store_theme_preset || "", { settings: siteSettings }) === "pharma_compact";
+  const themePreset = resolveStoreThemePreset(siteSettings.store_theme_preset || "", { settings: siteSettings });
+  const isPharma = themePreset === "pharma_compact";
   const pharmaFilters = readPharmaFilters(searchString);
   const isPharmaRef = useRef(isPharma);
   isPharmaRef.current = isPharma;
-  const logo = siteSettings.logo ?? null;
+  const branding = resolveStoreLogo(siteSettings, { onDark: themePreset === "editorial_noir" });
+  const logo = branding.src;
   const logoScale = Math.min(240, Math.max(100, Number(siteSettings.logo_scale ?? 180) || 180));
   const allProducts = useProducts();
   const currentPath = typeof window !== "undefined"
@@ -383,6 +387,7 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
         <PharmaStoreChrome
           siteName={siteName}
           logo={logo}
+          logoIsDefault={branding.isDefault}
           sellerHomeHref={sellerHomeHref}
           offersHref={offersHref}
           search={(
@@ -428,21 +433,25 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
                   {menuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
                 </button>
               )}
-              <Link href={sellerHomeHref} className="flex items-center gap-2 group cursor-pointer">
-                <div
-                  className="ka-header-logo-frame overflow-hidden rounded-2xl h-14 md:h-16 border border-primary/10 group-hover:border-primary/30 transition-colors bg-white/80 flex items-center justify-center shrink-0 px-3 py-1.5"
-                  style={{ width: `${logoScale}px`, maxWidth: "48vw" }}
-                >
-                  {logo ? (
-                    <img
-                      src={logo}
-                      alt={siteName}
-                      loading="eager"
-                      fetchPriority="high"
-                      className="h-full w-full object-cover"
-                    />
-                  ) : null}
-                </div>
+              <Link href={sellerHomeHref} className="flex items-center gap-2 group cursor-pointer min-w-0">
+                {branding.isDefault && logo ? (
+                  <StoreWordmark src={logo} alt={siteName} variant="header" fetchPriority="high" />
+                ) : (
+                  <div
+                    className="ka-header-logo-frame overflow-hidden rounded-2xl h-14 md:h-16 border border-primary/10 group-hover:border-primary/30 transition-colors bg-white/80 flex items-center justify-center shrink-0 px-3 py-1.5"
+                    style={{ width: `${logoScale}px`, maxWidth: "48vw" }}
+                  >
+                    {logo ? (
+                      <img
+                        src={logo}
+                        alt={siteName}
+                        loading="eager"
+                        fetchPriority="high"
+                        className="h-full w-full object-cover"
+                      />
+                    ) : null}
+                  </div>
+                )}
               </Link>
             </div>
 
@@ -606,6 +615,9 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
           open={loginOpen}
           onClose={() => setLoginOpen(false)}
           onAuthenticated={() => setAuthStamp((value) => value + 1)}
+          logo={logo}
+          logoIsDefault={branding.isDefault}
+          siteName={siteName}
         />
       ) : null}
     </>

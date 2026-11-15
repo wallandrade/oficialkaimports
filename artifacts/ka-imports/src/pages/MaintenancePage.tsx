@@ -1,28 +1,28 @@
 import { useEffect, useState } from "react";
 import { BrandLoader } from "@/components/BrandLoader";
+import { StoreWordmark } from "@/components/layout/StoreWordmark";
 import { fallbackSiteName } from "@/lib/store-host";
+import { resolveStoreLogo } from "@/lib/store-logo";
 
 type CachedBranding = {
   siteName: string;
   logo: string;
+  isDefault: boolean;
 };
 
 function readCachedBranding(): CachedBranding {
   try {
-    const parsed = JSON.parse(localStorage.getItem("siteSettings") || "{}") as {
-      site_name?: unknown;
-      logo?: unknown;
-    };
+    const parsed = JSON.parse(localStorage.getItem("siteSettings") || "{}") as Record<string, string>;
     const siteName = String(parsed?.site_name ?? "").trim() || fallbackSiteName();
-    const logo = String(parsed?.logo ?? "").trim();
-    return { siteName, logo };
+    const branding = resolveStoreLogo(parsed);
+    return { siteName, logo: branding.src || "", isDefault: branding.isDefault };
   } catch {
-    return { siteName: fallbackSiteName(), logo: "" };
+    return { siteName: fallbackSiteName(), logo: "", isDefault: false };
   }
 }
 
 export function MaintenancePage() {
-  const [{ siteName, logo }] = useState(readCachedBranding);
+  const [{ siteName, logo, isDefault }] = useState(readCachedBranding);
 
   useEffect(() => {
     document.title = `${siteName} — Manutenção`;
@@ -31,7 +31,9 @@ export function MaintenancePage() {
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col items-center justify-center px-6 py-12">
       <div className="flex w-full max-w-md flex-col items-center gap-6 text-center">
-        {logo ? (
+        {logo && isDefault ? (
+          <StoreWordmark src={logo} alt={siteName} variant="maintenance" />
+        ) : logo ? (
           <img
             src={logo}
             alt={siteName}

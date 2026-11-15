@@ -4,6 +4,15 @@ function getHeader(headers, key) {
   return String(value || "").trim();
 }
 
+function isMainStoreBrand(settings, host) {
+  const flag = String(settings?.is_main_store || "").trim().toLowerCase();
+  if (flag === "1" || flag === "true" || flag === "yes" || flag === "on") return true;
+  if (flag === "0" || flag === "false" || flag === "no" || flag === "off") return false;
+  const tenantId = String(settings?.tenant_id || "").trim();
+  if (tenantId) return tenantId === "tenant_loja1";
+  return host === "ka-imports.com" || host === "www.ka-imports.com";
+}
+
 function isMainStoreHost(value) {
   var name = String(value || "").trim().toLowerCase();
   if (!name) return false;
@@ -79,7 +88,9 @@ export default async function handler(req, res) {
   const description = unconfigured
     ? "Loja em configuração."
     : `Confira os produtos da loja ${siteName}.`;
-  const logo = String(settings?.logo || "").trim();
+  const configuredLogo = String(settings?.logo || "").trim();
+  const mainStore = !unconfigured && isMainStoreBrand(settings, host);
+  const logo = configuredLogo || (mainStore ? `${protocol}://${host}/brand/ka/og.png` : "");
 
   const html = `<!doctype html>
 <html lang="pt-BR">
@@ -94,6 +105,7 @@ export default async function handler(req, res) {
   <meta property="og:description" content="${escapeHtml(description)}" />
   <meta property="og:url" content="${escapeHtml(canonicalUrl)}" />
   ${logo ? `<meta property="og:image" content="${escapeHtml(logo)}" />` : ""}
+  ${mainStore && !configuredLogo ? `<meta property="og:image:width" content="1200" />\n  <meta property="og:image:height" content="630" />` : ""}
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="${escapeHtml(siteName)}" />
   <meta name="twitter:description" content="${escapeHtml(description)}" />

@@ -1,0 +1,22 @@
+{
+  "name": "KA Imports",
+  "short_name": "KA Imports",
+  "icons": [
+    {
+      "src": "/brand/ka/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/brand/ka/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "theme_color": "#1B2C4B",
+  "background_color": "#ffffff",
+  "display": "standalone",
+  "start_url": "/"
+}
