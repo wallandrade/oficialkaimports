@@ -6,6 +6,7 @@ import {
   orderDeliveryCorrectionsTable,
   orderShipmentsTable,
   ordersTable,
+  pool,
   siteSettingsTable,
   tenantSettingsTable,
 } from "@workspace/db";
@@ -206,19 +207,58 @@ export async function withDeliveryCorrection<T extends { error?: unknown; messag
   }
 }
 
+function correctionLockName(orderId: string): string {
+  return `dc:${crypto.createHash("sha256").update(String(orderId)).digest("hex").slice(0, 48)}`;
+}
+
+async function withDeliveryCorrectionLock<T>(orderId: string, run: () => Promise<T>): Promise<T | null> {
+  const lockName = correctionLockName(orderId);
+  const connection = await pool.getConnection();
+  let got = 0;
+  try {
+    try {
+      const [rows] = await connection.query("SELECT GET_LOCK(?, 12) AS got", [lockName]);
+      const header = Array.isArray(rows) ? rows[0] as { got?: number | string | null } : null;
+      got = Number(header?.got || 0);
+    } catch {
+      console.warn("[DeliveryCorrection] falha ao reservar o envio");
+      return null;
+    }
+    if (got !== 1) return null;
+    return await run();
+  } finally {
+    if (got === 1) {
+      try {
+        await connection.query("SELECT RELEASE_LOCK(?)", [lockName]);
+      } catch {
+        console.warn("[DeliveryCorrection] falha ao soltar a reserva");
+      }
+    }
+    connection.release();
+  }
+}
+
 export async function ensureDeliveryCorrectionNotice(order: OrderRow, fields: FreightDataField[], fetchImpl?: typeof fetch): Promise<DeliveryCorrectionNotice | null> {
   if (!fields.length || !isMainStoreTenant(order.tenantId) || !isStandardShipping(order.shippingType)) return null;
   if (await orderHasIssuedLabel(order)) return null;
+  return withDeliveryCorrectionLock(order.id, () => createOrReuseDeliveryCorrection(order, fields, fetchImpl));
+}
+
+async function createOrReuseDeliveryCorrection(order: OrderRow, fields: FreightDataField[], fetchImpl?: typeof fetch): Promise<DeliveryCorrectionNotice | null> {
   const now = new Date();
-  const [open] = await db
+  const openRows = await db
     .select()
     .from(orderDeliveryCorrectionsTable)
     .where(and(
       eq(orderDeliveryCorrectionsTable.orderId, order.id),
       isNull(orderDeliveryCorrectionsTable.correctedAt),
     ))
-    .orderBy(desc(orderDeliveryCorrectionsTable.createdAt))
-    .limit(1);
+    .orderBy(desc(orderDeliveryCorrectionsTable.createdAt));
+  const open = openRows.find((row) => row.expiresAt.getTime() > now.getTime()) || openRows[0] || null;
+  for (const extra of openRows) {
+    if (!open || extra.id === open.id) continue;
+    await db.update(orderDeliveryCorrectionsTable).set({ expiresAt: now }).where(eq(orderDeliveryCorrectionsTable.id, extra.id));
+  }
   const base = mainStorePublicBaseUrl();
   const reusable = open && open.expiresAt.getTime() > now.getTime() ? open : null;
   const token = reusable?.token || crypto.randomBytes(32).toString("hex");
