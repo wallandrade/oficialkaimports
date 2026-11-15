@@ -3,8 +3,10 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
+  CATALOG_API_ORIGIN,
   PUBLIC_SITEMAP_PATHS,
   buildSitemapXml,
+  catalogRequest,
   categoryPath,
   productPath,
   requestOrigin,
@@ -26,6 +28,22 @@ test("o host da visita vira a origem do sitemap", () => {
     requestOrigin({ "x-forwarded-host": ["Loja.example:443", "ignored"], "x-forwarded-proto": "https" }),
     "https://loja.example",
   );
+});
+
+test("o catálogo sai da API na DigitalOcean, com o host da página", () => {
+  const preview = catalogRequest(
+    "https://oficialkaimports-api-serv-git-61b9f0-wallaces-projects-fbe0ff99.vercel.app",
+  );
+  assert.equal(preview.url, `${CATALOG_API_ORIGIN}/api/products`);
+  assert.equal(
+    preview.headers["x-forwarded-host"],
+    "oficialkaimports-api-serv-git-61b9f0-wallaces-projects-fbe0ff99.vercel.app",
+  );
+  assert.equal(preview.headers["x-forwarded-proto"], "https");
+
+  const local = catalogRequest("http://localhost:5173");
+  assert.equal(local.headers["x-forwarded-host"], "localhost:5173");
+  assert.equal(local.headers["x-forwarded-proto"], "http");
 });
 
 test("categoria e produto usam os paths do router", () => {

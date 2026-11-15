@@ -7,7 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
-| 2026-11-15 | Sitemap não entra no proxy da API | No `vercel.json` do front (o que a Vercel usa) e no da raiz, `/sitemap.xml` reescreve para `/api/sitemap` antes de `/api/:path*` → DigitalOcean. A função é `artifacts/ka-imports/api/sitemap.js`, no mesmo esquema de `api/link-preview.js` | Destino do proxy, webhooks e o restante das integrações |
+| 2026-11-15 | Sitemap não entra no proxy da API | No `vercel.json` do front (o que a Vercel usa) e no da raiz, `/sitemap.xml` reescreve para `/api/sitemap` antes de `/api/:path*` → DigitalOcean. A função é `artifacts/ka-imports/api/sitemap.js`, no mesmo esquema de `api/link-preview.js`. O catálogo ela busca direto em `https://lobster-app-7f8c2.ondigitalocean.app/api/products`, com `x-forwarded-host` da visita | Destino do proxy do browser, webhooks e o restante das integrações |
 | 2026-11-13 | Env do n8n só na loja 1 | `N8N_ORDER_PAID_WEBHOOK_URL`, `N8N_SUPPORT_ATTENDANT_PHONE`, slugs da segunda instância, `N8N_POLY_INSTANCE_ID` e as URLs `N8N_*_WEBHOOK_URL` (e `_POLY`) não entram na filial. Filial usa só `tenant_settings` | Loja 1 continua com o env na frente do setting. `N8N_WHATSAPP_SUPPORT_TOKEN` continua identificando a loja 1. `sender` e o número 35 99211-9139 |
 | 2026-11-13 | PIX de filial não usa conta global; Brevo só da loja 1 | Sem par APPCNPay a filial responde `PIX não configurado para esta loja`. DentPeg (`DENTPEG_API_KEY`) só na loja 1. Checkout e rifa da filial não leem `site_settings`. Brevo: `requirePrimaryAdmin`; sync só cliente e pedido `tenant_loja1` ou vazio | Loja 1 continua no env `GATEWAY_IDENTIFIER`/`GATEWAY_SECRET` e no DentPeg. Webhook igual |
 | 2026-11-13 | Rewrite `/api/*` aponta para a DigitalOcean | Destino `https://lobster-app-7f8c2.ondigitalocean.app`. CSP `connect-src` no `vercel.json` do front e no `index.html` usa o mesmo host | Conta EnvioEcom `env`, webhooks e o restante das integrações |
@@ -226,7 +226,7 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 
 ## Front hosting ↔ API
 
-- Vercel rewrite `/api/*` → `https://lobster-app-7f8c2.ondigitalocean.app` (ver `vercel.json` raiz e `artifacts/ka-imports/vercel.json`). O arquivo aplicado no deploy é o do front. `/sitemap.xml` vai para a função `/api/sitemap` e não para a DigitalOcean. `/robots.txt` é arquivo estático.
+- Vercel rewrite `/api/*` → `https://lobster-app-7f8c2.ondigitalocean.app` (ver `vercel.json` raiz e `artifacts/ka-imports/vercel.json`). O arquivo aplicado no deploy é o do front. `/sitemap.xml` vai para a função `/api/sitemap` e não para a DigitalOcean. A função, por dentro, chama esse mesmo host em `/api/products` com `x-forwarded-host`. `/robots.txt` é arquivo estático.
 
 ## Regra de leitura
 

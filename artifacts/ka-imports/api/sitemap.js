@@ -11,6 +11,9 @@ export const PUBLIC_SITEMAP_PATHS = Object.freeze([
 ]);
 
 const DEFAULT_ORIGIN = "https://www.ka-imports.com";
+// Mesmo destino do rewrite /api no vercel.json. A função não pede /api/products
+// no próprio host: o preview da Vercel exige login e essa chamada voltaria 503.
+export const CATALOG_API_ORIGIN = "https://lobster-app-7f8c2.ondigitalocean.app";
 
 function headerValue(headers, key) {
   const value = headers?.[key.toLowerCase()] ?? headers?.[key];
@@ -98,13 +101,26 @@ export function buildSitemapXml(origin, catalog) {
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`;
 }
 
+export function catalogRequest(pageOrigin) {
+  const page = new URL(pageOrigin || DEFAULT_ORIGIN);
+  return {
+    url: `${CATALOG_API_ORIGIN}/api/products`,
+    headers: {
+      Accept: "application/json",
+      "x-forwarded-host": page.host,
+      "x-forwarded-proto": page.protocol === "http:" ? "http" : "https",
+    },
+  };
+}
+
 async function fetchCatalog(origin) {
+  const request = catalogRequest(origin);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
   try {
-    const response = await fetch(`${origin}/api/products`, {
+    const response = await fetch(request.url, {
       method: "GET",
-      headers: { Accept: "application/json" },
+      headers: request.headers,
       signal: controller.signal,
     });
     if (!response.ok) {
