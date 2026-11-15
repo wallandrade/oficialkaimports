@@ -1,20 +1,20 @@
 import { Router, type IRouter } from "express";
 import { customerUsersTable, db } from "@workspace/db";
-import { and, eq, isNull, or } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { getAdminScope, requireAdminAuth, requireStoreWideAdmin } from "./admin-auth";
 import { getCustomerSession, requireCustomerAuth } from "../middlewares/customer-auth";
 import { DEFAULT_TENANT_ID } from "../lib/tenant-context";
-import { creditWallet, getWalletBalance, listWalletEntries } from "../lib/customer-wallet";
+import { creditWallet, getWalletBalance, listWalletEntries, WalletIdempotencyConflict } from "../lib/customer-wallet";
 import { attachGuestOrdersForCustomer } from "../lib/customer-guest-orders";
+import {
+  ensureGuestCustomerAccount,
+  findCustomerInTenantByEmail,
+  findCustomerInTenantById,
+  guestEmailHasOrders,
+  parseGuestCustomerEmail,
+} from "../lib/customer-guest-account";
 
 const router: IRouter = Router();
-
-function buildCustomerUsersTenantWhere(tenantId: string) {
-  if (tenantId === DEFAULT_TENANT_ID) {
-    return or(eq(customerUsersTable.tenantId, tenantId), isNull(customerUsersTable.tenantId), eq(customerUsersTable.tenantId, ""));
-  }
-  return eq(customerUsersTable.tenantId, tenantId);
-}
 
 router.get("/me/wallet", requireCustomerAuth, async (req, res) => {
   const session = getCustomerSession(req);
@@ -46,19 +46,31 @@ router.get("/admin/wallet/:userId", requireAdminAuth, requireStoreWideAdmin, asy
       return;
     }
     const tenantId = scope.tenantId || DEFAULT_TENANT_ID;
-    const userId = String(req.params.userId || "").trim();
-    if (!userId) {
+    const rawUserId = String(req.params.userId || "").trim();
+    if (!rawUserId) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Informe o ID do cliente." });
       return;
     }
-    const [customer] = await db
-      .select({ id: customerUsersTable.id })
-      .from(customerUsersTable)
-      .where(and(buildCustomerUsersTenantWhere(tenantId), eq(customerUsersTable.id, userId)))
-      .limit(1);
-    if (!customer) {
-      res.status(404).json({ error: "NOT_FOUND", message: "Cliente não encontrado." });
-      return;
+    const guestEmail = parseGuestCustomerEmail(rawUserId);
+    let userId = rawUserId;
+    if (guestEmail) {
+      const existing = await findCustomerInTenantByEmail(tenantId, guestEmail);
+      if (!existing) {
+        const hasOrders = await guestEmailHasOrders(tenantId, guestEmail);
+        if (!hasOrders) {
+          res.status(404).json({ error: "NOT_FOUND", message: "Cliente não encontrado." });
+          return;
+        }
+        res.json({ userId: rawUserId, availableCredit: 0, entries: [] });
+        return;
+      }
+      userId = existing.id;
+    } else {
+      const customer = await findCustomerInTenantById(tenantId, userId);
+      if (!customer) {
+        res.status(404).json({ error: "NOT_FOUND", message: "Cliente não encontrado." });
+        return;
+      }
     }
     const available = await getWalletBalance(userId, tenantId);
     const entries = await listWalletEntries(userId, tenantId, 50);
@@ -81,10 +93,11 @@ router.post("/admin/wallet/adjust", requireAdminAuth, async (req, res) => {
       return;
     }
     const tenantId = scope.tenantId || DEFAULT_TENANT_ID;
-    const userId = String(req.body?.customerUserId || req.body?.userId || "").trim();
+    const rawUserId = String(req.body?.customerUserId || req.body?.userId || "").trim();
     const amount = Number(req.body?.amount);
     const reason = String(req.body?.reason || "").trim();
-    if (!userId || !Number.isFinite(amount) || amount === 0) {
+    const idempotencyKey = String(req.body?.idempotencyKey || "").trim();
+    if (!rawUserId || !Number.isFinite(amount) || amount === 0) {
       res.status(400).json({ error: "INVALID_INPUT", message: "Informe ID do cliente e um valor diferente de zero." });
       return;
     }
@@ -92,15 +105,37 @@ router.post("/admin/wallet/adjust", requireAdminAuth, async (req, res) => {
       res.status(400).json({ error: "INVALID_INPUT", message: "Informe o motivo do ajuste." });
       return;
     }
-
-    const [user] = await db
-      .select({ id: customerUsersTable.id })
-      .from(customerUsersTable)
-      .where(and(buildCustomerUsersTenantWhere(tenantId), eq(customerUsersTable.id, userId)))
-      .limit(1);
-    if (!user) {
-      res.status(404).json({ error: "NOT_FOUND", message: "Cliente não encontrado." });
+    if (idempotencyKey.length > 80) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "A chave de idempotência é longa demais." });
       return;
+    }
+
+    const guestEmail = parseGuestCustomerEmail(rawUserId);
+    let userId = rawUserId;
+    let createdAccount = false;
+    if (guestEmail) {
+      if (amount < 0) {
+        const existing = await findCustomerInTenantByEmail(tenantId, guestEmail);
+        if (!existing) {
+          res.status(400).json({ error: "INSUFFICIENT_BALANCE", message: "Saldo insuficiente para debitar." });
+          return;
+        }
+        userId = existing.id;
+      } else {
+        const ensured = await ensureGuestCustomerAccount({ tenantId, email: guestEmail });
+        if (!ensured.ok) {
+          res.status(ensured.status).json({ error: ensured.error, message: ensured.message });
+          return;
+        }
+        userId = ensured.customer.id;
+        createdAccount = ensured.customer.created;
+      }
+    } else {
+      const customer = await findCustomerInTenantById(tenantId, userId);
+      if (!customer) {
+        res.status(404).json({ error: "NOT_FOUND", message: "Cliente não encontrado." });
+        return;
+      }
     }
 
     if (amount < 0) {
@@ -110,16 +145,28 @@ router.post("/admin/wallet/adjust", requireAdminAuth, async (req, res) => {
         return;
       }
     }
-    await creditWallet({
-      tenantId,
-      userId,
-      amount,
-      type: "admin_adjust",
-      note: reason,
-    });
+    try {
+      await creditWallet({
+        tenantId,
+        userId,
+        amount,
+        type: "admin_adjust",
+        note: reason,
+        idempotencyKey: idempotencyKey || null,
+      });
+    } catch (err) {
+      if (err instanceof WalletIdempotencyConflict) {
+        res.status(409).json({
+          error: "IDEMPOTENCY_CONFLICT",
+          message: "Este crédito já foi enviado com outro valor ou motivo.",
+        });
+        return;
+      }
+      throw err;
+    }
 
     const available = await getWalletBalance(userId, tenantId);
-    res.json({ ok: true, userId, availableCredit: available });
+    res.json({ ok: true, userId, availableCredit: available, createdAccount });
   } catch (err) {
     console.error("Admin wallet adjust error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao ajustar saldo." });
