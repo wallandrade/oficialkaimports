@@ -181,23 +181,32 @@ test("salvar embaralha os indices, zera o cursor e valida a faixa", () => {
     () => prepareShipmentItemSave({ quantity: 1, items: [], valueMin: "500", valueMax: "100" }),
     (err: unknown) => err instanceof ShipmentItemConfigError && /mínimo não pode passar/i.test(err.message),
   );
+  const aboveProduct = prepareShipmentItemSave({
+    quantity: 5,
+    items: [{ name: "Peça sensor luz RAM", declaredValue: "918,39" }],
+    valueMin: "800",
+    valueMax: "920",
+  });
+  assert.equal(aboveProduct.quantity, 5);
+  assert.equal(aboveProduct.valueMin, "800.00");
+  assert.equal(aboveProduct.valueMax, "920.00");
+  assert.equal(aboveProduct.items[0].declaredValue, 918.39);
+  const lineOnly = prepareShipmentItemSave({
+    quantity: 10,
+    items: [{ name: "Capa", declaredValue: 500 }],
+    valueMin: "",
+    valueMax: "",
+  });
+  assert.equal(lineOnly.quantity, 10);
+  assert.equal(lineOnly.items[0].declaredValue, 500);
   assert.throws(
     () => prepareShipmentItemSave({
-      quantity: 10,
-      items: [{ name: "Capa", declaredValue: 1 }],
-      valueMin: 0,
-      valueMax: 500,
+      quantity: 5,
+      items: [{ name: "Peça", declaredValue: "918,39" }],
+      valueMin: "800",
+      valueMax: "3001",
     }),
-    (err: unknown) => err instanceof ShipmentItemConfigError && /3000/.test(err.message),
-  );
-  assert.throws(
-    () => prepareShipmentItemSave({
-      quantity: 10,
-      items: [{ name: "Capa", declaredValue: 500 }],
-      valueMin: "",
-      valueMax: "",
-    }),
-    (err: unknown) => err instanceof ShipmentItemConfigError && /valor da linha/.test(err.message),
+    (err: unknown) => err instanceof ShipmentItemConfigError && /Máximo/.test(err.message) && /3000/.test(err.message),
   );
   assert.throws(
     () => prepareShipmentItemSave({ quantity: 0, items: [], valueMin: "", valueMax: "" }),

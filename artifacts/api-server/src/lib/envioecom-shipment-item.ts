@@ -268,9 +268,6 @@ export function prepareShipmentItemSave(input: {
     const min = assertMoneyBound(parseLooseMoney(input.valueMin), "Mínimo");
     const max = assertMoneyBound(parseLooseMoney(input.valueMax), "Máximo");
     if (min > max) throw new ShipmentItemConfigError("Mínimo não pode passar do máximo.");
-    if (quantity * Math.round(max * 100) > SHIPMENT_ITEM_MONEY_MAX * 100) {
-      throw new ShipmentItemConfigError("Quantidade × máximo não pode passar de R$ 3000.");
-    }
     range = { min, max };
   }
 
@@ -286,9 +283,6 @@ export function prepareShipmentItemSave(input: {
     const name = String(record.name || "").trim().slice(0, SHIPMENT_ITEM_NAME_MAX);
     if (!name) throw new ShipmentItemConfigError(`Informe o nome da linha ${index + 1}.`);
     const declaredValue = assertMoneyBound(parseLooseMoney(record.declaredValue), `Valor da linha ${index + 1}`);
-    if (!range && quantity * Math.round(declaredValue * 100) > SHIPMENT_ITEM_MONEY_MAX * 100) {
-      throw new ShipmentItemConfigError("Quantidade × valor da linha não pode passar de R$ 3000.");
-    }
     return { name, declaredValue };
   });
 
