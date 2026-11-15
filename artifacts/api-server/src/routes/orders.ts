@@ -88,6 +88,7 @@ import {
 import { assignNextOrganicSeller } from "../lib/seller-round-robin";
 import { consumeFlashReservation, FlashOfferError, resolveCheckoutFlash, unitPriceWithFlash } from "../lib/flash-offers";
 import { flashUnitPriceFromOrder } from "../lib/order-edit-price";
+import { settleOrderEdit } from "../lib/order-edit-settlement";
 import {
   isObservationVisibleToCustomer,
   observationForCustomerApi,
@@ -2574,7 +2575,7 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
 
     let id = req.params.id;
     if (Array.isArray(id)) id = id[0];
-    const { products: newProducts, address, discountAmount, clientName, clientPhone, clientEmail, clientDocument } = req.body as {
+    const { products: newProducts, address, discountAmount, clientName, clientPhone, clientEmail, clientDocument, useStoreCredit } = req.body as {
       products: Array<{
         id: string;
         name: string;
@@ -2600,6 +2601,7 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
         city?: string | null;
         state?: string | null;
       };
+      useStoreCredit?: boolean;
     };
 
     const nextClientName = clientName !== undefined ? String(clientName || "").trim() : undefined;
@@ -2736,25 +2738,50 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
       honorToggles: false,
     });
     const computedInsuranceAmount = insurance.insuranceAmount;
-    const total = insurance.total;
-
-    let newStatus: string;
-    if (paidAmount !== null) {
-      // Order has a recorded paid amount — use it as the reference for all comparisons
-      if (total > paidAmount + 0.01) {
-        // New total exceeds what was paid → wait for the difference
-        newStatus = "awaiting_payment";
-      } else {
-        // New total is at or below what was paid → fully paid again
-        newStatus = "paid";
-      }
-    } else if (isPaid && total > currentTotal + 0.01) {
-      // Paid order (no paidAmount recorded yet) edited UP → flag for difference
-      newStatus = "awaiting_payment";
-    } else {
-      // Unpaid order or no change in direction — keep current status
-      newStatus = currentStatus;
+    const commercialTotal = insurance.total;
+    const existingStoreCredit = roundMoney(Math.max(0, Number(current[0].storeCreditUsed || 0)));
+    const existingAffiliateCredit = roundMoney(Math.max(0, Number(current[0].affiliateCreditUsed || 0)));
+    let proofCount = 0;
+    if (current[0].proofUrls) {
+      try {
+        const parsed = JSON.parse(current[0].proofUrls);
+        proofCount = Array.isArray(parsed) ? parsed.length : 0;
+      } catch { proofCount = 0; }
     }
+    const hasProof = Boolean(current[0].proofUrl) || proofCount > 0;
+    const dueBeforeCredit = settleOrderEdit({
+      commercialTotal,
+      existingStoreCredit,
+      existingAffiliateCredit,
+      paidAmount,
+      previousTotal: currentTotal,
+      status: currentStatus,
+      hasProof,
+      storeCreditToApply: 0,
+    });
+    let storeCreditApplied = 0;
+    const customerUserId = String(current[0].userId || "").trim();
+    if (useStoreCredit === true && customerUserId && dueBeforeCredit.amountDueBeforeCredit > 0) {
+      storeCreditApplied = await applyStoreCreditToOrder({
+        tenantId: adminScope.tenantId,
+        userId: customerUserId,
+        orderId: id,
+        requestedAmount: dueBeforeCredit.amountDueBeforeCredit,
+      });
+    }
+    const settled = settleOrderEdit({
+      commercialTotal,
+      existingStoreCredit,
+      existingAffiliateCredit,
+      paidAmount,
+      previousTotal: currentTotal,
+      status: currentStatus,
+      hasProof,
+      storeCreditToApply: storeCreditApplied,
+    });
+    const total = settled.payableTotal;
+    const newStatus = settled.nextStatus;
+    const storeCreditUsed = roundMoney(existingStoreCredit + settled.storeCreditApplied);
 
     const nextAddressCep = address?.cep !== undefined ? String(address.cep || "").trim() || null : undefined;
     const nextAddressStreet = address?.street !== undefined ? String(address.street || "").trim() || null : undefined;
@@ -2777,6 +2804,10 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
       status: newStatus,
       updatedAt: new Date(),
     };
+    if (storeCreditUsed > 0) updates.storeCreditUsed = String(storeCreditUsed);
+    if (settled.storeCreditApplied > 0 && total <= 0.01 && paidAmount == null) {
+      updates.paymentMethod = "store_credit";
+    }
 
     if (nextAddressCep !== undefined) updates.addressCep = nextAddressCep;
     if (nextAddressStreet !== undefined) updates.addressStreet = nextAddressStreet;
@@ -2799,23 +2830,26 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
       tenantId: adminScope.tenantId,
       action: "edited",
       ...actorFromAdminRequest(req),
-      payload: buildOrderEditPayload(current[0], {
-        clientName: nextClientName !== undefined ? nextClientName : current[0].clientName,
-        clientPhone: nextClientPhone !== undefined ? nextClientPhone : current[0].clientPhone,
-        clientEmail: nextClientEmail !== undefined ? nextClientEmail : current[0].clientEmail,
-        clientDocument: nextClientDocument !== undefined ? nextClientDocument : current[0].clientDocument,
-        addressCep: nextAddressCep !== undefined ? nextAddressCep : current[0].addressCep,
-        addressStreet: nextAddressStreet !== undefined ? nextAddressStreet : current[0].addressStreet,
-        addressNumber: nextAddressNumber !== undefined ? nextAddressNumber : current[0].addressNumber,
-        addressComplement: nextAddressComplement !== undefined ? nextAddressComplement : current[0].addressComplement,
-        addressNeighborhood: nextAddressNeighborhood !== undefined ? nextAddressNeighborhood : current[0].addressNeighborhood,
-        addressCity: nextAddressCity !== undefined ? nextAddressCity : current[0].addressCity,
-        addressState: nextAddressState !== undefined ? nextAddressState : current[0].addressState,
-        products: resolvedProducts,
-        discountAmount: computedDiscountAmount,
-        total,
-        status: newStatus,
-      }),
+      payload: {
+        ...buildOrderEditPayload(current[0], {
+          clientName: nextClientName !== undefined ? nextClientName : current[0].clientName,
+          clientPhone: nextClientPhone !== undefined ? nextClientPhone : current[0].clientPhone,
+          clientEmail: nextClientEmail !== undefined ? nextClientEmail : current[0].clientEmail,
+          clientDocument: nextClientDocument !== undefined ? nextClientDocument : current[0].clientDocument,
+          addressCep: nextAddressCep !== undefined ? nextAddressCep : current[0].addressCep,
+          addressStreet: nextAddressStreet !== undefined ? nextAddressStreet : current[0].addressStreet,
+          addressNumber: nextAddressNumber !== undefined ? nextAddressNumber : current[0].addressNumber,
+          addressComplement: nextAddressComplement !== undefined ? nextAddressComplement : current[0].addressComplement,
+          addressNeighborhood: nextAddressNeighborhood !== undefined ? nextAddressNeighborhood : current[0].addressNeighborhood,
+          addressCity: nextAddressCity !== undefined ? nextAddressCity : current[0].addressCity,
+          addressState: nextAddressState !== undefined ? nextAddressState : current[0].addressState,
+          products: resolvedProducts,
+          discountAmount: computedDiscountAmount,
+          total,
+          status: newStatus,
+        }),
+        ...(settled.storeCreditApplied > 0 ? { storeCreditApplied: settled.storeCreditApplied } : {}),
+      },
     });
 
     if (newStatus === "paid" || newStatus === "completed") {
@@ -2828,7 +2862,7 @@ router.patch("/admin/orders/:id/edit", requireAdminAuth, async (req, res) => {
     if (!updated[0]) { res.status(404).json({ error: "NOT_FOUND" }); return; }
 
     broadcastNotification({ type: "order_updated", data: { id, tenantId: adminScope.tenantId } });
-    res.json({ ok: true, order: mapOrder(updated[0]) });
+    res.json({ ok: true, order: mapOrder(updated[0]), storeCreditApplied: settled.storeCreditApplied });
   } catch (err) {
     console.error("Edit order error:", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao editar pedido." });
@@ -3455,6 +3489,7 @@ function mapOrder(o: typeof ordersTable.$inferSelect, options?: { light?: boolea
   return {
     id:                  o.id,
     orderNumber:         o.orderNumber ?? null,
+    ...(options?.forCustomer ? {} : { userId: o.userId ?? null }),
     clientName:          o.clientName,
     clientEmail:         o.clientEmail,
     clientPhone:         o.clientPhone,

@@ -13,6 +13,7 @@ import { WhatsappRecoveryPanel } from "@/components/admin/WhatsappRecoveryPanel"
 import { WhatsAppGroupCampaignCard } from "@/components/admin/WhatsAppGroupCampaignCard";
 import { orderToPostPaymentText } from "@/lib/post-payment-message";
 import { storeNotificationIcon } from "@/lib/store-logo";
+import { settleOrderEdit } from "@/lib/order-edit-settlement";
 import {
   emptyVariantGroupDraft,
   parseVariantGroupDrafts,
@@ -2465,6 +2466,10 @@ export default function Admin() {
   const [editClientEmail, setEditClientEmail] = useState("");
   const [editClientDocument, setEditClientDocument] = useState("");
   const [editDiscount, setEditDiscount] = useState(0);
+  const [editWalletBalance, setEditWalletBalance] = useState<number | null>(null);
+  const [editWalletLoading, setEditWalletLoading] = useState(false);
+  const [editUseStoreCredit, setEditUseStoreCredit] = useState(false);
+  const editWalletRequest = useRef(0);
   const [editProductSearch, setEditProductSearch] = useState("");
   const [editSaving, setEditSaving] = useState(false);
   const [editAsReshipment, setEditAsReshipment] = useState(false);
@@ -6460,6 +6465,26 @@ export default function Admin() {
     setEditClientEmail(String(order.clientEmail || ""));
     setEditClientDocument(String(order.clientDocument || ""));
     setEditDiscount(order.discountAmount || 0);
+    setEditUseStoreCredit(false);
+    setEditWalletBalance(null);
+    const walletUserId = String((order as { userId?: string | null }).userId || "").trim();
+    const walletRequest = editWalletRequest.current + 1;
+    editWalletRequest.current = walletRequest;
+    setEditWalletLoading(Boolean(walletUserId));
+    if (walletUserId) {
+      void (async () => {
+        try {
+          const res = await fetch(`${BASE}/api/admin/wallet/${encodeURIComponent(walletUserId)}`, { headers: authHeaders() });
+          const data = await res.json().catch(() => ({})) as { availableCredit?: number };
+          if (editWalletRequest.current !== walletRequest) return;
+          setEditWalletBalance(res.ok ? Math.max(0, Number(data.availableCredit || 0)) : 0);
+        } catch {
+          if (editWalletRequest.current === walletRequest) setEditWalletBalance(0);
+        } finally {
+          if (editWalletRequest.current === walletRequest) setEditWalletLoading(false);
+        }
+      })();
+    }
     setEditAddress({
       cep: String(order.addressCep || ""),
       street: String(order.addressStreet || ""),
@@ -6723,6 +6748,7 @@ export default function Admin() {
           clientDocument: normalizedClientDocument,
           products: editItems,
           discountAmount: discountAmount,
+          useStoreCredit: editUseStoreCredit && (editWalletBalance ?? 0) > 0,
           address: {
             cep: editAddress.cep,
             street: editAddress.street,
@@ -6735,40 +6761,34 @@ export default function Admin() {
         }),
       });
       if (!res.ok) { toast.error("Erro ao salvar edição."); return; }
-      const data = await res.json() as { ok: boolean; order: AdminOrder };
+      const data = await res.json() as { ok: boolean; order: AdminOrder; storeCreditApplied?: number };
       setOrders((prev) => prev.map((o) => o.id === editOrderModal.id ? { ...data.order, proofUrls: o.proofUrls } : o));
-      toast.success("Pedido editado com sucesso!");
+      const storeCreditApplied = Number(data.storeCreditApplied || 0);
+      toast.success(storeCreditApplied > 0 ? "Pedido editado. Saldo da conta aplicado." : "Pedido editado com sucesso!");
+      const savedTotal = Number(data.order.total);
+      const savedStatus = String(data.order.status || "");
+      const pixOrder = { ...nextOrderSnapshot, total: savedTotal };
       const paidAmount = editOrderModal.paidAmount ?? null;
       const isPixOrder = editOrderModal.paymentMethod === "pix" || editOrderModal.paymentMethod === "whatsapp_pix";
+      const alreadySettled = savedStatus === "paid" || savedStatus === "completed";
 
-      if (paidAmount != null && paidAmount > 0) {
-        // Order has a recorded paid amount — use it as the reference
-        const diff = total - paidAmount;
+      if (!alreadySettled && paidAmount != null && paidAmount > 0) {
+        const diff = savedTotal - paidAmount;
         if (diff > 0.01) {
-          // New total exceeds what was paid → offer diff PIX for the exact difference
-          setDiffOrder({ order: nextOrderSnapshot, diff, isPaid: true });
+          setDiffOrder({ order: pixOrder, diff, isPaid: true });
           setDiffPixResult(null);
         }
-        // If diff <= 0 → backend already reverted status to "paid", nothing to do
-      } else {
-        // No paidAmount recorded — determine if the order was ever paid
-        const diff = total - originalTotal;
-        // "Never paid" = still in initial pending state with no proof of payment at all.
-        // awaiting_payment means a previous diff PIX was generated but not yet confirmed —
-        // the original payment already happened, so we still only charge the difference.
+      } else if (!alreadySettled) {
+        const diff = savedTotal - originalTotal;
         const hasProof = !!(editOrderModal.proofUrl || (editOrderModal.proofUrls && editOrderModal.proofUrls.length > 0));
         const neverPaid = editOrderModal.status === "pending" && !hasProof;
-        if (diff > 0.01 && isPixOrder) {
-          if (neverPaid) {
-            // Truly unpaid PIX order → generate PIX for the full new total
-            setDiffOrder({ order: nextOrderSnapshot, diff: total, isPaid: false });
-          } else {
-            // Order was at some point paid (or diff is pending) → PIX only for the difference
-            setDiffOrder({ order: nextOrderSnapshot, diff, isPaid: true });
-          }
+        if (isPixOrder && neverPaid && savedTotal > 0.01 && (savedTotal - originalTotal > 0.01 || storeCreditApplied > 0)) {
+          setDiffOrder({ order: pixOrder, diff: savedTotal, isPaid: false });
+          setDiffPixResult(null);
+        } else if (diff > 0.01 && isPixOrder) {
+          setDiffOrder({ order: pixOrder, diff, isPaid: true });
           setDiffPixResult(null);
         }
-        // Unpaid card order: just save, no PIX needed
       }
       setEditOrderModal(null);
     } catch { toast.error("Erro ao salvar edição."); }
@@ -12885,6 +12905,27 @@ export default function Admin() {
                   </div>
                   )}
 
+                  {!editAsReshipment && (editWalletLoading || (editWalletBalance != null && editWalletBalance > 0)) && (
+                  <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
+                    {editWalletLoading ? (
+                      <p className="text-sm text-blue-900 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />Carregando saldo da conta...</p>
+                    ) : (
+                      <label className="flex items-start gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5"
+                          checked={editUseStoreCredit}
+                          onChange={(e) => setEditUseStoreCredit(e.target.checked)}
+                        />
+                        <span>
+                          <span className="text-sm text-blue-950 font-medium block">Aplicar saldo da conta</span>
+                          <span className="text-xs text-blue-800">Disponível {formatCurrency(editWalletBalance ?? 0)}. Abate o que ainda falta pagar neste pedido.</span>
+                        </span>
+                      </label>
+                    )}
+                  </div>
+                  )}
+
                   {/* Totals preview */}
                   {!editAsReshipment && editItems.length > 0 && (() => {
                     const gross = editItems.reduce((s, p) => s + orderLineGross(p), 0);
@@ -12904,7 +12945,24 @@ export default function Admin() {
                     const total = insurance.total;
                     const hasPaidAmount = (editOrderModal.paidAmount ?? 0) > 0;
                     const refValue = hasPaidAmount ? (editOrderModal.paidAmount ?? 0) : editOrderModal.total;
-                    const diff = total - refValue;
+                    const existingStoreCredit = Math.max(0, Number((editOrderModal as { storeCreditUsed?: number | null }).storeCreditUsed || 0));
+                    const existingAffiliateCredit = Math.max(0, Number((editOrderModal as { affiliateCreditUsed?: number | null }).affiliateCreditUsed || 0));
+                    const hasProof = !!(editOrderModal.proofUrl || (editOrderModal.proofUrls && editOrderModal.proofUrls.length > 0));
+                    const settlement = settleOrderEdit({
+                      commercialTotal: total,
+                      existingStoreCredit,
+                      existingAffiliateCredit,
+                      paidAmount: hasPaidAmount ? Number(editOrderModal.paidAmount) : null,
+                      previousTotal: editOrderModal.total,
+                      status: editOrderModal.status,
+                      hasProof,
+                      storeCreditToApply: editUseStoreCredit ? (editWalletBalance ?? 0) : 0,
+                    });
+                    const usesWallet = editUseStoreCredit || existingStoreCredit > 0 || existingAffiliateCredit > 0;
+                    const diff = usesWallet
+                      ? (settlement.stillDue > 0.01 ? settlement.stillDue : settlement.payableTotal - refValue)
+                      : (total - refValue);
+                    const creditAlreadyUsed = existingStoreCredit + existingAffiliateCredit;
                     return (
                       <div className="p-3 rounded-lg bg-muted/40 border border-border/50 text-sm space-y-1">
                         {lineDiscountTotal > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Produtos</span><span>{formatCurrency(gross)}</span></div>}
@@ -12914,6 +12972,12 @@ export default function Admin() {
                         {editOrderModal.includeInsurance && <div className="flex justify-between"><span className="text-muted-foreground">Seguro</span><span>{formatCurrency(insuranceAmount)}</span></div>}
                         {(editDiscount || 0) > 0 && <div className="flex justify-between text-green-700"><span>Cupom</span><span>-{formatCurrency(editDiscount)}</span></div>}
                         <div className="flex justify-between font-bold border-t border-border/50 pt-1 mt-1"><span>Novo Total</span><span>{formatCurrency(total)}</span></div>
+                        {creditAlreadyUsed > 0 && (
+                          <div className="flex justify-between text-green-700"><span>Crédito já usado</span><span>-{formatCurrency(creditAlreadyUsed)}</span></div>
+                        )}
+                        {settlement.storeCreditApplied > 0 && (
+                          <div className="flex justify-between text-green-700"><span>Saldo da conta</span><span>-{formatCurrency(settlement.storeCreditApplied)}</span></div>
+                        )}
                         {hasPaidAmount && (
                           <div className="flex justify-between text-xs text-muted-foreground">
                             <span>Já pago</span><span>{formatCurrency(editOrderModal.paidAmount ?? 0)}</span>
@@ -12921,9 +12985,12 @@ export default function Admin() {
                         )}
                         {Math.abs(diff) > 0.01 && (
                           <div className={`flex justify-between text-xs font-bold rounded px-1.5 py-0.5 mt-1 ${diff > 0 ? "text-orange-700 bg-orange-50" : "text-green-700 bg-green-50"}`}>
-                            <span>{diff > 0 ? (hasPaidAmount ? "PIX de diferença" : "Acréscimo") : "Redução"}</span>
+                            <span>{diff > 0 ? (hasPaidAmount ? "PIX de diferença" : (editUseStoreCredit ? "A cobrar" : "Acréscimo")) : "Redução"}</span>
                             <span>{diff > 0 ? "+" : ""}{formatCurrency(diff)}</span>
                           </div>
+                        )}
+                        {editUseStoreCredit && settlement.storeCreditApplied > 0 && settlement.stillDue <= 0.01 && (
+                          <p className="text-xs font-medium text-green-700">O saldo da conta cobre o que falta. Nenhum PIX será gerado.</p>
                         )}
                       </div>
                     );
