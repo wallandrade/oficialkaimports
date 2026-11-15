@@ -11,6 +11,16 @@ function getHeader(headers: HeadersMap, key: string): string {
   return String(value || "").trim();
 }
 
+function isMainStoreBrand(settings: SiteSettings | null, host: string): boolean {
+  const record = settings as (SiteSettings & { is_main_store?: string; tenant_id?: string }) | null;
+  const flag = String(record?.is_main_store || "").trim().toLowerCase();
+  if (flag === "1" || flag === "true" || flag === "yes" || flag === "on") return true;
+  if (flag === "0" || flag === "false" || flag === "no" || flag === "off") return false;
+  const tenantId = String(record?.tenant_id || "").trim();
+  if (tenantId) return tenantId === "tenant_loja1";
+  return host === "ka-imports.com" || host === "www.ka-imports.com";
+}
+
 function normalizeHost(raw: string): string {
   return String(raw || "")
     .split(",")[0]
@@ -69,7 +79,9 @@ export default async function handler(req: any, res: any) {
   const settings = settingsUrl ? await fetchSiteSettings(settingsUrl) : null;
   const siteName = String(settings?.site_name || "").trim() || "KA Imports";
   const description = `Confira os produtos da loja ${siteName}.`;
-  const logo = String(settings?.logo || "").trim();
+  const configuredLogo = String(settings?.logo || "").trim();
+  const mainStore = isMainStoreBrand(settings, host);
+  const logo = configuredLogo || (mainStore && host ? `${protocol}://${host}/brand/ka/og.png` : "");
 
   const html = `<!doctype html>
 <html lang="pt-BR">
@@ -84,6 +96,7 @@ export default async function handler(req: any, res: any) {
   <meta property="og:description" content="${escapeHtml(description)}" />
   <meta property="og:url" content="${escapeHtml(canonicalUrl)}" />
   ${logo ? `<meta property="og:image" content="${escapeHtml(logo)}" />` : ""}
+  ${mainStore && !configuredLogo ? `<meta property="og:image:width" content="1200" />\n  <meta property="og:image:height" content="630" />` : ""}
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="${escapeHtml(siteName)}" />
   <meta name="twitter:description" content="${escapeHtml(description)}" />

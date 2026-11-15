@@ -2,10 +2,12 @@ import { useEffect, useRef, useState, type MouseEvent, type PointerEvent, type R
 import { Link } from "wouter";
 import { ChevronDown, Menu, ShoppingBag, UserCircle2 } from "lucide-react";
 import { pharmaCategorySelected } from "@/lib/pharma-home-showcases";
+import { StoreWordmark } from "@/components/layout/StoreWordmark";
 
 export function PharmaStoreChrome({
   siteName,
   logo,
+  logoIsDefault = false,
   sellerHomeHref,
   offersHref,
   search,
@@ -20,6 +22,7 @@ export function PharmaStoreChrome({
 }: {
   siteName: string;
   logo: string | null;
+  logoIsDefault?: boolean;
   sellerHomeHref: string;
   offersHref: string;
   search: ReactNode;
@@ -115,7 +118,9 @@ export function PharmaStoreChrome({
           <Menu className="w-5 h-5" />
         </button>
         <Link href={sellerHomeHref} className="shrink-0 flex items-center min-w-0 max-w-[34%]">
-          {logo ? (
+          {logo && logoIsDefault ? (
+            <StoreWordmark src={logo} alt={siteName} variant="pharma" fetchPriority="high" />
+          ) : logo ? (
             <img src={logo} alt={siteName} className="h-9 w-auto max-w-[8.5rem] object-contain" />
           ) : (
             <span className="truncate text-sm font-bold text-neutral-900">{siteName}</span>

@@ -4,6 +4,9 @@ import { Button } from "@/components/ui/button";
 import { getActiveWhatsApp } from "@/lib/utils";
 import { fetchPublicSiteSettings } from "@/lib/public-settings";
 import { fallbackSiteName } from "@/lib/store-host";
+import { isMainStoreFromSettings, resolveStoreThemePreset } from "@/lib/store-theme-preset";
+import { resolveStoreLogo } from "@/lib/store-logo";
+import { StoreWordmark } from "@/components/layout/StoreWordmark";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -73,6 +76,9 @@ export function Footer() {
   }, []);
 
   const siteName = String(siteSettings.site_name || "").trim() || fallbackSiteName(undefined, "upper");
+  const isMainStore = isMainStoreFromSettings(siteSettings);
+  const themePreset = resolveStoreThemePreset(String(siteSettings.store_theme_preset || ""), { settings: siteSettings });
+  const branding = resolveStoreLogo(siteSettings, { onDark: themePreset === "editorial_noir" });
 
   return (
     <footer className="ka-main-footer bg-white border-t border-border mt-auto">
@@ -80,7 +86,15 @@ export function Footer() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <div>
             <div className="flex items-center gap-2 mb-4">
-              <span className="ka-footer-brand font-bold text-xl text-primary">{siteName}</span>
+              {isMainStore && branding.src ? (
+                branding.isDefault ? (
+                  <StoreWordmark src={branding.src} alt={siteName} variant="footer" />
+                ) : (
+                  <img src={branding.src} alt={siteName} className="h-auto max-h-12 w-auto max-w-[220px] object-contain" />
+                )
+              ) : (
+                <span className="ka-footer-brand font-bold text-xl text-primary">{siteName}</span>
+              )}
             </div>
             <p className="ka-footer-text text-muted-foreground text-sm">
               A sua loja de importados com os melhores preços e garantia de qualidade.

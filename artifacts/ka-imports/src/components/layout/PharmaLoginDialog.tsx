@@ -3,6 +3,7 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { saveCustomerToken } from "@/lib/customer-auth";
 import { getStoredReferralCode } from "@/lib/affiliate";
+import { StoreWordmark } from "@/components/layout/StoreWordmark";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -20,10 +21,16 @@ export function PharmaLoginDialog({
   open,
   onClose,
   onAuthenticated,
+  logo = null,
+  logoIsDefault = false,
+  siteName = "KA Imports",
 }: {
   open: boolean;
   onClose: () => void;
   onAuthenticated: () => void;
+  logo?: string | null;
+  logoIsDefault?: boolean;
+  siteName?: string;
 }) {
   const [mode, setMode] = useState<AuthMode>("login");
   const [name, setName] = useState("");
@@ -110,6 +117,15 @@ export function PharmaLoginDialog({
         onPointerDown={(event) => event.stopPropagation()}
         onClick={(event) => event.stopPropagation()}
       >
+        {logo ? (
+          <div className="mb-3 flex justify-center">
+            {logoIsDefault ? (
+              <StoreWordmark src={logo} alt={siteName} variant="login" />
+            ) : (
+              <img src={logo} alt={siteName} className="h-auto max-h-14 w-auto max-w-[220px] object-contain" />
+            )}
+          </div>
+        ) : null}
         <h2 className="text-lg font-bold text-neutral-900">{mode === "login" ? "Entrar" : "Criar conta"}</h2>
         <form className="mt-4 space-y-3" onSubmit={handleSubmit}>
           {mode === "register" ? (
