@@ -52,6 +52,7 @@ import {
   type EnvioEcomAccountAuth,
 } from "../lib/envioecom-accounts";
 import { EnvioEcomApiError, type EnvioEcomClient } from "../lib/envioecom-client";
+import { assessCreatedShipment } from "../lib/envioecom-create-result";
 import {
   buildConsolidatedQuotePackage,
   buildGenericShipmentItem,
@@ -67,7 +68,6 @@ import {
   hasActiveEnvioEcomShipmentBinding,
   hasEnvioEcomShipmentBinding,
   isDuplicateOrderIdError,
-  parseCreatedShipment,
   parseShipmentDetails,
   persistEnvioEcomShipment,
   parseEnvioEcomLinkRef,
@@ -163,17 +163,34 @@ function rejectNoAccounts(res: Response) {
   });
 }
 
+function logEnvioEcomOp(
+  op: "quote" | "create" | "labels",
+  fields: Record<string, unknown>,
+) {
+  console.log("[EnvioEcom]", { op, ...fields });
+}
+
 async function withEnvioEcomAccount(
   tenantId: string,
   accountId: string | undefined,
   res: Response,
+  op: "quote" | "create",
 ): Promise<{ client: EnvioEcomClient; account: EnvioEcomAccountAuth } | null> {
   const picked = pickWriteEnvioEcomAccount(await listEnvioEcomAccounts(tenantId), accountId);
   if ("error" in picked && picked.error === "NONE") {
     rejectNoAccounts(res);
     return null;
   }
+  if ("error" in picked && picked.error === "ACCOUNT_REQUIRED") {
+    logEnvioEcomOp(op, { phase: "rejected", error: "ACCOUNT_REQUIRED" });
+    res.status(400).json({
+      error: "ACCOUNT_REQUIRED",
+      message: "Há mais de uma conta EnvioEcom. Escolha em qual conta cotar e criar o envio.",
+    });
+    return null;
+  }
   if ("error" in picked) {
+    logEnvioEcomOp(op, { phase: "rejected", error: "NOT_FOUND", accountId: String(accountId || "").trim() || null });
     res.status(404).json({ error: "NOT_FOUND", message: "Conta EnvioEcom não encontrada." });
     return null;
   }
@@ -804,7 +821,7 @@ router.post("/admin/envioecom/orders/:id/quote", requireAdminAuth, async (req, r
     const config = await loadEnvioEcomConfig(admin.tenantId);
     const body = (req.body || {}) as { carriers?: string[]; accountId?: string; packageId?: string };
     await resolveEnvioEcomTarget(order, readPackageId(body));
-    const scoped = await withEnvioEcomAccount(admin.tenantId, body.accountId, res);
+    const scoped = await withEnvioEcomAccount(admin.tenantId, body.accountId, res, "quote");
     if (!scoped) return;
     const packed = buildConsolidatedQuotePackage({ products: order.products, defaults: config.defaults });
     const carriersFilter = Array.isArray(body.carriers) ? body.carriers : config.carriers;
@@ -815,7 +832,31 @@ router.post("/admin/envioecom/orders/:id/quote", requireAdminAuth, async (req, r
     };
     if (scoped.account.originCep.length === 8) payload.postal_code_origin = scoped.account.originCep;
     if (carriersFilter.length) payload.carriers = carriersFilter;
-    const quoted = await scoped.client.quote(payload);
+    logEnvioEcomOp("quote", {
+      phase: "request",
+      accountId: scoped.account.accountId,
+      accountName: scoped.account.name,
+      orderId: order.id,
+    });
+    let quoted: Record<string, unknown>;
+    try {
+      quoted = await scoped.client.quote(payload);
+    } catch (err) {
+      logEnvioEcomOp("quote", {
+        phase: "error",
+        accountId: scoped.account.accountId,
+        accountName: scoped.account.name,
+        orderId: order.id,
+      });
+      throw err;
+    }
+    logEnvioEcomOp("quote", {
+      phase: "ok",
+      accountId: scoped.account.accountId,
+      accountName: scoped.account.name,
+      orderId: order.id,
+      quotes: Array.isArray(quoted.quotes) ? quoted.quotes.length : 0,
+    });
     const rawQuotes = Array.isArray(quoted.quotes) ? quoted.quotes as Array<Record<string, unknown>> : [];
     let quotes: Array<Record<string, unknown>> = rawQuotes;
     const quotePlace = {
@@ -1051,7 +1092,7 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       res.status(400).json({ error: "INVALID_INPUT", message: "Informe a transportadora exatamente como na cotação." });
       return;
     }
-    const scoped = await withEnvioEcomAccount(admin.tenantId, body.accountId, res);
+    const scoped = await withEnvioEcomAccount(admin.tenantId, body.accountId, res, "create");
     if (!scoped) return;
     const config = await loadEnvioEcomConfig(admin.tenantId);
     const originCep = digitsOnly(body.originCep || scoped.account.originCep);
@@ -1134,6 +1175,12 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       ? buildPackageExternalOrderNumber(workingOrder, pool, orderIdSource)
       : buildNextExternalOrderNumber(orderIdSource);
     let created: Awaited<ReturnType<typeof scoped.client.create>> | undefined;
+    logEnvioEcomOp("create", {
+      phase: "request",
+      accountId: scoped.account.accountId,
+      accountName: scoped.account.name,
+      orderId: order.id,
+    });
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         created = await scoped.client.create({
@@ -1159,6 +1206,12 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
               });
           continue;
         }
+        logEnvioEcomOp("create", {
+          phase: "error",
+          accountId: scoped.account.accountId,
+          accountName: scoped.account.name,
+          orderId: order.id,
+        });
         throw err;
       }
     }
@@ -1166,8 +1219,29 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       throw new EnvioEcomApiError("CREATE_FAILED", "Não foi possível criar o envio na EnvioEcom.", 502);
     }
 
+    const assessed = assessCreatedShipment(created);
+    logEnvioEcomOp("create", {
+      phase: assessed.ok ? "ok" : "rejected",
+      accountId: scoped.account.accountId,
+      accountName: scoped.account.name,
+      orderId: order.id,
+      outcome: assessed.summary.outcome,
+      resultsCount: assessed.summary.resultsCount,
+      errorCode: assessed.summary.errorCode,
+      hasShipmentId: assessed.summary.hasShipmentId,
+      hasBarcode: assessed.summary.hasBarcode,
+      keys: assessed.summary.keys,
+    });
+    if (!assessed.ok) {
+      throw new EnvioEcomApiError("CREATE_REJECTED", assessed.message, 502, {
+        outcome: assessed.summary.outcome,
+        resultsCount: assessed.summary.resultsCount,
+        errorCode: assessed.summary.errorCode,
+      });
+    }
+
     const createdPatch = {
-      ...parseCreatedShipment(created),
+      ...assessed.patch,
       deliveryMode: shippingCompany,
       externalOrderNumber,
       skipTrackingWhatsapp: true,
@@ -1225,7 +1299,7 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       order: await mapEnvioEcomOrderWithPackages(persistedOrder, { accountName: scoped.account.name }),
       accountId: scoped.account.accountId,
       accountName: scoped.account.name,
-      raw: created,
+      shipmentId: Number(createdPatch.shipmentId || persistedOrder.envioecomShipmentId || 0) || null,
     });
   } catch (err) {
     sendEnvioEcomError(res, err, String(req.params.id || ""));
@@ -1376,6 +1450,12 @@ router.post("/admin/envioecom/orders/:id/labels", requireAdminAuth, async (req, 
       ? { ids: [Number(shipmentId)] }
       : { barcodes: [ownBarcode] };
     const preferred = String((req.body as { accountId?: string })?.accountId || bound.envioecomAccountId || "").trim() || undefined;
+    logEnvioEcomOp("labels", {
+      phase: "request",
+      orderId: order.id,
+      preferredAccountId: preferred || null,
+      shipmentId: shipmentId || null,
+    });
     const found = await withEnvioEcomAccountFallback(
       admin.tenantId,
       preferred,
@@ -1385,12 +1465,18 @@ router.post("/admin/envioecom/orders/:id/labels", requireAdminAuth, async (req, 
     );
     if (!found) return;
     const result = found.result;
+    logEnvioEcomOp("labels", {
+      phase: result.kind === "pdf" ? "ok" : "pending",
+      orderId: order.id,
+      accountId: found.account.accountId,
+      accountName: found.account.name,
+      shipmentId: shipmentId || null,
+    });
     if (result.kind !== "pdf") {
       const code = String((result.json as { error?: { code?: string } } | null)?.error?.code || "LABEL_PROCESSING");
       res.status(202).json({
         error: code,
         message: "Etiqueta ainda em processamento. Tente novamente em instantes.",
-        details: result.json,
         accountId: found.account.accountId,
       });
       return;

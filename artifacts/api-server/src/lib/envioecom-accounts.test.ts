@@ -92,7 +92,7 @@ test("JSON extra ignora env/tenant e id duplicado", () => {
   assert.equal(extras[0].originCep, "01310100");
 });
 
-test("write sem accountId usa a primeira configurada; id inexistente 404", () => {
+test("várias contas sem accountId exigem escolha; uma conta segue sozinha", () => {
   const accounts = assembleEnvioEcomAccounts({
     tenantId: "filial",
     settings: {
@@ -103,14 +103,20 @@ test("write sem accountId usa a primeira configurada; id inexistente 404", () =>
       ]),
     },
   });
-  const first = pickWriteEnvioEcomAccount(accounts);
-  if (!("account" in first)) throw new Error("expected tenant account");
-  assert.equal(first.account.accountId, "tenant");
+  assert.deepEqual(pickWriteEnvioEcomAccount(accounts), { error: "ACCOUNT_REQUIRED" });
   const missing = pickWriteEnvioEcomAccount(accounts, "nao-existe");
   assert.deepEqual(missing, { error: "NOT_FOUND" });
   const extra = pickWriteEnvioEcomAccount(accounts, "aaaa");
   if (!("account" in extra)) throw new Error("expected extra account");
   assert.equal(extra.account.originCep, "04001000");
+
+  const only = assembleEnvioEcomAccounts({
+    tenantId: "filial",
+    settings: { envioecom_token: "loja-token", envioecom_origin_cep: "01310100" },
+  });
+  const picked = pickWriteEnvioEcomAccount(only);
+  if (!("account" in picked)) throw new Error("expected the only account");
+  assert.equal(picked.account.accountId, "tenant");
 });
 
 test("fallback prefere a conta do pedido, depois env, depois o resto", () => {
