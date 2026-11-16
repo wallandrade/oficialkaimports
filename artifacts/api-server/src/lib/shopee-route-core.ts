@@ -194,14 +194,6 @@ export function decideShopeeInbound(input: {
       revisarIds: awaiting.map((row) => row.id),
     };
   }
-  if (awaiting.length === 1) {
-    const order = awaiting[0];
-    if (!order) return { ok: false, motivo: "nenhum_pedido", revisarIds: [] };
-    return { ok: true, orderId: order.id, shopeeOrderId: input.shopeeOrderId, jaProcessado: false };
-  }
-  if (awaiting.length > 1) {
-    return { ok: false, motivo: "varios_pedidos", revisarIds: awaiting.map((row) => row.id) };
-  }
   if (sameId.length === 1) {
     const order = sameId[0];
     if (!order) return { ok: false, motivo: "nenhum_pedido", revisarIds: [] };
@@ -209,6 +201,14 @@ export function decideShopeeInbound(input: {
   }
   if (sameId.length > 1) {
     return { ok: false, motivo: "varios_pedidos", revisarIds: sameId.map((row) => row.id) };
+  }
+  if (awaiting.length === 1) {
+    const order = awaiting[0];
+    if (!order) return { ok: false, motivo: "nenhum_pedido", revisarIds: [] };
+    return { ok: true, orderId: order.id, shopeeOrderId: input.shopeeOrderId, jaProcessado: false };
+  }
+  if (awaiting.length > 1) {
+    return { ok: false, motivo: "varios_pedidos", revisarIds: awaiting.map((row) => row.id) };
   }
   return { ok: false, motivo: "nenhum_pedido", revisarIds: [] };
 }

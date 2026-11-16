@@ -101,6 +101,13 @@ test("entrada do n8n escolhe um pedido, repete o mesmo ID e manda revisão", () 
     sameId: [{ id: "a", shopeeOrderId: "241116ABCDEFGH" }],
   }), { ok: true, orderId: "a", shopeeOrderId: "241116ABCDEFGH", jaProcessado: true });
 
+  assert.deepEqual(decideShopeeInbound({
+    motivoId: null,
+    shopeeOrderId: "241116ABCDEFGH",
+    awaiting: [{ id: "b", shopeeOrderId: null }],
+    sameId: [{ id: "a", shopeeOrderId: "241116ABCDEFGH" }],
+  }), { ok: true, orderId: "a", shopeeOrderId: "241116ABCDEFGH", jaProcessado: true });
+
   const invalid = decideShopeeInbound({
     motivoId: "id_invalido",
     shopeeOrderId: null,
