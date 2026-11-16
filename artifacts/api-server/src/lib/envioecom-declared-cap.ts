@@ -26,9 +26,25 @@ function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+/** `1.000,00`, `2.500,00` e `1.000`. Ponto sozinho com 1 ou 2 casas (`19.85`) continua decimal. */
+function parseDeclaredLimitAmount(value: unknown): number {
+  if (typeof value === "number") return value;
+  const raw = String(value ?? "").trim().replace(/[R$\s]/gi, "");
+  if (!raw) return NaN;
+  if (!raw.includes(",") && /^\d{1,3}(\.\d{3})+$/.test(raw)) {
+    return Number(raw.replace(/\./g, ""));
+  }
+  const normalized = raw.includes(",") && raw.includes(".")
+    ? raw.replace(/\./g, "").replace(",", ".")
+    : raw.replace(",", ".");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : NaN;
+}
+
 export function normalizeDeclaredLimit(value: unknown): number | null {
   if (typeof value === "string" && !value.trim()) return null;
-  const parsed = typeof value === "string" ? Number(value.trim().replace(",", ".")) : Number(value);
+  if (typeof value !== "number" && typeof value !== "string") return null;
+  const parsed = parseDeclaredLimitAmount(value);
   if (!Number.isFinite(parsed) || parsed <= 0 || parsed > ENVIOECOM_DECLARED_ABS_MAX) return null;
   return roundMoney(parsed);
 }

@@ -55,6 +55,11 @@ test("teto da transportadora na cotacao substitui o padrao", () => {
   assert.equal(carrierDeclaredLimitFromQuote({ carrier: "J&T Express envioEcom", price: 19.85 }), null);
   assert.equal(carrierDeclaredLimitFromQuote({ max_declared_value: 750 }), 750);
   assert.equal(carrierDeclaredLimitFromQuote({ limits: { declared_value_limit: "500,00" } }), 500);
+  assert.equal(carrierDeclaredLimitFromQuote({ max_declared_value: "1.000,00" }), 1000);
+  assert.equal(carrierDeclaredLimitFromQuote({ max_declared_value: "2.500,00" }), 2500);
+  assert.equal(carrierDeclaredLimitFromQuote({ max_declared_value: "1.000" }), 1000);
+  assert.equal(carrierDeclaredLimitFromQuote({ max_declared_value: "R$ 1.000,00" }), 1000);
+  assert.equal(carrierDeclaredLimitFromQuote({ max_declared_value: "19.85" }), 19.85);
   assert.equal(carrierDeclaredLimitFromQuote({ max_declared_value: 9000 }), null);
 
   const tighter = fitDeclaredShipmentItems(
