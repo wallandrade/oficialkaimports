@@ -762,7 +762,7 @@ export function EnvioEcomOrderActions({
     const status = opts && "status" in opts ? opts.status : bound.envioecomStatus;
     const shipmentId = Number(opts?.shipmentId || bound.envioecomShipmentId || 0);
     const code = String(opts?.barcode ?? barcode).trim();
-    const accountId = String(opts?.accountId || quoteAccountId || bound.envioecomAccountId || "").trim();
+    const accountId = String(opts?.accountId || "").trim();
     if (isLabelBlockedStatus(status)) {
       toast.message("Este envio está cancelado ou aguardando cancelamento. Cote e crie um envio novo.");
       void startQuote();

@@ -92,6 +92,11 @@ test("codigo sozinho ainda conta; envelope de erro nao vira rastreio", () => {
   const envelope = assessCreatedShipment({ code: "VALIDATION", message: "não criou" });
   assert.equal(envelope.ok, false);
   assert.equal(envelope.summary.hasBarcode, false);
+
+  const numbered = assessCreatedShipment({ code: "ERR400", message: "não criou" });
+  assert.equal(numbered.ok, false);
+  assert.equal(numbered.summary.hasBarcode, false);
+  assert.match(numbered.message, /ERR400/);
 });
 
 test("resumo do create nao leva token nem dado do cliente", () => {

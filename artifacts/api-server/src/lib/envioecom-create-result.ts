@@ -52,16 +52,8 @@ function pickNumber(...values: unknown[]): number | null {
   return null;
 }
 
-function looksLikeTrackingCode(value: string): boolean {
-  if (value.length < 6 || value.length > 40) return false;
-  if (!/\d/.test(value)) return false;
-  if (/^[A-Z][A-Z0-9_]{2,}$/.test(value) && value.includes("_")) return false;
-  if (/^(error|erro|fail|failed|failure|ok|true|false|success)$/i.test(value)) return false;
-  return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value);
-}
-
 function barcodeFrom(row: Record<string, unknown>): string | null {
-  const direct = pickString(
+  return pickString(
     row.barcode,
     row.tracking_code,
     row.trackingCode,
@@ -69,10 +61,6 @@ function barcodeFrom(row: Record<string, unknown>): string | null {
     row.codigo,
     row.tracking,
   );
-  if (direct) return direct;
-  const generic = pickString(row.code);
-  if (generic && looksLikeTrackingCode(generic)) return generic;
-  return null;
 }
 
 function shipmentIdFrom(row: Record<string, unknown>): number | null {
@@ -169,8 +157,8 @@ function explicitError(row: Record<string, unknown>): string | null {
 function looseErrorEnvelope(row: Record<string, unknown>): string | null {
   const code = pickString(row.code);
   const message = pickString(row.message);
-  if (!code || !message || /\d/.test(code)) return null;
-  if (shipmentIdFrom(row) || pickString(row.barcode, row.tracking_code, row.trackingCode)) return null;
+  if (!code || !message) return null;
+  if (shipmentIdFrom(row) || barcodeFrom(row)) return null;
   return `${code}: ${message}`;
 }
 
