@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-16 | Create EnvioEcom com lote recusado devolve o motivo no 502 | `assessCreatedShipment` lê `results[0].error`, `error_code` e `payment_processing`. O log leva a frase e a conta. `defer_payment` continua `false` | Cotação, etiqueta e o checkout |
 | 2026-11-16 | Quote/create EnvioEcom não escolhem conta sozinhos quando há várias | 400 `ACCOUNT_REQUIRED`. Create sem id ou código responde 502 e não grava | Checkout, motoboy, retirada e etiqueta de envio já salvo |
 | 2026-11-15 | Tabela `order_delivery_corrections` e coluna `orders.client_data_corrected_at` | Schema Drizzle e o boot (`runtime-schema`: `CREATE TABLE` e `ALTER TABLE`). Página `/corrigir-entrega`. Rotas públicas e `POST /api/admin/orders/:id/delivery-correction/resend` | Sem SuperFrete. Histórico continua em `order_events` (`delivery_correction_sent`, `delivery_correction_failed`, `delivery_correction_saved`) |
 | 2026-11-15 | Geocode do Motoboy tenta Photon se Nominatim e AwesomeAPI falharem | Falha de fonte vira `console.warn` com source e reason, sem rua nem CEP. Cache de erro cai para 10 min | Lookup continua km antes da faixa de CEP |
