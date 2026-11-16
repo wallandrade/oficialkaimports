@@ -212,10 +212,11 @@ export default function RaffleDetail() {
     setLookupResults(null);
     try {
       const headers = await getCheckoutSecurityHeaders();
-      const res = await fetch(
-        `${BASE}/api/raffles/reservations/lookup?query=${encodeURIComponent(digits)}&raffleId=${encodeURIComponent(raffleId)}`,
-        { headers },
-      );
+      const res = await fetch(`${BASE}/api/raffles/reservations/lookup`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ query: digits, raffleId }),
+      });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         setLookupError((err as { message?: string }).message || "Erro ao consultar. Tente novamente.");

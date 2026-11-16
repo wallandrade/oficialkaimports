@@ -11,6 +11,11 @@ import {
   PIX_DURATION_MS,
 } from "../gateway";
 import { DEFAULT_TENANT_ID, requirePublicTenantId } from "../lib/tenant-context";
+import {
+  registerReservationLookup,
+  type ReservationLookupCriteria,
+  type ReservationLookupRow,
+} from "../lib/raffle-reservation-lookup";
 import { confirmRaffleReservationFromPix } from "../lib/raffle-pix-confirm";
 import {
   decidePixSettlement,
@@ -445,35 +450,11 @@ router.post("/raffles/:id/reserve", async (req, res) => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// PUBLIC: GET /api/raffles/reservations/lookup?phone=XX|cpf=YYY|query=ZZZ&raffleId=ID — consulta por tel/CPF.
-// ---------------------------------------------------------------------------
-router.get("/raffles/reservations/lookup", async (req, res) => {
-  const tenantId = await requirePublicTenantId(req as any, res);
-  if (!tenantId) return;
-  const rawQuery = String(req.query.query || "").trim();
-  const queryDigits = rawQuery.replace(/\D/g, "");
-  const phone = String(req.query.phone || "").replace(/\D/g, "");
-  const cpf = String(req.query.cpf || "").replace(/\D/g, "");
-
-  // Avoid ambiguity for 11-digit query: default to phone unless CPF is explicit.
-  const hasExplicitPhone = phone.length > 0;
-  const hasExplicitCpf = cpf.length > 0;
-  const queryLooksCpf = /[.-]/.test(rawQuery) && queryDigits.length === 11;
-
-  const lookupPhone = hasExplicitPhone
-    ? phone
-    : (!hasExplicitCpf && queryDigits.length >= 8 ? queryDigits : "");
-  const lookupCpf = hasExplicitCpf
-    ? cpf
-    : (!hasExplicitPhone && queryLooksCpf ? queryDigits : "");
-  const raffleId = String(req.query.raffleId || "").trim();
-
-  if (lookupPhone.length < 8 && lookupCpf.length !== 11) {
-    res.status(400).json({ error: "INVALID_INPUT", message: "Informe um telefone ou CPF válido." });
-    return;
-  }
-
+async function findReservationLookupRows(
+  tenantId: string,
+  criteria: ReservationLookupCriteria,
+): Promise<ReservationLookupRow[]> {
+  const { lookupPhone, lookupCpf, raffleId } = criteria;
   let whereClause;
   const cpfLike = "%" + lookupCpf + "%";
   const cpfByEmailSubquery = raffleId
@@ -497,14 +478,14 @@ router.get("/raffles/reservations/lookup", async (req, res) => {
     whereClause = sql`${normalizedPhoneExpr} LIKE ${"%" + lookupPhone}`;
   }
 
-  // Match reservation where phone/CPF contains the typed digits.
-  const conditions = [whereClause];
-  if (raffleId) {
-    conditions.push(eq(raffleReservationsTable.raffleId, raffleId));
-  }
-  conditions.push(buildRaffleReservationsTenantWhere(tenantId));
+  const tenantWhere = buildRaffleReservationsTenantWhere(tenantId);
+  const conditions = [
+    whereClause,
+    ...(raffleId ? [eq(raffleReservationsTable.raffleId, raffleId)] : []),
+    ...(tenantWhere ? [tenantWhere] : []),
+  ];
 
-  const rows = await db
+  return db
     .select({
       id: raffleReservationsTable.id,
       raffleId: raffleReservationsTable.raffleId,
@@ -526,28 +507,23 @@ router.get("/raffles/reservations/lookup", async (req, res) => {
     .where(and(...conditions))
     .orderBy(sql`created_at DESC`)
     .limit(200);
+}
 
-  // Enrich with raffle title
-  const raffleIds = [...new Set(rows.map((r) => r.raffleId))];
-  let raffleMap: Record<string, string> = {};
-  if (raffleIds.length > 0) {
-    const raffleRows = await db
-      .select({ id: rafflesTable.id, title: rafflesTable.title })
-      .from(rafflesTable)
-      .where(and(buildRafflesTenantWhere(tenantId), inArray(rafflesTable.id, raffleIds)));
-    for (const r of raffleRows) raffleMap[r.id] = r.title;
-  }
+async function findReservationLookupTitles(tenantId: string, raffleIds: string[]): Promise<Record<string, string>> {
+  const raffleRows = await db
+    .select({ id: rafflesTable.id, title: rafflesTable.title })
+    .from(rafflesTable)
+    .where(and(buildRafflesTenantWhere(tenantId), inArray(rafflesTable.id, raffleIds)));
+  const titles: Record<string, string> = {};
+  for (const row of raffleRows) titles[row.id] = row.title;
+  return titles;
+}
 
-  const now = new Date();
-  const result = rows.map((r) => ({
-    ...r,
-    numbers: parseNumbers(r.numbers),
-    raffleTitle: raffleMap[r.raffleId] ?? "Rifa",
-    isExpired: r.status === "reserved" && r.expiresAt < now,
-    isPixExpired: r.pixExpiresAt ? r.pixExpiresAt < now : true,
-  }));
-
-  res.json(result);
+// Consulta por telefone/CPF. O site manda POST com JSON. O GET antigo continua.
+registerReservationLookup(router, {
+  requireTenant: (req, res) => requirePublicTenantId(req as any, res),
+  findRows: findReservationLookupRows,
+  findTitles: findReservationLookupTitles,
 });
 
 // ---------------------------------------------------------------------------

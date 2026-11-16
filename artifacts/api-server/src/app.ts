@@ -624,7 +624,8 @@ app.use((req, res, next) => {
 
 // Protection for sensitive public read endpoints that expose customer-linked records.
 app.use((req, res, next) => {
-  if (req.method !== "GET" || !isSensitivePublicReadPath(req.path)) {
+  const isRaffleLookupPost = req.method === "POST" && req.path === "/api/raffles/reservations/lookup";
+  if ((req.method !== "GET" && !isRaffleLookupPost) || !isSensitivePublicReadPath(req.path)) {
     next();
     return;
   }
