@@ -41,7 +41,7 @@ function requireYuryInventoryToken(): string {
   if (!token) {
     throw new YuryInventoryExitError(
       "YURY_SYNC_DISABLED",
-      "Configure YURY_MOTOBOY_SYNC_TOKEN para baixar estoque Motoboy/Minas na Yury.",
+      "Configure YURY_MOTOBOY_SYNC_TOKEN para baixar estoque Motoboy, Minas ou Santa Catarina na Yury.",
     );
   }
   return token;
@@ -145,7 +145,7 @@ export async function debitYuryInventoryForKaOrder(input: {
   if (!isYuryInventorySyncConfigured()) {
     throw new YuryInventoryExitError(
       "YURY_SYNC_DISABLED",
-      "Configure YURY_MOTOBOY_SYNC_TOKEN para baixar estoque Motoboy/Minas na Yury.",
+      "Configure YURY_MOTOBOY_SYNC_TOKEN para baixar estoque Motoboy, Minas ou Santa Catarina na Yury.",
     );
   }
 

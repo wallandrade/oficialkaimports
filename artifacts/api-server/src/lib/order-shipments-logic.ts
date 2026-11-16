@@ -93,7 +93,7 @@ export function validateOrderShipmentAllocation(
   for (const row of packages) {
     const pool = parseKaInventoryExitPool(row?.pool);
     if (!pool) {
-      return { ok: false, error: { code: "INVALID_POOL", message: "Cada pacote precisa de origem loja, motoboy ou minas." } };
+      return { ok: false, error: { code: "INVALID_POOL", message: "Cada pacote precisa de origem loja, motoboy, minas ou santa catarina." } };
     }
     if (seenPools.has(pool)) {
       return { ok: false, error: { code: "DUPLICATE_POOL", message: "Só 1 pacote por origem. Não crie dois pacotes da mesma origem." } };
@@ -324,6 +324,7 @@ export function shipmentPoolLabel(pool?: string | null): string {
   const normalized = String(pool || "").trim().toLowerCase();
   if (normalized === "motoboy") return "Motoboy";
   if (normalized === "minas") return "Minas";
+  if (normalized === "santa_catarina" || normalized.replace(/[\s-]+/g, "") === "santacatarina") return "Santa Catarina";
   if (normalized === "loja") return "Fóz Guaçu";
   return pool || "pacote";
 }

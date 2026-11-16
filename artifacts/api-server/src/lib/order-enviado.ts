@@ -340,10 +340,10 @@ export async function reverseOrderInventoryForSplit(input: {
     ? exitedPools
     : (await hasLegacyFozExit(input.orderId) ? ["loja" as const] : []);
 
-  if (pools.includes("motoboy") || pools.includes("minas")) {
+  if (pools.some((pool) => pool !== "loja")) {
     throw new OrderEnviadoError(
       "INVENTORY_MUST_REVERSE",
-      "Este pedido já baixou estoque Motoboy/Minas. Estorne essa baixa antes de dividir o envio.",
+      "Este pedido já baixou estoque Motoboy, Minas ou Santa Catarina. Estorne essa baixa antes de dividir o envio.",
     );
   }
 

@@ -16,9 +16,12 @@ import {
   defaultKaInventoryExitPool,
   hasKaInventoryExit,
   mapKaItemsToYuryExitItems,
+  isYuryInventoryPool,
   parseKaInventoryExitPool,
   serializeKaInventoryExitedPools,
+  yuryPoolQuantity,
   type KaInventoryExitPool,
+  type YuryInventoryPool,
 } from "./yury-inventory";
 import { orderHasEnvioEcomLabelAndTracking } from "./envioecom-status";
 import { packageInventoryReferenceId, parseOrderShipmentItems } from "./order-shipments-logic";
@@ -204,7 +207,7 @@ async function missingStockForPool(
   tenantId: string,
 ): Promise<string[]> {
   if (items.length === 0) return [];
-  if (pool === "motoboy" || pool === "minas") {
+  if (isYuryInventoryPool(pool)) {
     return missingYuryStock(pool, items.filter((item) => item.id || item.name));
   }
   const withId = items.filter((item) => item.id);
@@ -217,7 +220,7 @@ async function missingStockForPool(
 }
 
 async function missingYuryStock(
-  pool: "motoboy" | "minas",
+  pool: YuryInventoryPool,
   items: ReshipmentProduct[],
 ): Promise<string[]> {
   const rows = await listYuryInventoryBalances();
@@ -230,7 +233,7 @@ async function missingYuryStock(
   const missing: string[] = [];
   for (const item of mapped.items) {
     const row = byId.get(item.productId);
-    const qty = pool === "minas" ? Number(row?.qtyMinas || 0) : Number(row?.qtyMotoboy || 0);
+    const qty = yuryPoolQuantity(row, pool);
     if (qty < item.quantity) missing.push(row?.productName || item.productId);
   }
   return missing;
@@ -288,7 +291,7 @@ async function debitSplitReshipmentPackages(params: {
 
   const debitedProducts: Array<{ productId: string; productName: string; quantity: number }> = [];
   for (const step of plan) {
-    if (step.pool === "motoboy" || step.pool === "minas") {
+    if (isYuryInventoryPool(step.pool)) {
       try {
         await debitYuryInventoryForKaOrder({
           referenceId: packageInventoryReferenceId(step.id),
@@ -496,7 +499,7 @@ export async function ensureReshipmentReservation(params: {
   }
 
   const pool = linkedOrderExitPool(linkedOrder);
-  if (pool === "motoboy" || pool === "minas") {
+  if (isYuryInventoryPool(pool)) {
     const missingYury = await missingYuryStock(pool, remainingItems);
     if (missingYury.length > 0) {
       return { ok: false, missingProducts: missingYury };
@@ -644,7 +647,7 @@ export async function ensureReshipmentSendDebit(params: {
   }
 
   const pool = linkedOrderExitPool(linkedOrder);
-  if (linkedOrder && (pool === "motoboy" || pool === "minas")) {
+  if (linkedOrder && isYuryInventoryPool(pool)) {
     try {
       const yury = await debitYuryInventoryForKaOrder({
         referenceId: linkedOrder.id,

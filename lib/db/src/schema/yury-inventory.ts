@@ -5,6 +5,7 @@ export const yuryInventoryBalancesTable = mysqlTable("yury_inventory_balances", 
   productName: varchar("product_name", { length: 255 }).notNull(),
   qtyMotoboy: int("qty_motoboy").notNull().default(0),
   qtyMinas: int("qty_minas").notNull().default(0),
+  qtySantaCatarina: int("qty_santa_catarina").notNull().default(0),
   syncedAt: timestamp("synced_at"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

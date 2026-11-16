@@ -61,6 +61,7 @@ const POOL_LABELS: Record<string, string> = {
   loja: "Foz Guaçu",
   motoboy: "Motoboy",
   minas: "Minas",
+  santa_catarina: "Santa Catarina",
 };
 
 function actorLabel(event: OrderHistoryEvent): string {

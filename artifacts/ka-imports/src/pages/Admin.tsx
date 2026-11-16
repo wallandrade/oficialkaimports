@@ -720,7 +720,7 @@ function shoppingStockLookup(
   return 0;
 }
 
-function allocateShoppingStock(needed: number, foz: number, motoboy: number, minas: number) {
+function allocateShoppingStock(needed: number, foz: number, motoboy: number, minas: number, santaCatarina: number) {
   let remaining = Math.max(0, needed);
   const fromFoz = Math.min(Math.max(0, foz), remaining);
   remaining -= fromFoz;
@@ -728,11 +728,14 @@ function allocateShoppingStock(needed: number, foz: number, motoboy: number, min
   remaining -= fromMotoboy;
   const fromMinas = Math.min(Math.max(0, minas), remaining);
   remaining -= fromMinas;
+  const fromSantaCatarina = Math.min(Math.max(0, santaCatarina), remaining);
+  remaining -= fromSantaCatarina;
   return {
     fromFoz,
     fromMotoboy,
     fromMinas,
-    fromStock: fromFoz + fromMotoboy + fromMinas,
+    fromSantaCatarina,
+    fromStock: fromFoz + fromMotoboy + fromMinas + fromSantaCatarina,
     toBuy: remaining,
   };
 }
@@ -743,16 +746,18 @@ function formatShoppingCoveredLine(
   fromFoz: number,
   fromMotoboy: number,
   fromMinas: number,
+  fromSantaCatarina: number,
 ): string {
   const parts: string[] = [];
   if (fromFoz > 0) parts.push(`Fóz ${fromFoz}`);
   if (fromMotoboy > 0) parts.push(`Motoboy ${fromMotoboy}`);
   if (fromMinas > 0) parts.push(`Minas ${fromMinas}`);
+  if (fromSantaCatarina > 0) parts.push(`Santa Catarina ${fromSantaCatarina}`);
   const origin = parts.length > 0 ? ` (${parts.join(", ")})` : "";
   return `- ${qty}x ${label}${origin}`;
 }
 
-type KaExitPool = "loja" | "motoboy" | "minas";
+type KaExitPool = "loja" | "motoboy" | "minas" | "santa_catarina";
 
 function parseKaExitPool(value: unknown): KaExitPool | null {
   const normalized = String(value || "")
@@ -764,6 +769,7 @@ function parseKaExitPool(value: unknown): KaExitPool | null {
   if (normalized === "loja" || normalized.includes("foz")) return "loja";
   if (normalized === "motoboy") return "motoboy";
   if (normalized === "minas") return "minas";
+  if (normalized.replace(/[\s-]+/g, "") === "santacatarina") return "santa_catarina";
   return null;
 }
 
@@ -777,6 +783,7 @@ function defaultKaExitPool(order: any): KaExitPool {
     .toLowerCase();
   if (shipping.includes("motoboy")) return "motoboy";
   if (shipping.includes("minas")) return "minas";
+  if (shipping.includes("santa catarina") || shipping.replace(/[\s-]+/g, "") === "santacatarina") return "santa_catarina";
   if (shipping.includes("retirada") || shipping.includes("pickup")) return "loja";
   if (order?.motoboyDeliveryDate && order?.motoboyDeliveryTime) return "motoboy";
   return "loja";
@@ -785,6 +792,7 @@ function defaultKaExitPool(order: any): KaExitPool {
 function kaExitPoolLabel(pool: KaExitPool): string {
   if (pool === "motoboy") return "Motoboy";
   if (pool === "minas") return "Minas";
+  if (pool === "santa_catarina") return "Santa Catarina";
   return "Foz Guaçu";
 }
 
@@ -1549,6 +1557,7 @@ interface YuryInventoryBalanceRecord {
   productName: string;
   qtyMotoboy: number;
   qtyMinas: number;
+  qtySantaCatarina: number;
 }
 
 interface InventoryMovementRecord {
@@ -7337,6 +7346,12 @@ export default function Admin() {
     const minasByName = new Map(
       yurySnapshot.map((row) => [String(row.productName || "").trim().toLowerCase(), Number(row.qtyMinas || 0)] as const),
     );
+    const santaById = new Map(
+      yurySnapshot.map((row) => [String(row.productId || "").trim(), Number(row.qtySantaCatarina || 0)] as const),
+    );
+    const santaByName = new Map(
+      yurySnapshot.map((row) => [String(row.productName || "").trim().toLowerCase(), Number(row.qtySantaCatarina || 0)] as const),
+    );
 
     const stockLoaded = balancesSnapshot.length > 0 || yurySnapshot.length > 0;
 
@@ -7349,8 +7364,9 @@ export default function Admin() {
         const foz = shoppingStockLookup(fozById, fozByName, item.productId, names);
         const motoboy = shoppingStockLookup(motoboyById, motoboyByName, item.productId, names);
         const minas = shoppingStockLookup(minasById, minasByName, item.productId, names);
+        const santaCatarina = shoppingStockLookup(santaById, santaByName, item.productId, names);
         const needed = Math.max(0, item.qtyNormal) + Math.max(0, item.qtyReshipment);
-        const allocated = allocateShoppingStock(needed, foz, motoboy, minas);
+        const allocated = allocateShoppingStock(needed, foz, motoboy, minas, santaCatarina);
         return { ...item, ...allocated };
       });
 
@@ -7360,7 +7376,7 @@ export default function Admin() {
 
     const stockLines = breakdown
       .filter((item) => item.fromStock > 0)
-      .map((item) => formatShoppingCoveredLine(item.fromStock, item.label, item.fromFoz, item.fromMotoboy, item.fromMinas));
+      .map((item) => formatShoppingCoveredLine(item.fromStock, item.label, item.fromFoz, item.fromMotoboy, item.fromMinas, item.fromSantaCatarina));
 
     const reshipmentLines = breakdown
       .filter((item) => item.qtyReshipment > 0)
@@ -14072,7 +14088,7 @@ function InventoryPanel({
   const [yuryConfigured, setYuryConfigured] = useState(false);
   const [yuryLastSyncedAt, setYuryLastSyncedAt] = useState<string | null>(null);
   const [yurySearch, setYurySearch] = useState("");
-  const [inventoryPoolTab, setInventoryPoolTab] = useState<"loja" | "motoboy" | "minas">("loja");
+  const [inventoryPoolTab, setInventoryPoolTab] = useState<"loja" | "motoboy" | "minas" | "santa_catarina">("loja");
   const [imagePreview, setImagePreview] = useState<{ src: string; name: string } | null>(null);
   const [reshipmentActionLoading, setReshipmentActionLoading] = useState<Record<string, boolean>>({});
   const [manualReturnDraft, setManualReturnDraft] = useState({
@@ -14184,9 +14200,11 @@ function InventoryPanel({
   });
 
   const normalizedYurySearch = yurySearch.trim().toLowerCase();
-  const yuryPoolQty = (row: YuryInventoryBalanceRecord) => (
-    inventoryPoolTab === "minas" ? Number(row.qtyMinas) || 0 : Number(row.qtyMotoboy) || 0
-  );
+  const yuryPoolQty = (row: YuryInventoryBalanceRecord) => {
+    if (inventoryPoolTab === "minas") return Number(row.qtyMinas) || 0;
+    if (inventoryPoolTab === "santa_catarina") return Number(row.qtySantaCatarina) || 0;
+    return Number(row.qtyMotoboy) || 0;
+  };
   const filteredYuryPoolBalances = (normalizedYurySearch
     ? yuryBalances.filter((row) => String(row.productName || "").toLowerCase().includes(normalizedYurySearch))
     : yuryBalances
@@ -14196,7 +14214,11 @@ function InventoryPanel({
     if (aPositive !== bPositive) return bPositive - aPositive;
     return String(a.productName || "").localeCompare(String(b.productName || ""), "pt-BR");
   });
-  const yuryPoolLabel = inventoryPoolTab === "minas" ? "Minas" : "Motoboy";
+  const yuryPoolLabel = inventoryPoolTab === "minas"
+    ? "Minas"
+    : inventoryPoolTab === "santa_catarina"
+      ? "Santa Catarina"
+      : "Motoboy";
 
   const onFillManualReturnEntry = () => {
     const clientName = String(manualReturnDraft.clientName || "").trim();
@@ -14318,6 +14340,7 @@ function InventoryPanel({
           { id: "loja" as const, label: "Estoque Fóz Guaçu" },
           { id: "motoboy" as const, label: "Estoque Motoboy" },
           { id: "minas" as const, label: "Estoque Minas" },
+          { id: "santa_catarina" as const, label: "Estoque Santa Catarina" },
         ]).map((item) => (
           <button
             key={item.id}
@@ -14718,7 +14741,7 @@ function InventoryPanel({
           <div>
             <p className="text-sm font-semibold">Estoque {yuryPoolLabel}</p>
             <p className="text-xs text-muted-foreground">
-              Espelho da Yury. Sem entrada/saída manual neste pool — a baixa do pedido Motoboy/Minas vai na API Yury ao marcar enviado.
+              Espelho da Yury. Sem entrada/saída manual neste pool — a baixa do pedido Motoboy, Minas ou Santa Catarina vai na API Yury ao marcar enviado.
             </p>
             <p className="text-xs text-muted-foreground mt-1">
               {yuryConfigured
@@ -15635,7 +15658,11 @@ function OrdersPanel({
     } else {
       for (const row of yurySnapshot) {
         const key = String(row.productId || "").trim();
-        const quantity = pool === "minas" ? Number(row.qtyMinas) || 0 : Number(row.qtyMotoboy) || 0;
+        const quantity = pool === "minas"
+          ? Number(row.qtyMinas) || 0
+          : pool === "santa_catarina"
+            ? Number(row.qtySantaCatarina) || 0
+            : Number(row.qtyMotoboy) || 0;
         if (key) {
           const current = stockById.get(key);
           stockById.set(key, typeof current === "number" ? current + quantity : quantity);
@@ -16919,7 +16946,7 @@ function OrdersPanel({
                           void uploadTrackingLabel(order.id, file, packageId);
                         }}
                         inventoryByProduct={Object.fromEntries(inventoryBalances.map((row) => [row.productId, row.quantity]))}
-                        yuryByProduct={Object.fromEntries(yuryBalances.map((row) => [row.productId, { motoboy: row.qtyMotoboy, minas: row.qtyMinas }]))}
+                        yuryByProduct={Object.fromEntries(yuryBalances.map((row) => [row.productId, { motoboy: row.qtyMotoboy, minas: row.qtyMinas, santaCatarina: row.qtySantaCatarina }]))}
                         productImageById={productImageById}
                         onReshipmentClosed={(orderId, status) => {
                           onSetOrderPatched({
@@ -16954,7 +16981,7 @@ function OrdersPanel({
                             }
                           }}
                           inventoryByProduct={Object.fromEntries(inventoryBalances.map((row) => [row.productId, row.quantity]))}
-                          yuryByProduct={Object.fromEntries(yuryBalances.map((row) => [row.productId, { motoboy: row.qtyMotoboy, minas: row.qtyMinas }]))}
+                          yuryByProduct={Object.fromEntries(yuryBalances.map((row) => [row.productId, { motoboy: row.qtyMotoboy, minas: row.qtyMinas, santaCatarina: row.qtySantaCatarina }]))}
                           productImageById={productImageById}
                           onReshipmentClosed={(orderId, status) => {
                             onSetOrderPatched({
@@ -17118,6 +17145,7 @@ function OrdersPanel({
                     { id: "loja" as const, label: "Foz Guaçu" },
                     { id: "motoboy" as const, label: "Motoboy" },
                     { id: "minas" as const, label: "Minas" },
+                    { id: "santa_catarina" as const, label: "Santa Catarina" },
                   ]).map((item) => (
                     <button
                       key={item.id}

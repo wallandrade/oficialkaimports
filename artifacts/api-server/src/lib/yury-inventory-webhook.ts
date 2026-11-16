@@ -34,6 +34,7 @@ export async function handleYuryInventoryEvent(raw: unknown): Promise<{ ok: true
     productId: event.data.productId,
     motoboy: event.data.balances.motoboy,
     minas: event.data.balances.minas,
+    santaCatarina: event.data.balances.santaCatarina,
   });
   return { ok: true };
 }

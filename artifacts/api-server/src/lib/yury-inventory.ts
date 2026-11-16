@@ -9,6 +9,8 @@ export type YuryInventorySnapshot = {
   source: string | null;
   motoboy: YuryInventoryItem[];
   minas: YuryInventoryItem[];
+  /** null = a Yury não mandou o array; o saldo local de Santa Catarina fica. */
+  santaCatarina: YuryInventoryItem[] | null;
 };
 
 export type YuryInventoryLocalRow = {
@@ -16,6 +18,7 @@ export type YuryInventoryLocalRow = {
   productName: string;
   qtyMotoboy: number;
   qtyMinas: number;
+  qtySantaCatarina: number;
 };
 
 export type YuryInventoryChangedEvent = {
@@ -27,7 +30,7 @@ export type YuryInventoryChangedEvent = {
     productId: string;
     productName: string;
     pool: string | null;
-    balances: { motoboy: number; minas: number };
+    balances: { motoboy: number; minas: number; santaCatarina: number | null };
   };
 };
 
@@ -70,6 +73,14 @@ function parsePool(raw: unknown): YuryInventoryItem[] {
   return [...byId.values()];
 }
 
+function readSantaCatarinaPool(record: Record<string, unknown>): YuryInventoryItem[] | null {
+  const key = "santaCatarina" in record ? "santaCatarina" : "santa_catarina" in record ? "santa_catarina" : null;
+  if (!key) return null;
+  const value = record[key];
+  if (!Array.isArray(value)) return null;
+  return parsePool(value);
+}
+
 export function parseYuryInventorySnapshot(raw: unknown): YuryInventorySnapshot | null {
   if (!raw || typeof raw !== "object") return null;
   const record = raw as Record<string, unknown>;
@@ -79,28 +90,46 @@ export function parseYuryInventorySnapshot(raw: unknown): YuryInventorySnapshot 
     source: asNullableString(record.source),
     motoboy: parsePool(record.motoboy),
     minas: parsePool(record.minas),
+    santaCatarina: readSantaCatarinaPool(record),
   };
 }
 
 export function mergeYuryInventorySnapshot(
   existing: YuryInventoryLocalRow[],
-  snapshot: Pick<YuryInventorySnapshot, "motoboy" | "minas">,
+  snapshot: {
+    motoboy: YuryInventoryItem[];
+    minas: YuryInventoryItem[];
+    santaCatarina?: YuryInventoryItem[] | null;
+  },
 ): YuryInventoryLocalRow[] {
   const motoboyById = new Map(snapshot.motoboy.map((item) => [item.productId, item]));
   const minasById = new Map(snapshot.minas.map((item) => [item.productId, item]));
+  const santaList = snapshot.santaCatarina;
+  const santaPresent = Array.isArray(santaList);
+  const santaById = new Map((santaList || []).map((item) => [item.productId, item]));
   const existingById = new Map(existing.map((row) => [row.productId, row]));
-  const seen = new Set([...motoboyById.keys(), ...minasById.keys()]);
+  const seen = new Set<string>([...motoboyById.keys(), ...minasById.keys()]);
+  if (santaPresent) {
+    for (const productId of santaById.keys()) seen.add(productId);
+  }
   const merged: YuryInventoryLocalRow[] = [];
+
+  const santaQty = (productId: string, prev?: YuryInventoryLocalRow) => {
+    if (!santaPresent) return prev?.qtySantaCatarina ?? 0;
+    return santaById.get(productId)?.quantity ?? 0;
+  };
 
   for (const productId of seen) {
     const motoboy = motoboyById.get(productId);
     const minas = minasById.get(productId);
+    const santa = santaPresent ? santaById.get(productId) : undefined;
     const prev = existingById.get(productId);
     merged.push({
       productId,
-      productName: motoboy?.productName || minas?.productName || prev?.productName || productId,
+      productName: motoboy?.productName || minas?.productName || santa?.productName || prev?.productName || productId,
       qtyMotoboy: motoboy ? motoboy.quantity : 0,
       qtyMinas: minas ? minas.quantity : 0,
+      qtySantaCatarina: santaQty(productId, prev),
     });
   }
 
@@ -111,6 +140,7 @@ export function mergeYuryInventorySnapshot(
       productName: prev.productName,
       qtyMotoboy: 0,
       qtyMinas: 0,
+      qtySantaCatarina: santaPresent ? 0 : (prev.qtySantaCatarina ?? 0),
     });
   }
 
@@ -119,13 +149,19 @@ export function mergeYuryInventorySnapshot(
 
 export function applyYuryInventoryWebhookBalances(
   existing: YuryInventoryLocalRow | null,
-  data: { productId: string; productName?: string; balances: { motoboy: number; minas: number } },
+  data: {
+    productId: string;
+    productName?: string;
+    balances: { motoboy: number; minas: number; santaCatarina?: number | null };
+  },
 ): YuryInventoryLocalRow {
+  const santa = data.balances.santaCatarina;
   return {
     productId: data.productId,
     productName: asString(data.productName) || existing?.productName || data.productId,
     qtyMotoboy: data.balances.motoboy,
     qtyMinas: data.balances.minas,
+    qtySantaCatarina: santa == null ? (existing?.qtySantaCatarina ?? 0) : santa,
   };
 }
 
@@ -140,7 +176,13 @@ export function parseYuryInventoryChangedEvent(raw: unknown): YuryInventoryChang
   const balancesRaw = data.balances && typeof data.balances === "object" ? data.balances as Record<string, unknown> : null;
   const motoboy = asQuantity(balancesRaw?.motoboy);
   const minas = asQuantity(balancesRaw?.minas);
+  const santaKey = balancesRaw && ("santaCatarina" in balancesRaw || "santa_catarina" in balancesRaw)
+    ? ("santaCatarina" in balancesRaw ? "santaCatarina" : "santa_catarina")
+    : null;
+  const santaSource = santaKey && balancesRaw ? balancesRaw[santaKey] : undefined;
+  const santaCatarina = santaKey == null || santaSource == null ? null : asQuantity(santaSource);
   if (!productId || motoboy == null || minas == null) return null;
+  if (santaKey && santaSource != null && santaCatarina == null) return null;
   return {
     eventId,
     eventType: "inventory.changed",
@@ -150,12 +192,26 @@ export function parseYuryInventoryChangedEvent(raw: unknown): YuryInventoryChang
       productId,
       productName: asString(data.productName) || productId,
       pool: asNullableString(data.pool),
-      balances: { motoboy, minas },
+      balances: { motoboy, minas, santaCatarina },
     },
   };
 }
 
-export type YuryInventoryPool = "motoboy" | "minas";
+export type YuryInventoryPool = "motoboy" | "minas" | "santa_catarina";
+
+export function isYuryInventoryPool(pool: string): pool is YuryInventoryPool {
+  return pool === "motoboy" || pool === "minas" || pool === "santa_catarina";
+}
+
+export function yuryPoolQuantity(
+  row: { qtyMotoboy?: number | null; qtyMinas?: number | null; qtySantaCatarina?: number | null } | null | undefined,
+  pool: YuryInventoryPool,
+): number {
+  if (!row) return 0;
+  if (pool === "minas") return Number(row.qtyMinas) || 0;
+  if (pool === "santa_catarina") return Number(row.qtySantaCatarina) || 0;
+  return Number(row.qtyMotoboy) || 0;
+}
 export type KaInventoryExitPool = "loja" | YuryInventoryPool;
 
 export type YuryInventoryExitItem = {
@@ -226,6 +282,9 @@ export function resolveYuryInventoryExitPool(order: {
   const shipping = normalizeShippingText(order.shippingType);
   if (shipping.includes("motoboy")) return "motoboy";
   if (shipping.includes("minas")) return "minas";
+  if (shipping.includes("santa catarina") || shipping.replace(/[\s-]+/g, "") === "santacatarina") {
+    return "santa_catarina";
+  }
   if (shipping.includes("retirada") || shipping.includes("pickup")) return null;
   if (String(order.motoboyDeliveryDate || "").trim() && String(order.motoboyDeliveryTime || "").trim()) {
     return "motoboy";
@@ -238,6 +297,7 @@ export function parseKaInventoryExitPool(value: unknown): KaInventoryExitPool | 
   if (normalized === "loja" || normalized === "foz" || normalized.includes("foz")) return "loja";
   if (normalized === "motoboy") return "motoboy";
   if (normalized === "minas") return "minas";
+  if (normalized.replace(/[\s-]+/g, "") === "santacatarina") return "santa_catarina";
   return null;
 }
 
