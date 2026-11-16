@@ -71,9 +71,10 @@ export default function RaffleConsulta() {
     }
     setLoading(true);
     try {
-      const res = await fetch(`${BASE}/api/raffles/reservations/lookup?query=${encodeURIComponent(val)}`, {
-        method: "GET",
+      const res = await fetch(`${BASE}/api/raffles/reservations/lookup`, {
+        method: "POST",
         headers: await getCheckoutSecurityHeaders(),
+        body: JSON.stringify({ query: val }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));

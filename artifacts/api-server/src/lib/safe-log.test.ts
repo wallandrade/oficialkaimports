@@ -134,6 +134,104 @@ test("JSON de erro stringificado não leva o comando", () => {
   assert.match(String(safe), /ER_DUP_ENTRY/);
 });
 
+test("telefone na URL fica só com os 4 últimos dígitos", () => {
+  const samples = [
+    ["11999991234", "***1234"],
+    ["5511999991234", "***1234"],
+    ["+5511999991234", "***1234"],
+    ["+55 (11) 99999-1234", "***1234"],
+    ["+55 11 99999-1234", "***1234"],
+    ["(11) 99999-1234", "***1234"],
+    ["(11) 98888-7777", "***7777"],
+    ["11 99999-1234", "***1234"],
+    ["21987654321", "***4321"],
+  ] as const;
+  for (const [input, expected] of samples) {
+    const safe = String(sanitizeForLog(`contato ${input} fim`));
+    assert.equal(safe, `contato ${expected} fim`, input);
+    assert.equal(safe.includes(input), false);
+  }
+});
+
+test("CPF, e-mail e URL com vários parâmetros não vazam dado pessoal", () => {
+  const cpf = sanitizeForLog("documento 529.982.247-25 e 39053344705");
+  assert.equal(cpf, `documento ${"[REDACTED]"} e ${"[REDACTED]"}`);
+  assert.equal(String(cpf).includes("529"), false);
+  assert.equal(String(cpf).includes("39053344705"), false);
+
+  const email = sanitizeForLog("avisar pessoa@example.test agora");
+  assert.equal(email, "avisar [REDACTED] agora");
+
+  const line = [
+    "[REQ] GET /api/raffles/reservations/lookup",
+    "?query=11999991234",
+    "&raffleId=rifa-1",
+    "&phone=%2811%29%2098888-7777",
+    "&cpf=529.982.247-25",
+    "&email=pessoa%40example.test",
+    "&nome=Maria%20Silva",
+    "&token=sekret-token",
+    "&q=5511988887777",
+    "&page=2 -> 200 18ms",
+  ].join("");
+  const safe = String(sanitizeForLog(line));
+  assert.match(safe, /query=\*\*\*1234/);
+  assert.match(safe, /phone=\*\*\*7777/);
+  assert.match(safe, /q=\*\*\*7777/);
+  assert.match(safe, /cpf=\[REDACTED\]/);
+  assert.match(safe, /email=\[REDACTED\]/);
+  assert.match(safe, /nome=\[REDACTED\]/);
+  assert.match(safe, /token=\[REDACTED\]/);
+  assert.match(safe, /raffleId=rifa-1/);
+  assert.match(safe, /page=2/);
+  assert.match(safe, /200 18ms/);
+  for (const secret of [
+    "11999991234",
+    "98888",
+    "5511988887777",
+    "529.982.247-25",
+    "52998224725",
+    "pessoa@example.test",
+    "Maria",
+    "sekret-token",
+  ]) {
+    assert.equal(safe.includes(secret), false, secret);
+  }
+});
+
+test("linha com SQL continua genérica mesmo com telefone na URL", () => {
+  const safe = sanitizeForLog(
+    "Failed query: INSERT INTO customer_users (email, password_hash) VALUES ('pessoa@example.test', 'hash') ?query=11999991234",
+  );
+  assert.equal(safe, "Erro de banco de dados");
+  assert.equal(String(safe).includes("11999991234"), false);
+  assert.equal(String(safe).includes("INSERT INTO"), false);
+});
+
+test("console da request não imprime o telefone da URL", () => {
+  const target = console as typeof console & { __kaSafeLogInstalled?: boolean };
+  const previousFlag = target.__kaSafeLogInstalled;
+  const methods = ["log", "info", "warn", "error", "debug"] as const;
+  const patched = console as unknown as Record<(typeof methods)[number], (...args: unknown[]) => void>;
+  const previous = Object.fromEntries(methods.map((method) => [method, patched[method]])) as Record<(typeof methods)[number], (...args: unknown[]) => void>;
+  const lines: string[] = [];
+  target.__kaSafeLogInstalled = false;
+  patched.log = (...args: unknown[]) => {
+    lines.push(args.map((arg) => typeof arg === "string" ? arg : JSON.stringify(arg)).join(" "));
+  };
+  try {
+    installSafeConsole();
+    console.log("[REQ] GET /api/raffles/reservations/lookup?query=11999991234&page=2 -> 200 18ms");
+    const text = lines.join("\n");
+    assert.match(text, /query=\*\*\*1234/);
+    assert.match(text, /page=2/);
+    assert.equal(text.includes("11999991234"), false);
+  } finally {
+    for (const method of methods) patched[method] = previous[method]!;
+    target.__kaSafeLogInstalled = previousFlag;
+  }
+});
+
 test("log operacional sem segredo permanece", () => {
   const line = "[CHECKOUT/PIX:ab12] PIX generated — transactionId: tx_123";
   assert.equal(sanitizeForLog(line), line);
