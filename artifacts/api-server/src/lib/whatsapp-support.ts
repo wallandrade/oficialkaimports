@@ -4,6 +4,8 @@ import { DEFAULT_TENANT_ID } from "./tenant-context";
 import { isUsableLabelBarcode } from "./envioecom-status";
 import { listOrderShipments } from "./order-shipments";
 import { phoneHasRecentRecovery, recordRecoveryAnswer, recoveryAnswerId, recoveryReplyMessage } from "./whatsapp-recovery";
+import { phoneHasAwaitingShopeeRoute, receiveShopeeRouteInbound } from "./shopee-route";
+import { handleShopeeOnSupportMessage } from "./shopee-route-support";
 import { inboundTypeShouldIgnore, menuShouldSendAgain, normalizeWhatsappPhone } from "./whatsapp-notices";
 import {
   instanceMatchesPoly,
@@ -348,14 +350,14 @@ async function sendText(input: {
   secondInstance: boolean;
   phone: string;
   message: string;
-}): Promise<void> {
+}): Promise<boolean> {
   const url = await resolveWhatsappWebhookUrl({
     event: "support",
     tenantId: input.tenantId,
     secondInstance: false,
   });
-  if (!url) return;
-  await postWhatsappWebhook(url, { phone: input.phone, message: input.message });
+  if (!url) return false;
+  return postWhatsappWebhook(url, { phone: input.phone, message: input.message });
 }
 
 async function sendMenu(input: {
@@ -413,6 +415,26 @@ export async function handleWhatsappSupportInbound(rawBody: unknown, token: stri
   if (!auth.ok) return { status: 401 };
 
   const body = asRecord(rawBody);
+  try {
+    const shopee = await handleShopeeOnSupportMessage(body, {
+      hasAwaiting: (phone) => phoneHasAwaitingShopeeRoute(phone, auth.tenantId),
+      receive: (input) => receiveShopeeRouteInbound(input, { tenantId: auth.tenantId }),
+      send: async (message) => {
+        const phone = normalizeWhatsappPhone(body.phone);
+        if (!phone) return false;
+        const polyId = await readPolyInstanceId(auth.tenantId);
+        return sendText({
+          tenantId: auth.tenantId,
+          secondInstance: instanceMatchesPoly(body.instanceId, polyId),
+          phone,
+          message,
+        });
+      },
+    });
+    if (shopee === "stop") return { status: 200 };
+  } catch {
+    console.warn("[WHATSAPP_SUPPORT] Rota Shopee seguiu o atendimento");
+  }
   if (truthy(body.fromMe) || truthy(body.isGroup) || truthy(body.isNewsletter)) return { status: 200 };
   if (inboundTypeShouldIgnore(body.type)) return { status: 200 };
 
