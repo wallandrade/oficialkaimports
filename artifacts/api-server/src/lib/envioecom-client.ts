@@ -12,6 +12,13 @@ export class EnvioEcomApiError extends Error {
   }
 }
 
+/** Recusa de negócio (lote recusado) não pode ir como 502: a Vercel troca 502/504 por página de gateway e o toast perde o JSON. */
+export function envioEcomResponseStatus(code: string, httpStatus: number): number {
+  if (code === "CREATE_REJECTED") return 422;
+  if (httpStatus >= 400 && httpStatus < 600) return httpStatus;
+  return 400;
+}
+
 type TokenCacheEntry = {
   token: string;
   expiresAt: number;

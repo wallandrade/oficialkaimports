@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   envioEcomAdminErrorCode,
+  envioEcomAdminErrorFromHttp,
   envioEcomAdminErrorMessage,
   parseEnvioEcomErrorBody,
 } from "./envioecom-admin-error";
@@ -56,6 +57,18 @@ test("toast le error.message quando error nao e string", () => {
   assert.match(envioEcomAdminErrorMessage(data), /Crédito recusado nesta conta/);
   assert.equal(envioEcomAdminErrorMessage(data).includes("Erro EnvioEcom"), false);
   assert.equal(envioEcomAdminErrorMessage(data).includes("[object Object]"), false);
+});
+
+test("422 com JSON mostra a frase; 504 HTML nao vira toast gigante", () => {
+  const sentence = "A EnvioEcom recusou o envio: Valor segurado ultrapassa o limite máximo de R$ 1.000,00.";
+  const json = JSON.stringify({ error: "CREATE_REJECTED", message: sentence });
+  const accepted = envioEcomAdminErrorFromHttp(422, json);
+  assert.equal(accepted.error, "CREATE_REJECTED");
+  assert.equal(accepted.message, sentence);
+
+  const gateway = envioEcomAdminErrorFromHttp(504, "<html><body>504 Gateway Timeout</body></html>");
+  assert.equal(gateway.message, "Erro EnvioEcom");
+  assert.equal(gateway.message.includes("Gateway"), false);
 });
 
 test("corpo vazio ou HTML continua no fallback", () => {

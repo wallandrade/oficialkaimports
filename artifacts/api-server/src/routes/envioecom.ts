@@ -51,7 +51,12 @@ import {
   updateEnvioEcomAccount,
   type EnvioEcomAccountAuth,
 } from "../lib/envioecom-accounts";
-import { EnvioEcomApiError, type EnvioEcomClient } from "../lib/envioecom-client";
+import { EnvioEcomApiError, envioEcomResponseStatus, type EnvioEcomClient } from "../lib/envioecom-client";
+import {
+  capEnvioEcomDeclaredValue,
+  carrierDeclaredLimitFromQuote,
+  fitDeclaredShipmentItems,
+} from "../lib/envioecom-declared-cap";
 import { assessCreatedShipment } from "../lib/envioecom-create-result";
 import {
   buildConsolidatedQuotePackage,
@@ -145,7 +150,7 @@ function sendEnvioEcomError(res: Response, err: unknown, orderId?: string) {
       httpStatus: err.httpStatus,
       details: err.details,
     });
-    send(err.httpStatus >= 400 && err.httpStatus < 600 ? err.httpStatus : 400, {
+    send(envioEcomResponseStatus(err.code, err.httpStatus), {
       error: err.code,
       message: err.message,
       details: err.details,
@@ -824,11 +829,24 @@ router.post("/admin/envioecom/orders/:id/quote", requireAdminAuth, async (req, r
     const scoped = await withEnvioEcomAccount(admin.tenantId, body.accountId, res, "quote");
     if (!scoped) return;
     const packed = buildConsolidatedQuotePackage({ products: order.products, defaults: config.defaults });
+    const declared = capEnvioEcomDeclaredValue(packed.product.price);
+    if (declared.capped) {
+      logEnvioEcomOp("quote", {
+        phase: "declared-cap",
+        accountId: scoped.account.accountId,
+        accountName: scoped.account.name,
+        orderId: order.id,
+        from: declared.from,
+        to: declared.value,
+        limit: declared.limit,
+      });
+    }
+    const quoteProduct = { ...packed.product, price: declared.value };
     const carriersFilter = Array.isArray(body.carriers) ? body.carriers : config.carriers;
     const payload: Record<string, unknown> = {
       postal_code_destination: destination,
       aviso_recebimento: false,
-      products: [packed.product],
+      products: [quoteProduct],
     };
     if (scoped.account.originCep.length === 8) payload.postal_code_origin = scoped.account.originCep;
     if (carriersFilter.length) payload.carriers = carriersFilter;
@@ -879,9 +897,12 @@ router.post("/admin/envioecom/orders/:id/quote", requireAdminAuth, async (req, r
     res.json({
       originZipcode: quoted.origin_zipcode || quoted.origin_zip || scoped.account.originCep,
       destinationZipcode: quoted.destination_zipcode || destination,
-      quotes,
+      quotes: quotes.map((quote) => ({
+        ...quote,
+        declaredValueLimit: carrierDeclaredLimitFromQuote(quote),
+      })),
       unavailableCarriers: quoted.unavailable_carriers || [],
-      package: packed.product,
+      package: quoteProduct,
       accountId: scoped.account.accountId,
       accountName: scoped.account.name,
     });
@@ -1085,6 +1106,7 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       weight?: string | number;
       accountId?: string;
       packageId?: string;
+      declaredValueLimit?: number | string | null;
     };
     const target = await resolveEnvioEcomTarget(order, readPackageId(body));
     const shippingCompany = String(body.shippingCompany || "").trim();
@@ -1135,6 +1157,19 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       unitCost: drawnItem.unitCost,
       fallbackUnitCost: packed.declaredValue,
     });
+    const fitted = fitDeclaredShipmentItems(labelItem.items, labelItem.declaredCost, body.declaredValueLimit);
+    if (fitted.capped) {
+      logEnvioEcomOp("create", {
+        phase: "declared-cap",
+        accountId: scoped.account.accountId,
+        accountName: scoped.account.name,
+        orderId: order.id,
+        carrier: shippingCompany,
+        from: fitted.from,
+        to: fitted.declaredCost,
+        limit: fitted.limit,
+      });
+    }
     const shipmentFields = {
         shipping_company: shippingCompany,
         cep_origem: originCep,
@@ -1145,7 +1180,7 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
         width: formatDimension(Number(body.width || packed.product.width)),
         length: formatDimension(Number(body.length || packed.product.length)),
         weight: formatWeight(Number(body.weight || packed.product.weight)),
-        cost: formatMoney(labelItem.declaredCost),
+        cost: formatMoney(fitted.declaredCost),
         name: String(order.clientName || "Cliente").slice(0, 120),
         document_number: sanitizeDocument(order.clientDocument),
         phone_number: digitsOnly(order.clientPhone).slice(-11),
@@ -1156,7 +1191,7 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
         bairro: String(order.addressNeighborhood || "").trim() || "Centro",
         localidade: String(order.addressCity || "").trim() || "Cidade",
         uf: sanitizeUf(order.addressState),
-        items: labelItem.items,
+        items: fitted.items,
     };
     const orderIdSource = workingPkg
       ? {
@@ -1234,7 +1269,7 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       ...(assessed.ok ? {} : { message: assessed.message }),
     });
     if (!assessed.ok) {
-      throw new EnvioEcomApiError("CREATE_REJECTED", assessed.message, 502, {
+      throw new EnvioEcomApiError("CREATE_REJECTED", assessed.message, 422, {
         outcome: assessed.summary.outcome,
         resultsCount: assessed.summary.resultsCount,
         errorCode: assessed.summary.errorCode,
