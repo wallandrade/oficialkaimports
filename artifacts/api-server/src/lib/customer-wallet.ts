@@ -5,7 +5,7 @@ import { DEFAULT_TENANT_ID } from "./tenant-context";
 import { parseInsurancePlan } from "./checkout-insurance";
 import { parseInsuranceClaimStatus } from "./insurance-claims-policy";
 
-export type WalletLedgerType = "insurance_cashback" | "product_refund" | "store_credit_use" | "admin_adjust";
+export type WalletLedgerType = "insurance_cashback" | "product_refund" | "store_credit_use" | "admin_adjust" | "shopee_route_credit";
 
 function roundMoney(value: number): number {
   return Math.round((Number(value) || 0) * 100) / 100;

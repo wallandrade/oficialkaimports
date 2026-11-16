@@ -71,6 +71,14 @@ export const ordersTable = mysqlTable("orders", {
   enviado: boolean("enviado").notNull().default(false),
   /** null = envio normal do card. "shopee" = coluna Envio Shopee. Não muda status, PIX nem estoque. */
   shippingVia: varchar("shipping_via", { length: 16 }),
+  /** Preenchido ao disparar a Rota Shopee. A data fica no card enquanto o ID não chega. */
+  shopeeRouteRequestedAt: timestamp("shopee_route_requested_at"),
+  /** ID da compra na Shopee. É o rastreio/ID desta rota, separado do barcode e do rastreio manual. */
+  shopeeOrderId: varchar("shopee_order_id", { length: 32 }),
+  /** id_invalido, id_ambiguo ou varios_pedidos. Vazio quando não há revisão. */
+  shopeeRouteReviewReason: varchar("shopee_route_review_reason", { length: 32 }),
+  /** Primeiro crédito da rota na carteira do cliente. O lançamento seguinte não soma de novo. */
+  shopeeWalletCreditedAt: timestamp("shopee_wallet_credited_at"),
   inventoryReserved: boolean("inventory_reserved").notNull().default(false),
   inventoryExitPool: varchar("inventory_exit_pool", { length: 16 }),
   inventoryExitedPools: varchar("inventory_exited_pools", { length: 64 }),
