@@ -78,6 +78,18 @@ export function envioEcomAdminErrorCode(data: unknown): string {
   return textOf(nested.code) || textOf(row.code);
 }
 
+export function envioEcomAdminErrorFromHttp(status: number, raw: string): { error: string; message: string } {
+  const data = parseEnvioEcomErrorBody(raw);
+  const message = envioEcomAdminErrorMessage(data, raw);
+  const gatewayPage = (status === 502 || status === 504)
+    && !textOf(asRecord(data).message)
+    && /<(?:html|body)|gateway timeout/i.test(raw);
+  return {
+    error: envioEcomAdminErrorCode(data),
+    message: gatewayPage ? "Erro EnvioEcom" : message,
+  };
+}
+
 export function envioEcomAdminErrorMessage(data: unknown, raw = ""): string {
   const row = asRecord(data);
   const nested = asRecord(row.error);

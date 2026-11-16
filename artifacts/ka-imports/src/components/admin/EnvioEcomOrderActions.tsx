@@ -10,8 +10,7 @@ import { openShipmentLabelPdf } from "@/lib/shipment-label-download";
 import { RelatedCpfWarningBox } from "@/components/admin/RelatedCpfShipments";
 import { DeliveryCorrectionModal, type DeliveryCorrectionNotice } from "@/components/DeliveryCorrectionModal";
 import {
-  envioEcomAdminErrorCode,
-  envioEcomAdminErrorMessage,
+  envioEcomAdminErrorFromHttp,
   parseEnvioEcomErrorBody,
 } from "@/lib/envioecom-admin-error";
 
@@ -287,9 +286,10 @@ async function readErrorPayload(res: Response) {
   const notice = noticeRaw && typeof noticeRaw === "object" && typeof (noticeRaw as { message?: unknown }).message === "string"
     ? noticeRaw as DeliveryCorrectionNotice
     : null;
+  const parsed = envioEcomAdminErrorFromHttp(res.status, raw);
   return {
-    error: envioEcomAdminErrorCode(data),
-    message: envioEcomAdminErrorMessage(data, raw),
+    error: parsed.error,
+    message: parsed.message,
     deliveryCorrection: notice,
   };
 }
@@ -544,6 +544,9 @@ export function EnvioEcomOrderActions({
           length: packageInfo?.length,
           weight: packageInfo?.weight,
           ...(accountForCreate ? { accountId: accountForCreate } : {}),
+          ...(Number.isFinite(Number(quoteOption.declaredValueLimit)) && Number(quoteOption.declaredValueLimit) > 0
+            ? { declaredValueLimit: Number(quoteOption.declaredValueLimit) }
+            : {}),
         })),
       });
       if (!res.ok) {
