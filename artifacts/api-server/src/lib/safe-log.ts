@@ -238,16 +238,104 @@ function summarizeDatabaseError(error: object): Record<string, unknown> {
   return summary;
 }
 
+const EMAIL_IN_TEXT = /[A-Z0-9._%+'-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
+const FORMATTED_CPF = /(?<!\d)\d{3}\.\d{3}\.\d{3}-\d{2}(?!\d)/;
+
+function isValidCpf(digits: string): boolean {
+  if (!/^\d{11}$/.test(digits)) return false;
+  if (/^(\d)\1{10}$/.test(digits)) return false;
+  const check = (length: number) => {
+    let sum = 0;
+    for (let i = 0; i < length; i += 1) sum += Number(digits[i]) * (length + 1 - i);
+    const mod = (sum * 10) % 11;
+    return mod === 10 ? 0 : mod;
+  };
+  return check(9) === Number(digits[9]) && check(10) === Number(digits[10]);
+}
+
+function decodeQueryComponent(value: string): string {
+  const plusAsSpace = value.replace(/\+/g, " ");
+  try {
+    return decodeURIComponent(plusAsSpace);
+  } catch {
+    return plusAsSpace;
+  }
+}
+
+function maskPhoneDigits(digits: string): string {
+  if (digits.length < 4) return REDACTED;
+  return `***${digits.slice(-4)}`;
+}
+
+function looksLikePhone(value: string): boolean {
+  const trimmed = value.trim();
+  if (!/^\+?[\d\s().-]+$/.test(trimmed)) return false;
+  const digits = trimmed.replace(/\D/g, "");
+  return digits.length >= 8 && digits.length <= 15;
+}
+
+function containsCpfDigits(digits: string): boolean {
+  if (isValidCpf(digits)) return true;
+  return digits.startsWith("55") && isValidCpf(digits.slice(2));
+}
+
+function maskSearchValue(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return REDACTED;
+  if (EMAIL_IN_TEXT.test(trimmed) || FORMATTED_CPF.test(trimmed)) return REDACTED;
+  const digits = trimmed.replace(/\D/g, "");
+  const formattedAsPhone = /[()+]/.test(trimmed);
+  if (!formattedAsPhone && containsCpfDigits(digits) && (digits.length === 11 || digits.length === 13)) {
+    return REDACTED;
+  }
+  if (looksLikePhone(trimmed)) return maskPhoneDigits(digits);
+  return REDACTED;
+}
+
+function isPhoneQueryKey(key: string): boolean {
+  return key.includes("phone")
+    || key.includes("telefone")
+    || key.includes("celular")
+    || key.includes("whatsapp");
+}
+
+function redactQueryString(input: string): string {
+  return input.replace(/([?&#])([^=&#\s]+)=([^&#\s]*)/g, (match, sep: string, rawKey: string, rawVal: string) => {
+    const key = normalizeKey(decodeQueryComponent(rawKey));
+    if (!key) return match;
+    const decoded = decodeQueryComponent(rawVal);
+    if (isPhoneQueryKey(key)) return `${sep}${rawKey}=${maskPhoneDigits(decoded.replace(/\D/g, ""))}`;
+    if (key === "query" || key === "q") return `${sep}${rawKey}=${maskSearchValue(decoded)}`;
+    if (key === "nome" || key === "name" || key === "clientname" || (key !== "query" && isSensitiveKey(key))) {
+      return `${sep}${rawKey}=${REDACTED}`;
+    }
+    return match;
+  });
+}
+
+function maskPhoneMatch(raw: string): string {
+  const digits = raw.replace(/\D/g, "");
+  if (containsCpfDigits(digits) && !/[()+]/.test(raw) && digits.length === 11) return REDACTED;
+  if (digits.length < 8) return raw;
+  return maskPhoneDigits(digits);
+}
+
+function maskPhonesInText(input: string): string {
+  const phone = /(?<!\d)(?:\+?55[\s.-]*\(?\d{2}\)?[\s.-]*\d{4,5}[\s.-]?\d{4}|\(\d{2}\)[\s.-]*\d{4,5}[\s.-]?\d{4}|\d{2}[\s.-]\d{4,5}[\s.-]?\d{4}|\d{2}\s?\d{5}-\d{4}|55\d{10,11}|[1-9]\d9\d{8}|9\d{4}-\d{4})(?!\d)/g;
+  return input.replace(phone, (match) => maskPhoneMatch(match));
+}
+
 function redactInlineSecrets(value: string): string {
   let out = value;
   out = out.replace(/\b(?:mysql|postgres|postgresql|mongodb|redis):\/\/\S+/gi, REDACTED);
   out = out.replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]");
   out = out.replace(/(authorization\s*:\s*)([^\n]+)/gi, "$1[REDACTED]");
   out = out.replace(/(cookie\s*:\s*)(\S+)/gi, "$1[REDACTED]");
-  out = out.replace(/([?&#](?:token|password|senha|email|cpf|secret|access_token|refresh_token|authorization|cookie)=)[^&#\s"']+/gi, "$1[REDACTED]");
+  out = redactQueryString(out);
   out = out.replace(/[A-Z0-9._%+'-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, REDACTED);
   out = out.replace(/(?<!\d)\d{3}\.\d{3}\.\d{3}-\d{2}(?!\d)/g, REDACTED);
-  out = out.replace(/(?<!\d)(?:\(?\d{2}\)?\s*)?9\d{4}-\d{4}(?!\d)/g, REDACTED);
+  out = maskPhonesInText(out);
+  out = out.replace(/(?<!\d)(\d{11})(?!\d)/g, (match) => (isValidCpf(match) ? REDACTED : match));
   out = out.replace(/\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}/g, REDACTED);
   out = out.replace(/\b000201[0-9A-Za-z.]{20,}/g, REDACTED);
   out = out.replace(
