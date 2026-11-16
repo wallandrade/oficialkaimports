@@ -34,6 +34,12 @@ import {
   SHIPPING_QUEUE_MANUAL_HOURS_KEY,
 } from "../lib/shipping-queue-deadline";
 import {
+  normalizeShopeeProductUrl,
+  parseShopeeRouteMessage,
+  SHOPEE_ROUTE_MESSAGE_KEY,
+  SHOPEE_ROUTE_PRODUCT_URL_KEY,
+} from "../lib/shopee-route-core";
+import {
   decideSiteProtection,
   isSiteReleaseEnabled,
   normalizeSiteReleaseAt,
@@ -124,6 +130,8 @@ const ALLOWED_KEYS = [
   SHIPPING_QUEUE_MANUAL_ENABLED_KEY,
   SHIPPING_QUEUE_MANUAL_HOURS_KEY,
   "flash_force_first_visit",
+  SHOPEE_ROUTE_PRODUCT_URL_KEY,
+  SHOPEE_ROUTE_MESSAGE_KEY,
 ];
 
 const IMAGE_SETTING_KEYS = new Set([
@@ -341,6 +349,35 @@ router.put("/admin/settings/:key", requireAdminAuth, async (req, res) => {
       && isMaskedGatewaySecret(value)
     ) {
       res.json({ ok: true, unchanged: true });
+      return;
+    }
+    if (key === SHOPEE_ROUTE_PRODUCT_URL_KEY || key === SHOPEE_ROUTE_MESSAGE_KEY) {
+      const trimmed = String(value || "").trim();
+      if (!trimmed) {
+        await deleteTenantSetting(tenantId, key);
+        res.json({ ok: true });
+        return;
+      }
+      if (key === SHOPEE_ROUTE_PRODUCT_URL_KEY) {
+        const url = normalizeShopeeProductUrl(trimmed);
+        if (!url) {
+          res.status(400).json({ error: "INVALID_INPUT", message: "O link da Shopee precisa ser https." });
+          return;
+        }
+        await upsertTenantSetting(tenantId, key, url);
+        res.json({ ok: true, value: url });
+        return;
+      }
+      const parsed = parseShopeeRouteMessage(trimmed);
+      if (!parsed.ok || !parsed.value) {
+        res.status(400).json({
+          error: "INVALID_INPUT",
+          message: parsed.ok ? "Informe a mensagem da Rota Shopee." : parsed.message,
+        });
+        return;
+      }
+      await upsertTenantSetting(tenantId, key, parsed.value);
+      res.json({ ok: true, value: parsed.value });
       return;
     }
     if (!value) {

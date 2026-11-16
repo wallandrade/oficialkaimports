@@ -8,6 +8,7 @@ import {
 } from "@/lib/ship-queue-columns";
 import { AdminFlashOffersPanel } from "@/components/admin/AdminFlashOffersPanel";
 import { WhatsappN8nSettings } from "@/components/admin/WhatsappN8nSettings";
+import { ShopeeRouteBadge, ShopeeRouteOrderControls, ShopeeRouteSettingsCard } from "@/components/admin/ShopeeRouteAdmin";
 import type { AdminOrderClientCorrection } from "@/lib/admin-page-types";
 import { WhatsappRecoveryPanel } from "@/components/admin/WhatsappRecoveryPanel";
 import { WhatsAppGroupCampaignCard } from "@/components/admin/WhatsAppGroupCampaignCard";
@@ -5279,6 +5280,8 @@ export default function Admin() {
         "site_release_enabled",
         "site_release_at",
         "site_release_message",
+        "shopee_route_product_url",
+        "shopee_route_message",
       ]);
       setSettings((p) => ({
         ...p,
@@ -16592,6 +16595,11 @@ function OrdersPanel({
                             Aguardando estoque
                           </span>
                         )}
+                        <ShopeeRouteBadge
+                          requestedAt={(order as { shopeeRouteRequestedAt?: string | null }).shopeeRouteRequestedAt}
+                          shopeeOrderId={(order as { shopeeOrderId?: string | null }).shopeeOrderId}
+                          reviewReason={(order as { shopeeRouteReviewReason?: string | null }).shopeeRouteReviewReason}
+                        />
                         <span className="font-mono text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">#{getOrderDisplayId(order)}</span>
                         {/* Badge de status de envio */}
                         {enviados[order.id] ? (
@@ -17141,6 +17149,16 @@ function OrdersPanel({
                   onClick={() => openWhatsApp(order)}>
                   <MessageCircle className="w-4 h-4" />WhatsApp
                 </Button>
+                <ShopeeRouteOrderControls
+                  order={order}
+                  canCredit={Boolean(canManageEnvioEcom)}
+                  onPatched={(patch) => {
+                    onSetOrderPatched({ ...order, ...patch } as AdminOrder);
+                    if (typeof patch.enviado === "boolean") {
+                      setEnviados((prev) => ({ ...prev, [order.id]: patch.enviado as boolean }));
+                    }
+                  }}
+                />
                 <Button size="sm" variant="outline" className="gap-1.5"
                   onClick={() => setExpandedOrder(isExpanded ? null : order.id)}>
                   {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
@@ -23119,6 +23137,8 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
           <Button variant="outline" onClick={onTestOutboundWebhook}>Enviar teste</Button>
         </div>
       </div>
+
+      <ShopeeRouteSettingsCard settings={settings} loading={loading} onSave={onSave} onDelete={onDelete} />
 
       <WhatsappN8nSettings settings={settings} loading={loading} onSave={onSave} onDelete={onDelete} />
 

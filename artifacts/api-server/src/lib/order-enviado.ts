@@ -385,6 +385,41 @@ export async function reverseOrderInventoryForSplit(input: {
     .where(and(eq(ordersTable.id, input.orderId), buildOrderTenantWhere(input.tenantId)));
 }
 
+export async function orderFozStockWasDebited(orderId: string, inventoryExitedPools: unknown): Promise<boolean> {
+  if (parseKaInventoryExitedPools(inventoryExitedPools).includes("loja")) return true;
+  return hasLegacyFozExit(orderId);
+}
+
+/** Mesmos efeitos de "Marcar como Enviado", sem debitar Fóz, Motoboy ou Minas. */
+export async function markOrderEnviadoWithoutInventory(
+  orderId: string,
+  tenantId: string,
+): Promise<{ enviado: boolean; already: boolean }> {
+  const rows = await db
+    .select({ id: ordersTable.id, enviado: ordersTable.enviado })
+    .from(ordersTable)
+    .where(and(eq(ordersTable.id, orderId), buildOrderTenantWhere(tenantId)))
+    .limit(1);
+  const order = rows[0];
+  if (!order) throw new OrderEnviadoError("NOT_FOUND", "Pedido não encontrado.");
+  if (order.enviado) {
+    await clearOrderManualPriority(orderId);
+    return { enviado: true, already: true };
+  }
+
+  await db.update(ordersTable)
+    .set({ enviado: true, updatedAt: new Date() })
+    .where(and(eq(ordersTable.id, orderId), buildOrderTenantWhere(tenantId)));
+  await clearOrderManualPriority(orderId);
+  await db.delete(motoboyDeliveryReservationsTable).where(and(
+    eq(motoboyDeliveryReservationsTable.orderId, orderId),
+    eq(motoboyDeliveryReservationsTable.tenantId, tenantId),
+  ));
+  await completeOrderLogistics(orderId, tenantId);
+  broadcastNotification({ type: "order_enviado_updated", data: { id: orderId, enviado: true, tenantId } });
+  return { enviado: true, already: false };
+}
+
 export async function ensureOrderMarkedEnviado(
   orderId: string,
   tenantId: string,

@@ -1,12 +1,13 @@
 # Segurança e performance — KA Imports
 
-> **Última atualização:** 2026-11-15
+> **Última atualização:** 2026-11-16
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-16 | Inbound da Rota Shopee fechado sem segredo | `N8N_SHOPEE_SECRET` vazio responde 503. Header diferente: 401, comparação em tempo constante. O segredo não vai na query. Link e mensagem não entram em `PUBLIC_KEYS` nem no `localStorage` da vitrine. Log do disparo não grava telefone, texto nem a URL | Webhook PIX, token de atendimento e os outros `N8N_*` |
 | 2026-11-15 | Link de correção de entrega com limite por IP | `GET /api/delivery-correction/:token` aceita 40 leituras em 10 min; o POST aceita 8. Acima disso, 429. O IP vem de `x-real-ip` ou do primeiro `x-forwarded-for`. Token expirado ou já usado responde 410. O POST do n8n só sai em https. O log da falha não grava SQL, CPF, telefone, endereço, e-mail nem token | Senha do site e a manutenção não bloqueiam `/corrigir-entrega`. O documento completo não volta no GET (só a máscara) |
 | 2026-11-15 | Log de erro de banco sem SQL nem dado de cliente | `console.*` passa por `sanitizeForLog` antes do stdout (o que o App Platform manda ao Better Stack). Erro de banco grava `code` / `errno` / `sqlState` e uma frase genérica (`Registro duplicado` no `ER_DUP_ENTRY`). A resposta HTTP tira `sql` / `sqlMessage` e troca texto de query por essa frase. `Date` de coluna continua ISO, como no `JSON.stringify`. Cadastro com e-mail repetido continua 409 com o texto de conta já existente | Não há cliente Logtail/Pino no código. E-mail da conta criada continua na resposta de sucesso. Webhook PIX, CORS e senha do site |
 | 2026-11-15 | Caso antigo da lista negra só no admin global | `POST` e `DELETE /api/admin/envioecom/loss-blacklist` usam o mesmo `hasGlobalAccess` da aba. O snapshot para a outra loja continua sem número de pedido, CEP de 8 dígitos e cliente | Cookie de checkout, tokens da Yury e o DELETE por pedido |

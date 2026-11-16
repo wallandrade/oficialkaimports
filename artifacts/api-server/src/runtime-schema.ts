@@ -381,6 +381,10 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
     { name: "out_for_delivery_whatsapp_keys", sql: "ALTER TABLE orders ADD COLUMN out_for_delivery_whatsapp_keys JSON NULL" },
     { name: "delivered_whatsapp_keys", sql: "ALTER TABLE orders ADD COLUMN delivered_whatsapp_keys JSON NULL" },
     { name: "client_data_corrected_at", sql: "ALTER TABLE orders ADD COLUMN client_data_corrected_at TIMESTAMP NULL" },
+    { name: "shopee_route_requested_at", sql: "ALTER TABLE orders ADD COLUMN shopee_route_requested_at TIMESTAMP NULL" },
+    { name: "shopee_order_id", sql: "ALTER TABLE orders ADD COLUMN shopee_order_id VARCHAR(32) NULL" },
+    { name: "shopee_route_review_reason", sql: "ALTER TABLE orders ADD COLUMN shopee_route_review_reason VARCHAR(32) NULL" },
+    { name: "shopee_wallet_credited_at", sql: "ALTER TABLE orders ADD COLUMN shopee_wallet_credited_at TIMESTAMP NULL" },
   ];
 
   for (const definition of definitions) {
@@ -414,6 +418,8 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
     { name: "orders_envioecom_shipment_id_idx", sql: "ALTER TABLE orders ADD INDEX orders_envioecom_shipment_id_idx (envioecom_shipment_id)" },
     { name: "orders_envioecom_external_order_idx", sql: "ALTER TABLE orders ADD INDEX orders_envioecom_external_order_idx (envioecom_external_order_number)" },
     { name: "orders_bank_deposit_fitid_idx", sql: "ALTER TABLE orders ADD INDEX orders_bank_deposit_fitid_idx (bank_deposit_fitid)" },
+    { name: "orders_shopee_route_requested_idx", sql: "ALTER TABLE orders ADD INDEX orders_shopee_route_requested_idx (shopee_route_requested_at)" },
+    { name: "orders_shopee_order_id_idx", sql: "ALTER TABLE orders ADD INDEX orders_shopee_order_id_idx (shopee_order_id)" },
   ];
   for (const index of envioecomIndexes) {
     if (!(await indexExists("orders", index.name, databaseName))) {

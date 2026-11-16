@@ -1,12 +1,13 @@
 # Regras de negócio — KA Imports
 
-> **Última atualização:** 2026-11-15
+> **Última atualização:** 2026-11-16
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-16 | Rota Shopee no card do pedido | Configurações grava o link https e a mensagem (`{nome}`, `{pedido}`, `{resumo_pedido}`, `{link_shopee}`, `{valor}`). O botão manda o n8n e marca **Aguardando ID Shopee**. O retorno com um ID válido grava `shopee_order_id` e marca `enviado` sem baixar estoque. **Lançar crédito na carteira** soma o total do pedido uma vez em `customer_wallet_ledger` (`shopee_route_credit`) | A coluna Envio Shopee (`shipping_via`). A baixa Fóz/Motoboy/Minas continua no botão. Desmarcar enviado de um pedido Shopee sem baixa não devolve estoque |
 | 2026-11-15 | Edição de pedido aplica saldo da conta | Com `userId` e saldo > 0, o modal mostra **Aplicar saldo da conta**. O PATCH debita a carteira só no que ainda falta e o PIX de diferença cai o mesmo valor | Cupom, frete, seguro e o saldo de comissão do afiliado. Visitante sem conta não vê a opção |
 | 2026-11-15 | Cliente corrige CPF, CEP e endereço do pedido da loja 1 | O link público grava documento, CEP e endereço no pedido, copia o documento para `customer_users` se houver conta, fecha o token e marca `orders.client_data_corrected_at`. Etiqueta já emitida (URL ou envio não cancelado, no pedido ou no pacote) invalida o link e não cria outro. O admin vê o selo e o histórico | Filial não entra. Não avisa o admin de volta. Motoboy, retirada, telefone, e-mail, CEP de origem e conta da EnvioEcom continuam só com o erro |
 | 2026-11-15 | Motoboy não para na AwesomeAPI sem cota nem na busca livre do Nominatim | Sem token a AwesomeAPI responde 429 em IP de datacenter e o log só grava a fonte e o motivo. Se a busca livre falha, tenta rua+cidade no Nominatim e depois o Photon. A faixa de CEP só entra se todas falharem | A faixa “São Paulo - Faixa Geral” (CEP 01000000–08999999, R$ 70) continua no banco. `GOOGLE_MAPS_API_KEY` e `AWESOMEAPI_TOKEN` seguem opcionais |

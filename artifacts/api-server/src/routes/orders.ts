@@ -35,7 +35,7 @@ import { reserveNextOrderNumber } from "../lib/order-number";
 import { MotoboyScheduleError, reserveMotoboySchedule } from "../lib/motoboy-delivery-schedule";
 import { allocateOrderLogistics, releaseOrderLogistics } from "../lib/order-logistics";
 import { isMotoboyShippingType } from "../lib/motoboy-shipping-type";
-import { ensureOrderMarkedEnviado, OrderEnviadoError, debitOrderInventoryPool, countOrderShipments } from "../lib/order-enviado";
+import { ensureOrderMarkedEnviado, OrderEnviadoError, debitOrderInventoryPool, countOrderShipments, orderFozStockWasDebited } from "../lib/order-enviado";
 import {
   allocateOrderShipments,
   isSplitShipments,
@@ -3551,6 +3551,12 @@ function mapOrder(o: typeof ordersTable.$inferSelect, options?: { light?: boolea
     enviado:                !!o.enviado,
     clientDataCorrectedAt:  o.clientDataCorrectedAt instanceof Date ? o.clientDataCorrectedAt.toISOString() : null,
     ...(forCustomer ? {} : { shippingVia: storedShippingVia(o.shippingVia) }),
+    ...(forCustomer ? {} : {
+      shopeeRouteRequestedAt: o.shopeeRouteRequestedAt instanceof Date ? o.shopeeRouteRequestedAt.toISOString() : null,
+      shopeeOrderId: String(o.shopeeOrderId || "").trim() || null,
+      shopeeRouteReviewReason: String(o.shopeeRouteReviewReason || "").trim() || null,
+      shopeeWalletCreditedAt: o.shopeeWalletCreditedAt instanceof Date ? o.shopeeWalletCreditedAt.toISOString() : null,
+    }),
     inventoryReserved:      Boolean((o as { inventoryReserved?: unknown }).inventoryReserved),
     inventoryExitPool:      parseKaInventoryExitPool((o as { inventoryExitPool?: unknown }).inventoryExitPool),
     inventoryExitedPools:   parseKaInventoryExitedPools((o as { inventoryExitedPools?: unknown }).inventoryExitedPools),
@@ -4204,6 +4210,7 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
         motoboyDeliveryTime: ordersTable.motoboyDeliveryTime,
         inventoryExitPool: ordersTable.inventoryExitPool,
         inventoryExitedPools: ordersTable.inventoryExitedPools,
+        shopeeOrderId: ordersTable.shopeeOrderId,
       })
       .from(ordersTable)
       .where(buildAdminOrderWhere(id, adminScope))
@@ -4295,7 +4302,9 @@ router.patch("/admin/orders/:id/enviado", requireAdminAuth, async (req, res) => 
           .then((rows) => !!rows[0])
       : false;
 
-    if (enviado !== wasEnviado && shouldEstornoFoz) {
+    const shopeeWithoutStock = Boolean(String(order.shopeeOrderId || "").trim())
+      && !(await orderFozStockWasDebited(id, order.inventoryExitedPools));
+    if (enviado !== wasEnviado && shouldEstornoFoz && !shopeeWithoutStock) {
       const orderItems = parseOrderItemsForInventory(order.products);
       if (orderItems.length > 0) {
         const missingIds = orderItems.filter((item) => !item.productId);

@@ -100,6 +100,8 @@ function walletTypeLabel(type: string): string {
       return "Usado no pedido";
     case "admin_adjust":
       return "Ajuste da loja";
+    case "shopee_route_credit":
+      return "Crédito da Rota Shopee";
     default:
       return type;
   }
