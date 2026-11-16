@@ -238,11 +238,14 @@ export function assembleEnvioEcomAccounts(input: {
 export function pickWriteEnvioEcomAccount(
   accounts: EnvioEcomAccountAuth[],
   accountId?: string | null,
-): { account: EnvioEcomAccountAuth } | { error: "NONE" | "NOT_FOUND" } {
+): { account: EnvioEcomAccountAuth } | { error: "NONE" | "NOT_FOUND" | "ACCOUNT_REQUIRED" } {
   const configured = accounts.filter((account) => isEnvioEcomAccountConfigured(account));
   if (!configured.length) return { error: "NONE" };
   const requested = String(accountId || "").trim();
-  if (!requested) return { account: configured[0] };
+  if (!requested) {
+    if (configured.length === 1) return { account: configured[0] };
+    return { error: "ACCOUNT_REQUIRED" };
+  }
   const found = accounts.find((account) => account.accountId === requested);
   if (!found || !isEnvioEcomAccountConfigured(found)) return { error: "NOT_FOUND" };
   return { account: found };

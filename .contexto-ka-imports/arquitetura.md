@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-11-15
+> **Última atualização:** 2026-11-16
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-16 | Quote/create EnvioEcom não escolhem conta sozinhos quando há várias | 400 `ACCOUNT_REQUIRED`. Create sem id ou código responde 502 e não grava | Checkout, motoboy, retirada e etiqueta de envio já salvo |
 | 2026-11-15 | Tabela `order_delivery_corrections` e coluna `orders.client_data_corrected_at` | Schema Drizzle e o boot (`runtime-schema`: `CREATE TABLE` e `ALTER TABLE`). Página `/corrigir-entrega`. Rotas públicas e `POST /api/admin/orders/:id/delivery-correction/resend` | Sem SuperFrete. Histórico continua em `order_events` (`delivery_correction_sent`, `delivery_correction_failed`, `delivery_correction_saved`) |
 | 2026-11-15 | Geocode do Motoboy tenta Photon se Nominatim e AwesomeAPI falharem | Falha de fonte vira `console.warn` com source e reason, sem rua nem CEP. Cache de erro cai para 10 min | Lookup continua km antes da faixa de CEP |
 | 2026-11-15 | Lookup Motoboy geocodifica endereço no servidor | `motoboy-geocode.ts` tenta Google → AwesomeAPI → Nominatim → BrasilAPI. Origem fixa na Sé. `geoSource` no match | `GET /api/motoboy-coverage/lookup`. Rota de rua em `motoboy-route.ts`. Faixas iguais |
@@ -144,7 +145,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 - Webhook cobertura Motoboy: `POST /api/webhooks/yury/motoboy-coverage` (body cru + HMAC) **antes** de `express.json()`.
 - Webhook estoque Yury: `POST /api/webhooks/yury/inventory` (mesmo HMAC; grava `balances`, não o delta).
 - Baixa no pedido: `POST /api/admin/orders/:id/inventory-exit` (Fóz local ou Yury Motoboy/Minas) a partir do card (1:1); após split a baixa é por pacote (`debitPackageInventory`, `referenceId = pkg:{id}`). `ensureOrderMarkedEnviado` no split debita cada pacote. `GET/POST /admin/orders/:id/shipments` aloca/lista `packages[]`. Motoboy/Minas chamam o exit da Yury sem senha no body.
-- EnvioEcom: `artifacts/api-server/src/routes/envioecom.ts` + webhook em `webhooks.ts`. Contas em `lib/envioecom-accounts.ts` (env + tenant + JSON `envioecom_accounts`). Client cacheia token por `tenantId:accountId`. Coluna `orders.envioecom_account_id`. Split: `packageId` em quote/create/labels/sync/cancel/unlink/bind e no `PATCH /admin/orders/:id/tracking-code`; persistência em `order_shipments` + rollup no pai (`lib/order-shipments.ts`). Rastreio de balcão: `PATCH /admin/orders/:id/manual-tracking` grava `manual_tracking_code` no pacote ou, sem divisão, em `orders`; não chama a EnvioEcom. Pedido sem linhas = colunas `envioecom_*` do pedido. `GET /admin/orders/:id/related-shipments` (auth do pedido; busca CPF em toda a loja) usa `related-cpf-shipments.ts` + `order_shipments`; **não** chama a EnvioEcom. Cada produto traz `image` (snapshot do JSON ou `products.image`).
+- EnvioEcom: `artifacts/api-server/src/routes/envioecom.ts` + webhook em `webhooks.ts`. Contas em `lib/envioecom-accounts.ts` (env + tenant + JSON `envioecom_accounts`). Client cacheia token por `tenantId:accountId`. Coluna `orders.envioecom_account_id`. Split: `packageId` em quote/create/labels/sync/cancel/unlink/bind e no `PATCH /admin/orders/:id/tracking-code`; persistência em `order_shipments` + rollup no pai (`lib/order-shipments.ts`). Rastreio de balcão: `PATCH /admin/orders/:id/manual-tracking` grava `manual_tracking_code` no pacote ou, sem divisão, em `orders`; não chama a EnvioEcom. Pedido sem linhas = colunas `envioecom_*` do pedido. `GET /admin/orders/:id/related-shipments` (auth do pedido; busca CPF em toda a loja) usa `related-cpf-shipments.ts` + `order_shipments`; **não** chama a EnvioEcom. Cada produto traz `image` (snapshot do JSON ou `products.image`). Quote e create com mais de uma conta exigem `accountId`. Create sem id ou código não grava.
 - APPCNPay: `gateway.ts` + `lib/pix-gateway-credentials.ts`. Par por tenant (`gateway_appcnpay_public_key` / `_secret_key`). Fallback env só na loja 1. Filial sem par falha com `PIX não configurado para esta loja`. DentPeg (`DENTPEG_API_KEY`) também só na loja 1. Webhook PIX resolve tenant pelo `transactionId`. Cobrança de diferença grava `custom_charges.tenant_id`; no boot, linha vazia com `order_id` copia o tenant do pedido antes do backfill para `tenant_loja1`.
 - WhatsApp n8n: `lib/whatsapp-n8n.ts` + `lib/tenant-store-scope.ts`. Env `N8N_*` de URL, atendente, slugs e instância poly só na loja 1. Filial só `tenant_settings`.
 - Prova social: `GET /api/social-proof/feed` filtra pedido `paid` pela loja do host. Cópia de produto (`tenant-product-sync`) grava `cost_price` 0 na filial e não atualiza esse campo.

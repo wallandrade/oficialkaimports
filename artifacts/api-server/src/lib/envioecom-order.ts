@@ -63,25 +63,7 @@ function pickNumber(...values: unknown[]): number | null {
   return null;
 }
 
-export function parseCreatedShipment(payload: unknown): EnvioEcomShipmentPatch {
-  const root = asRecord(payload);
-  const shippingCreate = asRecord(root.shipping_create);
-  const results = Array.isArray(shippingCreate.results) ? shippingCreate.results : [];
-  const first = asRecord(results[0]);
-  const barcodes = Array.isArray(root.processed_barcodes) ? root.processed_barcodes : [];
-  const adjustments = Array.isArray(root.freight_adjustments) ? root.freight_adjustments : [];
-  const adjustment = asRecord(adjustments[0]);
-
-  return {
-    shipmentId: pickNumber(first.shipping_id, first.id, first.shipment_id),
-    barcode: pickString(first.barcode, barcodes[0]),
-    trackingKey: pickString(first.tracking_key, first.trackingKey),
-    deliveryMode: pickString(first.delivery_mode, first.shipping_company, first.carrier),
-    status: pickString(first.status),
-    freightCost: pickString(adjustment.current, adjustment.freight_cost, first.freight_cost, first.cost),
-    externalOrderNumber: pickString(first.orderId, first.external_order_number, first.order_id),
-  };
-}
+export { assessCreatedShipment, parseCreatedShipment } from "./envioecom-create-result";
 
 export function parseShipmentDetails(payload: unknown): EnvioEcomShipmentPatch {
   const root = asRecord(payload);

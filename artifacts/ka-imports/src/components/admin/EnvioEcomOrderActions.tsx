@@ -354,7 +354,8 @@ export function EnvioEcomOrderActions({
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkRef, setLinkRef] = useState("");
   const [continueToLabel, setContinueToLabel] = useState(false);
-  const [quoteAccountId, setQuoteAccountId] = useState(order.envioecomAccountId || "");
+  const [quoteAccountId, setQuoteAccountId] = useState("");
+  const [quoteAccountName, setQuoteAccountName] = useState("");
   const [accountPickerOpen, setAccountPickerOpen] = useState(false);
   const [accountPickerAction, setAccountPickerAction] = useState<"quote" | "link" | null>(null);
   const [accountOptions, setAccountOptions] = useState<EnvioEcomAccountOption[]>([]);
@@ -410,7 +411,6 @@ export function EnvioEcomOrderActions({
 
   const barcode = String(bound.envioecomBarcode || (!packageId ? bound.trackingCode : "") || "").trim();
   const labelBlocked = isLabelBlockedStatus(bound.envioecomStatus);
-  const needsBind = isProvisionalBarcode(barcode) && !bound.envioecomShipmentId;
   const labelUrl = String(bound.envioecomLabelUrl || (!packageId ? bound.trackingLabelUrl : "") || "").trim();
   const hasBinding = Boolean(
     bound.envioecomShipmentId
@@ -449,11 +449,30 @@ export function EnvioEcomOrderActions({
       toast.error("Cadastre uma API EnvioEcom em Configurações.");
       return null;
     }
-    if (accounts.length === 1) return accounts[0].id;
+    if (accounts.length === 1) {
+      setQuoteAccountName(accounts[0].name);
+      return accounts[0].id;
+    }
     return "PICK";
   }
 
+  function rememberQuoteAccount(accountId: string, accountName?: string) {
+    const id = String(accountId || "").trim();
+    if (!id) return;
+    setQuoteAccountId(id);
+    const known = String(accountName || accountOptions.find((account) => account.id === id)?.name || "").trim();
+    if (known) setQuoteAccountName(known);
+  }
+
   async function quote(carriers = selectedCarriers, accountId = quoteAccountId) {
+    const chosenAccountId = String(accountId || "").trim();
+    if (!chosenAccountId && accountOptions.length > 1) {
+      setAccountPickerAction("quote");
+      setAccountPickerOpen(true);
+      toast.error("Escolha a conta EnvioEcom.");
+      return;
+    }
+    if (chosenAccountId) rememberQuoteAccount(chosenAccountId);
     setQuoteOpen(true);
     setBusy("quote");
     try {
@@ -462,11 +481,17 @@ export function EnvioEcomOrderActions({
         headers: adminHeaders(),
         body: JSON.stringify(withPackageId({
           ...(carriers.length ? { carriers } : {}),
-          ...(accountId ? { accountId } : {}),
+          ...(chosenAccountId ? { accountId: chosenAccountId } : {}),
         })),
       });
       if (!res.ok) {
         const body = await readErrorPayload(res);
+        if (body.error === "ACCOUNT_REQUIRED") {
+          const accounts = await loadConfiguredAccounts().catch(() => accountOptions);
+          setAccountOptions(accounts);
+          setAccountPickerAction("quote");
+          setAccountPickerOpen(true);
+        }
         if (body.deliveryCorrection) setDeliveryCorrection(body.deliveryCorrection);
         throw new Error(body.message);
       }
@@ -476,6 +501,7 @@ export function EnvioEcomOrderActions({
         originZipcode?: string;
         package?: Record<string, unknown>;
         accountId?: string;
+        accountName?: string;
       };
       setQuotes(data.quotes || []);
       setUnavailable((data.unavailableCarriers || []).map((row) => ({
@@ -484,7 +510,8 @@ export function EnvioEcomOrderActions({
       })));
       setOriginZipcode(String(data.originZipcode || ""));
       setPackageInfo(data.package || null);
-      if (data.accountId) setQuoteAccountId(data.accountId);
+      if (data.accountId) rememberQuoteAccount(data.accountId, data.accountName);
+      else if (data.accountName) setQuoteAccountName(data.accountName);
       if (!(data.quotes || []).length) toast.error("Nenhuma transportadora disponível para este CEP.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Falha ao cotar.");
@@ -493,12 +520,36 @@ export function EnvioEcomOrderActions({
     }
   }
 
+  function createdShipmentView(dataOrder?: EnvioEcomOrderFields) {
+    if (packageId) {
+      const pkg = (dataOrder?.packages || []).find((row) => row.id === packageId);
+      return {
+        shipmentId: Number(pkg?.envioecomShipmentId || 0),
+        barcode: String(pkg?.envioecomBarcode || "").trim(),
+        status: pkg?.envioecomStatus ?? null,
+      };
+    }
+    return {
+      shipmentId: Number(dataOrder?.envioecomShipmentId || 0),
+      barcode: String(dataOrder?.envioecomBarcode || dataOrder?.trackingCode || "").trim(),
+      status: dataOrder?.envioecomStatus ?? null,
+    };
+  }
+
   async function createShipment(quoteOption: QuoteOption) {
     const shippingCompany = quoteCarrier(quoteOption);
     if (!shippingCompany) {
       toast.error("Cotação sem nome de transportadora.");
       return;
     }
+    const accountId = String(quoteAccountId || "").trim();
+    if (!accountId && accountOptions.length !== 1) {
+      setAccountPickerAction("quote");
+      setAccountPickerOpen(true);
+      toast.error("Escolha a conta EnvioEcom antes de criar o envio.");
+      return;
+    }
+    const accountForCreate = accountId || accountOptions[0]?.id || "";
     setBusy("create");
     try {
       const res = await fetch(`${BASE}/api/admin/envioecom/orders/${order.id}/create`, {
@@ -513,18 +564,35 @@ export function EnvioEcomOrderActions({
           width: packageInfo?.width,
           length: packageInfo?.length,
           weight: packageInfo?.weight,
-          accountId: quoteAccountId || undefined,
+          ...(accountForCreate ? { accountId: accountForCreate } : {}),
         })),
       });
       if (!res.ok) {
         const body = await readErrorPayload(res);
+        if (body.error === "ACCOUNT_REQUIRED") {
+          setAccountPickerAction("quote");
+          setAccountPickerOpen(true);
+        }
         if (body.deliveryCorrection) setDeliveryCorrection(body.deliveryCorrection);
         throw new Error(body.message);
       }
-      const data = await res.json() as { order?: EnvioEcomOrderFields };
+      const data = await res.json() as { order?: EnvioEcomOrderFields; accountId?: string; accountName?: string; shipmentId?: number | null };
       await patchFromResponse(data);
+      if (data.accountId) rememberQuoteAccount(data.accountId, data.accountName);
+      const accountName = String(data.accountName || quoteAccountName || "").trim();
       setQuoteOpen(false);
-      toast.success("Envio criado na EnvioEcom.");
+      toast.success(accountName ? `Envio criado na conta ${accountName}.` : "Envio criado na EnvioEcom.");
+      const created = createdShipmentView(data.order);
+      const shipmentId = created.shipmentId || Number(data.shipmentId || 0);
+      if (shipmentId > 0) {
+        await generateLabel({
+          skipBind: true,
+          accountId: data.accountId || accountForCreate,
+          shipmentId,
+          barcode: created.barcode,
+          status: created.status,
+        });
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Falha ao criar envio.");
     } finally {
@@ -570,7 +638,7 @@ export function EnvioEcomOrderActions({
       setAccountPickerOpen(true);
       return;
     }
-    setQuoteAccountId(accountId);
+    rememberQuoteAccount(accountId);
     await quote(selectedCarriers, accountId);
   }
 
@@ -621,7 +689,7 @@ export function EnvioEcomOrderActions({
         setAccountPickerOpen(true);
         return;
       }
-      setQuoteAccountId(picked);
+      rememberQuoteAccount(picked);
       setContinueToLabel(nextContinueToLabel);
       setLinkOpen(true);
     } catch (err) {
@@ -635,7 +703,7 @@ export function EnvioEcomOrderActions({
       if (!ok) return;
     }
     setAccountPickerOpen(false);
-    setQuoteAccountId(accountId);
+    rememberQuoteAccount(accountId);
     const action = accountPickerAction;
     setAccountPickerAction(null);
     if (action === "quote") {
@@ -684,13 +752,23 @@ export function EnvioEcomOrderActions({
     }
   }
 
-  async function generateLabel(opts?: { skipBind?: boolean }) {
-    if (isLabelBlockedStatus(bound.envioecomStatus)) {
+  async function generateLabel(opts?: {
+    skipBind?: boolean;
+    accountId?: string;
+    shipmentId?: number;
+    barcode?: string;
+    status?: string | null;
+  }) {
+    const status = opts && "status" in opts ? opts.status : bound.envioecomStatus;
+    const shipmentId = Number(opts?.shipmentId || bound.envioecomShipmentId || 0);
+    const code = String(opts?.barcode ?? barcode).trim();
+    const accountId = String(opts?.accountId || "").trim();
+    if (isLabelBlockedStatus(status)) {
       toast.message("Este envio está cancelado ou aguardando cancelamento. Cote e crie um envio novo.");
       void startQuote();
       return;
     }
-    if (needsBind && !opts?.skipBind) {
+    if (isProvisionalBarcode(code) && !(shipmentId > 0) && !opts?.skipBind) {
       openEnvioEcomLinkModal(true);
       return;
     }
@@ -701,7 +779,11 @@ export function EnvioEcomOrderActions({
       const res = await fetch(`${BASE}/api/admin/envioecom/orders/${order.id}/labels`, {
         method: "POST",
         headers: adminHeaders(),
-        body: JSON.stringify(withPackageId(password ? { password } : {})),
+        body: JSON.stringify(withPackageId({
+          ...(password ? { password } : {}),
+          ...(accountId ? { accountId } : {}),
+          ...(shipmentId > 0 ? { shipmentId } : {}),
+        })),
       });
       if (res.status === 202) {
         toast.message("Etiqueta ainda em processamento. Tente de novo em instantes.");
@@ -890,7 +972,7 @@ export function EnvioEcomOrderActions({
   if (canGenerateLabel) {
     packageManageActions.push({
       key: "label",
-      label: "Etiqueta EE",
+      label: "Gerar etiqueta (PDF)",
       icon: <FileText className="w-4 h-4" />,
       onSelect: () => { void generateLabel(); },
     });
@@ -963,7 +1045,7 @@ export function EnvioEcomOrderActions({
           {canGenerateLabel && (
             <Button size="sm" variant="outline" className="gap-1.5 text-emerald-800 border-emerald-200 hover:bg-emerald-50" disabled={!!busy} onClick={() => void generateLabel()}>
               {busy === "label" || busy === "bind" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
-              Etiqueta EE
+              Gerar etiqueta (PDF)
             </Button>
           )}
           {canSync && (
@@ -1016,6 +1098,9 @@ export function EnvioEcomOrderActions({
                 <p className="text-sm text-neutral-500 mt-1">
                   Pedido #{orderDisplayId}{order.clientName ? ` · ${order.clientName}` : ""}
                 </p>
+                {quoteAccountName ? (
+                  <p className="text-sm font-medium text-emerald-800 mt-1">Conta {quoteAccountName}</p>
+                ) : null}
               </div>
               <button
                 type="button"
@@ -1074,6 +1159,9 @@ export function EnvioEcomOrderActions({
             </div>
 
             <div className="pt-4 space-y-3">
+              <p className="text-xs text-neutral-500">
+                Clique na transportadora para criar o envio{quoteAccountName ? ` na conta ${quoteAccountName}` : ""}. A etiqueta em PDF só sai depois que a EnvioEcom devolver o código.
+              </p>
               {busy === "quote" && quotes.length === 0 ? (
                 <p className="text-sm text-neutral-500 flex items-center gap-2">
                   <Loader2 className="w-4 h-4 animate-spin" /> Cotando frete...
@@ -1098,11 +1186,13 @@ export function EnvioEcomOrderActions({
                     className={`w-full text-left rounded-2xl border px-4 py-3 disabled:opacity-60 ${tone}`}
                     disabled={!!busy}
                     onClick={() => {
-                      if (alert && !window.confirm("Gerar a etiqueta mesmo assim?")) return;
+                      const where = quoteAccountName ? ` na conta ${quoteAccountName}` : "";
+                      if (alert && !window.confirm(`Criar o envio${where} mesmo assim?`)) return;
                       void createShipment(quoteOption);
                     }}
                   >
                     <p className="text-sm font-bold text-neutral-900">{quoteCarrier(quoteOption) || "Transportadora"}</p>
+                    <p className="text-xs font-semibold text-emerald-800 mt-0.5">Criar envio</p>
                     <p className="text-sm text-neutral-500 mt-0.5">
                       {formatCurrency(quotePrice(quoteOption))}
                       {quoteDays(quoteOption) ? ` · ${quoteDays(quoteOption)} dia(s)` : ""}
