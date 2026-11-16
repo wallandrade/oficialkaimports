@@ -350,14 +350,14 @@ async function sendText(input: {
   secondInstance: boolean;
   phone: string;
   message: string;
-}): Promise<void> {
+}): Promise<boolean> {
   const url = await resolveWhatsappWebhookUrl({
     event: "support",
     tenantId: input.tenantId,
     secondInstance: false,
   });
-  if (!url) return;
-  await postWhatsappWebhook(url, { phone: input.phone, message: input.message });
+  if (!url) return false;
+  return postWhatsappWebhook(url, { phone: input.phone, message: input.message });
 }
 
 async function sendMenu(input: {
@@ -421,9 +421,9 @@ export async function handleWhatsappSupportInbound(rawBody: unknown, token: stri
       receive: (input) => receiveShopeeRouteInbound(input, { tenantId: auth.tenantId }),
       send: async (message) => {
         const phone = normalizeWhatsappPhone(body.phone);
-        if (!phone) return;
+        if (!phone) return false;
         const polyId = await readPolyInstanceId(auth.tenantId);
-        await sendText({
+        return sendText({
           tenantId: auth.tenantId,
           secondInstance: instanceMatchesPoly(body.instanceId, polyId),
           phone,

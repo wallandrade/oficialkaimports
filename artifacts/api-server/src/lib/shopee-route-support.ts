@@ -50,7 +50,7 @@ type SupportDeps = {
     | { ok: true; ja_processado: boolean; mensagem_para_cliente: string }
     | { ok: false; motivo: string }
   >;
-  send: (message: string) => Promise<void>;
+  send: (message: string) => Promise<boolean>;
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -192,7 +192,11 @@ async function handleShopeeOnSupportMessageInner(
   const result = await deps.receive({ telefone: customer.phone, texto: customer.text.slice(0, 2000) });
   if (!result.ok) return "continue";
   if (result.ja_processado) return "stop";
-  await deps.send(result.mensagem_para_cliente);
+  const delivered = await deps.send(result.mensagem_para_cliente);
+  if (!delivered) {
+    console.warn("[WHATSAPP_SUPPORT] Rota Shopee seguiu o atendimento");
+    return "continue";
+  }
   return "stop";
 }
 

@@ -102,6 +102,7 @@ function supportDeps(store: ShopeeRouteInboundStore, sent: string[]) {
       },
       send: async (message: string) => {
         sent.push(message);
+        return true;
       },
     },
   };
@@ -226,6 +227,18 @@ test("exceção na Rota Shopee segue o atendimento e não loga telefone nem text
     assert.equal(sendBoom, "continue");
     assert.equal(state.orders[0]?.shopeeOrderId, SHOPEE_ID);
     assert.deepEqual(sent, []);
+    const refused = memoryStore([order({ id: "ord-refused", clientPhone: "11988877766" })]);
+    const refusedSent: string[] = [];
+    const sendRefused = await handleShopeeOnSupportMessage(textBody(phone, SHOPEE_ID), {
+      ...supportDeps(refused.store, refusedSent).deps,
+      send: async (message) => {
+        refusedSent.push(message);
+        return false;
+      },
+    });
+    assert.equal(sendRefused, "continue");
+    assert.equal(refused.orders[0]?.shopeeOrderId, SHOPEE_ID);
+    assert.deepEqual(refusedSent, [shopeeRouteCustomerReply({ pedido: "2790", shopeeOrderId: SHOPEE_ID })]);
     const logged = JSON.stringify(warnings);
     assert.equal(logged.includes(secret), false);
     assert.equal(logged.includes(phone), false);
@@ -257,6 +270,7 @@ test("atendimento de uma loja não grava o pedido da outra", async () => {
     },
     send: async (message: string) => {
       sent.push(message);
+      return true;
     },
   };
   const outcome = await handleShopeeOnSupportMessage(textBody("5511999998888", SHOPEE_ID), scoped);
