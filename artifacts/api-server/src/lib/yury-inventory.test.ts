@@ -38,6 +38,7 @@ test("parse snapshot exige motoboy e minas e ignora item sem productId", () => {
   assert.ok(payload);
   assert.equal(payload.motoboy.length, 1);
   assert.equal(payload.minas.length, 2);
+  assert.equal(payload.santaCatarina, null);
   assert.equal(payload.minas.find((item) => item.productId === "xyz")?.quantity, 0);
   assert.equal(parseYuryInventorySnapshot({ motoboy: [] }), null);
 });
@@ -56,9 +57,9 @@ test("merge: só em motoboy zera Minas e não zera Motoboy; sumir dos dois zera 
   const abc = merged.find((row) => row.productId === "abc");
   const novo = merged.find((row) => row.productId === "novo");
   const gone = merged.find((row) => row.productId === "gone");
-  assert.deepEqual(abc, { productId: "abc", productName: "Produto X", qtyMotoboy: 12, qtyMinas: 0 });
-  assert.deepEqual(novo, { productId: "novo", productName: "Novo Minas", qtyMotoboy: 0, qtyMinas: 3 });
-  assert.deepEqual(gone, { productId: "gone", productName: "Sumiu", qtyMotoboy: 0, qtyMinas: 0 });
+  assert.deepEqual(abc, { productId: "abc", productName: "Produto X", qtyMotoboy: 12, qtyMinas: 0, qtySantaCatarina: 0 });
+  assert.deepEqual(novo, { productId: "novo", productName: "Novo Minas", qtyMotoboy: 0, qtyMinas: 3, qtySantaCatarina: 0 });
+  assert.deepEqual(gone, { productId: "gone", productName: "Sumiu", qtyMotoboy: 0, qtyMinas: 0, qtySantaCatarina: 0 });
 });
 
 test("merge: quantity 0 no snapshot permanece 0 e não apaga a linha", () => {
@@ -70,7 +71,41 @@ test("merge: quantity 0 no snapshot permanece 0 e não apaga a linha", () => {
     },
   );
   assert.equal(merged.length, 1);
-  assert.deepEqual(merged[0], { productId: "abc", productName: "Produto X", qtyMotoboy: 0, qtyMinas: 0 });
+  assert.deepEqual(merged[0], { productId: "abc", productName: "Produto X", qtyMotoboy: 0, qtyMinas: 0, qtySantaCatarina: 0 });
+});
+
+test("merge: array santaCatarina entra no saldo; sem a chave o saldo local fica", () => {
+  const withPool = mergeYuryInventorySnapshot(
+    [{ productId: "abc", productName: "Produto X", qtyMotoboy: 2, qtyMinas: 2, qtySantaCatarina: 9 }],
+    {
+      motoboy: [{ productId: "abc", productName: "Produto X", quantity: 2 }],
+      minas: [{ productId: "abc", productName: "Produto X", quantity: 2 }],
+      santaCatarina: [{ productId: "sc", productName: "Só SC", quantity: 4 }],
+    },
+  );
+  assert.deepEqual(withPool.find((row) => row.productId === "abc"), {
+    productId: "abc", productName: "Produto X", qtyMotoboy: 2, qtyMinas: 2, qtySantaCatarina: 0,
+  });
+  assert.deepEqual(withPool.find((row) => row.productId === "sc"), {
+    productId: "sc", productName: "Só SC", qtyMotoboy: 0, qtyMinas: 0, qtySantaCatarina: 4,
+  });
+
+  const kept = mergeYuryInventorySnapshot(
+    [{ productId: "abc", productName: "Produto X", qtyMotoboy: 2, qtyMinas: 2, qtySantaCatarina: 9 }],
+    {
+      motoboy: [{ productId: "abc", productName: "Produto X", quantity: 1 }],
+      minas: [],
+    },
+  );
+  assert.equal(kept.find((row) => row.productId === "abc")?.qtySantaCatarina, 9);
+  assert.equal(kept.find((row) => row.productId === "abc")?.qtyMinas, 0);
+
+  const parsed = parseYuryInventorySnapshot({
+    motoboy: [],
+    minas: [],
+    santa_catarina: [{ productId: "sc", productName: "Só SC", quantity: 4 }],
+  });
+  assert.equal(parsed?.santaCatarina?.length, 1);
 });
 
 test("webhook grava balances e ignora delta", () => {
@@ -88,11 +123,22 @@ test("webhook grava balances e ignora delta", () => {
   assert.ok(event);
   assert.equal(event.data.balances.motoboy, 12);
   assert.equal(event.data.balances.minas, 3);
+  assert.equal(event.data.balances.santaCatarina, null);
   const next = applyYuryInventoryWebhookBalances(
-    { productId: "abc", productName: "Produto X", qtyMotoboy: 13, qtyMinas: 4 },
+    { productId: "abc", productName: "Produto X", qtyMotoboy: 13, qtyMinas: 4, qtySantaCatarina: 8 },
     event.data,
   );
-  assert.deepEqual(next, { productId: "abc", productName: "Produto X", qtyMotoboy: 12, qtyMinas: 3 });
+  assert.deepEqual(next, { productId: "abc", productName: "Produto X", qtyMotoboy: 12, qtyMinas: 3, qtySantaCatarina: 8 });
+  const withSanta = parseYuryInventoryChangedEvent({
+    eventId: "evt_2",
+    eventType: "inventory.changed",
+    data: {
+      productId: "abc",
+      productName: "Produto X",
+      balances: { motoboy: 12, minas: 3, santaCatarina: 2 },
+    },
+  });
+  assert.equal(withSanta?.data.balances.santaCatarina, 2);
   assert.equal(parseYuryInventoryChangedEvent({ eventId: "x", eventType: "motoboy.neighborhood.upserted" }), null);
 });
 
@@ -132,9 +178,12 @@ test("pool de baixa: motoboy/minas pelo shippingType; retirada não vai para Yur
 test("pool KA no card: salva loja/motoboy/minas e default segue o frete", () => {
   assert.equal(parseKaInventoryExitPool("Foz Guaçu"), "loja");
   assert.equal(parseKaInventoryExitPool("motoboy"), "motoboy");
+  assert.equal(parseKaInventoryExitPool("Santa Catarina"), "santa_catarina");
+  assert.equal(parseKaInventoryExitPool("santa_catarina"), "santa_catarina");
   assert.equal(defaultKaInventoryExitPool({ shippingType: "Frete 48h" }), "loja");
   assert.equal(defaultKaInventoryExitPool({ shippingType: "Motoboy" }), "motoboy");
   assert.equal(defaultKaInventoryExitPool({ shippingType: "48h", inventoryExitPool: "minas" }), "minas");
+  assert.equal(defaultKaInventoryExitPool({ shippingType: "Santa Catarina" }), "santa_catarina");
   assert.deepEqual(addKaInventoryExitedPool("loja", "motoboy"), ["loja", "motoboy"]);
   assert.deepEqual(parseKaInventoryExitedPools("loja,motoboy,loja"), ["loja", "motoboy"]);
   assert.equal(hasKaInventoryExit("motoboy"), true);

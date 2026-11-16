@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-16 | Coluna `yury_inventory_balances.qty_santa_catarina` | Schema Drizzle e o boot (`runtime-schema`: tabela nova já nasce com a coluna; tabela existente faz `ALTER TABLE` se faltar). Pool `santa_catarina` cabe em `inventory_exit_pool` e `inventory_pool` (`VARCHAR(16)`) | `inventory_balances` da loja. Job de 3 min e o webhook no mesmo caminho |
 | 2026-11-16 | Create EnvioEcom recusado responde 422; valor declarado corta em R$ 1.000 | Cotação e `cost` usam o mesmo teto. A Vercel deixa o JSON passar. 502 continua falha de upstream | Checkout, `defer_payment` e a DC-e abaixo do teto |
 | 2026-11-16 | Create EnvioEcom com lote recusado devolve o motivo no 502 | `assessCreatedShipment` lê `results[0].error`, `error_code` e `payment_processing`. O log leva a frase e a conta. `defer_payment` continua `false` | Cotação, etiqueta e o checkout |
 | 2026-11-16 | Quote/create EnvioEcom não escolhem conta sozinhos quando há várias | 400 `ACCOUNT_REQUIRED`. Create sem id ou código responde 502 e não grava | Checkout, motoboy, retirada e etiqueta de envio já salvo |
@@ -132,7 +133,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 - `customer_users`, `customer_wallet_ledger` (carteira da loja; não é afiliado), `affiliates` (+ referrals/commissions/credit uses/credit adjustments)
 - `kyc_documents`, `site_settings` / `tenant_settings`
 - `shipping_options`, `motoboy_*` (incl. `yury_id` na cobertura), `yury_webhook_events_processed`, `order_logistics_allocations`
-- `inventory_balances` / `inventory_movements`, `yury_inventory_balances` (espelho Motoboy/Minas da Yury), `reshipments`, `manual_*` (`manual_return_items.tenant_id` nullable; linha antiga sem loja fica na loja 1 pela consulta, sem backfill)
+- `inventory_balances` / `inventory_movements`, `yury_inventory_balances` (espelho Motoboy/Minas/Santa Catarina da Yury; `qty_santa_catarina`), `reshipments`, `manual_*` (`manual_return_items.tenant_id` nullable; linha antiga sem loja fica na loja 1 pela consulta, sem backfill)
 - `raffles*`, `order_bumps`, `support_tickets` (`problem_type`, `insurance_choice`), `filial_purchase_*`
 - `marketing_expenses`, `seller_commission_payments`, `social_proof_*`, `product_cost_history`
 - `flash_campaigns`, `flash_campaign_items` (`always_show`), `flash_visits` (único campanha+visitante), `flash_reservations`
@@ -141,12 +142,12 @@ Monorepo **pnpm workspaces** + TypeScript.
 
 - Entry: `artifacts/api-server/src/index.ts` → `app.ts` → `routes/index.ts`.
 - Health: `GET /healthz`.
-- Jobs no boot: reconciliação (expiração 24h), raffle expiry, reconcile logistics, pull de cobertura Motoboy Yury (15 min, se token), pull de estoque Motoboy/Minas Yury (3 min, se token).
+- Jobs no boot: reconciliação (expiração 24h), raffle expiry, reconcile logistics, pull de cobertura Motoboy Yury (15 min, se token), pull de estoque Motoboy/Minas/Santa Catarina Yury (3 min, se token).
 - Aviso de postagem: `GET /api/shipping-logistics/forecast` (público, por tenant). `promisedHours` pode ser o manual (`shipping-queue-deadline.ts`); `availableSlots` sai de `getOrderLogisticsForecast`. A gravação da vaga não lê essas settings.
 - Checkout Motoboy: `GET /api/motoboy-coverage/lookup` (público, por tenant). Geocode do destino no servidor (`motoboy-geocode.ts`: Google → AwesomeAPI → Nominatim → Photon → BrasilAPI; cache CEP+número, erro 10 min). Origem fixa na Sé. Km de rua em `motoboy-route.ts`. A faixa de CEP só entra se o km não tiver coordenada. Settings de km em `ALLOWED_KEYS`, fora de `PUBLIC_KEYS`.
 - Webhook cobertura Motoboy: `POST /api/webhooks/yury/motoboy-coverage` (body cru + HMAC) **antes** de `express.json()`.
 - Webhook estoque Yury: `POST /api/webhooks/yury/inventory` (mesmo HMAC; grava `balances`, não o delta).
-- Baixa no pedido: `POST /api/admin/orders/:id/inventory-exit` (Fóz local ou Yury Motoboy/Minas) a partir do card (1:1); após split a baixa é por pacote (`debitPackageInventory`, `referenceId = pkg:{id}`). `ensureOrderMarkedEnviado` no split debita cada pacote. `GET/POST /admin/orders/:id/shipments` aloca/lista `packages[]`. Motoboy/Minas chamam o exit da Yury sem senha no body.
+- Baixa no pedido: `POST /api/admin/orders/:id/inventory-exit` (Fóz local ou Yury Motoboy/Minas/Santa Catarina) a partir do card (1:1); após split a baixa é por pacote (`debitPackageInventory`, `referenceId = pkg:{id}`). `ensureOrderMarkedEnviado` no split debita cada pacote. `GET/POST /admin/orders/:id/shipments` aloca/lista `packages[]`. Motoboy, Minas e Santa Catarina chamam o exit da Yury sem senha no body.
 - EnvioEcom: `artifacts/api-server/src/routes/envioecom.ts` + webhook em `webhooks.ts`. Contas em `lib/envioecom-accounts.ts` (env + tenant + JSON `envioecom_accounts`). Client cacheia token por `tenantId:accountId`. Coluna `orders.envioecom_account_id`. Split: `packageId` em quote/create/labels/sync/cancel/unlink/bind e no `PATCH /admin/orders/:id/tracking-code`; persistência em `order_shipments` + rollup no pai (`lib/order-shipments.ts`). Rastreio de balcão: `PATCH /admin/orders/:id/manual-tracking` grava `manual_tracking_code` no pacote ou, sem divisão, em `orders`; não chama a EnvioEcom. Pedido sem linhas = colunas `envioecom_*` do pedido. `GET /admin/orders/:id/related-shipments` (auth do pedido; busca CPF em toda a loja) usa `related-cpf-shipments.ts` + `order_shipments`; **não** chama a EnvioEcom. Cada produto traz `image` (snapshot do JSON ou `products.image`). Quote e create com mais de uma conta exigem `accountId`. Create sem id ou código não grava.
 - APPCNPay: `gateway.ts` + `lib/pix-gateway-credentials.ts`. Par por tenant (`gateway_appcnpay_public_key` / `_secret_key`). Fallback env só na loja 1. Filial sem par falha com `PIX não configurado para esta loja`. DentPeg (`DENTPEG_API_KEY`) também só na loja 1. Webhook PIX resolve tenant pelo `transactionId`. Cobrança de diferença grava `custom_charges.tenant_id`; no boot, linha vazia com `order_id` copia o tenant do pedido antes do backfill para `tenant_loja1`.
 - WhatsApp n8n: `lib/whatsapp-n8n.ts` + `lib/tenant-store-scope.ts`. Env `N8N_*` de URL, atendente, slugs e instância poly só na loja 1. Filial só `tenant_settings`.

@@ -1821,18 +1821,23 @@ async function ensureFlashOfferTables(databaseName: string): Promise<void> {
 }
 
 async function ensureYuryInventoryBalancesTable(databaseName: string): Promise<void> {
-  if (await tableExists("yury_inventory_balances", databaseName)) return;
-
-  await pool.query(`
-    CREATE TABLE yury_inventory_balances (
-      product_id VARCHAR(255) NOT NULL PRIMARY KEY,
-      product_name VARCHAR(255) NOT NULL,
-      qty_motoboy INT NOT NULL DEFAULT 0,
-      qty_minas INT NOT NULL DEFAULT 0,
-      synced_at TIMESTAMP NULL,
-      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
+  if (!(await tableExists("yury_inventory_balances", databaseName))) {
+    await pool.query(`
+      CREATE TABLE yury_inventory_balances (
+        product_id VARCHAR(255) NOT NULL PRIMARY KEY,
+        product_name VARCHAR(255) NOT NULL,
+        qty_motoboy INT NOT NULL DEFAULT 0,
+        qty_minas INT NOT NULL DEFAULT 0,
+        qty_santa_catarina INT NOT NULL DEFAULT 0,
+        synced_at TIMESTAMP NULL,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    return;
+  }
+  if (!(await columnExists("yury_inventory_balances", "qty_santa_catarina", databaseName))) {
+    await pool.query("ALTER TABLE yury_inventory_balances ADD COLUMN qty_santa_catarina INT NOT NULL DEFAULT 0");
+  }
 }
 
 async function ensureWhatsappSupportSessionsTable(databaseName: string): Promise<void> {

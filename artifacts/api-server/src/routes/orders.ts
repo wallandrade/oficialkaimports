@@ -4084,7 +4084,7 @@ router.patch("/admin/orders/:id/inventory-exit-pool", requireAdminAuth, async (r
     if (Array.isArray(id)) id = id[0];
     const pool = parseKaInventoryExitPool((req.body as { pool?: unknown })?.pool);
     if (!pool) {
-      res.status(400).json({ error: "INVALID_INPUT", message: "pool deve ser loja, motoboy ou minas." });
+      res.status(400).json({ error: "INVALID_INPUT", message: "pool deve ser loja, motoboy, minas ou santa catarina." });
       return;
     }
 
@@ -4100,7 +4100,7 @@ router.patch("/admin/orders/:id/inventory-exit-pool", requireAdminAuth, async (r
     if (await countOrderShipments(id) >= 2) {
       res.status(409).json({
         error: "ORDER_SPLIT_USE_PACKAGE",
-        message: "Pedido dividido: a origem fica em cada pacote. O seletor único Loja/Motoboy/Minas não se aplica.",
+        message: "Pedido dividido: a origem fica em cada pacote. O seletor único Loja/Motoboy/Minas/Santa Catarina não se aplica.",
       });
       return;
     }
@@ -4129,7 +4129,7 @@ router.post("/admin/orders/:id/inventory-exit", requireAdminAuth, async (req, re
     if (Array.isArray(id)) id = id[0];
     const pool = parseKaInventoryExitPool((req.body as { pool?: unknown })?.pool);
     if (!pool) {
-      res.status(400).json({ error: "INVALID_INPUT", message: "pool deve ser loja, motoboy ou minas." });
+      res.status(400).json({ error: "INVALID_INPUT", message: "pool deve ser loja, motoboy, minas ou santa catarina." });
       return;
     }
     const password = pool === "loja" ? "" : pickYuryInventoryPassword(req.body);

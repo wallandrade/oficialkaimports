@@ -94,7 +94,7 @@ import {
   unlinkPackageEnvioEcomBinding,
 } from "../lib/order-shipments";
 import { markOpenReshipmentSentIfLabeled } from "../lib/reshipments";
-import { pickYuryInventoryPassword } from "../lib/yury-inventory";
+import { parseKaInventoryExitPool, pickYuryInventoryPassword } from "../lib/yury-inventory";
 import { buildControlTower, resolveTowerPeriod, type TowerCandidate } from "../lib/shipping-control-tower";
 
 const router: IRouter = Router();
@@ -1205,7 +1205,7 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
           envioecomExternalOrderNumber: workingOrder.envioecomExternalOrderNumber || boundForCreate.envioecomExternalOrderNumber,
           envioecomStatus: workingOrder.envioecomStatus || boundForCreate.envioecomStatus,
         };
-    const pool = workingPkg ? (workingPkg.inventoryPool as "loja" | "motoboy" | "minas") : null;
+    const pool = workingPkg ? parseKaInventoryExitPool(workingPkg.inventoryPool) : null;
     let externalOrderNumber = pool
       ? buildPackageExternalOrderNumber(workingOrder, pool, orderIdSource)
       : buildNextExternalOrderNumber(orderIdSource);

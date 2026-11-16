@@ -94,6 +94,7 @@ export function inventoryPoolCopyLabel(pool?: string | null): string {
     .replace(/_/g, " ");
   if (normalized === "motoboy") return "Motoboy";
   if (normalized === "minas") return "Minas";
+  if (normalized.replace(/[\s-]+/g, "") === "santacatarina") return "Santa Catarina";
   if (normalized === "loja" || normalized.includes("foz")) return "Fóz Guaçu";
   return "";
 }

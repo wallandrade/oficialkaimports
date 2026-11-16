@@ -27,6 +27,7 @@ test("acentos e barras não quebram o arquivo", () => {
 
 test("split acrescenta o pool", () => {
   assert.equal(shipmentPoolLabel("loja"), "Fóz Guaçu");
+  assert.equal(shipmentPoolLabel("santa_catarina"), "Santa Catarina");
   assert.equal(
     shipmentLabelPdfFilename({
       clientName: "Ana",

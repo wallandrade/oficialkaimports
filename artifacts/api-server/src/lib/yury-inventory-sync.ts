@@ -53,12 +53,14 @@ async function listLocalRows(): Promise<YuryInventoryLocalRow[]> {
     productName: yuryInventoryBalancesTable.productName,
     qtyMotoboy: yuryInventoryBalancesTable.qtyMotoboy,
     qtyMinas: yuryInventoryBalancesTable.qtyMinas,
+    qtySantaCatarina: yuryInventoryBalancesTable.qtySantaCatarina,
   }).from(yuryInventoryBalancesTable);
   return rows.map((row) => ({
     productId: String(row.productId),
     productName: String(row.productName || row.productId),
     qtyMotoboy: Number(row.qtyMotoboy) || 0,
     qtyMinas: Number(row.qtyMinas) || 0,
+    qtySantaCatarina: Number(row.qtySantaCatarina) || 0,
   }));
 }
 
@@ -69,6 +71,7 @@ async function persistRows(rows: YuryInventoryLocalRow[], syncedAt: Date): Promi
       productName: row.productName,
       qtyMotoboy: row.qtyMotoboy,
       qtyMinas: row.qtyMinas,
+      qtySantaCatarina: row.qtySantaCatarina,
       syncedAt,
       updatedAt: syncedAt,
     }).onDuplicateKeyUpdate({
@@ -76,6 +79,7 @@ async function persistRows(rows: YuryInventoryLocalRow[], syncedAt: Date): Promi
         productName: row.productName,
         qtyMotoboy: row.qtyMotoboy,
         qtyMinas: row.qtyMinas,
+        qtySantaCatarina: row.qtySantaCatarina,
         syncedAt,
         updatedAt: syncedAt,
       },
@@ -121,6 +125,7 @@ export async function applyYuryInventorySnapshot(payload: YuryInventorySnapshot)
   const snapshotIds = new Set([
     ...payload.motoboy.map((item) => item.productId),
     ...payload.minas.map((item) => item.productId),
+    ...(payload.santaCatarina || []).map((item) => item.productId),
   ]);
   const zeroedMissing = merged.filter((row) => !snapshotIds.has(row.productId)).length;
   const syncedAt = new Date();
@@ -153,13 +158,14 @@ export async function pullYuryInventorySnapshot(): Promise<YuryInventorySyncResu
 export async function upsertYuryInventoryFromWebhook(input: {
   productId: string;
   productName?: string;
-  balances: { motoboy: number; minas: number };
+  balances: { motoboy: number; minas: number; santaCatarina?: number | null };
 }): Promise<void> {
   const [existing] = await db.select({
     productId: yuryInventoryBalancesTable.productId,
     productName: yuryInventoryBalancesTable.productName,
     qtyMotoboy: yuryInventoryBalancesTable.qtyMotoboy,
     qtyMinas: yuryInventoryBalancesTable.qtyMinas,
+    qtySantaCatarina: yuryInventoryBalancesTable.qtySantaCatarina,
   }).from(yuryInventoryBalancesTable).where(eq(yuryInventoryBalancesTable.productId, input.productId)).limit(1);
 
   const next = applyYuryInventoryWebhookBalances(existing ? {
@@ -167,6 +173,7 @@ export async function upsertYuryInventoryFromWebhook(input: {
     productName: String(existing.productName || existing.productId),
     qtyMotoboy: Number(existing.qtyMotoboy) || 0,
     qtyMinas: Number(existing.qtyMinas) || 0,
+    qtySantaCatarina: Number(existing.qtySantaCatarina) || 0,
   } : null, input);
   const now = new Date();
   await persistRows([next], now);
@@ -175,8 +182,8 @@ export async function upsertYuryInventoryFromWebhook(input: {
 export async function listYuryInventoryBalances(): Promise<YuryInventoryLocalRow[]> {
   const rows = await listLocalRows();
   return rows.slice().sort((a, b) => {
-    const aPositive = a.qtyMotoboy > 0 || a.qtyMinas > 0 ? 1 : 0;
-    const bPositive = b.qtyMotoboy > 0 || b.qtyMinas > 0 ? 1 : 0;
+    const aPositive = a.qtyMotoboy > 0 || a.qtyMinas > 0 || a.qtySantaCatarina > 0 ? 1 : 0;
+    const bPositive = b.qtyMotoboy > 0 || b.qtyMinas > 0 || b.qtySantaCatarina > 0 ? 1 : 0;
     if (aPositive !== bPositive) return bPositive - aPositive;
     return a.productName.localeCompare(b.productName, "pt-BR");
   });

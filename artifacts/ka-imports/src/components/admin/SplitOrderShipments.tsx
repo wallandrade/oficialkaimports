@@ -7,7 +7,12 @@ import { ManualTrackingButton } from "@/components/admin/ManualTrackingButton";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-type Pool = "loja" | "motoboy" | "minas";
+const POOLS = ["loja", "motoboy", "minas", "santa_catarina"] as const;
+type Pool = (typeof POOLS)[number];
+
+function blankQty(loja = 0): Record<Pool, number> {
+  return { loja, motoboy: 0, minas: 0, santa_catarina: 0 };
+}
 
 type OrderProduct = { id?: string; name?: string; quantity?: number; image?: string | null };
 
@@ -21,14 +26,23 @@ function adminHeaders() {
 function poolLabel(pool: string): string {
   if (pool === "motoboy") return "Motoboy";
   if (pool === "minas") return "Minas";
+  if (pool === "santa_catarina") return "Santa Catarina";
   return "Fóz Guaçu";
 }
 
 function cardStockLabel(pool: string): string {
   if (pool === "motoboy") return "Motoboy";
   if (pool === "minas") return "Minas";
+  if (pool === "santa_catarina") return "Santa Catarina";
   return "Foz";
 }
+
+const POOL_COLUMN: Record<Pool, string> = {
+  loja: "Fóz",
+  motoboy: "Motoboy",
+  minas: "Minas",
+  santa_catarina: "SC",
+};
 
 function trackingPillClass(status?: string | null): string {
   const normalized = String(status || "")
@@ -69,7 +83,7 @@ function parseProducts(products: unknown): Array<{ id: string; name: string; qua
 function emptyQty(products: Array<{ id: string; name: string; quantity: number }>): Record<string, Record<Pool, number>> {
   const next: Record<string, Record<Pool, number>> = {};
   for (const product of products) {
-    next[product.id || product.name] = { loja: product.quantity, motoboy: 0, minas: 0 };
+    next[product.id || product.name] = blankQty(product.quantity);
   }
   return next;
 }
@@ -80,17 +94,17 @@ function qtyFromPackages(
 ): Record<string, Record<Pool, number>> {
   const next: Record<string, Record<Pool, number>> = {};
   for (const product of products) {
-    next[product.id || product.name] = { loja: 0, motoboy: 0, minas: 0 };
+    next[product.id || product.name] = blankQty();
   }
   for (const pkg of packages || []) {
     const pool = String(pkg.inventoryPool || "").trim() as Pool;
-    if (pool !== "loja" && pool !== "motoboy" && pool !== "minas") continue;
+    if (!POOLS.includes(pool)) continue;
     for (const item of pkg.items || []) {
       const product = products.find((row) => row.id && row.id === item.productId)
         || products.find((row) => row.name === (item.productName || item.productId));
       const key = product ? (product.id || product.name) : String(item.productId || item.productName || "").trim();
       if (!key) continue;
-      if (!next[key]) next[key] = { loja: 0, motoboy: 0, minas: 0 };
+      if (!next[key]) next[key] = blankQty();
       next[key][pool] += Math.max(0, Math.trunc(Number(item.quantity || 0)));
     }
   }
@@ -152,7 +166,7 @@ export function SplitOrderShipmentsButton({
   order: EnvioEcomOrderFields & { products?: unknown; enviado?: boolean };
   onPatched: (patch: Partial<EnvioEcomOrderFields> & { id: string; splitCleared?: boolean }) => void;
   inventoryByProduct?: Record<string, number>;
-  yuryByProduct?: Record<string, { motoboy: number; minas: number }>;
+  yuryByProduct?: Record<string, { motoboy: number; minas: number; santaCatarina?: number }>;
   productImageById?: Record<string, string>;
   onUploadTrackingLabel?: (packageId: string, file: File) => void;
   yuryPassword?: string;
@@ -191,7 +205,7 @@ export function SplitOrderShipmentsButton({
 
   async function submit() {
     const packages: Array<{ pool: Pool; items: Array<{ id: string; name: string; quantity: number }> }> = [];
-    for (const pool of ["loja", "motoboy", "minas"] as const) {
+    for (const pool of POOLS) {
       const items = products
         .map((product) => {
           const key = product.id || product.name;
@@ -258,7 +272,7 @@ export function SplitOrderShipmentsButton({
 
   const modal = open ? (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setOpen(false)}>
-      <div className="bg-white rounded-[28px] max-w-xl w-full shadow-xl max-h-[88vh] overflow-auto p-5 sm:p-6" onClick={(event) => event.stopPropagation()}>
+      <div className="bg-white rounded-[28px] max-w-3xl w-full shadow-xl max-h-[88vh] overflow-auto p-5 sm:p-6" onClick={(event) => event.stopPropagation()}>
         <h2 className="text-lg font-bold text-neutral-900">{split ? "Editar divisão" : "Dividir envio"}</h2>
         <p className="text-sm text-neutral-500 mt-1">
           Um pacote por origem. A soma das qtds precisa fechar o pedido. O mesmo SKU pode partir.
@@ -275,9 +289,9 @@ export function SplitOrderShipmentsButton({
               <tr className="text-left text-xs uppercase tracking-wide text-neutral-400">
                 <th className="pb-2 pr-2">Item</th>
                 <th className="pb-2 px-1">Pedido</th>
-                <th className="pb-2 px-1">Fóz</th>
-                <th className="pb-2 px-1">Motoboy</th>
-                <th className="pb-2 px-1">Minas</th>
+                {POOLS.map((pool) => (
+                  <th key={pool} className="pb-2 px-1" title={poolLabel(pool)}>{POOL_COLUMN[pool]}</th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -293,13 +307,13 @@ export function SplitOrderShipmentsButton({
                         <div className="min-w-0">
                           <p className="font-medium text-neutral-900 leading-snug">{product.name}</p>
                           <p className="text-[11px] text-neutral-400 mt-0.5">
-                            Fóz {lojaStock} · Motoboy {yury?.motoboy ?? "—"} · Minas {yury?.minas ?? "—"}
+                            Fóz {lojaStock} · Motoboy {yury?.motoboy ?? "—"} · Minas {yury?.minas ?? "—"} · SC {yury?.santaCatarina ?? "—"}
                           </p>
                         </div>
                       </div>
                     </td>
                     <td className="py-2 px-1 font-semibold">{product.quantity}</td>
-                    {(["loja", "motoboy", "minas"] as const).map((pool) => (
+                    {POOLS.map((pool) => (
                       <td key={pool} className="py-2 px-1">
                         <input
                           type="number"

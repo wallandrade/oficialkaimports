@@ -2,6 +2,7 @@ export function shipmentPoolLabel(pool?: string | null): string | null {
   const value = String(pool || "").trim().toLowerCase();
   if (value === "motoboy") return "Motoboy";
   if (value === "minas") return "Minas";
+  if (value === "santa_catarina" || value.replace(/[\s_-]+/g, "") === "santacatarina") return "Santa Catarina";
   if (value === "loja") return "Fóz Guaçu";
   return null;
 }
