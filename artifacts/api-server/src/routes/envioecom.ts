@@ -1231,6 +1231,7 @@ router.post("/admin/envioecom/orders/:id/create", requireAdminAuth, async (req, 
       hasShipmentId: assessed.summary.hasShipmentId,
       hasBarcode: assessed.summary.hasBarcode,
       keys: assessed.summary.keys,
+      ...(assessed.ok ? {} : { message: assessed.message }),
     });
     if (!assessed.ok) {
       throw new EnvioEcomApiError("CREATE_REJECTED", assessed.message, 502, {

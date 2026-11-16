@@ -162,6 +162,117 @@ function looseErrorEnvelope(row: Record<string, unknown>): string | null {
   return `${code}: ${message}`;
 }
 
+function looksLikeErrorCode(value: string): boolean {
+  return /^[A-Z][A-Z0-9_]{2,63}$/.test(value) && value.includes("_");
+}
+
+function codeFromText(value: string | null): string | null {
+  if (!value) return null;
+  const text = value.replace(/\s+/g, " ").trim();
+  if (looksLikeErrorCode(text)) return text;
+  const match = text.match(/^([A-Z][A-Z0-9_]{2,63})\s*[:—-]\s+\S/);
+  if (match && looksLikeErrorCode(match[1])) return match[1];
+  return null;
+}
+
+function stringError(value: unknown): string | null {
+  if (typeof value === "string") return value.trim() || null;
+  return errorText(value);
+}
+
+function firstResultItem(root: Record<string, unknown>): Record<string, unknown> | null {
+  const shipping = asRecord(root.shipping_create);
+  for (const list of [shipping.results, root.results]) {
+    if (!Array.isArray(list) || list.length === 0) continue;
+    return asRecord(list[0]);
+  }
+  return null;
+}
+
+function itemHasShipment(item: Record<string, unknown> | null): boolean {
+  if (!item) return false;
+  return shipmentIdFrom(item) != null || !!barcodeFrom(item);
+}
+
+type RefusalDetail = {
+  sentence: string | null;
+  errorCode: string | null;
+  payment: string | null;
+  paymentCode: string | null;
+};
+
+function pushUnique(target: string[], value: string | null) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return;
+  const index = target.findIndex((item) => item === text || item.includes(text) || text.includes(item));
+  if (index === -1) {
+    target.push(text);
+    return;
+  }
+  if (text.length > target[index].length) target[index] = text;
+}
+
+function paymentFailure(root: Record<string, unknown>): { text: string | null; code: string | null } {
+  const payment = asRecord(root.payment_processing);
+  let code = errorCodeOf(payment) || errorCodeOf(payment.error);
+  if (!code && Array.isArray(payment.errors)) {
+    for (const item of payment.errors) {
+      code = errorCodeOf(item) || codeFromText(typeof item === "string" ? item : errorText(item));
+      if (code) break;
+    }
+  }
+  if (!code) code = codeFromText(errorText(payment.errors)) || codeFromText(stringError(payment.error));
+  const parts: string[] = [];
+  pushUnique(parts, errorText(payment.errors));
+  pushUnique(parts, stringError(payment.error));
+  pushUnique(parts, pickString(payment.message));
+  return { text: parts.length ? parts.join(" — ") : null, code };
+}
+
+function refusalDetail(root: Record<string, unknown>): RefusalDetail {
+  const shipping = asRecord(root.shipping_create);
+  const batchRejected = shipping.success === false || root.success === false;
+  const item = firstResultItem(root);
+  const useItem = !!item && (batchRejected || !itemHasShipment(item));
+  let sentence: string | null = null;
+  let errorCode: string | null = null;
+  if (useItem && item) {
+    errorCode = errorCodeOf(item);
+    if ("error" in item && item.error != null && item.error !== false && item.error !== "") {
+      sentence = stringError(item.error);
+    }
+    if (!sentence) sentence = pickString(item.message, item.msg) || errorText(item.errors);
+    if (!errorCode) errorCode = codeFromText(sentence);
+  }
+  const payment = paymentFailure(root);
+  const noShipment = batchRejected || !itemHasShipment(item);
+  if (!errorCode && noShipment) errorCode = payment.code;
+  return {
+    sentence,
+    errorCode,
+    payment: noShipment ? payment.text : null,
+    paymentCode: noShipment ? payment.code : null,
+  };
+}
+
+function hasRefusal(detail: RefusalDetail): boolean {
+  return !!(detail.sentence || detail.payment || detail.errorCode || detail.paymentCode);
+}
+
+const REFUSAL_LEAD = "A EnvioEcom recusou o envio";
+
+function refusalMessage(fallback: string | null, detail: RefusalDetail): string {
+  const parts: string[] = [];
+  pushUnique(parts, detail.sentence);
+  if (detail.errorCode) pushUnique(parts, detail.errorCode);
+  pushUnique(parts, detail.payment);
+  if (detail.paymentCode && detail.paymentCode !== detail.errorCode) pushUnique(parts, detail.paymentCode);
+  if (!parts.length) return fallback || `${REFUSAL_LEAD}.`;
+  const body = parts.join(" — ");
+  if (body.startsWith(REFUSAL_LEAD)) return body;
+  return `${REFUSAL_LEAD}: ${body}`;
+}
+
 function collectPiiValues(value: unknown, key: string, depth: number, found: string[]) {
   if (depth > 6 || found.length > 40) return;
   if (typeof value === "string") {
@@ -256,13 +367,21 @@ export function assessCreatedShipment(payload: unknown): CreatedShipmentAssessme
   const meta = resultsMeta(root);
   const emptyPatch: CreatedShipmentPatch = {};
   const shipping = asRecord(root.shipping_create);
+  const detail = refusalDetail(root);
   const topError = explicitError(root) || explicitError(shipping);
   if (topError) {
+    const raw = hasRefusal(detail) ? refusalMessage(topError, detail) : topError;
     return {
       ok: false,
       patch: emptyPatch,
-      message: safeEnvioEcomPublicMessage(topError, payload),
-      summary: summaryOf(root, "error", emptyPatch, errorCodeOf(root.error) || errorCodeOf(shipping.error), meta.count),
+      message: safeEnvioEcomPublicMessage(raw, payload),
+      summary: summaryOf(
+        root,
+        "error",
+        emptyPatch,
+        detail.errorCode || errorCodeOf(root.error) || errorCodeOf(shipping.error),
+        meta.count,
+      ),
     };
   }
 
@@ -284,7 +403,7 @@ export function assessCreatedShipment(payload: unknown): CreatedShipmentAssessme
         ok: false,
         patch: emptyPatch,
         message: safeEnvioEcomPublicMessage(rowError, payload),
-        summary: summaryOf(root, "error", emptyPatch, errorCodeOf(row.error), meta.count),
+        summary: summaryOf(root, "error", emptyPatch, errorCodeOf(row) || errorCodeOf(row.error), meta.count),
       };
     }
     if (hasId || hasCode) {
@@ -311,12 +430,16 @@ export function assessCreatedShipment(payload: unknown): CreatedShipmentAssessme
   }
 
   const envelope = looseErrorEnvelope(root) || looseErrorEnvelope(shipping);
-  const outcome = itemError || envelope ? "error" : (meta.empty ? "empty" : "unparsed");
-  const rawMessage = itemError || envelope || (meta.empty ? EMPTY_MESSAGE : FALLBACK_MESSAGE);
+  const merged: RefusalDetail = { ...detail, sentence: detail.sentence || itemError };
+  const refused = hasRefusal(merged);
+  const outcome = refused || envelope ? "error" : (meta.empty ? "empty" : "unparsed");
+  const rawMessage = refused
+    ? refusalMessage(null, merged)
+    : (envelope || (meta.empty ? EMPTY_MESSAGE : FALLBACK_MESSAGE));
   return {
     ok: false,
     patch: emptyPatch,
-    message: itemError || envelope ? safeEnvioEcomPublicMessage(rawMessage, payload, rawMessage) : rawMessage,
-    summary: summaryOf(root, outcome, emptyPatch, errorCodeOf(root) || errorCodeOf(shipping), meta.count),
+    message: refused || envelope ? safeEnvioEcomPublicMessage(rawMessage, payload, rawMessage) : rawMessage,
+    summary: summaryOf(root, outcome, emptyPatch, merged.errorCode || errorCodeOf(root) || errorCodeOf(shipping), meta.count),
   };
 }

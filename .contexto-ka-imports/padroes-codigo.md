@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-16 | Anti-padrão: tratar lote recusado da EnvioEcom (`success: false`) como “A EnvioEcom recusou o envio.” sem ler `results[0].error` / `error_code` nem `payment_processing` | O 502 e o log levam a frase sanitizada, o código e a conta (id e nome). `defer_payment` segue `false` | Create que já tem `shipping_id`, cotação e etiqueta |
 | 2026-11-16 | Anti-padrão: cotar ou criar EnvioEcom na primeira conta quando há várias, ou tratar HTTP 200 sem código como envio criado | `pickWriteEnvioEcomAccount` devolve `ACCOUNT_REQUIRED`. `assessCreatedShipment` recusa corpo sem id/código, com erro ou com `results` vazio | Uma conta, motoboy, retirada e o prazo do checkout |
 | 2026-11-15 | Anti-padrão: correção de entrega fora da loja 1 ou com URL de n8n no código | Só CPF/CNPJ, CEP de destino e endereço da loja 1. Telefone, e-mail, origem, conta, motoboy e filial ficam de fora. A URL https vem da setting ou do env | SuperFrete continua inexistente. O log não leva token nem dado do cliente |
 | 2026-11-15 | Anti-padrão: tratar 429 da AwesomeAPI como silêncio e parar no Nominatim de texto livre | Loga a fonte e o motivo, sem endereço. Tenta rua+cidade e o Photon antes da faixa de CEP | Não apaga “São Paulo - Faixa Geral” |

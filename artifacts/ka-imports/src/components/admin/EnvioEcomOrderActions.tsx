@@ -9,6 +9,11 @@ import { fetchRelatedCpfShipments, type RelatedCpfShipmentsResult } from "@/lib/
 import { openShipmentLabelPdf } from "@/lib/shipment-label-download";
 import { RelatedCpfWarningBox } from "@/components/admin/RelatedCpfShipments";
 import { DeliveryCorrectionModal, type DeliveryCorrectionNotice } from "@/components/DeliveryCorrectionModal";
+import {
+  envioEcomAdminErrorCode,
+  envioEcomAdminErrorMessage,
+  parseEnvioEcomErrorBody,
+} from "@/lib/envioecom-admin-error";
 
 export { hasEnvioEcomLabelReady };
 
@@ -275,42 +280,16 @@ function quoteDays(quote: QuoteOption) {
   return String(quote.delivery_time ?? quote.delivery_days ?? "");
 }
 
-function formatErrorDetails(details: unknown): string {
-  if (details == null || details === "") return "";
-  if (typeof details === "string" || typeof details === "number" || typeof details === "boolean") {
-    return String(details).trim();
-  }
-  if (Array.isArray(details)) {
-    return details.map((item) => formatErrorDetails(item)).filter(Boolean).join("; ");
-  }
-  if (typeof details === "object") {
-    const row = details as Record<string, unknown>;
-    const field = String(row.field || row.path || "").trim();
-    const msg = String(row.message || row.reason || row.error || "").trim();
-    if (field || msg) return field && msg ? `${field}: ${msg}` : (msg || field);
-    return Object.entries(row)
-      .map(([key, value]) => {
-        const nested = formatErrorDetails(value);
-        return nested ? `${key}: ${nested}` : "";
-      })
-      .filter(Boolean)
-      .join("; ");
-  }
-  return "";
-}
-
 async function readErrorPayload(res: Response) {
-  const data = await res.json().catch(() => ({})) as {
-    message?: string;
-    error?: string;
-    details?: unknown;
-    deliveryCorrection?: DeliveryCorrectionNotice;
-  };
-  const details = formatErrorDetails(data.details);
-  const notice = data.deliveryCorrection?.message ? data.deliveryCorrection : null;
+  const raw = await res.text();
+  const data = parseEnvioEcomErrorBody(raw);
+  const noticeRaw = data.deliveryCorrection;
+  const notice = noticeRaw && typeof noticeRaw === "object" && typeof (noticeRaw as { message?: unknown }).message === "string"
+    ? noticeRaw as DeliveryCorrectionNotice
+    : null;
   return {
-    error: String(data.error || "").trim(),
-    message: [data.message || data.error, details].filter(Boolean).join(" — ") || "Erro EnvioEcom",
+    error: envioEcomAdminErrorCode(data),
+    message: envioEcomAdminErrorMessage(data, raw),
     deliveryCorrection: notice,
   };
 }
