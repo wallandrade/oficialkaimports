@@ -33,6 +33,19 @@ export function parseEnvioEcomErrorBody(raw: string): Record<string, unknown> {
   return {};
 }
 
+const INTERNAL_DETAIL_KEYS = new Set([
+  "outcome",
+  "resultscount",
+  "errorcode",
+  "hasshipmentid",
+  "hasbarcode",
+  "keys",
+]);
+
+function isInternalDetailKey(key: string): boolean {
+  return INTERNAL_DETAIL_KEYS.has(key.replace(/_/g, "").toLowerCase());
+}
+
 export function formatEnvioEcomErrorDetails(details: unknown): string {
   if (details == null || details === "") return "";
   if (typeof details === "string" || typeof details === "number" || typeof details === "boolean") {
@@ -44,9 +57,10 @@ export function formatEnvioEcomErrorDetails(details: unknown): string {
   if (typeof details === "object") {
     const row = details as Record<string, unknown>;
     const field = String(row.field || row.path || "").trim();
-    const msg = String(row.message || row.reason || row.error || "").trim();
+    const msg = textOf(row.message) || textOf(row.reason) || (typeof row.error === "string" ? row.error.trim() : "");
     if (field || msg) return field && msg ? `${field}: ${msg}` : (msg || field);
     return Object.entries(row)
+      .filter(([key]) => !isInternalDetailKey(key))
       .map(([key, value]) => {
         const nested = formatEnvioEcomErrorDetails(value);
         return nested ? `${key}: ${nested}` : "";
@@ -72,7 +86,8 @@ export function envioEcomAdminErrorMessage(data: unknown, raw = ""): string {
     || textOf(nested.error)
     || (typeof row.error === "string" ? textOf(row.error) : "");
   const details = formatEnvioEcomErrorDetails(row.details ?? nested.details);
-  const combined = [message, details].filter(Boolean).join(" — ");
+  const extra = details && message.includes(details) ? "" : details;
+  const combined = [message, extra].filter(Boolean).join(" — ");
   if (combined) return combined;
   const plain = String(raw || "").replace(/^\uFEFF/, "").replace(/\s+/g, " ").trim();
   if (

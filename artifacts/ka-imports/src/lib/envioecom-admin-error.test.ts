@@ -18,9 +18,29 @@ test("toast usa message do 502 e nao cai em Erro EnvioEcom", () => {
   const data = parseEnvioEcomErrorBody(raw);
   const message = envioEcomAdminErrorMessage(data, raw);
   assert.equal(envioEcomAdminErrorCode(data), "CREATE_REJECTED");
-  assert.match(message, /Não foi possível validar o crédito da conta/);
-  assert.match(message, /Saldo insuficiente para debitar o frete/);
-  assert.equal(message.includes("Erro EnvioEcom"), false);
+  assert.equal(message, sentence);
+  assert.equal(message.includes("outcome"), false);
+  assert.equal(message.includes("resultsCount"), false);
+  assert.equal(message.split("CREDIT_VALIDATION_FAILED").length - 1, 1);
+});
+
+test("toast ainda mostra field e message e ignora o resumo interno", () => {
+  const message = envioEcomAdminErrorMessage({
+    message: "Documento inválido",
+    details: [
+      { field: "document_number", message: "CPF inválido" },
+      { outcome: "error", resultsCount: 1, errorCode: "NO_BALANCE" },
+    ],
+  });
+  assert.equal(message, "Documento inválido — document_number: CPF inválido");
+
+  const mapped = envioEcomAdminErrorMessage({
+    message: "Dados recusados",
+    details: { errors: { "to.document": ["CPF inválido"] } },
+  });
+  assert.match(mapped, /CPF inválido/);
+  assert.equal(mapped.includes("outcome"), false);
+  assert.equal(mapped.includes("resultsCount"), false);
 });
 
 test("toast le message com BOM ou texto antes do JSON", () => {
