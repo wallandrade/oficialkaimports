@@ -63,6 +63,9 @@ test("ID da Shopee aceita o código da compra e recusa telefone ou frase", () =>
   assert.equal(normalizeShopeeOrderId("AA123456789BR"), null);
 
   assert.deepEqual(extractShopeeOrderId("241116ABCDEFGH"), { id: "241116ABCDEFGH", motivo: null });
+  assert.deepEqual(extractShopeeOrderId("241116-ABCDEFGH"), { id: "241116ABCDEFGH", motivo: null });
+  assert.deepEqual(extractShopeeOrderId("241116ABCDEFGH ok"), { id: "241116ABCDEFGH", motivo: null });
+  assert.deepEqual(extractShopeeOrderId("sim 241116ABCDEFGH"), { id: "241116ABCDEFGH", motivo: null });
   assert.deepEqual(extractShopeeOrderId("segue o id 241116ABCDEFGH obrigado"), { id: "241116ABCDEFGH", motivo: null });
   assert.deepEqual(extractShopeeOrderId("meu zap 5511999998888"), { id: null, motivo: "id_invalido" });
   assert.equal(extractShopeeOrderId("241116ABCDEFGH e 241117ZYXWVU12").motivo, "id_ambiguo");

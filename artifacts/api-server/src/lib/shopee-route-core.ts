@@ -125,12 +125,6 @@ export function extractShopeeOrderId(text: unknown): { id: string | null; motivo
   const raw = String(text ?? "").trim().slice(0, SHOPEE_ROUTE_MESSAGE_MAX);
   if (!raw) return { id: null, motivo: "id_invalido" };
 
-  const compact = raw.replace(/[^A-Za-z0-9]/g, "");
-  const direct = normalizeShopeeOrderId(compact);
-  if (direct && compact.toUpperCase() === direct && raw.length <= direct.length + 8) {
-    return { id: direct, motivo: null };
-  }
-
   const found = new Set<string>();
   const tokens = raw.match(/[A-Za-z0-9][A-Za-z0-9-]{5,30}/g) || [];
   for (const token of tokens) {
