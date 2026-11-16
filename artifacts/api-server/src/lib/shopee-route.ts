@@ -7,23 +7,24 @@ import { markOrderEnviadoWithoutInventory } from "./order-enviado";
 import { DEFAULT_TENANT_ID } from "./tenant-context";
 import { isHttpsWebhookUrl, normalizeWhatsappPhone } from "./whatsapp-notices";
 import {
-  decideShopeeInbound,
   effectiveShopeeRouteMessage,
-  extractShopeeOrderId,
   firstClientName,
   formatBrl,
   normalizeShopeeProductUrl,
   phonesMatch,
   renderShopeeRouteMessage,
-  reviewSummary,
   SHOPEE_ROUTE_MESSAGE_KEY,
   SHOPEE_ROUTE_PRODUCT_URL_KEY,
   SHOPEE_ROUTE_SECRET_HEADER,
   shopeeCreditAmount,
-  shopeeRouteCustomerReply,
   summarizeOrderProducts,
   type ShopeeInboundMotivo,
 } from "./shopee-route-core";
+import {
+  executeShopeeRouteInbound,
+  type ShopeeRouteInboundOrder,
+  type ShopeeRouteInboundStore,
+} from "./shopee-route-support";
 
 export { SHOPEE_ROUTE_SECRET_HEADER };
 
@@ -219,11 +220,55 @@ export async function markShopeeRouteRequested(order: ShopeeRouteOrderRow, actor
   return (await reloadOrder(order.id)) || { ...order, shopeeRouteRequestedAt: now, shopeeRouteReviewReason: null };
 }
 
-async function markOrdersForReview(orderIds: string[], motivo: string): Promise<void> {
-  const ids = [...new Set(orderIds.map((id) => String(id || "").trim()).filter(Boolean))];
-  if (ids.length === 0) return;
-  const summary = reviewSummary(motivo);
-  for (const id of ids) {
+function toInboundOrder(row: ShopeeRouteOrderRow): ShopeeRouteInboundOrder {
+  return {
+    id: row.id,
+    tenantId: row.tenantId,
+    orderNumber: row.orderNumber,
+    clientPhone: row.clientPhone,
+    shopeeRouteRequestedAt: row.shopeeRouteRequestedAt,
+    shopeeOrderId: row.shopeeOrderId,
+    shopeeRouteReviewReason: row.shopeeRouteReviewReason,
+    shopeeWalletCreditedAt: row.shopeeWalletCreditedAt,
+    enviado: row.enviado,
+  };
+}
+
+const awaitingShopeeRouteWhere = and(
+  isNotNull(ordersTable.shopeeRouteRequestedAt),
+  or(isNull(ordersTable.shopeeOrderId), eq(ordersTable.shopeeOrderId, "")),
+);
+
+export async function phoneHasAwaitingShopeeRoute(telefone: string): Promise<boolean> {
+  if (!phonesMatch(telefone, telefone)) return false;
+  const rows = await db
+    .select({ clientPhone: ordersTable.clientPhone })
+    .from(ordersTable)
+    .where(awaitingShopeeRouteWhere);
+  return rows.some((row) => phonesMatch(row.clientPhone, telefone));
+}
+
+const shopeeRouteInboundStore: ShopeeRouteInboundStore = {
+  async listAwaiting() {
+    const rows = await db.select(orderColumns).from(ordersTable).where(awaitingShopeeRouteWhere);
+    return rows.map(toInboundOrder);
+  },
+  async listByShopeeOrderId(id) {
+    const rows = await db.select(orderColumns).from(ordersTable).where(eq(ordersTable.shopeeOrderId, id));
+    return rows.map(toInboundOrder);
+  },
+  async reload(id) {
+    const row = await reloadOrder(id);
+    return row ? toInboundOrder(row) : null;
+  },
+  async assignShopeeOrderId(id, shopeeOrderId) {
+    await db.update(ordersTable).set({
+      shopeeOrderId,
+      shopeeRouteReviewReason: null,
+      updatedAt: new Date(),
+    }).where(eq(ordersTable.id, id));
+  },
+  async markReview(id, motivo) {
     const rows = await db
       .select({
         id: ordersTable.id,
@@ -234,104 +279,44 @@ async function markOrdersForReview(orderIds: string[], motivo: string): Promise<
       .where(eq(ordersTable.id, id))
       .limit(1);
     const row = rows[0];
-    if (!row || row.shopeeRouteReviewReason === motivo) continue;
+    if (!row || row.shopeeRouteReviewReason === motivo) {
+      return { changed: false, tenantId: row?.tenantId ?? null };
+    }
     await db.update(ordersTable).set({
       shopeeRouteReviewReason: motivo,
       updatedAt: new Date(),
     }).where(eq(ordersTable.id, id));
+    return { changed: true, tenantId: row.tenantId };
+  },
+  async markEnviado(id, tenantId) {
+    return markOrderEnviadoWithoutInventory(id, tenantId);
+  },
+  async addEvent(event) {
     await addOrderEvent({
-      orderId: id,
-      tenantId: row.tenantId,
-      action: "shopee_route_review",
+      orderId: event.orderId,
+      tenantId: event.tenantId,
+      action: event.action,
       actorType: "webhook",
       actorUsername: "n8n",
-      payload: { motivo, summary },
+      payload: event.payload,
     });
-  }
-}
+  },
+};
 
 export async function receiveShopeeRouteInbound(input: { telefone: string; texto: string }): Promise<
   | { ok: true; ja_processado: boolean; pedido: ReturnType<typeof shopeeRouteAdminFields> & { numero: number | null }; mensagem_para_cliente: string }
   | { ok: false; motivo: ShopeeInboundMotivo }
 > {
-  const telefone = String(input.telefone || "").trim();
-  if (!telefone || !phonesMatch(telefone, telefone)) {
-    return { ok: false, motivo: "payload_invalido" };
-  }
-  const extracted = extractShopeeOrderId(input.texto);
-  const awaitingRows = await db
-    .select(orderColumns)
-    .from(ordersTable)
-    .where(and(
-      isNotNull(ordersTable.shopeeRouteRequestedAt),
-      or(isNull(ordersTable.shopeeOrderId), eq(ordersTable.shopeeOrderId, "")),
-    ));
-  const awaiting = awaitingRows
-    .filter((row) => phonesMatch(row.clientPhone, telefone))
-    .map((row) => ({ id: row.id, shopeeOrderId: row.shopeeOrderId }));
-  const sameIdRows = extracted.id
-    ? await db.select(orderColumns).from(ordersTable).where(eq(ordersTable.shopeeOrderId, extracted.id))
-    : [];
-  const sameId = sameIdRows
-    .filter((row) => phonesMatch(row.clientPhone, telefone))
-    .map((row) => ({ id: row.id, shopeeOrderId: row.shopeeOrderId }));
-  const decision = decideShopeeInbound({
-    motivoId: extracted.motivo,
-    shopeeOrderId: extracted.id,
-    awaiting,
-    sameId,
-  });
-  if (!decision.ok) {
-    await markOrdersForReview(decision.revisarIds, decision.motivo);
-    return { ok: false, motivo: decision.motivo };
-  }
-
-  const current = await reloadOrder(decision.orderId);
-  if (!current || !phonesMatch(current.clientPhone, telefone)) {
-    return { ok: false, motivo: "nenhum_pedido" };
-  }
-  const tenantId = current.tenantId || DEFAULT_TENANT_ID;
-  const alreadySame = String(current.shopeeOrderId || "") === decision.shopeeOrderId;
-  if (!alreadySame || current.shopeeRouteReviewReason) {
-    await db.update(ordersTable).set({
-      shopeeOrderId: decision.shopeeOrderId,
-      shopeeRouteReviewReason: null,
-      updatedAt: new Date(),
-    }).where(eq(ordersTable.id, current.id));
-  }
-  if (!alreadySame) {
-    await addOrderEvent({
-      orderId: current.id,
-      tenantId,
-      action: "shopee_route_id",
-      actorType: "webhook",
-      actorUsername: "n8n",
-      payload: { shopeeOrderId: decision.shopeeOrderId, summary: `ID ${decision.shopeeOrderId}` },
-    });
-  }
-  const marked = await markOrderEnviadoWithoutInventory(current.id, tenantId);
-  if (!marked.already) {
-    await addOrderEvent({
-      orderId: current.id,
-      tenantId,
-      action: "enviado",
-      actorType: "webhook",
-      actorUsername: "n8n",
-      payload: { from: false, to: true, via: "shopee_route", summary: "Rota Shopee, sem baixa de estoque" },
-    });
-  }
-  const saved = (await reloadOrder(current.id)) || current;
+  const result = await executeShopeeRouteInbound(input, shopeeRouteInboundStore, DEFAULT_TENANT_ID);
+  if (!result.ok) return result;
   return {
     ok: true,
-    ja_processado: decision.jaProcessado || alreadySame,
+    ja_processado: result.ja_processado,
     pedido: {
-      ...shopeeRouteAdminFields(saved),
-      numero: saved.orderNumber ?? null,
+      ...shopeeRouteAdminFields(result.order),
+      numero: result.order.orderNumber ?? null,
     },
-    mensagem_para_cliente: shopeeRouteCustomerReply({
-      pedido: orderLabel(saved),
-      shopeeOrderId: decision.shopeeOrderId,
-    }),
+    mensagem_para_cliente: result.mensagem_para_cliente,
   };
 }
 

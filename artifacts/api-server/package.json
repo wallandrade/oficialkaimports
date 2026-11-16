@@ -22,7 +22,7 @@
     "test:admin-tenant": "node --test --import tsx ./src/lib/admin-tenant-pick.test.ts ./src/lib/tenant-store-scope.test.ts ./src/lib/tenant-product-sync.test.ts ./src/lib/tenant-context.test.ts",
     "test:site-release": "node --test --import tsx ./src/lib/site-release.test.ts",
     "test:shipping-channel": "node --test --import tsx ./src/lib/shipping-via.test.ts",
-    "test:shopee-route": "node --test --import tsx ./src/lib/shopee-route-core.test.ts",
+    "test:shopee-route": "node --test --import tsx ./src/lib/shopee-route-core.test.ts ./src/lib/shopee-route-support.test.ts",
     "test:shipping-channel-local": "node --test --import tsx ./src/routes/shipping-channel.integration.test.ts",
     "test:safe-log": "node --test --import tsx ./src/lib/safe-log.test.ts"
   },
