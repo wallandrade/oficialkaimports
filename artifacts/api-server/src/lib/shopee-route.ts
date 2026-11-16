@@ -239,12 +239,13 @@ const awaitingShopeeRouteWhere = and(
   or(isNull(ordersTable.shopeeOrderId), eq(ordersTable.shopeeOrderId, "")),
 );
 
-export async function phoneHasAwaitingShopeeRoute(telefone: string): Promise<boolean> {
+export async function phoneHasAwaitingShopeeRoute(telefone: string, tenantId?: string): Promise<boolean> {
   if (!phonesMatch(telefone, telefone)) return false;
+  const scope = String(tenantId || "").trim();
   const rows = await db
     .select({ clientPhone: ordersTable.clientPhone })
     .from(ordersTable)
-    .where(awaitingShopeeRouteWhere);
+    .where(scope ? and(awaitingShopeeRouteWhere, orderTenantWhere(scope)) : awaitingShopeeRouteWhere);
   return rows.some((row) => phonesMatch(row.clientPhone, telefone));
 }
 
@@ -303,11 +304,17 @@ const shopeeRouteInboundStore: ShopeeRouteInboundStore = {
   },
 };
 
-export async function receiveShopeeRouteInbound(input: { telefone: string; texto: string }): Promise<
+export async function receiveShopeeRouteInbound(
+  input: { telefone: string; texto: string },
+  scope?: { tenantId?: string },
+): Promise<
   | { ok: true; ja_processado: boolean; pedido: ReturnType<typeof shopeeRouteAdminFields> & { numero: number | null }; mensagem_para_cliente: string }
   | { ok: false; motivo: ShopeeInboundMotivo }
 > {
-  const result = await executeShopeeRouteInbound(input, shopeeRouteInboundStore, DEFAULT_TENANT_ID);
+  const result = await executeShopeeRouteInbound(input, shopeeRouteInboundStore, {
+    defaultTenantId: DEFAULT_TENANT_ID,
+    scopeTenantId: scope?.tenantId,
+  });
   if (!result.ok) return result;
   return {
     ok: true,

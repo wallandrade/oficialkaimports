@@ -5,6 +5,7 @@ import { phonesMatch, shopeeRouteCustomerReply } from "./shopee-route-core";
 import {
   executeShopeeRouteInbound,
   handleShopeeOnSupportMessage,
+  orderMatchesTenant,
   type ShopeeRouteInboundOrder,
   type ShopeeRouteInboundStore,
 } from "./shopee-route-support";
@@ -232,6 +233,65 @@ test("exceção na Rota Shopee segue o atendimento e não loga telefone nem text
   } finally {
     console.warn = original;
   }
+});
+
+test("atendimento de uma loja não grava o pedido da outra", async () => {
+  const state = memoryStore([
+    order({ id: "loja", tenantId: null, orderNumber: 2790 }),
+    order({ id: "filial", tenantId: "tenant_filial", orderNumber: 3001 }),
+  ]);
+  const sent: string[] = [];
+  const scoped = {
+    hasAwaiting: async (phone: string) => {
+      const rows = await state.store.listAwaiting();
+      return rows.some((row) => orderMatchesTenant(row.tenantId, "tenant_loja1") && phonesMatch(row.clientPhone, phone));
+    },
+    receive: async (input: { telefone: string; texto: string }) => {
+      const result = await executeShopeeRouteInbound(input, state.store, { scopeTenantId: "tenant_loja1" });
+      if (!result.ok) return result;
+      return {
+        ok: true as const,
+        ja_processado: result.ja_processado,
+        mensagem_para_cliente: result.mensagem_para_cliente,
+      };
+    },
+    send: async (message: string) => {
+      sent.push(message);
+    },
+  };
+  const outcome = await handleShopeeOnSupportMessage(textBody("5511999998888", SHOPEE_ID), scoped);
+  assert.equal(outcome, "stop");
+  assert.equal(sent.length, 1);
+  assert.equal(state.orders.find((row) => row.id === "loja")?.shopeeOrderId, SHOPEE_ID);
+  assert.equal(state.orders.find((row) => row.id === "filial")?.shopeeOrderId, null);
+  assert.equal(state.orders.find((row) => row.id === "filial")?.shopeeRouteReviewReason, null);
+
+  const otherStore = memoryStore([
+    order({ id: "loja-2", tenantId: "tenant_loja1" }),
+    order({ id: "filial-2", tenantId: "tenant_filial", shopeeOrderId: SHOPEE_ID, enviado: true }),
+  ]);
+  const again = await executeShopeeRouteInbound(
+    { telefone: "11999998888", texto: SHOPEE_ID },
+    otherStore.store,
+    { scopeTenantId: "tenant_loja1" },
+  );
+  assert.equal(again.ok, true);
+  assert.equal(again.ok && again.ja_processado, false);
+  assert.equal(otherStore.orders.find((row) => row.id === "loja-2")?.shopeeOrderId, SHOPEE_ID);
+  assert.equal(otherStore.orders.find((row) => row.id === "filial-2")?.enviado, true);
+
+  const unscoped = memoryStore([
+    order({ id: "loja-3", tenantId: "tenant_loja1" }),
+    order({ id: "filial-3", tenantId: "tenant_filial", orderNumber: 3002 }),
+  ]);
+  const both = await executeShopeeRouteInbound(
+    { telefone: "11999998888", texto: SHOPEE_ID },
+    unscoped.store,
+  );
+  assert.equal(both.ok, false);
+  assert.equal(both.ok === false && both.motivo, "varios_pedidos");
+  assert.equal(unscoped.orders.find((row) => row.id === "loja-3")?.shopeeOrderId, null);
+  assert.equal(unscoped.orders.find((row) => row.id === "filial-3")?.shopeeOrderId, null);
 });
 
 test("fromMe, grupo e status não consultam pedido aguardando", async () => {

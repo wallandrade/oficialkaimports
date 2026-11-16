@@ -79,6 +79,12 @@ function orderLabel(order: { orderNumber: number | null; id: string }): string {
   return order.orderNumber != null ? String(order.orderNumber) : order.id;
 }
 
+export function orderMatchesTenant(rowTenantId: unknown, tenantId: string, defaultTenantId = "tenant_loja1"): boolean {
+  const row = String(rowTenantId ?? "").trim();
+  if (tenantId === defaultTenantId) return row === "" || row === defaultTenantId;
+  return row === tenantId;
+}
+
 function customerText(body: Record<string, unknown>): { phone: string; text: string } | null {
   if (truthy(body.fromMe) || truthy(body.isGroup) || truthy(body.isNewsletter)) return null;
   if (truthy(body.isStatusReply) || inboundTypeShouldIgnore(body.type)) return null;
@@ -95,18 +101,21 @@ function customerText(body: Record<string, unknown>): { phone: string; text: str
 export async function executeShopeeRouteInbound(
   input: { telefone: string; texto: string },
   store: ShopeeRouteInboundStore,
-  defaultTenantId = "tenant_loja1",
+  options: { defaultTenantId?: string; scopeTenantId?: string } = {},
 ): Promise<ShopeeRouteInboundResult> {
+  const defaultTenantId = options.defaultTenantId || "tenant_loja1";
+  const scopeTenantId = String(options.scopeTenantId || "").trim();
+  const inScope = (row: { tenantId: string | null }) => !scopeTenantId || orderMatchesTenant(row.tenantId, scopeTenantId, defaultTenantId);
   const telefone = String(input.telefone || "").trim();
   if (!telefone || !phonesMatch(telefone, telefone)) {
     return { ok: false, motivo: "payload_invalido" };
   }
   const extracted = extractShopeeOrderId(input.texto);
-  const awaitingRows = await store.listAwaiting();
+  const awaitingRows = (await store.listAwaiting()).filter(inScope);
   const awaiting = awaitingRows
     .filter((row) => phonesMatch(row.clientPhone, telefone))
     .map((row) => ({ id: row.id, shopeeOrderId: row.shopeeOrderId }));
-  const sameIdRows = extracted.id ? await store.listByShopeeOrderId(extracted.id) : [];
+  const sameIdRows = extracted.id ? (await store.listByShopeeOrderId(extracted.id)).filter(inScope) : [];
   const sameId = sameIdRows
     .filter((row) => phonesMatch(row.clientPhone, telefone))
     .map((row) => ({ id: row.id, shopeeOrderId: row.shopeeOrderId }));
@@ -131,7 +140,7 @@ export async function executeShopeeRouteInbound(
   }
 
   const current = await store.reload(decision.orderId);
-  if (!current || !phonesMatch(current.clientPhone, telefone)) {
+  if (!current || !inScope(current) || !phonesMatch(current.clientPhone, telefone)) {
     return { ok: false, motivo: "nenhum_pedido" };
   }
   const tenantId = current.tenantId || defaultTenantId;

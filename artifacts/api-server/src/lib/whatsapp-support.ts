@@ -417,8 +417,8 @@ export async function handleWhatsappSupportInbound(rawBody: unknown, token: stri
   const body = asRecord(rawBody);
   try {
     const shopee = await handleShopeeOnSupportMessage(body, {
-      hasAwaiting: phoneHasAwaitingShopeeRoute,
-      receive: receiveShopeeRouteInbound,
+      hasAwaiting: (phone) => phoneHasAwaitingShopeeRoute(phone, auth.tenantId),
+      receive: (input) => receiveShopeeRouteInbound(input, { tenantId: auth.tenantId }),
       send: async (message) => {
         const phone = normalizeWhatsappPhone(body.phone);
         if (!phone) return;
