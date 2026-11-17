@@ -1,15 +1,19 @@
 const APEX_HOST = "ka-imports.com";
-const WWW_ORIGIN = "https://www.ka-imports.com";
+const API_ORIGIN = "https://lobster-app-7f8c2.ondigitalocean.app";
 
-/** ka-imports.com responde 307 para www. O Safari recusa o POST nesse redirect. */
+/**
+ * ka-imports.com responde 307 para www antes do rewrite da API.
+ * O Safari devolve esse 307 no POST, sem a mensagem da rota.
+ * www também fica de fora do connect-src. A API direta já está liberada.
+ */
 export function rewriteApexApiUrl(raw: string, hostname: string): string | null {
   if (hostname !== APEX_HOST) return null;
   if (raw === "/api" || raw.startsWith("/api/") || raw.startsWith("/api?")) {
-    return `${WWW_ORIGIN}${raw}`;
+    return `${API_ORIGIN}${raw}`;
   }
   const absolute = `https://${APEX_HOST}`;
   if (raw === `${absolute}/api` || raw.startsWith(`${absolute}/api/`) || raw.startsWith(`${absolute}/api?`)) {
-    return `${WWW_ORIGIN}${raw.slice(absolute.length)}`;
+    return `${API_ORIGIN}${raw.slice(absolute.length)}`;
   }
   return null;
 }

@@ -1,8 +1,15 @@
 import { useState } from "react";
 import { Loader2, ShoppingBag } from "lucide-react";
 import { toast } from "sonner";
+import { rewriteApexApiUrl } from "@/lib/apex-api-fetch";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+function shopeeRouteUrl(orderId: string): string {
+  const path = `/api/admin/orders/${encodeURIComponent(orderId)}/shopee-route`;
+  const hostname = typeof window !== "undefined" ? window.location.hostname : "";
+  return rewriteApexApiUrl(path, hostname) ?? `${BASE}${path}`;
+}
 
 function adminHeaders(): Record<string, string> {
   const token = sessionStorage.getItem("adminToken") || localStorage.getItem("adminToken") || "";
@@ -47,7 +54,7 @@ export function ShopeeRouteButton({
     if (!window.confirm(question)) return;
     setBusy(true);
     try {
-      const res = await fetch(`${BASE}/api/admin/orders/${encodeURIComponent(orderId)}/shopee-route`, {
+      const res = await fetch(shopeeRouteUrl(orderId), {
         method: "POST",
         headers: adminHeaders(),
         body: JSON.stringify({ packageId, confirm: true }),
