@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-17 | Anti-padrão: mandar WhatsApp de cliente fora de `sendCustomerWhatsapp`, ou logar token, SQL e o texto | O modo `direto` só sai pela fila. O log usa `***` + 4 dígitos. A URL da Z-API não entra no log. Setting vazia continua `n8n`, menos a Rota Shopee | Grupos da aba Automação seguem no job de imagem |
 | 2026-11-17 | Anti-padrão: o clique da Rota Shopee depender do webhook do n8n | O POST do admin chama `send-text` com `ZAPI_MAIN_INSTANCE_ID`, `ZAPI_MAIN_TOKEN` e `ZAPI_CLIENT_TOKEN`. A URL com o token não entra no log | O inbound do ID continua no n8n |
 | 2026-11-16 | O front em `ka-imports.com` chama a API direto na DigitalOcean | `rewriteApexApiUrl` troca `/api` por `https://lobster-app-7f8c2.ondigitalocean.app`. O botão da Rota Shopee usa essa URL na hora do clique. O 307 para `www` não entra no POST | `www.ka-imports.com` continua no rewrite do Vercel. `www` não entrou no `connect-src` |
 | 2026-11-16 | Anti-padrão: Rota Shopee do pedido dividido listar todos os produtos | O botão do cartão manda `packageId`. A mensagem usa só os itens daquele pacote. Sem `packageId` a API responde 400. `packageId` fora do split também responde 400 | Pedido sem divisão continua com a lista do pedido. `shipping_via` não dispara o WhatsApp |

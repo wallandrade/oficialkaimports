@@ -1,6 +1,54 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+
+const CHANNELS: Array<{ key: string; label: string; fallback: "direto" | "n8n" }> = [
+  { key: "zapi_channel_order_paid", label: "Pedido pago", fallback: "n8n" },
+  { key: "zapi_channel_filmagem", label: "Filmagem", fallback: "n8n" },
+  { key: "zapi_channel_tracking", label: "Rastreio", fallback: "n8n" },
+  { key: "zapi_channel_posted", label: "Postado", fallback: "n8n" },
+  { key: "zapi_channel_out_for_delivery", label: "Saiu para entrega", fallback: "n8n" },
+  { key: "zapi_channel_delivered", label: "Entregue", fallback: "n8n" },
+  { key: "zapi_channel_delivery_correction", label: "Correção de entrega", fallback: "n8n" },
+  { key: "zapi_channel_support", label: "Atendimento", fallback: "n8n" },
+  { key: "zapi_channel_support_menu", label: "Menu do atendimento", fallback: "n8n" },
+  { key: "zapi_channel_recovery", label: "Recuperação", fallback: "n8n" },
+  { key: "zapi_channel_shopee_route", label: "Rota Shopee", fallback: "direto" },
+];
+
+type QueueView = {
+  counts: { pending: number; sending: number; sent: number; failed: number };
+  rows: Array<{
+    id: string;
+    instance: string;
+    origin: string;
+    kind: string;
+    status: string;
+    attempts: number;
+    phoneMask: string;
+    lastError: string;
+    createdAt: string | null;
+  }>;
+};
+
+function queueAuthHeaders(): Record<string, string> {
+  const token = sessionStorage.getItem("adminToken") || localStorage.getItem("adminToken") || "";
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function channelValue(settings: Record<string, string>, key: string, fallback: "direto" | "n8n"): "direto" | "n8n" {
+  const raw = String(settings[key] || "").trim().toLowerCase();
+  if (raw === "direto" || raw === "n8n") return raw;
+  return fallback;
+}
+
+function statusLabel(status: string): string {
+  if (status === "pending") return "pendente";
+  if (status === "sending") return "enviando";
+  if (status === "sent") return "enviado";
+  if (status === "failed") return "erro";
+  return status;
+}
 
 const FIELDS: Array<{ key: string; label: string; placeholder?: string }> = [
   { key: "n8n_order_paid_webhook_url", label: "Pedido pago", placeholder: "https://" },
@@ -36,6 +84,27 @@ export function WhatsappN8nSettings({
 }) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [menuError, setMenuError] = useState("");
+  const [queue, setQueue] = useState<QueueView | null>(null);
+  const [queueNote, setQueueNote] = useState("");
+
+  const refreshQueue = useCallback(async () => {
+    const res = await fetch("/api/admin/whatsapp/outbound-queue", { headers: queueAuthHeaders(), credentials: "include" });
+    if (res.status === 403) {
+      setQueue(null);
+      setQueueNote("A fila geral aparece para o admin principal.");
+      return;
+    }
+    if (!res.ok) {
+      setQueueNote("Não consegui ler a fila.");
+      return;
+    }
+    setQueueNote("");
+    setQueue(await res.json() as QueueView);
+  }, []);
+
+  useEffect(() => {
+    void refreshQueue().catch(() => setQueueNote("Não consegui ler a fila."));
+  }, [refreshQueue]);
 
   useEffect(() => {
     const next: Record<string, string> = {};
@@ -94,8 +163,70 @@ export function WhatsappN8nSettings({
           WhatsApp (n8n)
         </h2>
         <p className="text-muted-foreground text-sm">
-          A loja manda telefone, texto e o remetente 35 99211-9139 para o n8n. Sem URL https, o aviso não sai. A filmagem sem URL não envia. Pedido, rastreio, atendimento e recuperação usam só a URL principal, desse número. A correção de CPF, CEP e endereço também só sai da loja principal; sem essa URL o admin ainda copia a mensagem ou abre o WhatsApp.
+          Cada aviso pode sair pelo n8n ou direto pela Z-API. Direto entra na fila do servidor: no máximo 1 mensagem a cada 10 minutos e 10 por hora, em cada número. Em branco, o aviso continua no n8n. A Rota Shopee, que já sai pela Z-API, continua direta. Para voltar um aviso ao n8n, escolha n8n. A URL https abaixo só vale nesse modo.
         </p>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {CHANNELS.map((field) => (
+          <label key={field.key} className="block">
+            <span className="block text-xs font-medium mb-1">{field.label}</span>
+            <select
+              value={channelValue(settings, field.key, field.fallback)}
+              disabled={!!loading[field.key]}
+              onChange={(event) => onSave(field.key, event.target.value)}
+              className="w-full h-10 px-3 rounded-xl border-2 border-border bg-background text-sm"
+            >
+              <option value="n8n">n8n</option>
+              <option value="direto">direto</option>
+            </select>
+          </label>
+        ))}
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold">Fila direta</h3>
+          <Button type="button" size="sm" variant="outline" onClick={() => void refreshQueue()}>Atualizar</Button>
+        </div>
+        {queue ? (
+          <p className="text-xs text-muted-foreground">
+            Pendentes {queue.counts.pending + queue.counts.sending} · Enviados {queue.counts.sent} · Erros {queue.counts.failed}
+          </p>
+        ) : null}
+        {queueNote ? <p className="text-xs text-muted-foreground">{queueNote}</p> : null}
+        {queue ? (
+          <div className="max-h-64 overflow-auto border border-border rounded-xl">
+            <table className="w-full text-xs">
+              <thead className="bg-muted/40 text-left">
+                <tr>
+                  <th className="px-2 py-1.5 font-medium">Quando</th>
+                  <th className="px-2 py-1.5 font-medium">Aviso</th>
+                  <th className="px-2 py-1.5 font-medium">Número</th>
+                  <th className="px-2 py-1.5 font-medium">Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {queue.rows.map((row) => (
+                  <tr key={row.id} className="border-t border-border/70 align-top">
+                    <td className="px-2 py-1.5 whitespace-nowrap">{row.createdAt ? new Date(row.createdAt).toLocaleString("pt-BR") : ""}</td>
+                    <td className="px-2 py-1.5">
+                      <div>{row.origin} · {row.instance}</div>
+                      {row.lastError ? <div className="text-red-600">{row.lastError}</div> : null}
+                    </td>
+                    <td className="px-2 py-1.5">{row.phoneMask}</td>
+                    <td className="px-2 py-1.5">{statusLabel(row.status)}{row.attempts ? ` · ${row.attempts}` : ""}</td>
+                  </tr>
+                ))}
+                {queue.rows.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-2 py-3 text-muted-foreground">Nenhuma mensagem na fila.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
       </div>
 
       <div className="grid grid-cols-1 gap-3">

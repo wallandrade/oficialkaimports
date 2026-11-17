@@ -13,7 +13,6 @@ import {
   shopeeRoutePhone,
 } from "../lib/shopee-route";
 import { parseAdminShopeeOrderId, selectShopeeRouteProducts, sharedSecretMatches, SHOPEE_ROUTE_SECRET_HEADER } from "../lib/shopee-route-core";
-import { zapiMainCredentials } from "../lib/whatsapp-group-campaign";
 import { listOrderShipments } from "../lib/order-shipments";
 import { isSplitShipments } from "../lib/order-shipments-logic";
 
@@ -95,24 +94,32 @@ router.post("/admin/orders/:id/shopee-route", requireAdminAuth, async (req, res)
       res.status(400).json({ error: "SHOPEE_LINK_REQUIRED", message: composed.error });
       return;
     }
-    if (!zapiMainCredentials()) {
-      res.status(503).json({
-        error: "NOT_CONFIGURED",
-        message: "Rota Shopee sem a instância do WhatsApp no servidor.",
-      });
-      return;
-    }
-    let posted: { ok: true } | { ok: false; status: number };
+    let posted: { ok: true; queued: boolean } | { ok: false; error: string };
     try {
-      posted = await sendShopeeRouteWhatsapp(phone, composed.message);
+      posted = await sendShopeeRouteWhatsapp({
+        order,
+        phone,
+        message: composed.message,
+        link: composed.link,
+        products: selected.products,
+        packageId: selected.packageId,
+      });
     } catch {
       console.error("[ShopeeRoute] WhatsApp não respondeu", { orderId: order.id });
       res.status(502).json({ error: "WHATSAPP_FAILED", message: "O WhatsApp não confirmou o envio." });
       return;
     }
     if (!posted.ok) {
-      console.warn("[ShopeeRoute] WhatsApp recusou", { orderId: order.id, status: posted.status });
-      res.status(502).json({ error: "WHATSAPP_FAILED", message: "O WhatsApp não confirmou o envio." });
+      const missing = posted.error === "zapi_not_configured" || posted.error === "not_configured";
+      console.warn("[ShopeeRoute] WhatsApp recusou", { orderId: order.id, error: posted.error });
+      res.status(missing ? 503 : 502).json({
+        error: missing ? "NOT_CONFIGURED" : "WHATSAPP_FAILED",
+        message: posted.error === "not_configured"
+          ? "Rota Shopee sem a URL do n8n."
+          : posted.error === "zapi_not_configured"
+            ? "Rota Shopee sem a instância do WhatsApp no servidor."
+            : "O WhatsApp não confirmou o envio.",
+      });
       return;
     }
     const saved = await markShopeeRouteRequested(order, actorFromAdminRequest(req), {
@@ -121,6 +128,7 @@ router.post("/admin/orders/:id/shopee-route", requireAdminAuth, async (req, res)
     });
     res.json({
       ok: true,
+      queued: posted.queued,
       order: shopeeRouteAdminFields(saved),
       packageId: selected.packageId,
       shopeeRouteSentAt: saved.shopeeRouteRequestedAt ? saved.shopeeRouteRequestedAt.toISOString() : null,

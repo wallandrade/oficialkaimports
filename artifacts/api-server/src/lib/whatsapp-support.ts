@@ -16,6 +16,7 @@ import {
   resolveWhatsappWebhookUrl,
   whatsappSupportTokenMatches,
 } from "./whatsapp-n8n";
+import { readWhatsappChannel, sendCustomerWhatsapp } from "./whatsapp-dispatch";
 
 const SESSION_MS = 60 * 1000;
 const RATE_WINDOW_MS = 10 * 60 * 1000;
@@ -356,8 +357,14 @@ async function sendText(input: {
     tenantId: input.tenantId,
     secondInstance: false,
   });
-  if (!url) return false;
-  return postWhatsappWebhook(url, { phone: input.phone, message: input.message });
+  const sent = await sendCustomerWhatsapp({
+    origin: "support",
+    tenantId: input.tenantId,
+    phone: input.phone,
+    message: input.message,
+    n8nUrl: url,
+  });
+  return sent.ok;
 }
 
 async function sendMenu(input: {
@@ -373,19 +380,31 @@ async function sendMenu(input: {
     tenantId: input.tenantId,
     secondInstance: false,
   });
-  if (menuUrl) {
-    await postWhatsappWebhook(menuUrl, {
-      phone: input.phone,
-      message: input.intro,
-      optionList: optionList(input.title, input.options),
+  const channel = await readWhatsappChannel("support_menu", input.tenantId);
+  if (channel === "n8n") {
+    if (menuUrl) {
+      await postWhatsappWebhook(menuUrl, {
+        phone: input.phone,
+        message: input.intro,
+        optionList: optionList(input.title, input.options),
+      });
+      return true;
+    }
+    await sendText({
+      ...input,
+      message: numberedMenu(input.intro, input.options),
     });
     return true;
   }
-  await sendText({
-    ...input,
-    message: numberedMenu(input.intro, input.options),
+  const sent = await sendCustomerWhatsapp({
+    origin: "support_menu",
+    tenantId: input.tenantId,
+    phone: input.phone,
+    message: input.intro,
+    optionList: optionList(input.title, input.options),
+    n8nUrl: menuUrl,
   });
-  return true;
+  return sent.ok;
 }
 
 function reminder(): string {

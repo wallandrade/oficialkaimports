@@ -12,6 +12,7 @@ import { startYuryLossSyncJob } from "./lib/loss-peer-sync-job";
 import { startYuryMetaAdsSyncJob } from "./lib/meta-ads-sync-job";
 import { startWhatsappRecoveryJob } from "./lib/whatsapp-recovery-job";
 import { startWhatsappGroupJob } from "./whatsapp-group-job";
+import { startWhatsappOutboundJob } from "./whatsapp-outbound-job";
 import { syncOpenReshipmentsSentFromEnvioEcom } from "./lib/reshipments";
 
 const rawPort = process.env["PORT"];
@@ -59,6 +60,7 @@ async function bootstrap(): Promise<void> {
     startYuryMetaAdsSyncJob();
     startWhatsappRecoveryJob();
     startWhatsappGroupJob();
+    startWhatsappOutboundJob();
     void reconcilePendingOrderLogistics().catch((error) => {
       console.error("[OrderLogistics] Startup reconciliation failed:", error);
     });

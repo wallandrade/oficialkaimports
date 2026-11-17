@@ -4,6 +4,8 @@ import type { ResultSetHeader } from "mysql2";
 import { DEFAULT_TENANT_ID } from "./tenant-context";
 import { normalizeWhatsappPhone } from "./whatsapp-notices";
 import { postWhatsappWebhook, resolveWhatsappWebhookUrl } from "./whatsapp-n8n";
+import { readWhatsappChannel, sendCustomerWhatsapp } from "./whatsapp-dispatch";
+import { zapiInstanceReady } from "./zapi-send";
 
 export const RECOVERY_DEFAULT_DAYS = 40;
 export const RECOVERY_DEFAULT_DAILY_LIMIT = 40;
@@ -282,7 +284,7 @@ async function settingValue(tenantId: string, key: string): Promise<string> {
 }
 
 export async function recoverySettings(tenantId = DEFAULT_TENANT_ID) {
-  const [enabledRaw, daysRaw, limitRaw, startRaw, endRaw, message, webhook] = await Promise.all([
+  const [enabledRaw, daysRaw, limitRaw, startRaw, endRaw, message, webhook, channel] = await Promise.all([
     settingValue(tenantId, "n8n_recovery_enabled"),
     settingValue(tenantId, "n8n_recovery_days"),
     settingValue(tenantId, "n8n_recovery_daily_limit"),
@@ -290,6 +292,7 @@ export async function recoverySettings(tenantId = DEFAULT_TENANT_ID) {
     settingValue(tenantId, "n8n_recovery_end_hour"),
     settingValue(tenantId, "n8n_recovery_message"),
     resolveWhatsappWebhookUrl({ event: "recovery", tenantId, secondInstance: false }),
+    readWhatsappChannel("recovery", tenantId),
   ]);
   const days = Math.min(365, Math.max(1, Number(daysRaw) || RECOVERY_DEFAULT_DAYS));
   const dailyLimit = Math.min(200, Math.max(1, Number(limitRaw) || RECOVERY_DEFAULT_DAILY_LIMIT));
@@ -304,7 +307,7 @@ export async function recoverySettings(tenantId = DEFAULT_TENANT_ID) {
     startHour: hours.startHour,
     endHour: hours.endHour,
     message: !message || message === RECOVERY_OLD_MESSAGE ? RECOVERY_DEFAULT_MESSAGE : message,
-    webhookConfigured: Boolean(webhook),
+    webhookConfigured: channel === "direto" ? zapiInstanceReady("main") : Boolean(webhook),
   };
 }
 
@@ -560,16 +563,28 @@ export async function sendNextRecovery(input: { tenantId?: string; ignoreHours?:
   if (!claimed) return { sent: false, reason: "ja_marcado" };
   const message = recoveryMessage(settings.message, customer.name);
   const optionList = recoveryOptionList();
+  const channel = await readWhatsappChannel("recovery", tenantId);
   const menuUrl = await resolveWhatsappWebhookUrl({ event: "support_menu", tenantId, secondInstance: false });
   const recoveryUrl = await resolveWhatsappWebhookUrl({ event: "recovery", tenantId, secondInstance: false });
-  const ok = menuUrl
-    ? await postWhatsappWebhook(menuUrl, { phone: customer.phone, message, optionList })
-    : recoveryUrl
-      ? await postWhatsappWebhook(recoveryUrl, { phone: customer.phone, message, optionList })
-      : false;
-  if (!ok) {
+  const notice = channel === "direto"
+    ? await sendCustomerWhatsapp({
+      origin: "recovery",
+      tenantId,
+      phone: customer.phone,
+      message,
+      optionList,
+      n8nUrl: recoveryUrl || menuUrl,
+    })
+    : {
+      ok: menuUrl
+        ? await postWhatsappWebhook(menuUrl, { phone: customer.phone, message, optionList })
+        : recoveryUrl
+          ? await postWhatsappWebhook(recoveryUrl, { phone: customer.phone, message, optionList })
+          : false,
+    };
+  if (!notice.ok) {
     await releaseSend(customer.phone);
-    return { sent: false, reason: "n8n_falhou", phone: customer.phone };
+    return { sent: false, reason: channel === "direto" ? "zapi_falhou" : "n8n_falhou" };
   }
   return { sent: true, reason: "enviado", phone: customer.phone };
 }

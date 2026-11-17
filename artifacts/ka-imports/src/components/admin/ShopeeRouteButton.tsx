@@ -59,11 +59,13 @@ export function ShopeeRouteButton({
         headers: adminHeaders(),
         body: JSON.stringify({ packageId, confirm: true }),
       });
-      const data = await res.json().catch(() => ({})) as { message?: string; shopeeRouteSentAt?: string };
+      const data = await res.json().catch(() => ({})) as { message?: string; shopeeRouteSentAt?: string; queued?: boolean };
       if (!res.ok) throw new Error(data.message || "Não foi possível avisar o cliente.");
       const next = String(data.shopeeRouteSentAt || new Date().toISOString());
       onSent(next);
-      toast.success("Cliente avisado só dos produtos deste pacote.");
+      toast.success(data.queued
+        ? "O aviso entrou na fila do WhatsApp e sai no ritmo de 10 minutos."
+        : "Cliente avisado só dos produtos deste pacote.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Não foi possível avisar o cliente.");
     } finally {

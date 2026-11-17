@@ -45,6 +45,7 @@ import flashOffersRouter from "./flash-offers";
 import whatsappSupportRouter from "./whatsapp-support";
 import whatsappRecoveryRouter from "./whatsapp-recovery";
 import whatsappGroupsRouter from "./whatsapp-groups";
+import whatsappOutboundRouter from "./whatsapp-outbound";
 import shopeeRouteRouter from "./shopee-route";
 const router: IRouter = Router();
 
@@ -93,6 +94,7 @@ router.use(flashOffersRouter);
 router.use(whatsappSupportRouter);
 router.use(whatsappRecoveryRouter);
 router.use(whatsappGroupsRouter);
+router.use(whatsappOutboundRouter);
 router.use(shopeeRouteRouter);
 
 export default router;

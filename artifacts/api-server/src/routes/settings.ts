@@ -39,6 +39,7 @@ import {
   SHOPEE_ROUTE_MESSAGE_KEY,
   SHOPEE_ROUTE_PRODUCT_URL_KEY,
 } from "../lib/shopee-route-core";
+import { normalizeWhatsappChannelSetting, WHATSAPP_CHANNEL_SETTING_KEYS } from "../lib/whatsapp-outbound-policy";
 import {
   decideSiteProtection,
   isSiteReleaseEnabled,
@@ -119,6 +120,7 @@ const ALLOWED_KEYS = [
   "n8n_recovery_end_hour",
   "n8n_recovery_message",
   "whatsapp_support_menu",
+  ...WHATSAPP_CHANNEL_SETTING_KEYS,
   // Admin helpers
   "admin_saved_brands",
   // Motoboy por km (só API de lookup; não são públicas)
@@ -329,6 +331,22 @@ router.put("/admin/settings/:key", requireAdminAuth, async (req, res) => {
       return;
     }
     const { value } = req.body as { value?: string };
+    if (WHATSAPP_CHANNEL_SETTING_KEYS.includes(key as (typeof WHATSAPP_CHANNEL_SETTING_KEYS)[number])) {
+      const trimmed = String(value || "").trim();
+      if (!trimmed) {
+        await deleteTenantSetting(tenantId, key);
+        res.json({ ok: true });
+        return;
+      }
+      const channel = normalizeWhatsappChannelSetting(key, trimmed);
+      if (!channel) {
+        res.status(400).json({ error: "INVALID_INPUT", message: "Escolha direto ou n8n." });
+        return;
+      }
+      await upsertTenantSetting(tenantId, key, channel);
+      res.json({ ok: true, value: channel });
+      return;
+    }
     if (key === "flash_force_first_visit") {
       if (!scope?.isPrimary) {
         res.status(403).json({ error: "FORBIDDEN", message: "Só o admin principal grava essa opção." });
