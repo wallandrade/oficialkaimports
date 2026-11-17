@@ -52,7 +52,7 @@ export function ShopeeRouteButton({
         headers: adminHeaders(),
         body: JSON.stringify({ packageId, confirm: true }),
       });
-      const data = await res.json() as { message?: string; shopeeRouteSentAt?: string };
+      const data = await res.json().catch(() => ({})) as { message?: string; shopeeRouteSentAt?: string };
       if (!res.ok) throw new Error(data.message || "Não foi possível avisar o cliente.");
       const next = String(data.shopeeRouteSentAt || new Date().toISOString());
       onSent(next);

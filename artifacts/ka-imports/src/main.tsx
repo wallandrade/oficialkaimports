@@ -1,8 +1,11 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
+import { installApexApiFetch } from "@/lib/apex-api-fetch";
 import { installGlobalErrorReporting } from "@/lib/client-error-reporting";
 import { shouldShowMaintenancePage } from "@/lib/maintenance";
+
+installApexApiFetch();
 
 function renderBootstrapFallback(): void {
 	const root = document.getElementById("root");
