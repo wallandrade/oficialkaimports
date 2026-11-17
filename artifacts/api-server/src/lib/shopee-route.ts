@@ -1,5 +1,5 @@
 import { and, eq, isNotNull, isNull, or } from "drizzle-orm";
-import { db, ordersTable, tenantSettingsTable } from "@workspace/db";
+import { db, orderShipmentsTable, ordersTable, tenantSettingsTable } from "@workspace/db";
 import { creditWallet, getWalletBalance, WalletIdempotencyConflict } from "./customer-wallet";
 import { ensureGuestCustomerAccount, findCustomerInTenantById } from "./customer-guest-account";
 import { addOrderEvent, type AddOrderEventInput } from "./order-events";
@@ -149,8 +149,15 @@ function orderLabel(order: { orderNumber: number | null; id: string }): string {
   return order.orderNumber != null ? String(order.orderNumber) : order.id;
 }
 
-export function buildShopeeRoutePayload(order: ShopeeRouteOrderRow, phone: string, link: string, message: string) {
-  const summary = summarizeOrderProducts(order.products);
+export function buildShopeeRoutePayload(
+  order: ShopeeRouteOrderRow,
+  phone: string,
+  link: string,
+  message: string,
+  products: unknown = order.products,
+  packageId: string | null = null,
+) {
+  const summary = summarizeOrderProducts(products);
   const total = shopeeCreditAmount(order.total, order.paidAmount);
   return {
     event: "rota_shopee" as const,
@@ -168,15 +175,19 @@ export function buildShopeeRoutePayload(order: ShopeeRouteOrderRow, phone: strin
     },
     link_shopee: link,
     mensagem: message,
+    ...(packageId ? { pacote: { id: packageId } } : {}),
   };
 }
 
-export async function composeShopeeRouteMessage(order: ShopeeRouteOrderRow): Promise<{ link: string; message: string } | { error: string }> {
+export async function composeShopeeRouteMessage(
+  order: ShopeeRouteOrderRow,
+  products: unknown = order.products,
+): Promise<{ link: string; message: string; summary: string } | { error: string }> {
   const tenantId = order.tenantId || DEFAULT_TENANT_ID;
   const link = normalizeShopeeProductUrl(await readTenantSetting(tenantId, SHOPEE_ROUTE_PRODUCT_URL_KEY));
   if (!link) return { error: "Salve o link do produto da Shopee em Configurações." };
   const template = effectiveShopeeRouteMessage(await readTenantSetting(tenantId, SHOPEE_ROUTE_MESSAGE_KEY));
-  const summary = summarizeOrderProducts(order.products);
+  const summary = summarizeOrderProducts(products);
   const total = shopeeCreditAmount(order.total, order.paidAmount);
   const message = renderShopeeRouteMessage(template, {
     nome: firstClientName(order.clientName),
@@ -185,7 +196,7 @@ export async function composeShopeeRouteMessage(order: ShopeeRouteOrderRow): Pro
     linkShopee: link,
     valor: formatBrl(total),
   });
-  return { link, message };
+  return { link, message, summary: summary.texto };
 }
 
 export async function postShopeeRouteWebhook(url: string, secret: string, payload: unknown): Promise<{ ok: true } | { ok: false; status: number }> {
@@ -203,19 +214,33 @@ export async function postShopeeRouteWebhook(url: string, secret: string, payloa
   return { ok: true };
 }
 
-export async function markShopeeRouteRequested(order: ShopeeRouteOrderRow, actor: Actor): Promise<ShopeeRouteOrderRow> {
+export async function markShopeeRouteRequested(
+  order: ShopeeRouteOrderRow,
+  actor: Actor,
+  notice?: { packageId?: string | null; summary?: string | null },
+): Promise<ShopeeRouteOrderRow> {
   const now = new Date();
   await db.update(ordersTable).set({
     shopeeRouteRequestedAt: now,
     shopeeRouteReviewReason: null,
     updatedAt: now,
   }).where(eq(ordersTable.id, order.id));
+  const packageId = String(notice?.packageId || "").trim();
+  if (packageId) {
+    await db.update(orderShipmentsTable).set({
+      shopeeRouteSentAt: now,
+      updatedAt: now,
+    }).where(and(eq(orderShipmentsTable.id, packageId), eq(orderShipmentsTable.orderId, order.id)));
+  }
   await addOrderEvent({
     orderId: order.id,
     tenantId: order.tenantId,
     action: "shopee_route_sent",
     ...actor,
-    payload: { summary: "Aguardando ID Shopee" },
+    payload: {
+      summary: String(notice?.summary || "").trim() || "Aguardando ID Shopee",
+      ...(packageId ? { packageId } : {}),
+    },
   });
   return (await reloadOrder(order.id)) || { ...order, shopeeRouteRequestedAt: now, shopeeRouteReviewReason: null };
 }

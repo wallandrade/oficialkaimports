@@ -39,6 +39,7 @@ const ACTION_LABELS: Record<string, string> = {
   searching: "Alterou procurando produto",
   waiting_stock: "Alterou aguardando estoque",
   shipping_channel: "Alterou o canal de envio",
+  shopee_route: "Avisou o cliente pela Rota Shopee",
   observation: "Alterou observações",
   whatsapp_group: "Alterou grupo WhatsApp",
   tracking: "Vinculou rastreio",

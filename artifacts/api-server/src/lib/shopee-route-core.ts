@@ -78,6 +78,53 @@ export function formatBrl(value: unknown): string {
   return amount.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+export function selectShopeeRouteProducts(input: {
+  split: boolean;
+  packageId?: unknown;
+  orderProducts: unknown;
+  packages: Array<{ id: string; items: unknown }>;
+}): { ok: true; packageId: string | null; products: unknown } | { ok: false; status: number; error: string; message: string } {
+  const requested = String(input.packageId || "").trim();
+  if (input.split) {
+    if (!requested) {
+      return {
+        ok: false,
+        status: 400,
+        error: "NEED_PACKAGE_ID",
+        message: "Pedido dividido: escolha o pacote da Rota Shopee.",
+      };
+    }
+    const pkg = input.packages.find((row) => row.id === requested);
+    if (!pkg) {
+      return {
+        ok: false,
+        status: 404,
+        error: "PACKAGE_NOT_FOUND",
+        message: "Pacote não encontrado neste pedido.",
+      };
+    }
+    const summary = summarizeOrderProducts(pkg.items);
+    if (!summary.itens.length) {
+      return {
+        ok: false,
+        status: 400,
+        error: "NO_ITEMS",
+        message: "Não há produto neste pacote para avisar o cliente.",
+      };
+    }
+    return { ok: true, packageId: pkg.id, products: pkg.items };
+  }
+  if (requested) {
+    return {
+      ok: false,
+      status: 400,
+      error: "NOT_SPLIT",
+      message: "Este pedido não está dividido.",
+    };
+  }
+  return { ok: true, packageId: null, products: input.orderProducts };
+}
+
 export function summarizeOrderProducts(products: unknown): {
   itens: Array<{ nome: string; quantidade: number }>;
   texto: string;

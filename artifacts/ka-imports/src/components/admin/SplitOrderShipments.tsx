@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EnvioEcomOrderActions, type EnvioEcomOrderFields, type EnvioEcomPackageFields } from "@/components/admin/EnvioEcomOrderActions";
 import { ManualTrackingButton } from "@/components/admin/ManualTrackingButton";
+import { ShopeeRouteButton } from "@/components/admin/ShopeeRouteButton";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -423,6 +424,21 @@ export function SplitOrderShipmentsButton({
               </div>
             )}
             <div className="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-teal-100">
+              <ShopeeRouteButton
+                orderId={order.id}
+                packageId={pkg.id}
+                sentAt={pkg.shopeeRouteSentAt}
+                items={packageItems.map((item) => ({
+                  quantity: item.quantity,
+                  name: item.productName || item.productId || "Produto",
+                }))}
+                onSent={(sentAt) => onPatched(Object.assign({
+                  id: order.id,
+                  packages: (order.packages || []).map((row) => (
+                    row.id === pkg.id ? { ...row, shopeeRouteSentAt: sentAt } : row
+                  )),
+                }, { shopeeRouteRequestedAt: sentAt }))}
+              />
               {pkg.inventoryReserved ? (
                 <span className="h-8 px-2.5 inline-flex items-center rounded-full border border-emerald-300 bg-emerald-50 text-emerald-800 text-[11px] font-bold">
                   Baixa OK

@@ -17179,6 +17179,7 @@ function OrdersPanel({
                 </Button>
                 <ShopeeRouteOrderControls
                   order={order}
+                  hideSend={isSplitOrder(order as { packages?: unknown[] })}
                   canCredit={Boolean(canManageEnvioEcom)}
                   onPatched={(patch) => {
                     onSetOrderPatched({ ...order, ...patch } as AdminOrder);

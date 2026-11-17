@@ -40,6 +40,7 @@ export type EnvioEcomPackageFields = {
   envioecomFreightCost?: number | null;
   envioecomAccountId?: string | null;
   envioecomAccountName?: string | null;
+  shopeeRouteSentAt?: string | null;
 };
 
 export type EnvioEcomOrderFields = {

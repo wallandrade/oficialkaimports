@@ -15,6 +15,7 @@ import {
   sharedSecretMatches,
   shopeeCreditAmount,
   shopeeRouteCustomerReply,
+  selectShopeeRouteProducts,
   summarizeOrderProducts,
 } from "./shopee-route-core";
 
@@ -155,4 +156,42 @@ test("segredo, valor e resposta ao cliente", () => {
     itens: [{ nome: "Tirzepatida", quantidade: 2 }],
     texto: "2x Tirzepatida",
   });
+});
+
+test("pacote da Rota Shopee lista só os itens daquele envio", () => {
+  const orderProducts = [
+    { name: "Tirzepatida", quantity: 1 },
+    { name: "Retatrutide", quantity: 1 },
+    { productName: "BIOGENISES GHK", quantity: 1 },
+    { productName: "Lipoless", quantity: 1 },
+  ];
+  const packages = [
+    { id: "sc", items: [{ productName: "Tirzepatida", quantity: 1 }, { productName: "Retatrutide", quantity: 1 }] },
+    { id: "foz", items: [{ productName: "BIOGENISES GHK", quantity: 1 }] },
+    { id: "minas", items: [{ productName: "Lipoless", quantity: 1 }] },
+  ];
+  const minas = selectShopeeRouteProducts({ split: true, packageId: "minas", orderProducts, packages });
+  assert.equal(minas.ok, true);
+  if (!minas.ok) return;
+  assert.equal(minas.packageId, "minas");
+  const summary = summarizeOrderProducts(minas.products);
+  assert.equal(summary.texto, "1x Lipoless");
+  const message = renderShopeeRouteMessage(DEFAULT_SHOPEE_ROUTE_MESSAGE, {
+    nome: "Ana",
+    pedido: "2839",
+    resumoPedido: summary.texto,
+    linkShopee: "https://shopee.example/produto",
+    valor: "R$ 10,00",
+  });
+  assert.match(message, /1x Lipoless/);
+  assert.equal(/Tirzepatida|Retatrutide|GHK/.test(message), false);
+  const missing = selectShopeeRouteProducts({ split: true, orderProducts, packages });
+  assert.equal(missing.ok, false);
+  if (!missing.ok) assert.equal(missing.error, "NEED_PACKAGE_ID");
+  const notSplit = selectShopeeRouteProducts({ split: false, packageId: "minas", orderProducts, packages });
+  assert.equal(notSplit.ok, false);
+  if (!notSplit.ok) assert.equal(notSplit.error, "NOT_SPLIT");
+  const whole = selectShopeeRouteProducts({ split: false, orderProducts, packages });
+  assert.equal(whole.ok, true);
+  if (whole.ok) assert.equal(summarizeOrderProducts(whole.products).texto, "1x Tirzepatida, 1x Retatrutide, 1x BIOGENISES GHK, 1x Lipoless");
 });

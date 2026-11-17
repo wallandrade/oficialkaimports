@@ -168,10 +168,12 @@ export function ShopeeRouteBadge({
 export function ShopeeRouteOrderControls({
   order,
   canCredit,
+  hideSend,
   onPatched,
 }: {
   order: ShopeeOrderFields;
   canCredit: boolean;
+  hideSend?: boolean;
   onPatched: (patch: ShopeePatch) => void;
 }) {
   const [busy, setBusy] = useState<"send" | "id" | "credit" | null>(null);
@@ -260,6 +262,7 @@ export function ShopeeRouteOrderControls({
 
   return (
     <>
+      {hideSend ? null : (
       <Button
         size="sm"
         variant="outline"
@@ -270,6 +273,7 @@ export function ShopeeRouteOrderControls({
         {busy === "send" ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShoppingBag className="w-4 h-4" />}
         Rota Shopee
       </Button>
+      )}
       {showFields ? (
         <div className="w-full flex flex-wrap items-center gap-2 pt-1">
           <label className="text-xs font-semibold text-muted-foreground" htmlFor={`shopee-id-${order.id}`}>ID Shopee</label>

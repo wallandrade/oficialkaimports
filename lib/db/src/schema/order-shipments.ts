@@ -8,6 +8,8 @@ export const orderShipmentsTable = mysqlTable("order_shipments", {
   items: json("items").notNull(),
   enviado: boolean("enviado").notNull().default(false),
   manualTrackingCode: varchar("manual_tracking_code", { length: 64 }),
+  /** Aviso da Rota Shopee deste pacote. Não move o pedido inteiro. */
+  shopeeRouteSentAt: timestamp("shopee_route_sent_at"),
   inventoryReserved: boolean("inventory_reserved").notNull().default(false),
   envioecomShipmentId: int("envioecom_shipment_id"),
   envioecomBarcode: varchar("envioecom_barcode", { length: 255 }),

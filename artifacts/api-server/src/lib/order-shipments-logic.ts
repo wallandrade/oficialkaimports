@@ -453,6 +453,7 @@ export function mapOrderShipmentPackage(row: {
   envioecomExternalOrderNumber?: string | null;
   envioecomAccountId?: string | null;
   manualTrackingCode?: string | null;
+  shopeeRouteSentAt?: Date | string | null;
 }, options?: { light?: boolean }) {
   const light = Boolean(options?.light);
   const labelUrl = String(row.envioecomLabelUrl || "").trim() || null;
@@ -463,6 +464,9 @@ export function mapOrderShipmentPackage(row: {
     items: parseOrderShipmentItems(row.items),
     enviado: Boolean(row.enviado),
     manualTrackingCode: String(row.manualTrackingCode || "").trim() || null,
+    shopeeRouteSentAt: row.shopeeRouteSentAt instanceof Date
+      ? row.shopeeRouteSentAt.toISOString()
+      : (String(row.shopeeRouteSentAt || "").trim() || null),
     inventoryReserved: Boolean(row.inventoryReserved),
     envioecomShipmentId: row.envioecomShipmentId ?? null,
     envioecomBarcode: row.envioecomBarcode ?? null,

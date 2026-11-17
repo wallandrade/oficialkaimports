@@ -1301,6 +1301,7 @@ async function ensureOrderShipmentsTable(databaseName: string): Promise<void> {
       items JSON NOT NULL,
       enviado TINYINT(1) NOT NULL DEFAULT 0,
       manual_tracking_code VARCHAR(64) NULL,
+      shopee_route_sent_at TIMESTAMP NULL,
       inventory_reserved TINYINT(1) NOT NULL DEFAULT 0,
       envioecom_shipment_id INT NULL,
       envioecom_barcode VARCHAR(255) NULL,
@@ -1328,6 +1329,9 @@ async function ensureOrderShipmentColumns(databaseName: string): Promise<void> {
   if (!(await tableExists("order_shipments", databaseName))) return;
   if (!(await columnExists("order_shipments", "manual_tracking_code", databaseName))) {
     await pool.query("ALTER TABLE order_shipments ADD COLUMN manual_tracking_code VARCHAR(64) NULL");
+  }
+  if (!(await columnExists("order_shipments", "shopee_route_sent_at", databaseName))) {
+    await pool.query("ALTER TABLE order_shipments ADD COLUMN shopee_route_sent_at TIMESTAMP NULL");
   }
 }
 

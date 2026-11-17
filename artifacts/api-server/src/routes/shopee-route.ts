@@ -14,7 +14,9 @@ import {
   shopeeRouteAdminFields,
   shopeeRoutePhone,
 } from "../lib/shopee-route";
-import { parseAdminShopeeOrderId, sharedSecretMatches, SHOPEE_ROUTE_SECRET_HEADER } from "../lib/shopee-route-core";
+import { parseAdminShopeeOrderId, selectShopeeRouteProducts, sharedSecretMatches, SHOPEE_ROUTE_SECRET_HEADER } from "../lib/shopee-route-core";
+import { listOrderShipments } from "../lib/order-shipments";
+import { isSplitShipments } from "../lib/order-shipments-logic";
 
 const router: IRouter = Router();
 
@@ -78,7 +80,18 @@ router.post("/admin/orders/:id/shopee-route", requireAdminAuth, async (req, res)
       res.status(400).json({ error: "INVALID_PHONE", message: "Pedido sem telefone válido para o WhatsApp." });
       return;
     }
-    const composed = await composeShopeeRouteMessage(order);
+    const packages = await listOrderShipments(order.id);
+    const selected = selectShopeeRouteProducts({
+      split: isSplitShipments(packages),
+      packageId: req.body?.packageId,
+      orderProducts: order.products,
+      packages: packages.map((row) => ({ id: row.id, items: row.items })),
+    });
+    if (!selected.ok) {
+      res.status(selected.status).json({ error: selected.error, message: selected.message });
+      return;
+    }
+    const composed = await composeShopeeRouteMessage(order, selected.products);
     if ("error" in composed) {
       res.status(400).json({ error: "SHOPEE_LINK_REQUIRED", message: composed.error });
       return;
@@ -91,7 +104,7 @@ router.post("/admin/orders/:id/shopee-route", requireAdminAuth, async (req, res)
       });
       return;
     }
-    const payload = buildShopeeRoutePayload(order, phone, composed.link, composed.message);
+    const payload = buildShopeeRoutePayload(order, phone, composed.link, composed.message, selected.products, selected.packageId);
     let posted: { ok: true } | { ok: false; status: number };
     try {
       posted = await postShopeeRouteWebhook(webhook.url, webhook.secret, payload);
@@ -105,8 +118,16 @@ router.post("/admin/orders/:id/shopee-route", requireAdminAuth, async (req, res)
       res.status(502).json({ error: "WEBHOOK_FAILED", message: "O n8n não confirmou o envio." });
       return;
     }
-    const saved = await markShopeeRouteRequested(order, actorFromAdminRequest(req));
-    res.json({ ok: true, order: shopeeRouteAdminFields(saved) });
+    const saved = await markShopeeRouteRequested(order, actorFromAdminRequest(req), {
+      packageId: selected.packageId,
+      summary: composed.summary,
+    });
+    res.json({
+      ok: true,
+      order: shopeeRouteAdminFields(saved),
+      packageId: selected.packageId,
+      shopeeRouteSentAt: saved.shopeeRouteRequestedAt ? saved.shopeeRouteRequestedAt.toISOString() : null,
+    });
   } catch (err) {
     console.error("[ShopeeRoute] disparo falhou", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao enviar a Rota Shopee." });
