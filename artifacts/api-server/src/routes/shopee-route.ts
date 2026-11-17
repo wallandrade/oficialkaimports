@@ -6,15 +6,14 @@ import {
   creditShopeeRouteWallet,
   loadShopeeRouteOrder,
   markShopeeRouteRequested,
-  postShopeeRouteWebhook,
-  buildShopeeRoutePayload,
-  readShopeeWebhookConfig,
+  sendShopeeRouteWhatsapp,
   receiveShopeeRouteInbound,
   saveAdminShopeeOrderId,
   shopeeRouteAdminFields,
   shopeeRoutePhone,
 } from "../lib/shopee-route";
 import { parseAdminShopeeOrderId, selectShopeeRouteProducts, sharedSecretMatches, SHOPEE_ROUTE_SECRET_HEADER } from "../lib/shopee-route-core";
+import { zapiMainCredentials } from "../lib/whatsapp-group-campaign";
 import { listOrderShipments } from "../lib/order-shipments";
 import { isSplitShipments } from "../lib/order-shipments-logic";
 
@@ -96,26 +95,24 @@ router.post("/admin/orders/:id/shopee-route", requireAdminAuth, async (req, res)
       res.status(400).json({ error: "SHOPEE_LINK_REQUIRED", message: composed.error });
       return;
     }
-    const webhook = readShopeeWebhookConfig();
-    if (!webhook) {
+    if (!zapiMainCredentials()) {
       res.status(503).json({
         error: "NOT_CONFIGURED",
-        message: "Rota Shopee sem URL https ou sem segredo no servidor.",
+        message: "Rota Shopee sem a instância do WhatsApp no servidor.",
       });
       return;
     }
-    const payload = buildShopeeRoutePayload(order, phone, composed.link, composed.message, selected.products, selected.packageId);
     let posted: { ok: true } | { ok: false; status: number };
     try {
-      posted = await postShopeeRouteWebhook(webhook.url, webhook.secret, payload);
+      posted = await sendShopeeRouteWhatsapp(phone, composed.message);
     } catch {
-      console.error("[ShopeeRoute] webhook não respondeu");
-      res.status(502).json({ error: "WEBHOOK_FAILED", message: "O n8n não confirmou o envio." });
+      console.error("[ShopeeRoute] WhatsApp não respondeu", { orderId: order.id });
+      res.status(502).json({ error: "WHATSAPP_FAILED", message: "O WhatsApp não confirmou o envio." });
       return;
     }
     if (!posted.ok) {
-      console.warn("[ShopeeRoute] webhook recusou", { orderId: order.id, status: posted.status });
-      res.status(502).json({ error: "WEBHOOK_FAILED", message: "O n8n não confirmou o envio." });
+      console.warn("[ShopeeRoute] WhatsApp recusou", { orderId: order.id, status: posted.status });
+      res.status(502).json({ error: "WHATSAPP_FAILED", message: "O WhatsApp não confirmou o envio." });
       return;
     }
     const saved = await markShopeeRouteRequested(order, actorFromAdminRequest(req), {

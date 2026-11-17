@@ -1,12 +1,13 @@
 # Regras de negócio — KA Imports
 
-> **Última atualização:** 2026-11-16
+> **Última atualização:** 2026-11-17
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-17 | O botão da Rota Shopee manda o WhatsApp pela Z-API | O clique não passa pelo n8n. Marca **Aguardando ID Shopee** depois que a Z-API aceita | O ID, o crédito e a coluna Envio Shopee |
 | 2026-11-16 | Rota Shopee no pedido dividido avisa só o pacote | O botão fica em cada cartão do split e some do pedido. `POST /api/admin/orders/:id/shopee-route` com `packageId` manda no WhatsApp só os itens daquele pacote e grava `order_shipments.shopee_route_sent_at`. Sem pacote, o dividido responde 400. `packageId` num pedido sem divisão também responde 400. O pedido continua com `shopee_route_requested_at` para o inbound e o crédito | Coluna Envio Shopee (`shipping_via`), status, PIX, estoque, rastreio EnvioEcom e o crédito do pedido inteiro |
 | 2026-11-16 | Cliente manda o ID da Shopee no WhatsApp de atendimento | Com pedido **Aguardando ID Shopee** naquele telefone e na loja do atendimento, o texto grava `shopee_order_id`, marca `enviado` sem estoque e responde a frase do ID. A repetição do mesmo ID não responde de novo. Sem esse pedido, o menu não muda | Crédito da carteira continua no botão. O n8n segue no endpoint próprio, sem recorte de loja. fromMe, grupo e status não gravam |
 | 2026-11-16 | Consulta da rifa sai da URL | A rifa e `/rifas/consulta` mandam `POST /api/raffles/reservations/lookup` com `{ query, raffleId? }`. O GET com `?query=` continua e devolve a mesma lista. Os dois pedem o token de checkout e dividem o limite de 25 em 10 min | Números, PIX, expiração e o que a pessoa digita na tela |

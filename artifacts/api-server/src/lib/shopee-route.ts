@@ -6,6 +6,7 @@ import { addOrderEvent, type AddOrderEventInput } from "./order-events";
 import { markOrderEnviadoWithoutInventory } from "./order-enviado";
 import { DEFAULT_TENANT_ID } from "./tenant-context";
 import { isHttpsWebhookUrl, normalizeWhatsappPhone } from "./whatsapp-notices";
+import { zapiMainCredentials } from "./whatsapp-group-campaign";
 import {
   effectiveShopeeRouteMessage,
   firstClientName,
@@ -197,6 +198,24 @@ export async function composeShopeeRouteMessage(
     valor: formatBrl(total),
   });
   return { link, message, summary: summary.texto };
+}
+
+export async function sendShopeeRouteWhatsapp(phone: string, message: string): Promise<{ ok: true } | { ok: false; status: number }> {
+  const creds = zapiMainCredentials();
+  if (!creds) return { ok: false, status: 0 };
+  const url = `https://api.z-api.io/instances/${encodeURIComponent(creds.instanceId)}/token/${encodeURIComponent(creds.token)}/send-text`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "Client-Token": creds.clientToken,
+    },
+    body: JSON.stringify({ phone, message }),
+    signal: AbortSignal.timeout(8000),
+  });
+  await response.arrayBuffer().catch(() => undefined);
+  if (response.status < 200 || response.status >= 300) return { ok: false, status: response.status };
+  return { ok: true };
 }
 
 export async function postShopeeRouteWebhook(url: string, secret: string, payload: unknown): Promise<{ ok: true } | { ok: false; status: number }> {
