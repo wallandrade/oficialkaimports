@@ -1952,6 +1952,34 @@ async function ensureOrderDeliveryCorrectionsTable(databaseName: string): Promis
   `);
 }
 
+async function ensureWhatsappOutboundQueueTable(databaseName: string): Promise<void> {
+  if (await tableExists("whatsapp_outbound_queue", databaseName)) return;
+  await pool.query(`
+    CREATE TABLE whatsapp_outbound_queue (
+      id VARCHAR(64) NOT NULL,
+      instance_key VARCHAR(32) NOT NULL,
+      tenant_id VARCHAR(255) NULL,
+      phone VARCHAR(32) NOT NULL,
+      origin VARCHAR(40) NOT NULL,
+      kind VARCHAR(16) NOT NULL,
+      message TEXT NULL,
+      caption TEXT NULL,
+      image VARCHAR(1000) NULL,
+      option_list TEXT NULL,
+      status VARCHAR(16) NOT NULL DEFAULT 'pending',
+      attempts INT NOT NULL DEFAULT 0,
+      last_error VARCHAR(120) NULL,
+      next_attempt_at TIMESTAMP NULL,
+      sent_at TIMESTAMP NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY whatsapp_outbound_queue_pick (instance_key, status, next_attempt_at, created_at),
+      KEY whatsapp_outbound_queue_sent (instance_key, sent_at)
+    )
+  `);
+}
+
 export async function ensureRuntimeSchema(): Promise<void> {
   try {
     const databaseName = getDatabaseName();
@@ -1967,6 +1995,7 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureWhatsappSupportSessionsTable(databaseName);
     await ensureWhatsappRecoverySendsTable(databaseName);
     await ensureWhatsappGroupCampaignTables(databaseName);
+    await ensureWhatsappOutboundQueueTable(databaseName);
     await ensureOrderBankDepositsTable(databaseName);
     await ensureProductsColumns(databaseName);
     await ensureSellersColumns(databaseName);

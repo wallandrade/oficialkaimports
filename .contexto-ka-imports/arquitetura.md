@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-11-16
+> **Última atualização:** 2026-11-17
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-17 | Tabela `whatsapp_outbound_queue` | Schema Drizzle e o boot (`runtime-schema` cria se não existir). Job `startWhatsappOutboundJob` a cada 60 s, depois do schema. `GET /api/admin/whatsapp/outbound-queue` para quem tem acesso global; o admin principal vê todas as lojas | Não guarda token nem o texto na resposta. Grupos continuam em `whatsapp_group_send_log` |
 | 2026-11-16 | `order_shipments.shopee_route_sent_at` | Schema Drizzle e o boot (`runtime-schema`: coluna no `CREATE` e `ALTER` se faltar). `mapOrderShipmentPackage` devolve `shopeeRouteSentAt`. O pedido dividido não ganha coluna nova em `orders`: a hora do pedido continua `shopee_route_requested_at` | `shipping_via` continua a coluna Envio Shopee. A lista do cliente não recebe a hora do pacote |
 | 2026-11-16 | Colunas da Rota Shopee em `orders` | `shopee_route_requested_at`, `shopee_order_id`, `shopee_route_review_reason`, `shopee_wallet_credited_at`. Schema Drizzle e boot (`runtime-schema`, `columnExists` + `ALTER`, mais dois índices). Settings `shopee_route_product_url` e `shopee_route_message` em `tenant_settings`, fora de `PUBLIC_KEYS` | `shipping_via`, `tracking_code`, `manual_tracking_code` e a carteira `customer_wallet_ledger` |
 | 2026-11-16 | Coluna `yury_inventory_balances.qty_santa_catarina` | Schema Drizzle e o boot (`runtime-schema`: tabela nova já nasce com a coluna; tabela existente faz `ALTER TABLE` se faltar). Pool `santa_catarina` cabe em `inventory_exit_pool` e `inventory_pool` (`VARCHAR(16)`) | `inventory_balances` da loja. Job de 3 min e o webhook no mesmo caminho |
@@ -144,7 +145,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 
 - Entry: `artifacts/api-server/src/index.ts` → `app.ts` → `routes/index.ts`.
 - Health: `GET /healthz`.
-- Jobs no boot: reconciliação (expiração 24h), raffle expiry, reconcile logistics, pull de cobertura Motoboy Yury (15 min, se token), pull de estoque Motoboy/Minas/Santa Catarina Yury (3 min, se token).
+- Jobs no boot: reconciliação (expiração 24h), raffle expiry, reconcile logistics, pull de cobertura Motoboy Yury (15 min, se token), pull de estoque Motoboy/Minas/Santa Catarina Yury (3 min, se token), fila de WhatsApp do cliente (60 s, no máximo 1 envio a cada 10 min por número).
 - Aviso de postagem: `GET /api/shipping-logistics/forecast` (público, por tenant). `promisedHours` pode ser o manual (`shipping-queue-deadline.ts`); `availableSlots` sai de `getOrderLogisticsForecast`. A gravação da vaga não lê essas settings.
 - Checkout Motoboy: `GET /api/motoboy-coverage/lookup` (público, por tenant). Geocode do destino no servidor (`motoboy-geocode.ts`: Google → AwesomeAPI → Nominatim → Photon → BrasilAPI; cache CEP+número, erro 10 min). Origem fixa na Sé. Km de rua em `motoboy-route.ts`. A faixa de CEP só entra se o km não tiver coordenada. Settings de km em `ALLOWED_KEYS`, fora de `PUBLIC_KEYS`.
 - Webhook cobertura Motoboy: `POST /api/webhooks/yury/motoboy-coverage` (body cru + HMAC) **antes** de `express.json()`.

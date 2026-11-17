@@ -29,6 +29,7 @@ import { isStandardShipping } from "./order-logistics-calendar";
 import { DEFAULT_TENANT_ID } from "./tenant-context";
 import { isMainStoreTenant, whatsappServerEnv } from "./tenant-store-scope";
 import { isHttpsWebhookUrl } from "./whatsapp-notices";
+import { sendCustomerWhatsapp } from "./whatsapp-dispatch";
 
 export const N8N_DELIVERY_CORRECTION_WEBHOOK_SETTING = "n8n_delivery_correction_webhook_url";
 const TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -159,7 +160,14 @@ async function sendOnce(input: {
 
   const url = await webhookUrl();
   const result = input.payload
-    ? await postDeliveryCorrectionWhatsapp({ url, payload: input.payload, fetchImpl: input.fetchImpl })
+    ? await sendCustomerWhatsapp({
+      origin: "delivery_correction",
+      tenantId: DEFAULT_TENANT_ID,
+      phone: input.payload.phone,
+      message: input.payload.message,
+      n8nUrl: url,
+      deliverN8n: async () => postDeliveryCorrectionWhatsapp({ url, payload: input.payload!, fetchImpl: input.fetchImpl }),
+    })
     : { ok: false, error: "Pedido sem telefone para o WhatsApp." };
   const fieldLabel = freightFieldLabel(input.payload?.fields || []);
   if (result.ok) {

@@ -41,7 +41,7 @@ function adminHeaders(): Record<string, string> {
   return headers;
 }
 
-async function readBody(res: Response): Promise<{ message?: string; error?: string; order?: ShopeePatch; already?: boolean }> {
+async function readBody(res: Response): Promise<{ message?: string; error?: string; order?: ShopeePatch; already?: boolean; queued?: boolean }> {
   return res.json().catch(() => ({}));
 }
 
@@ -201,7 +201,9 @@ export function ShopeeRouteOrderControls({
         return;
       }
       if (data.order) onPatched(data.order);
-      toast.success("Rota Shopee enviada. O pedido está aguardando o ID.");
+      toast.success(data.queued
+        ? "A Rota Shopee entrou na fila. O cliente recebe no ritmo de 1 mensagem a cada 10 minutos."
+        : "Rota Shopee enviada. O pedido está aguardando o ID.");
     } catch {
       toast.error("Não foi possível enviar a Rota Shopee.");
     } finally {

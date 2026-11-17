@@ -7,7 +7,6 @@ import { whatsappServerEnv } from "./tenant-store-scope";
 import { buildOrderPaidWhatsappMessage } from "./post-payment-message";
 import {
   currentStatusWhatsappNotices,
-  filmagemShouldMark,
   formatTrackingProductLines,
   formatTrackingWhatsappMessage,
   trackingNoticeIsPartial,
@@ -21,14 +20,12 @@ import {
 } from "./whatsapp-notices";
 import { isProvisionalBarcode, isUsableLabelBarcode } from "./envioecom-status";
 import { parseOrderShipmentItems } from "./order-shipments-logic";
+import { postN8nJson } from "./whatsapp-n8n-http";
+import { customerWhatsappReady, filmagemImageUrl, sendCustomerWhatsapp } from "./whatsapp-dispatch";
+import { WHATSAPP_AUTOMATION_SENDER } from "./whatsapp-outbound-policy";
 
-export { SINGLE_SHIPMENT_WHATSAPP_KEY };
+export { SINGLE_SHIPMENT_WHATSAPP_KEY, WHATSAPP_AUTOMATION_SENDER };
 
-/** Todas as automações saem deste WhatsApp. O n8n usa o campo sender. */
-export const WHATSAPP_AUTOMATION_SENDER = "5535992119139";
-
-const TIMEOUT_MS = 8000;
-const ATTEMPTS = 2;
 const PAID_RETRY_DELAYS_MS = [15_000, 60_000];
 
 const EVENTS = {
@@ -126,33 +123,6 @@ export async function resolveWhatsappWebhookUrl(input: {
   return "";
 }
 
-async function postN8n(url: string, payload: Record<string, unknown>): Promise<boolean> {
-  if (!isHttpsWebhookUrl(url)) return false;
-  const body = JSON.stringify(payload);
-  for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body,
-        signal: controller.signal,
-      });
-      if (response.ok) return true;
-      console.warn("[WHATSAPP_N8N] POST recusou", { attempt, status: response.status });
-    } catch (err) {
-      console.warn("[WHATSAPP_N8N] POST falhou", {
-        attempt,
-        error: err instanceof Error ? err.message : "request_failed",
-      });
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-  return false;
-}
-
 export async function postWhatsappWebhook(url: string, payload: {
   phone: string;
   message?: string;
@@ -163,7 +133,7 @@ export async function postWhatsappWebhook(url: string, payload: {
   if (payload.message != null) body.message = toWhatsappText(payload.message);
   if (payload.caption != null) body.caption = toWhatsappText(payload.caption);
   if (payload.optionList != null) body.optionList = payload.optionList;
-  return postN8n(url, body);
+  return postN8nJson(url, body);
 }
 
 function orderLabel(order: WhatsappOrderRef): string {
@@ -315,8 +285,9 @@ async function sendMarkedNotice(input: {
     tenantId: input.tenantId,
     secondInstance: input.secondInstance,
   });
-  if (!url) {
-    console.warn("[WHATSAPP_N8N] Sem URL https", { kind: input.kind, orderId: input.order.id });
+  const ready = await customerWhatsappReady({ origin: input.kind, tenantId: input.tenantId, n8nUrl: url });
+  if (!ready) {
+    console.warn("[WHATSAPP_N8N] Sem destino", { kind: input.kind, orderId: input.order.id });
     return;
   }
   const column = KEY_COLUMNS[input.kind];
@@ -325,11 +296,14 @@ async function sendMarkedNotice(input: {
   const extras = input.kind === "tracking"
     ? await trackingNoticeExtras(input.order.id, input.packageKey)
     : { productsText: "", partial: false };
-  const ok = await postWhatsappWebhook(url, {
+  const sent = await sendCustomerWhatsapp({
+    origin: input.kind,
+    tenantId: input.tenantId,
     phone: input.phone,
     message: noticeMessage(input.kind, input.order, input.code, extras.productsText, extras.partial),
+    n8nUrl: url,
   });
-  if (!ok) await restoreKeys(input.order.id, column, previous);
+  if (!sent.ok) await restoreKeys(input.order.id, column, previous);
 }
 
 async function sendFilmagem(input: {
@@ -345,14 +319,20 @@ async function sendFilmagem(input: {
     tenantId: input.tenantId,
     secondInstance: input.secondInstance,
   });
-  if (!filmagemShouldMark(url)) return;
+  const ready = await customerWhatsappReady({ origin: "filmagem", tenantId: input.tenantId, n8nUrl: url });
+  if (!ready) return;
   const claimed = await claimTimestamp(input.order.id, input.column);
   if (!claimed) return;
-  const ok = await postWhatsappWebhook(url, {
+  const image = filmagemImageUrl();
+  const sent = await sendCustomerWhatsapp({
+    origin: "filmagem",
+    tenantId: input.tenantId,
     phone: input.phone,
     caption: filmagemCaption(input.order, input.moment),
+    image: image || undefined,
+    n8nUrl: url,
   });
-  if (!ok) await releaseTimestamp(input.order.id, input.column);
+  if (!sent.ok) await releaseTimestamp(input.order.id, input.column);
 }
 
 export function dispatchShipmentWhatsapp(input: {
@@ -481,10 +461,11 @@ async function deliverOrderPaid(orderId: string, attempt = 0): Promise<void> {
   const tenantId = order.tenantId || DEFAULT_TENANT_ID;
   const secondInstance = false;
   const paidUrl = await resolveWhatsappWebhookUrl({ event: "paid", tenantId, secondInstance });
-  if (!paidUrl) {
-    console.warn("[WHATSAPP_N8N] Pedido pago sem URL https", orderId);
+  const paidReady = await customerWhatsappReady({ origin: "paid", tenantId, n8nUrl: paidUrl });
+  if (!paidReady) {
+    console.warn("[WHATSAPP_N8N] Pedido pago sem destino", orderId);
   }
-  if (paidUrl) {
+  if (paidReady) {
     const claimed = await claimTimestamp(order.id, "paid_whatsapp_sent_at");
     if (claimed) {
       let promisedHours: number | undefined;
@@ -499,14 +480,17 @@ async function deliverOrderPaid(orderId: string, attempt = 0): Promise<void> {
       } catch {
         promisedHours = undefined;
       }
-      const ok = await postWhatsappWebhook(paidUrl, {
+      const sent = await sendCustomerWhatsapp({
+        origin: "paid",
+        tenantId,
         phone,
         message: buildOrderPaidWhatsappMessage({
           ...order,
           logisticsAllocation: promisedHours ? { promisedHours } : null,
         }),
+        n8nUrl: paidUrl,
       });
-      if (!ok) {
+      if (!sent.ok) {
         await releaseTimestamp(order.id, "paid_whatsapp_sent_at");
         const delay = PAID_RETRY_DELAYS_MS[attempt];
         if (delay) {

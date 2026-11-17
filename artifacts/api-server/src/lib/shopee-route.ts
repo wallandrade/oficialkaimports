@@ -6,7 +6,7 @@ import { addOrderEvent, type AddOrderEventInput } from "./order-events";
 import { markOrderEnviadoWithoutInventory } from "./order-enviado";
 import { DEFAULT_TENANT_ID } from "./tenant-context";
 import { isHttpsWebhookUrl, normalizeWhatsappPhone } from "./whatsapp-notices";
-import { zapiMainCredentials } from "./whatsapp-group-campaign";
+import { sendCustomerWhatsapp } from "./whatsapp-dispatch";
 import {
   effectiveShopeeRouteMessage,
   firstClientName,
@@ -200,22 +200,38 @@ export async function composeShopeeRouteMessage(
   return { link, message, summary: summary.texto };
 }
 
-export async function sendShopeeRouteWhatsapp(phone: string, message: string): Promise<{ ok: true } | { ok: false; status: number }> {
-  const creds = zapiMainCredentials();
-  if (!creds) return { ok: false, status: 0 };
-  const url = `https://api.z-api.io/instances/${encodeURIComponent(creds.instanceId)}/token/${encodeURIComponent(creds.token)}/send-text`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "Client-Token": creds.clientToken,
+export async function sendShopeeRouteWhatsapp(input: {
+  order: ShopeeRouteOrderRow;
+  phone: string;
+  message: string;
+  link: string;
+  products: unknown;
+  packageId: string | null;
+}): Promise<{ ok: true; queued: boolean } | { ok: false; error: string }> {
+  const tenantId = input.order.tenantId || DEFAULT_TENANT_ID;
+  const sent = await sendCustomerWhatsapp({
+    origin: "shopee_route",
+    tenantId,
+    phone: input.phone,
+    message: input.message,
+    preferImmediate: true,
+    deliverN8n: async () => {
+      const cfg = readShopeeWebhookConfig();
+      if (!cfg) return { ok: false, error: "not_configured" };
+      const payload = buildShopeeRoutePayload(
+        input.order,
+        input.phone,
+        input.link,
+        input.message,
+        input.products,
+        input.packageId,
+      );
+      const posted = await postShopeeRouteWebhook(cfg.url, cfg.secret, payload);
+      return posted.ok ? { ok: true } : { ok: false, error: "n8n_recusou" };
     },
-    body: JSON.stringify({ phone, message }),
-    signal: AbortSignal.timeout(8000),
   });
-  await response.arrayBuffer().catch(() => undefined);
-  if (response.status < 200 || response.status >= 300) return { ok: false, status: response.status };
-  return { ok: true };
+  if (!sent.ok) return { ok: false, error: sent.error || "request_failed" };
+  return { ok: true, queued: Boolean(sent.queued) };
 }
 
 export async function postShopeeRouteWebhook(url: string, secret: string, payload: unknown): Promise<{ ok: true } | { ok: false; status: number }> {

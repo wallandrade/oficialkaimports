@@ -1,4 +1,5 @@
 import { sendNextRecovery } from "./whatsapp-recovery";
+import { maskWhatsappPhone } from "./whatsapp-outbound-policy";
 
 const INTERVAL_MS = 3 * 60 * 1000;
 const STARTUP_DELAY_MS = 45 * 1000;
@@ -9,7 +10,7 @@ async function tick(): Promise<void> {
   running = true;
   try {
     const result = await sendNextRecovery();
-    if (result.sent) console.log("[WhatsAppRecovery] enviado", result.phone);
+    if (result.sent) console.log("[WhatsAppRecovery] enviado", maskWhatsappPhone(result.phone || ""));
   } catch (error) {
     console.error("[WhatsAppRecovery] falha", error);
   } finally {
