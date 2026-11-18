@@ -16699,45 +16699,70 @@ function OrdersPanel({
                         )}
                         {!enviados[order.id] && (
                           isSplitOrder(order as { packages?: unknown[] })
-                            ? ((order as { packages?: Array<{ inventoryPool?: string; items?: Array<{ productId?: string | null; productName?: string; quantity?: number }> }> }).packages || []).map((pkg, index) => {
-                              const pkgPool = parseKaExitPool(pkg.inventoryPool) || "loja";
-                              const pkgReady = pkgPool === "loja" ? globalInventorySnapshotReady : yuryInventoryReady;
-                              const pkgCheck = pkgReady
-                                ? verifyOrderStock(
-                                  order.id,
-                                  pkgPool,
-                                  inventoryBalances,
-                                  yuryBalances,
-                                  (pkg.items || []).map((item) => ({
-                                    id: String(item.productId || ""),
-                                    name: String(item.productName || "Produto"),
-                                    quantity: Number(item.quantity) || 0,
-                                  })),
-                                )
-                                : { hasStock: true, missingItems: [] as string[] };
-                              const pkgLabel = kaExitPoolLabel(pkgPool);
-                              return (
-                                <span
-                                  key={`${order.id}-stock-${pkgPool}-${index}`}
-                                  title={!pkgReady
-                                    ? "Carregando saldo de estoque"
-                                    : pkgCheck.hasStock
-                                      ? `Estoque ${pkgLabel} suficiente para este pacote`
-                                      : pkgCheck.missingItems.join("\n")}
-                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${!pkgReady
-                                    ? "bg-slate-100 text-slate-700 border-slate-200"
-                                    : pkgCheck.hasStock
-                                      ? "bg-green-100 text-green-800 border-green-200"
-                                      : "bg-red-100 text-red-800 border-red-200"}`}
-                                >
-                                  {!pkgReady
-                                    ? "Estoque carregando"
-                                    : (pkgCheck.hasStock
-                                      ? `Estoque ${pkgLabel} OK`
-                                      : `Faltando estoque ${pkgLabel}`)}
-                                </span>
-                              );
-                            })
+                            ? (() => {
+                              type StockPkg = { inventoryPool?: string; items?: Array<{ productId?: string | null; productName?: string; quantity?: number }> };
+                              const packages = ((order as { packages?: StockPkg[] }).packages || []);
+                              const yuryPools: KaExitPool[] = ["motoboy", "minas", "santa_catarina"];
+                              const packageLines = (pkg: StockPkg) => (pkg.items || []).map((item) => ({
+                                id: String(item.productId || ""),
+                                name: String(item.productName || "Produto"),
+                                quantity: Number(item.quantity) || 0,
+                              }));
+                              const renderStockPill = (
+                                key: string,
+                                pool: KaExitPool,
+                                lineItems: unknown | undefined,
+                                forPackage: boolean,
+                              ) => {
+                                const ready = pool === "loja" ? globalInventorySnapshotReady : yuryInventoryReady;
+                                const check = ready
+                                  ? verifyOrderStock(order.id, pool, inventoryBalances, yuryBalances, lineItems)
+                                  : { hasStock: true, missingItems: [] as string[] };
+                                const label = kaExitPoolLabel(pool);
+                                return (
+                                  <span
+                                    key={key}
+                                    title={!ready
+                                      ? "Carregando saldo de estoque"
+                                      : check.hasStock
+                                        ? (forPackage
+                                          ? `Estoque ${label} suficiente para este pacote`
+                                          : `Estoque ${label} suficiente para o pedido`)
+                                        : check.missingItems.join("\n")}
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${!ready
+                                      ? "bg-slate-100 text-slate-700 border-slate-200"
+                                      : check.hasStock
+                                        ? "bg-green-100 text-green-800 border-green-200"
+                                        : "bg-red-100 text-red-800 border-red-200"}`}
+                                  >
+                                    {!ready
+                                      ? "Estoque carregando"
+                                      : (check.hasStock
+                                        ? `Estoque ${label} OK`
+                                        : `Faltando estoque ${label}`)}
+                                  </span>
+                                );
+                              };
+                              return [
+                                ...yuryPools.flatMap((pool) => {
+                                  const matching = packages.filter((pkg) => (parseKaExitPool(pkg.inventoryPool) || "loja") === pool);
+                                  if (matching.length === 0) {
+                                    return [renderStockPill(`${order.id}-stock-${pool}`, pool, undefined, false)];
+                                  }
+                                  return matching.map((pkg, index) => renderStockPill(
+                                    `${order.id}-stock-${pool}-${index}`,
+                                    pool,
+                                    packageLines(pkg),
+                                    true,
+                                  ));
+                                }),
+                                ...packages.flatMap((pkg, index) => {
+                                  const pool = parseKaExitPool(pkg.inventoryPool) || "loja";
+                                  if (pool !== "loja") return [];
+                                  return [renderStockPill(`${order.id}-stock-loja-${index}`, "loja", packageLines(pkg), true)];
+                                }),
+                              ];
+                            })()
                             : (
                           <span
                             title={!poolSnapshotReady
