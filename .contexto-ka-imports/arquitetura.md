@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-11-17
+> **Última atualização:** 2026-11-18
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-18 | Coluna `label_stock_waived_at` em `orders` e `order_shipments` | Schema Drizzle e o boot (`runtime-schema`: `ALTER` se faltar; tabela nova de pacote já nasce com a coluna). Marca `saiu_sem_abater` da lista de etiquetas | `inventory_exited_pools` e `inventory_reserved` continuam a baixa |
 | 2026-11-17 | Tabela `whatsapp_outbound_queue` | Schema Drizzle e o boot (`runtime-schema` cria se não existir). Job `startWhatsappOutboundJob` a cada 60 s, depois do schema. `GET /api/admin/whatsapp/outbound-queue` para quem tem acesso global; o admin principal vê todas as lojas | Não guarda token nem o texto na resposta. Grupos continuam em `whatsapp_group_send_log` |
 | 2026-11-16 | `order_shipments.shopee_route_sent_at` | Schema Drizzle e o boot (`runtime-schema`: coluna no `CREATE` e `ALTER` se faltar). `mapOrderShipmentPackage` devolve `shopeeRouteSentAt`. O pedido dividido não ganha coluna nova em `orders`: a hora do pedido continua `shopee_route_requested_at` | `shipping_via` continua a coluna Envio Shopee. A lista do cliente não recebe a hora do pacote |
 | 2026-11-16 | Colunas da Rota Shopee em `orders` | `shopee_route_requested_at`, `shopee_order_id`, `shopee_route_review_reason`, `shopee_wallet_credited_at`. Schema Drizzle e boot (`runtime-schema`, `columnExists` + `ALTER`, mais dois índices). Settings `shopee_route_product_url` e `shopee_route_message` em `tenant_settings`, fora de `PUBLIC_KEYS` | `shipping_via`, `tracking_code`, `manual_tracking_code` e a carteira `customer_wallet_ledger` |
@@ -132,7 +133,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 ### Tabelas principais (não exaustivo)
 
 - `tenants`, `admin_users`, `admin_user_tenants`, `admin_sessions`
-- `orders` (incl. `envioecom_*`, `enviado`, `manual_tracking_code`, `shopee_route_requested_at`, `shopee_order_id`, `shopee_route_review_reason`, `shopee_wallet_credited_at`, `inventory_exit_pool`, `inventory_exited_pools`, `inventory_reserved`, `is_prioridade`, `is_procurando_produto`, `is_aguardando_estoque`, `tracking_*`, `bank_deposit_*`, `insurance_plan`, `insurance_keep_amount`, `insurance_cashback_amount`, `insurance_claim_status`, `insurance_reship_count`, `insurance_cashback_granted`, `parent_order_id`, `store_credit_used`, `observation`, `observation_visible_to_customer`), `order_shipments` (N envios EE por pedido; `manual_tracking_code`, `shopee_route_sent_at`; unique `(order_id, inventory_pool)`), `order_events` (auditoria do pedido), `order_bank_deposits` (vários PIX OFX por pedido), `custom_charges`, `products`, `coupons`, `sellers`
+- `orders` (incl. `envioecom_*`, `enviado`, `manual_tracking_code`, `shopee_route_requested_at`, `shopee_order_id`, `shopee_route_review_reason`, `shopee_wallet_credited_at`, `inventory_exit_pool`, `inventory_exited_pools`, `inventory_reserved`, `label_stock_waived_at`, `is_prioridade`, `is_procurando_produto`, `is_aguardando_estoque`, `tracking_*`, `bank_deposit_*`, `insurance_plan`, `insurance_keep_amount`, `insurance_cashback_amount`, `insurance_claim_status`, `insurance_reship_count`, `insurance_cashback_granted`, `parent_order_id`, `store_credit_used`, `observation`, `observation_visible_to_customer`), `order_shipments` (N envios EE por pedido; `manual_tracking_code`, `shopee_route_sent_at`, `label_stock_waived_at`; unique `(order_id, inventory_pool)`), `order_events` (auditoria do pedido), `order_bank_deposits` (vários PIX OFX por pedido), `custom_charges`, `products`, `coupons`, `sellers`
 - `customer_users`, `customer_wallet_ledger` (carteira da loja; não é afiliado), `affiliates` (+ referrals/commissions/credit uses/credit adjustments)
 - `kyc_documents`, `site_settings` / `tenant_settings`
 - `shipping_options`, `motoboy_*` (incl. `yury_id` na cobertura), `yury_webhook_events_processed`, `order_logistics_allocations`

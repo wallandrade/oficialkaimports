@@ -82,6 +82,8 @@ export const ordersTable = mysqlTable("orders", {
   inventoryReserved: boolean("inventory_reserved").notNull().default(false),
   inventoryExitPool: varchar("inventory_exit_pool", { length: 16 }),
   inventoryExitedPools: varchar("inventory_exited_pools", { length: 64 }),
+  /** A Yury tirou a etiqueta da lista sem descontar saldo. Não é baixa. */
+  labelStockWaivedAt: timestamp("label_stock_waived_at"),
   isProcurandoProduto: boolean("is_procurando_produto").notNull().default(false),
   isAguardandoEstoque: boolean("is_aguardando_estoque").notNull().default(false),
   trackingCode: varchar("tracking_code", { length: 255 }),

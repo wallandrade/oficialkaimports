@@ -11,6 +11,8 @@ export const orderShipmentsTable = mysqlTable("order_shipments", {
   /** Aviso da Rota Shopee deste pacote. Não move o pedido inteiro. */
   shopeeRouteSentAt: timestamp("shopee_route_sent_at"),
   inventoryReserved: boolean("inventory_reserved").notNull().default(false),
+  /** A Yury tirou este pacote da lista sem descontar saldo. Não é baixa. */
+  labelStockWaivedAt: timestamp("label_stock_waived_at"),
   envioecomShipmentId: int("envioecom_shipment_id"),
   envioecomBarcode: varchar("envioecom_barcode", { length: 255 }),
   envioecomTrackingKey: varchar("envioecom_tracking_key", { length: 255 }),

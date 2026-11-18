@@ -47,6 +47,7 @@ import whatsappRecoveryRouter from "./whatsapp-recovery";
 import whatsappGroupsRouter from "./whatsapp-groups";
 import whatsappOutboundRouter from "./whatsapp-outbound";
 import shopeeRouteRouter from "./shopee-route";
+import labelStockSyncRouter from "./label-stock-sync";
 const router: IRouter = Router();
 
 router.use(healthRouter);
@@ -96,5 +97,6 @@ router.use(whatsappRecoveryRouter);
 router.use(whatsappGroupsRouter);
 router.use(whatsappOutboundRouter);
 router.use(shopeeRouteRouter);
+router.use(labelStockSyncRouter);
 
 export default router;

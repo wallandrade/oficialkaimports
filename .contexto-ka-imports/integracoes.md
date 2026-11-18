@@ -1,12 +1,13 @@
 # Integrações externas — KA Imports
 
-> **Última atualização:** 2026-11-17
+> **Última atualização:** 2026-11-18
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-18 | A Yury lê as etiquetas que ainda não baixaram estoque | `GET /api/integrations/labels/pending-stock` com `LABEL_STOCK_SYNC_TOKEN` (Bearer ou `X-Api-Key`). Sem token: 503. Token errado: 401. Uma linha por pacote no dividido; no envio único, o id do pedido. `POST .../labels/:labelId/stock-result` grava `baixou_estoque` ou `saiu_sem_abater`. O primeiro não chama o `exit` | A baixa do card continua no `POST /api/integrations/inventory/exit`. Fóz não entra. Não cria pedido na Yury |
 | 2026-11-17 | Avisos de cliente podem sair direto na Z-API, com fila no MySQL | Setting por tipo em Configurações, card WhatsApp. Vazio = `n8n`, igual a hoje. A Rota Shopee vazia continua `direto`. Direto usa `whatsapp_outbound_queue`: 1 envio a cada 10 min e no máximo 10 por hora, por número (`main` ou `poly`), com `GET_LOCK` e retry até 8. Job a cada 60 s. `GET /api/admin/whatsapp/outbound-queue` lista pendente e erro, sem o texto e com telefone `***` + 4 dígitos | Grupos da aba Automação continuam no job de imagem. O inbound do ID da Shopee continua no n8n. Sem a setting `direto`, pedido, rastreio, atendimento, recuperação e correção de entrega seguem no webhook |
 | 2026-11-17 | Saída da Rota Shopee sai pela Z-API, sem o n8n | O clique chama `send-text` com `ZAPI_MAIN_INSTANCE_ID`, `ZAPI_MAIN_TOKEN` e `ZAPI_CLIENT_TOKEN`. Sem as três, responde 503. Recusa ou timeout vira 502 | O inbound do ID continua em `POST /api/integrations/shopee-route/inbound`. Rastreio, filmagem e pedido pago continuam no n8n |
 | 2026-11-16 | Rota Shopee do pacote manda só aqueles itens | No dividido, `resumo_pedido.itens` e “Seu pedido real” saem de `order_shipments.items` daquele `packageId`. O corpo leva `pacote.id`. O link continua `shopee_route_product_url` e a frase `shopee_route_message` | URL e segredo seguem `N8N_SHOPEE_WEBHOOK_URL` e `N8N_SHOPEE_SECRET`. Rastreio EnvioEcom e a coluna Envio Shopee não disparam este aviso |
@@ -220,6 +221,18 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 - Webhook: `POST /api/webhooks/yury/inventory` (+ `/webhooks/yury/inventory`). Body cru + HMAC igual à cobertura. Evento `inventory.changed`: **não** aplica `quantityDelta`.
 - Erros do GET remoto: 401 token · 503 sync desligado · 500 retry no próximo ciclo.
 - **Não** usa `/api/admin/inventory/...` da Yury. 48h / EnvioEcom / Fóz continuam na baixa local.
+
+## Etiquetas pendentes de baixa (KA → Yury)
+
+- A Yury puxa `GET /api/integrations/labels/pending-stock`. Token: `LABEL_STOCK_SYNC_TOKEN`, header `Authorization: Bearer` ou `X-Api-Key`. Sem a variável: 503 `LABEL_STOCK_SYNC_DISABLED`. Token errado: 401.
+- Entra só etiqueta pronta (PDF ou status de etiqueta; “Envio criado” fica de fora). Pedido `cancelled`, status de cancelamento e “aguardando pagamento” ficam de fora. Já baixada e `saiu_sem_abater` também. Fóz (`loja`) não entra.
+- Pedido dividido: uma linha por pacote, `labelId` = `order_shipments.id`. Envio único: uma linha, `labelId` = `orders.id`. Mandar o id do pedido dividido responde 409 `ORDER_SPLIT_USE_PACKAGE`.
+- Cada linha: `orderNumber`, `customerName`, `status`, `code` (barcode real, senão tracking key, senão rastreio manual; `EC…` não conta), `warehouse` `motoboy` | `minas` | `santa_catarina`. Etiqueta de São Paulo desconta Motoboy, então `warehouse` continua `motoboy`. `products[]` traz `productId` da Yury (id ou nome; ponto, hífen e underscore iguais), `name` e `quantity`. Sem par na Yury, `productId` vai vazio.
+- Até 1000 linhas, as de número maior primeiro. `truncated: true` quando passa disso.
+- Retorno: `POST /api/integrations/labels/:labelId/stock-result` com `{ "result": "baixou_estoque" }` ou `"saiu_sem_abater"`. Outro valor: 400 `INVALID_RESULT`.
+- `baixou_estoque` marca a baixa aqui (`inventory_exited_pools` no envio único; `inventory_reserved` no pacote) e a linha sai da lista. Não chama `POST /api/integrations/inventory/exit` e não mexe no espelho. O saldo da Yury chega pelo webhook ou pelo snapshot.
+- `saiu_sem_abater` grava `label_stock_waived_at` no pedido ou no pacote. A linha sai da lista e o estoque não muda. Não preenche `inventory_exited_pools` nem `inventory_reserved`.
+- Repetir o mesmo resultado responde 200 `alreadyApplied: true`. O outro resultado, depois que a marca existe, responde 409 `RESULT_CONFLICT`. Etiqueta que não está na lista: 404 `LABEL_NOT_FOUND`. O histórico do pedido grava `label_stock_exited` ou `label_stock_waived`, ator `yury`.
 
 ## Gasto Facebook (Yury → KA)
 

@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-11-17
+> **Última atualização:** 2026-11-18
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-18 | Anti-padrão: `baixou_estoque` chamar de novo o exit da Yury, ou gravar `saiu_sem_abater` em `inventory_exited_pools` | O retorno da lista marca a baixa local ou `label_stock_waived_at`. As duas não se substituem | A baixa do card continua no `POST /api/integrations/inventory/exit` |
 | 2026-11-17 | Anti-padrão: mandar WhatsApp de cliente fora de `sendCustomerWhatsapp`, ou logar token, SQL e o texto | O modo `direto` só sai pela fila. O log usa `***` + 4 dígitos. A URL da Z-API não entra no log. Setting vazia continua `n8n`, menos a Rota Shopee | Grupos da aba Automação seguem no job de imagem |
 | 2026-11-17 | Anti-padrão: o clique da Rota Shopee depender do webhook do n8n | O POST do admin chama `send-text` com `ZAPI_MAIN_INSTANCE_ID`, `ZAPI_MAIN_TOKEN` e `ZAPI_CLIENT_TOKEN`. A URL com o token não entra no log | O inbound do ID continua no n8n |
 | 2026-11-16 | O front em `ka-imports.com` chama a API direto na DigitalOcean | `rewriteApexApiUrl` troca `/api` por `https://lobster-app-7f8c2.ondigitalocean.app`. O botão da Rota Shopee usa essa URL na hora do clique. O 307 para `www` não entra no POST | `www.ka-imports.com` continua no rewrite do Vercel. `www` não entrou no `connect-src` |
@@ -273,7 +274,7 @@ Código > memória > suposições.
 - Zerar Motoboy por km (`dist`) com qualquer limiar de frete grátis, ou pintar o card Motoboy de “Gratis” só porque o Padrão desbloqueou.
 - Inferir duração do slot Motoboy pelo preço (usar `interval_hours`).
 - Cadastrar bairro/faixa Motoboy neste repo como fonte da verdade quando `YURY_MOTOBOY_SYNC_TOKEN` está setado (espelho Yury; CRUD local 409).
-- Somar Motoboy + Minas + Santa Catarina, gravar esses saldos em `inventory_balances`, aplicar `quantityDelta` do webhook Yury, puxar estoque deles em `/api/admin/inventory/...`, ou mandar o uuid/`orderNumber` do KA no campo `orderId` da Yury (usar `POST /api/integrations/inventory/exit` com `referenceId` = `orders.id`; `orderId` só se for pedido da Yury). Não decrementar `yury_inventory_balances` no POST — webhook `balances` ou snapshot. Não debitar Fóz quando o pool do pedido é Motoboy, Minas ou Santa Catarina. Não zerar `qty_santa_catarina` se o snapshot ou o webhook não mandarem a chave.
+- Somar Motoboy + Minas + Santa Catarina, gravar esses saldos em `inventory_balances`, aplicar `quantityDelta` do webhook Yury, puxar estoque deles em `/api/admin/inventory/...`, ou mandar o uuid/`orderNumber` do KA no campo `orderId` da Yury (usar `POST /api/integrations/inventory/exit` com `referenceId` = `orders.id`; `orderId` só se for pedido da Yury). Não decrementar `yury_inventory_balances` no POST — webhook `balances` ou snapshot. Não debitar Fóz quando o pool do pedido é Motoboy, Minas ou Santa Catarina. Não zerar `qty_santa_catarina` se o snapshot ou o webhook não mandarem a chave. No retorno `baixou_estoque` da lista de etiquetas, não chamar esse exit de novo. Não gravar `saiu_sem_abater` em `inventory_exited_pools` nem em `inventory_reserved` — a marca é `label_stock_waived_at`.
 - Cadastrar senha de baixa Motoboy/Minas neste repo ou voltar o campo "Senha da baixa Yury" no card. A baixa de Motoboy/Minas segue sem senha. Fóz continua local.
 - No `OrdersPanel` do `Admin.tsx`, repor estado de senha da baixa Yury (`yuryExitStatus`, campo e aviso de 10 minutos). O card não pede essa senha.
 - **Marcar Reenvio Enviado** debitar `inventory_balances` (Fóz) quando o pedido já tem baixa Motoboy/Minas no card. Se `inventory_exited_pools` já tem pool, só marca o status. Sem baixa ainda: Motoboy/Minas vai na Yury; Fóz só se o pool for loja.

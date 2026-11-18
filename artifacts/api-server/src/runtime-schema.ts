@@ -363,6 +363,7 @@ async function ensureOrdersColumns(databaseName: string): Promise<void> {
     { name: "inventory_exit_pool", sql: "ALTER TABLE orders ADD COLUMN inventory_exit_pool VARCHAR(16) NULL" },
     { name: "inventory_exited_pools", sql: "ALTER TABLE orders ADD COLUMN inventory_exited_pools VARCHAR(64) NULL" },
     { name: "inventory_reserved", sql: "ALTER TABLE orders ADD COLUMN inventory_reserved TINYINT(1) NOT NULL DEFAULT 0" },
+    { name: "label_stock_waived_at", sql: "ALTER TABLE orders ADD COLUMN label_stock_waived_at TIMESTAMP NULL" },
     { name: "insurance_plan", sql: "ALTER TABLE orders ADD COLUMN insurance_plan VARCHAR(16) NULL" },
     { name: "insurance_keep_amount", sql: "ALTER TABLE orders ADD COLUMN insurance_keep_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00" },
     { name: "insurance_cashback_amount", sql: "ALTER TABLE orders ADD COLUMN insurance_cashback_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00" },
@@ -1303,6 +1304,7 @@ async function ensureOrderShipmentsTable(databaseName: string): Promise<void> {
       manual_tracking_code VARCHAR(64) NULL,
       shopee_route_sent_at TIMESTAMP NULL,
       inventory_reserved TINYINT(1) NOT NULL DEFAULT 0,
+      label_stock_waived_at TIMESTAMP NULL,
       envioecom_shipment_id INT NULL,
       envioecom_barcode VARCHAR(255) NULL,
       envioecom_tracking_key VARCHAR(255) NULL,
@@ -1332,6 +1334,9 @@ async function ensureOrderShipmentColumns(databaseName: string): Promise<void> {
   }
   if (!(await columnExists("order_shipments", "shopee_route_sent_at", databaseName))) {
     await pool.query("ALTER TABLE order_shipments ADD COLUMN shopee_route_sent_at TIMESTAMP NULL");
+  }
+  if (!(await columnExists("order_shipments", "label_stock_waived_at", databaseName))) {
+    await pool.query("ALTER TABLE order_shipments ADD COLUMN label_stock_waived_at TIMESTAMP NULL");
   }
 }
 
