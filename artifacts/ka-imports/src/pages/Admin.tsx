@@ -15580,6 +15580,7 @@ function OrdersPanel({
     pool: KaExitPool = "loja",
     balancesSnapshot: InventoryBalanceRecord[] = inventoryBalances,
     yurySnapshot: YuryInventoryBalanceRecord[] = yuryBalances,
+    lineItems?: unknown,
   ): { hasStock: boolean; message: string; missingItems: string[] } => {
     // Only check stock when marking as enviado (novoValor = true)
     const order = ordersLookup.find(o => o.id === orderId);
@@ -15674,8 +15675,8 @@ function OrdersPanel({
       }
     }
 
-    // Group order items by product identity, preventing duplicate-line mismatch.
-    const products = getOrderProducts(order.products);
+    // Pedido dividido manda os itens do pacote. Sem isso, a pílula lia o pedido inteiro em Foz.
+    const products = lineItems === undefined ? getOrderProducts(order.products) : getOrderProducts(lineItems);
     const totals = new Map<string, { label: string; qty: number; productId: string | null }>();
     for (const product of products) {
       const productQty = Number(product.quantity || 0);
@@ -15803,10 +15804,33 @@ function OrdersPanel({
 
     const order = ordersLookup.find((item) => item.id === orderId);
     const pool = (order ? exitPoolByOrder[orderId] : undefined) || (order ? defaultKaExitPool(order) : "loja");
+    const splitPackages = isSplitOrder(order as { packages?: unknown[] })
+      ? ((order as { packages?: Array<{ inventoryPool?: string; items?: Array<{ productId?: string | null; productName?: string; quantity?: number }> }> }).packages || [])
+      : [];
 
     // Verify stock before marking as enviado. Motoboy/Minas puxa a Yury na hora
     // (não usa a lista da aba nem o espelho de até 3 min). "T.G" vale como "TG".
-    if (novoValor) {
+    // No dividido, cada pacote confere o próprio depósito.
+    if (novoValor && splitPackages.length >= 2) {
+      for (const pkg of splitPackages) {
+        const pkgPool = parseKaExitPool(pkg.inventoryPool) || "loja";
+        const stockCheck = verifyOrderStock(
+          orderId,
+          pkgPool,
+          trackingInventoryBalances ?? inventoryBalances,
+          await yuryBalancesForCheck(pkgPool),
+          (pkg.items || []).map((item) => ({
+            id: String(item.productId || ""),
+            name: String(item.productName || "Produto"),
+            quantity: Number(item.quantity) || 0,
+          })),
+        );
+        if (!stockCheck.hasStock) {
+          toast.error(stockCheck.message);
+          return;
+        }
+      }
+    } else if (novoValor) {
       const stockCheck = verifyOrderStock(
         orderId,
         pool,
@@ -16674,6 +16698,47 @@ function OrdersPanel({
                           </span>
                         )}
                         {!enviados[order.id] && (
+                          isSplitOrder(order as { packages?: unknown[] })
+                            ? ((order as { packages?: Array<{ inventoryPool?: string; items?: Array<{ productId?: string | null; productName?: string; quantity?: number }> }> }).packages || []).map((pkg, index) => {
+                              const pkgPool = parseKaExitPool(pkg.inventoryPool) || "loja";
+                              const pkgReady = pkgPool === "loja" ? globalInventorySnapshotReady : yuryInventoryReady;
+                              const pkgCheck = pkgReady
+                                ? verifyOrderStock(
+                                  order.id,
+                                  pkgPool,
+                                  inventoryBalances,
+                                  yuryBalances,
+                                  (pkg.items || []).map((item) => ({
+                                    id: String(item.productId || ""),
+                                    name: String(item.productName || "Produto"),
+                                    quantity: Number(item.quantity) || 0,
+                                  })),
+                                )
+                                : { hasStock: true, missingItems: [] as string[] };
+                              const pkgLabel = kaExitPoolLabel(pkgPool);
+                              return (
+                                <span
+                                  key={`${order.id}-stock-${pkgPool}-${index}`}
+                                  title={!pkgReady
+                                    ? "Carregando saldo de estoque"
+                                    : pkgCheck.hasStock
+                                      ? `Estoque ${pkgLabel} suficiente para este pacote`
+                                      : pkgCheck.missingItems.join("\n")}
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${!pkgReady
+                                    ? "bg-slate-100 text-slate-700 border-slate-200"
+                                    : pkgCheck.hasStock
+                                      ? "bg-green-100 text-green-800 border-green-200"
+                                      : "bg-red-100 text-red-800 border-red-200"}`}
+                                >
+                                  {!pkgReady
+                                    ? "Estoque carregando"
+                                    : (pkgCheck.hasStock
+                                      ? `Estoque ${pkgLabel} OK`
+                                      : `Faltando estoque ${pkgLabel}`)}
+                                </span>
+                              );
+                            })
+                            : (
                           <span
                             title={!poolSnapshotReady
                               ? "Carregando saldo de estoque"
@@ -16692,6 +16757,7 @@ function OrdersPanel({
                                 ? `Estoque ${kaExitPoolLabel(selectedExitPool)} OK`
                                 : `Faltando estoque ${kaExitPoolLabel(selectedExitPool)}`)}
                           </span>
+                            )
                         )}
                         {isReshipment && (
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${rs === "reenvio_aguardando_estoque" ? "bg-red-100 text-red-800 border-red-200" : rs === "reenvio_pronto_para_envio" ? "bg-red-50 text-red-700 border-red-200" : "bg-rose-100 text-rose-800 border-rose-200"}`}>
