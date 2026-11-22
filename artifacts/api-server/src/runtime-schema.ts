@@ -1957,6 +1957,21 @@ async function ensureOrderDeliveryCorrectionsTable(databaseName: string): Promis
   `);
 }
 
+async function ensureWhatsappGroupModerationLogTable(databaseName: string): Promise<void> {
+  if (await tableExists("whatsapp_group_moderation_log", databaseName)) return;
+  await pool.query(`
+    CREATE TABLE whatsapp_group_moderation_log (
+      message_id VARCHAR(160) NOT NULL,
+      group_id VARCHAR(64) NOT NULL,
+      participant_tail VARCHAR(4) NOT NULL,
+      reason VARCHAR(32) NOT NULL,
+      action VARCHAR(64) NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (message_id)
+    )
+  `);
+}
+
 async function ensureWhatsappOutboundQueueTable(databaseName: string): Promise<void> {
   if (await tableExists("whatsapp_outbound_queue", databaseName)) return;
   await pool.query(`
@@ -2000,6 +2015,7 @@ export async function ensureRuntimeSchema(): Promise<void> {
     await ensureWhatsappSupportSessionsTable(databaseName);
     await ensureWhatsappRecoverySendsTable(databaseName);
     await ensureWhatsappGroupCampaignTables(databaseName);
+    await ensureWhatsappGroupModerationLogTable(databaseName);
     await ensureWhatsappOutboundQueueTable(databaseName);
     await ensureOrderBankDepositsTable(databaseName);
     await ensureProductsColumns(databaseName);

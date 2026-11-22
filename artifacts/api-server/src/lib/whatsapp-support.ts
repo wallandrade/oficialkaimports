@@ -17,6 +17,11 @@ import {
   whatsappSupportTokenMatches,
 } from "./whatsapp-n8n";
 import { readWhatsappChannel, sendCustomerWhatsapp } from "./whatsapp-dispatch";
+import {
+  groupModerationAllowed,
+  handleGroupModeration,
+  isGroupModerationCandidate,
+} from "./whatsapp-group-moderation";
 
 const SESSION_MS = 60 * 1000;
 const RATE_WINDOW_MS = 10 * 60 * 1000;
@@ -453,6 +458,28 @@ export async function handleWhatsappSupportInbound(rawBody: unknown, token: stri
     if (shopee === "stop") return { status: 200 };
   } catch {
     console.warn("[WHATSAPP_SUPPORT] Rota Shopee seguiu o atendimento");
+  }
+  if (isGroupModerationCandidate(body)) {
+    const polyId = auth.tenantId === DEFAULT_TENANT_ID ? await readPolyInstanceId(auth.tenantId) : "";
+    if (groupModerationAllowed({
+      tenantId: auth.tenantId,
+      instanceId: body.instanceId,
+      polyInstanceId: polyId,
+      mainInstanceId: String(process.env.ZAPI_MAIN_INSTANCE_ID || "").trim(),
+    })) {
+      try {
+        const moderated = await handleGroupModeration(body);
+        console.log("[WhatsApp grupos] moderação", {
+          ok: moderated.ok,
+          skipped: moderated.skipped === true,
+          reason: moderated.reason || "",
+          action: moderated.action || "",
+          groupTail: moderated.groupTail || "",
+        });
+      } catch (err) {
+        console.warn("[WhatsApp grupos] moderação falhou", err instanceof Error ? err.message.slice(0, 160) : "falha");
+      }
+    }
   }
   if (truthy(body.fromMe) || truthy(body.isGroup) || truthy(body.isNewsletter)) return { status: 200 };
   if (inboundTypeShouldIgnore(body.type)) return { status: 200 };

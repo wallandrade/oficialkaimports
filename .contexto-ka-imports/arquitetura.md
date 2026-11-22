@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-11-18
+> **Última atualização:** 2026-11-22
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-22 | Tabela `whatsapp_group_moderation_log` | Schema Drizzle e o boot (`runtime-schema` cria se não existir). `POST /api/whatsapp/support/inbound` pode gravar a ação de convite. `GET/PUT /api/admin/whatsapp/group-moderation` é do admin principal | A fila `whatsapp_outbound_queue` e `whatsapp_group_send_log`. A tabela não leva telefone completo nem texto |
 | 2026-11-18 | Coluna `label_stock_waived_at` em `orders` e `order_shipments` | Schema Drizzle e o boot (`runtime-schema`: `ALTER` se faltar; tabela nova de pacote já nasce com a coluna). Marca `saiu_sem_abater` da lista de etiquetas | `inventory_exited_pools` e `inventory_reserved` continuam a baixa |
 | 2026-11-17 | Tabela `whatsapp_outbound_queue` | Schema Drizzle e o boot (`runtime-schema` cria se não existir). Job `startWhatsappOutboundJob` a cada 60 s, depois do schema. `GET /api/admin/whatsapp/outbound-queue` para quem tem acesso global; o admin principal vê todas as lojas | Não guarda token nem o texto na resposta. Grupos continuam em `whatsapp_group_send_log` |
 | 2026-11-16 | `order_shipments.shopee_route_sent_at` | Schema Drizzle e o boot (`runtime-schema`: coluna no `CREATE` e `ALTER` se faltar). `mapOrderShipmentPackage` devolve `shopeeRouteSentAt`. O pedido dividido não ganha coluna nova em `orders`: a hora do pedido continua `shopee_route_requested_at` | `shipping_via` continua a coluna Envio Shopee. A lista do cliente não recebe a hora do pacote |

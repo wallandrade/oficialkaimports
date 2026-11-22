@@ -1,12 +1,13 @@
 # Regras de negócio — KA Imports
 
-> **Última atualização:** 2026-11-18
+> **Última atualização:** 2026-11-22
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-22 | Convite de grupo na instância main pode apagar e remover | Só com a moderação ligada e o ID do grupo na lista. Admin, loja e allowlist ficam. Dry run não remove. Filial e a outra instância não entram | Menu de atendimento, pedido, rastreio e a fila de 10 minutos |
 | 2026-11-18 | No pedido dividido o card mostra Motoboy, Minas e Santa Catarina | Depósito com pacote usa os itens do pacote. Depósito da Yury sem pacote mostra OK ou faltando com os produtos do pedido | Pedido sem divisão continua com uma pílula. **Marcar como Enviado** continua só no depósito de cada pacote. Foz só aparece se algum pacote for da loja |
 | 2026-11-18 | No pedido dividido a pílula de estoque é uma por pacote | Motoboy, Minas, Santa Catarina ou Foz mostram OK ou faltando só com os itens daquele pacote. **Marcar como Enviado** confere cada pacote no depósito dele | Pedido sem divisão continua com uma pílula. A faixa de escolher depósito continua escondida no dividido |
 | 2026-11-18 | A Yury lista etiqueta pronta que ainda não baixou estoque | Uma linha por pacote. São Paulo continua depósito Motoboy. `baixou_estoque` marca a baixa aqui e não chama o exit de novo. `saiu_sem_abater` só tira da lista | Aba Pedidos, Fóz e a baixa do card |
@@ -303,6 +304,7 @@ Se memória ≠ código → seguir o código e **atualizar esta memória** (chan
 - Os dois flags de manutenção estão desligados (`MAINTENANCE_MODE_DEFAULT` e `MAINTENANCE_MODE` em `false`). Com os dois ligados, cada domínio da vitrine (loja principal e filial no mesmo front) mostra a tela de manutenção. O admin em `/admin` continua acessível. Nome e logo saem do cache `siteSettings`. Fora de host da loja principal o fallback do nome é “Loja”; na loja principal, localhost, preview Vercel e app da API continua “KA Imports”.
 - Resolução pública de tenant por domínio HTTP (`resolvePublicTenantId`). Casa `tenants.domain` com os hosts do pedido (incluindo `x-forwarded-host`, que a Vercel manda no rewrite). Sem cadastro, só cai em `tenant_loja1` se o host/origin for da loja principal, local, `*.vercel.app` ou `*.ondigitalocean.app`, ou se não houver host nenhum. Domínio desconhecido: rotas públicas da vitrine respondem 404 `{ error: "store_not_configured" }` e não criam pedido. `GET /api/settings` responde 404 `{ store_not_configured: true }`. O front, fora de `/admin`, mostra “Loja em configuração”. `/admin` e `/admin/login` continuam; o tenant do admin sai da sessão, não do domínio. Webhooks de PIX, EnvioEcom e o inbound do WhatsApp não usam essa função. O callback legado `POST /api/pix/callback/:token` usa: no host da API ou da loja principal segue na loja 1; Origin de outro domínio responde 404.
 - Isolamento por `tenantId` em pedidos, produtos, settings, etc.; legado null/vazio tratado como loja1 em vários `build*TenantWhere`.
+- Moderação de convite no WhatsApp só na loja 1, instância main. Filial não herda a lista nem sofre remoção.
 - Sync de produtos loja1 → filial e filas de compra filial existem (`tenant-product-sync`, `filial-purchases`, `filial-purchase-queue`). O custo de compra da loja 1 não vai na cópia.
 - `GET /api/social-proof/feed` lista pedido `paid` da loja do domínio (`resolvePublicTenantId`). Loja 1 inclui `tenant_id` nulo e `''`. Cards falsos continuam globais.
 - Smoke tests de isolamento: `scripts/SMOKE_TESTS.md`, `scripts/src/smoke-tenant-isolation*.ts`.
