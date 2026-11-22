@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-11-18
+> **Última atualização:** 2026-11-22
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-22 | Anti-padrão: aviso “Adicionado” fixo no rodapé, com z-index acima do drawer | `PharmaAddedNotice` some com o drawer aberto. Fechado, fica abaixo do header, dentro da safe-area. No celular é compacto e some em 2,8s; no desktop, em 4s. z-index 45, drawer 50 | Preço, checkout, API e o drawer abrindo ao adicionar pela tabela ou pelo card |
 | 2026-11-18 | Anti-padrão: no pedido dividido esconder Motoboy, Minas ou Santa Catarina porque não há pacote naquele depósito | Os três aparecem no card. Sem pacote, a pílula lê os produtos do pedido naquele depósito | **Marcar como Enviado** não cobra saldo de depósito sem pacote. Foz só com pacote da loja |
 | 2026-11-18 | Anti-padrão: pílula de estoque do pedido dividido ler o pedido inteiro em Foz | Cada pacote usa o próprio `inventoryPool` e os próprios itens | Pedido sem divisão segue `inventoryExitPool` ou o frete |
 | 2026-11-18 | Anti-padrão: `baixou_estoque` chamar de novo o exit da Yury, ou gravar `saiu_sem_abater` em `inventory_exited_pools` | O retorno da lista marca a baixa local ou `label_stock_waived_at`. As duas não se substituem | A baixa do card continua no `POST /api/integrations/inventory/exit` |
@@ -206,6 +207,7 @@ Código > memória > suposições.
 - Hero da home: `buildHomeHero` (`home-hero.ts`) só com o array de `useGetProducts`, e só quando o preset resolvido é `pharma_compact`. O card grande prefere Tirzepatida ou Retatrutida (`normalizeCategoryKey`: sem acento, sem diferença de maiúsculas; Tirzepatide e Retatrutide entram). Entre elas vale `compareCatalogSales`. Sem as duas à venda com foto, usa o mais vendido de qualquer categoria. Cor do botão e do gradiente: `--pharma-green*`. A flutuação é CSS (5s, sobe 10px, gira ±2°); `prefers-reduced-motion` desliga. Não criar coluna nem endpoint para esse card.
 - Loader de tela cheia e de seção grande: `BrandLoader` (`sm` 24, `md` 32, `lg` 48) e `BrandPageLoader`. O SVG usa o símbolo recortado de `public/logo.jpeg` (`src/assets/brand-loader/letters.png` parado, `arc.png` no grupo `.brand-loader-orbit`). A logo de Configurações (`logo`, por filial) continua no header: é o wordmark enviado pela loja, não o símbolo. Sem esse arquivo, só a loja principal cai em `resolveStoreLogo` (`/brand/ka/header.svg`). Botão, login, CEP, frete, cupom e skeleton de card seguem com `Loader2`.
 - Marca da loja principal: arquivos em `public/brand/ka/` (wordmark, ícone, `og.png`, `manifest.webmanifest`). `public/tenant-branding.js` troca favicon, apple-touch e o manifest quando `is_main_store` / `tenant_loja1` (ou o host `ka-imports.com`). Filial permanece em `/favicon.svg`. Não substituir esse arquivo pelo símbolo novo.
+- Aviso de item adicionado (`PharmaAddedNotice`): só com o drawer fechado. Abaixo do header (`.ka-pharma-header` ou `.ka-main-header`) e de `env(safe-area-inset-*)`. No celular a faixa é compacta e some em 2,8s; no desktop, em 4s. O rodapé do drawer usa `env(safe-area-inset-bottom)` no padding, sem trocar o `p-4` quando o inset é 0. Não voltar o aviso para `fixed bottom` nem para z-index acima do drawer.
 - Tema da loja: `store_theme_preset` vira `data-store-theme` no `<html>`. `pharma_compact` muda a vitrine da loja 1 (header, hero de categorias, lista, card, `/ofertas`, `/categoria`, página do produto com foto em faixa no celular e ao lado da compra a partir de 768px, drawer do carrinho e login em cartão). A home limpa dessa lista são cinco vitrines (`pharma-home-showcases.ts`); busca, categoria, marca, promoção, `vitrine` ou outra ordem voltam à grade de 24. O GET público manda `tenant_id` e `is_main_store`. Filial não recebe `pharma_compact`: preset ausente, inválido ou proibido sai como `default`. O PUT recusa gravar `pharma_compact` e qualquer preset fora da lista. O admin da filial não mostra o card Farmácia Compacta. Sem `is_main_store`/`tenant_id`, o front só trata `ka-imports.com` e `www.ka-imports.com` como loja 1. O verde fica em `--pharma-*`. A cor principal da loja continua no checkout e nos outros presets.
 
 ## Codegen (Orval)
