@@ -1,3 +1,4 @@
+import { phonesMatch as brazilianPhonesMatch } from "./shopee-route-core";
 import { WHATSAPP_AUTOMATION_SENDER } from "./whatsapp-outbound-policy";
 
 const MAIN_STORE_TENANT_ID = "tenant_loja1";
@@ -146,13 +147,13 @@ export function phoneDigits(value: string): string {
   return String(value || "").replace(/\D/g, "").replace(/^0+/, "");
 }
 
+/** O mesmo celular brasileiro, com ou sem o 55 e com ou sem o 9 depois do DDD. */
 export function phonesMatch(left: string, right: string): boolean {
   const a = phoneDigits(left);
   const b = phoneDigits(right);
   if (a.length < 10 || b.length < 10) return false;
   if (a === b) return true;
-  const size = Math.min(a.length, b.length);
-  return size >= 10 && (a.endsWith(b) || b.endsWith(a));
+  return brazilianPhonesMatch(a, b);
 }
 
 export function groupIsListed(groupId: string, configuredIds: readonly string[]): boolean {

@@ -183,6 +183,29 @@ test("admin, loja e allowlist não são removidos", async () => {
   assert.equal(allowed.result.reason, "allowlist");
   assert.equal(allowed.calls.length, 0);
   assert.equal(allowed.rows.length, 0);
+
+  const adminWithoutNine = await run(inviteBody({ participantPhone: "551177776666" }), {
+    env,
+    extraAdmins: [ADMIN],
+  });
+  assert.equal(adminWithoutNine.result.reason, "admin");
+  assert.equal(adminWithoutNine.calls.filter((call) => call.method !== "GET").length, 0);
+
+  const storeWithoutNine = await run(inviteBody({ participantPhone: "553592119139" }), { env });
+  assert.equal(storeWithoutNine.result.reason, "store");
+  assert.equal(storeWithoutNine.calls.length, 0);
+
+  const allowWithoutNine = await run(inviteBody({ participantPhone: "551166665555" }), {
+    env: { ...env, WHATSAPP_GROUP_MODERATION_ALLOW_PHONES: ALLOW },
+  });
+  assert.equal(allowWithoutNine.result.reason, "allowlist");
+  assert.equal(allowWithoutNine.calls.length, 0);
+
+  const otherArea = await run(inviteBody({ participantPhone: "5521977776666", messageId: "msg-ddd" }), {
+    env,
+    extraAdmins: [ADMIN],
+  });
+  assert.equal(otherArea.result.action, "deleted_and_removed");
 });
 
 test("grupo fora da lista e lista vazia não chamam a Z-API", async () => {
