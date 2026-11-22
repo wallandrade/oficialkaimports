@@ -220,7 +220,10 @@ export function CartDrawer() {
             </div>
 
             {items.length > 0 && (
-              <div className={`ka-cart-footer p-4 border-t shrink-0 ${isPharma ? "border-neutral-200 bg-white" : "bg-gray-50 border-border"}`}>
+              <div
+                className={`ka-cart-footer border-t p-4 shrink-0 ${isPharma ? "border-neutral-200 bg-white" : "bg-gray-50 border-border"}`}
+                style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom, 0px))" }}
+              >
                 <div className="flex items-center justify-between mb-3 text-base">
                   <span className={isPharma ? "font-semibold text-neutral-900" : "font-medium text-muted-foreground"}>
                     {isPharma ? "Total:" : "Subtotal"}
