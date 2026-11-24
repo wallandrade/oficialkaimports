@@ -1,10 +1,12 @@
 import { Router, type IRouter } from "express";
 import { getAdminScope, requireAdminAuth } from "./admin-auth";
 import { actorFromAdminRequest } from "../lib/order-events";
+import { OrderEnviadoError } from "../lib/order-enviado";
 import {
   composeShopeeRouteMessage,
   creditShopeeRouteWallet,
   loadShopeeRouteOrder,
+  markAdminShopeeBoardSent,
   markShopeeRouteRequested,
   sendShopeeRouteWhatsapp,
   receiveShopeeRouteInbound,
@@ -136,6 +138,42 @@ router.post("/admin/orders/:id/shopee-route", requireAdminAuth, async (req, res)
   } catch (err) {
     console.error("[ShopeeRoute] disparo falhou", err);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao enviar a Rota Shopee." });
+  }
+});
+
+router.patch("/admin/orders/:id/shopee-board-sent", requireAdminAuth, async (req, res) => {
+  const scope = getAdminScope(req);
+  if (!scope) {
+    res.status(401).json({ error: "UNAUTHORIZED", message: "Sessão inválida." });
+    return;
+  }
+  if (!scope.hasGlobalAccess && !scope.sellerCode) {
+    res.status(403).json({ error: "FORBIDDEN", message: "Usuário sem seller vinculado." });
+    return;
+  }
+  const orderId = String(req.params.id || "").trim();
+  try {
+    const order = await loadShopeeRouteOrder(orderId, scope);
+    if (!order) {
+      res.status(404).json({ error: "NOT_FOUND", message: "Pedido não encontrado." });
+      return;
+    }
+    const result = await markAdminShopeeBoardSent(order, actorFromAdminRequest(req));
+    res.json({
+      ok: true,
+      id: order.id,
+      enviado: true,
+      already: result.already,
+      order: shopeeRouteAdminFields(result.order),
+    });
+  } catch (err) {
+    const code = err instanceof OrderEnviadoError ? err.code : "INTERNAL";
+    console.error("[ShopeeRoute] quadro enviado falhou", { orderId, code });
+    if (err instanceof OrderEnviadoError) {
+      res.status(err.code === "NOT_FOUND" ? 404 : 400).json({ error: err.code, message: err.message });
+      return;
+    }
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Erro ao marcar o pedido como enviado." });
   }
 });
 

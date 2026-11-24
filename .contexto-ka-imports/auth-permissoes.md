@@ -1,12 +1,13 @@
 # Auth e permissões — KA Imports
 
-> **Última atualização:** 2026-11-16
+> **Última atualização:** 2026-11-24
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-24 | Quadro Envio Shopee marca enviado com a sessão do pedido | `PATCH /api/admin/orders/:id/shopee-board-sent` exige `requireAdminAuth`. Sem sessão: 401. Seller sem slug: 403. O pedido passa por `loadShopeeRouteOrder` (loja e, no seller-scoped, o vendedor). Outra loja ou outro vendedor: 404 | O crédito da carteira continua só com `hasGlobalAccess`. O `PATCH /enviado` e o inbound do n8n seguem |
 | 2026-11-16 | ID da Shopee no atendimento fica na loja do token | `POST /api/whatsapp/support/inbound` só casa pedido da loja daquele token. Loja 1 inclui tenant nulo ou vazio. O inbound do n8n segue sem loja | O segredo `X-N8N-Shopee-Secret` e o crédito global |
 | 2026-11-16 | Rota Shopee: segredo do n8n e crédito só com acesso global | `POST /api/integrations/shopee-route/inbound` não usa sessão. Exige `X-N8N-Shopee-Secret`. Disparo e edição do ID usam o mesmo recorte do pedido (loja e, no seller-scoped, o vendedor). `POST .../shopee-wallet-credit` exige `hasGlobalAccess`, como o ajuste da carteira | Seller-scoped continua 403 no crédito. Settings da rota seguem `canManageSettings` |
 | 2026-11-14 | Convidado recebe saldo e pode ganhar senha | `POST /api/admin/wallet/adjust` com `guest:<email>` cria a conta na loja da sessão e credita. `PATCH .../password` no mesmo id abre a conta e grava a senha. Os dois exigem `hasGlobalAccess`. Seller-scoped 403. Outra loja 404, sem linha e sem saldo. Login da conta sem senha é 401 `PASSWORD_NOT_SET`; **Criar conta** define a senha | Impersonar continua só em conta já existente. Superadmin não lê carteira de outra loja |

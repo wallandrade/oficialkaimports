@@ -82,7 +82,7 @@ export function ShopeeRouteSettingsCard({
 
   function saveMessage() {
     const value = message.trim();
-    if (!value) {
+    if (!value || value === DEFAULT_SHOPEE_ROUTE_MESSAGE) {
       onDelete("shopee_route_message");
       return;
     }
@@ -97,7 +97,7 @@ export function ShopeeRouteSettingsCard({
           Rota Shopee
         </h2>
         <p className="text-muted-foreground text-sm">
-          O botão no pedido manda o cliente comprar este link. A mensagem aceita {"{nome}"}, {"{pedido}"}, {"{resumo_pedido}"}, {"{link_shopee}"} e {"{valor}"}. Em branco, volta o texto padrão. A URL e o segredo do n8n ficam no servidor.
+          O botão no pedido manda o cliente comprar este link. A mensagem aceita {"{nome}"}, {"{pedido}"}, {"{resumo_pedido}"}, {"{link_shopee}"} e {"{valor}"}. Em branco, ou igual ao texto padrão, a frase salva some e volta o padrão. A URL e o segredo do n8n ficam no servidor.
         </p>
       </div>
       <label className="block">

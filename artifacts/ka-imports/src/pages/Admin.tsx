@@ -3,6 +3,7 @@ import {
   SHIP_QUEUE_COPY_HEADING,
   buildShipQueueCopyText,
   isMotoboyDashboardOrder,
+  isShopeeRouteCustomerNotified,
   isWaitingDashboardShipment,
   splitShipQueueOrders,
 } from "@/lib/ship-queue-columns";
@@ -2337,6 +2338,7 @@ export default function Admin() {
   const [shipQueueOrders, setShipQueueOrders] = useState<AdminOrder[]>([]);
   const [shipQueueReady, setShipQueueReady] = useState(false);
   const [shippingViaSavingId, setShippingViaSavingId] = useState<string | null>(null);
+  const [shopeeBoardSentId, setShopeeBoardSentId] = useState<string | null>(null);
   const [charges, setCharges] = useState<CustomCharge[]>([]);
   const [sellerAllOrders, setSellerAllOrders] = useState<AdminOrder[]>([]);
   const [sellerAllCharges, setSellerAllCharges] = useState<CustomCharge[]>([]);
@@ -7626,6 +7628,39 @@ export default function Admin() {
       setShippingViaSavingId(null);
     }
   };
+  const markShopeeBoardSent = async (
+    order: AdminOrder,
+    event: React.MouseEvent<HTMLButtonElement>,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (shopeeBoardSentId) return;
+    const reference = getOrderDisplayId(order);
+    if (!window.confirm(`Marcar o pedido #${reference} como enviado? O estoque não será baixado e o cliente não recebe mensagem.`)) return;
+    setShopeeBoardSentId(order.id);
+    try {
+      const res = await fetch(`${BASE}/api/admin/orders/${encodeURIComponent(order.id)}/shopee-board-sent`, {
+        method: "PATCH",
+        headers: authHeaders(),
+      });
+      const data = await res.json().catch(() => ({} as { message?: string }));
+      if (res.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+      if (!res.ok) throw new Error(data.message || "save failed");
+      const apply = (list: AdminOrder[]) => list.map((row) => (row.id === order.id ? { ...row, enviado: true } : row));
+      setShipQueueOrders(apply);
+      setOrders(apply);
+      setSellerAllOrders(apply);
+      setStatsOrdersData(apply);
+      toast.success(`Pedido #${reference} marcado como enviado. Saiu do quadro. O estoque não foi baixado.`);
+    } catch (err) {
+      toast.error(err instanceof Error && err.message !== "save failed" ? err.message : "Não foi possível marcar o pedido como enviado.");
+    } finally {
+      setShopeeBoardSentId(null);
+    }
+  };
 
   // ── Dashboard stats — uses independently fetched data (own API call) ─────
   const statsPaidOrders    = statsOrdersData.filter((o) => (o.status === "paid" || o.status === "completed") && dashboardSaleAmount(o) > 0.009);
@@ -7725,6 +7760,7 @@ export default function Admin() {
     onTransfer?: (order: AdminOrder, event: React.MouseEvent<HTMLButtonElement>) => void;
     transferLabel?: string;
     transferIcon?: React.ReactNode;
+    onMarkSent?: (order: AdminOrder, event: React.MouseEvent<HTMLButtonElement>) => void;
   }) => {
     const orange = input.tone === "orange";
     const box = `${input.className ?? "mt-3"} rounded-xl border p-4 cursor-pointer transition ${orange ? "bg-orange-50 border-orange-300 hover:bg-orange-100" : "bg-amber-50 border-amber-300 hover:bg-amber-100"}`;
@@ -7786,7 +7822,8 @@ export default function Admin() {
           <div className="space-y-1.5 max-h-80 overflow-y-auto">
             {input.rows.map((o) => {
               const waitingDays = daysSince(o.createdAt);
-              const lateToShip = waitingDays > 3;
+              const customerNotified = input.kind === "shopee" && isShopeeRouteCustomerNotified(o);
+              const lateToShip = !customerNotified && waitingDays > 3;
               const pendingShipment = getPendingShipmentCopy(o);
               const lineProducts = pendingShipment.isPartialSplit
                 ? pendingShipment.items
@@ -7796,7 +7833,7 @@ export default function Admin() {
               return (
                 <div
                   key={o.id}
-                  className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-1.5 ${lateToShip ? "bg-red-50 border-red-300" : rowIdle}`}
+                  className={`flex items-center justify-between gap-2 rounded-lg border px-3 py-1.5 ${customerNotified ? "bg-emerald-50 border-emerald-300" : lateToShip ? "bg-red-50 border-red-300" : rowIdle}`}
                   onClick={(event) => {
                     event.stopPropagation();
                     goToOrder(o.id, o.createdAt);
@@ -7844,21 +7881,38 @@ export default function Admin() {
                       )}
                     </div>
                     <div className="min-w-0">
-                      <p className={nameClass}>{o.clientName}</p>
-                      <p className={metaClass}>#{getOrderDisplayId(o)} · {formatDateBR(o.createdAt)}</p>
+                      <p className={customerNotified ? "text-sm font-medium truncate text-emerald-950" : nameClass}>{o.clientName}</p>
+                      <p className={customerNotified ? "text-xs text-emerald-800/80" : metaClass}>#{getOrderDisplayId(o)} · {formatDateBR(o.createdAt)}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     <div className="flex flex-col items-end gap-1">
+                      {customerNotified && (
+                        <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-100 border border-emerald-200 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                          Cliente avisado
+                        </span>
+                      )}
                       {lateToShip && (
                         <span className="text-[10px] font-bold text-red-700 bg-red-100 border border-red-200 px-1.5 py-0.5 rounded-full whitespace-nowrap">
                           {waitingDays} dias sem enviar
                         </span>
                       )}
-                      <span className={amountClass}>
+                      <span className={customerNotified ? "text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap text-emerald-800 bg-emerald-100" : amountClass}>
                         {formatCurrency(Number(o.total) || 0)}
                       </span>
                     </div>
+                    {input.onMarkSent ? (
+                      <button
+                        type="button"
+                        title="Marcar como enviado sem baixar estoque e sem avisar o cliente"
+                        aria-label="Pedido enviado"
+                        disabled={shopeeBoardSentId === o.id || shippingViaSavingId === o.id}
+                        onClick={(event) => input.onMarkSent?.(o, event)}
+                        className="shrink-0 h-7 px-2 rounded-full border border-zinc-300 bg-white text-[10px] font-bold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                      >
+                        {shopeeBoardSentId === o.id ? "..." : "Pedido enviado"}
+                      </button>
+                    ) : null}
                     {input.onTransfer ? (
                       <button
                         type="button"
@@ -8157,6 +8211,7 @@ export default function Admin() {
               onTransfer: (order, event) => { void moveShipChannel(order, null, event); },
               transferLabel: "Voltar para Pedidos para enviar",
               transferIcon: <ArrowLeft className="w-3.5 h-3.5" />,
+              onMarkSent: (order, event) => { void markShopeeBoardSent(order, event); },
             })}
           </div>
           {renderShipQueueCard({

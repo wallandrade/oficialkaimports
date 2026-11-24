@@ -5,6 +5,7 @@ import { phonesMatch, shopeeRouteCustomerReply } from "./shopee-route-core";
 import {
   executeShopeeRouteInbound,
   handleShopeeOnSupportMessage,
+  markShopeeBoardOrderSent,
   orderMatchesTenant,
   type ShopeeRouteInboundOrder,
   type ShopeeRouteInboundStore,
@@ -175,14 +176,115 @@ test("sem pedido aguardando o atendimento segue e o ID não é gravado", async (
   assert.equal(state.orders[0]?.enviado, false);
 
   const waiting = memoryStore([order({ id: "ord-wait" })]);
+  const waitingWired = supportDeps(waiting.store, sent);
   const invalid = await handleShopeeOnSupportMessage(
     textBody("5511999998888", "oi"),
-    supportDeps(waiting.store, sent).deps,
+    waitingWired.deps,
   );
   assert.equal(invalid, "continue");
+  assert.equal(waitingWired.receives(), 0);
+  assert.equal(waitingWired.lookups(), 0);
   assert.deepEqual(sent, []);
   assert.equal(waiting.orders[0]?.shopeeOrderId, null);
-  assert.equal(waiting.orders[0]?.shopeeRouteReviewReason, "id_invalido");
+  assert.equal(waiting.orders[0]?.enviado, false);
+  assert.equal(waiting.orders[0]?.shopeeRouteReviewReason, null);
+});
+
+test("conversa, cartão e CNPJ não gravam ID; número sozinho, frase curta e código com letra gravam", async () => {
+  const numericId = "241116123456789012";
+  const card = "4111111111111111";
+  const cnpj = "12345678000195";
+  const ignored = [
+    "oi, cadê meu pedido?",
+    `paguei no cartão ${card} ontem`,
+    `cnpj ${cnpj} da empresa`,
+  ];
+  for (const text of ignored) {
+    const state = memoryStore([order({ id: "ord-wait" })]);
+    const sent: string[] = [];
+    const wired = supportDeps(state.store, sent);
+    const outcome = await handleShopeeOnSupportMessage(textBody("5511999998888", text), wired.deps);
+    assert.equal(outcome, "continue");
+    assert.equal(wired.receives(), 0);
+    assert.equal(wired.lookups(), 0);
+    assert.deepEqual(sent, []);
+    assert.equal(state.orders[0]?.shopeeOrderId, null);
+    assert.equal(state.orders[0]?.enviado, false);
+    assert.equal(state.orders[0]?.shopeeRouteReviewReason, null);
+    assert.deepEqual(state.events, []);
+    const direct = await executeShopeeRouteInbound({ telefone: "11999998888", texto: text }, state.store);
+    assert.equal(direct.ok, false);
+    assert.equal(state.orders[0]?.shopeeOrderId, null);
+    assert.equal(state.orders[0]?.shopeeRouteReviewReason, null);
+  }
+
+  const accepted = [
+    numericId,
+    `segue o id ${numericId}`,
+    "241116ABCDEFGH",
+    "segue o id 241116ABCDEFGH obrigado",
+  ];
+  for (const text of accepted) {
+    const state = memoryStore([order({ id: `ord-${text.length}` })]);
+    const sent: string[] = [];
+    const outcome = await handleShopeeOnSupportMessage(textBody("5511999998888", text), supportDeps(state.store, sent).deps);
+    assert.equal(outcome, "stop");
+    assert.equal(state.orders[0]?.enviado, true);
+    assert.equal(state.orders[0]?.shopeeRouteReviewReason, null);
+    assert.equal(sent.length, 1);
+    const saved = String(state.orders[0]?.shopeeOrderId || "");
+    assert.equal(saved === numericId || saved === "241116ABCDEFGH", true);
+    assert.equal(saved === card || saved === cnpj, false);
+  }
+});
+
+test("botão do quadro marca enviado sem estoque, sem mensagem e sem mudar a coluna", async () => {
+  let enviado = false;
+  let shippingVia: string | null = null;
+  let debits = 0;
+  let messages = 0;
+  const events: Array<{ action: string; payload: Record<string, unknown> }> = [];
+  const store = {
+    async markEnviadoWithoutInventory() {
+      if (enviado) return { already: true };
+      enviado = true;
+      return { already: false };
+    },
+    async addEvent(event: { action: string; payload: Record<string, unknown> }) {
+      events.push({ action: event.action, payload: event.payload });
+    },
+  };
+  const result = await markShopeeBoardOrderSent(
+    { orderId: "ord-board", tenantId: "tenant_loja1" },
+    store,
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.enviado, true);
+  assert.equal(result.already, false);
+  assert.equal("mensagem_para_cliente" in result, false);
+  assert.equal(enviado, true);
+  assert.equal(shippingVia, null);
+  assert.equal(debits, 0);
+  assert.equal(messages, 0);
+  assert.equal(events.length, 1);
+  assert.equal(events[0]?.action, "enviado");
+  assert.equal(events[0]?.payload.via, "shopee_board");
+  assert.equal(events[0]?.payload.inventory, false);
+  assert.equal(events[0]?.payload.from, false);
+  assert.equal(events[0]?.payload.to, true);
+  const logged = JSON.stringify(events);
+  assert.equal(logged.includes("11999998888"), false);
+  assert.equal(logged.includes("SELECT"), false);
+
+  const again = await markShopeeBoardOrderSent(
+    { orderId: "ord-board", tenantId: "tenant_loja1" },
+    store,
+  );
+  assert.equal(again.already, true);
+  assert.equal(events.length, 1);
+  assert.equal(debits, 0);
+  assert.equal(messages, 0);
+  assert.equal(shippingVia, null);
 });
 
 test("exceção na Rota Shopee segue o atendimento e não loga telefone nem texto", async () => {

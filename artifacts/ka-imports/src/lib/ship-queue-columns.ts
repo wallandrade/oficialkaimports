@@ -20,6 +20,15 @@ export function isShopeeShippingVia(value: string | null | undefined): boolean {
   return String(value || "").trim().toLowerCase() === "shopee";
 }
 
+/** O WhatsApp da Rota Shopee já foi aceito. A linha do quadro Envio Shopee fica verde. */
+export function isShopeeRouteCustomerNotified(order: {
+  shopeeRouteRequestedAt?: string | Date | null;
+} | null | undefined): boolean {
+  const value = order?.shopeeRouteRequestedAt;
+  if (value instanceof Date) return !Number.isNaN(value.getTime());
+  return Boolean(String(value || "").trim());
+}
+
 export function isMotoboyDashboardOrder(order: {
   shippingType?: string | null;
   motoboyDeliveryDate?: string | null;
