@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-24 | Anti-padrão: com vendedor na sessão, abrir WhatsApp no número padrão enquanto o GET do slug não voltou | O clique usa `resolveSellerWhatsAppStrict`. Sem o número daquele slug, não abre `support_whatsapp` nem `DEFAULT_WHATSAPP` | Visitante sem slug segue o número da loja |
 | 2026-11-24 | Anti-padrão: tratar toda mensagem do atendimento como ID da Shopee, ou marcar o quadro com `PATCH /enviado` | `supportMessageHasShopeeId` filtra antes de gravar. O botão do quadro chama `PATCH .../shopee-board-sent`, que usa `markOrderEnviadoWithoutInventory`. Salvar a mensagem igual ao padrão apaga `shopee_route_message` | `ensureOrderMarkedEnviado` continua no botão do card. A rota não grava `shipping_via` |
 | 2026-11-22 | Anti-padrão: aviso “Adicionado” fixo no rodapé, com z-index acima do drawer | `PharmaAddedNotice` some com o drawer aberto. Fechado, fica abaixo do header, dentro da safe-area. No celular é compacto e some em 2,8s; no desktop, em 4s. z-index 45, drawer 50 | Preço, checkout, API e o drawer abrindo ao adicionar pela tabela ou pelo card |
 | 2026-11-18 | Anti-padrão: no pedido dividido esconder Motoboy, Minas ou Santa Catarina porque não há pacote naquele depósito | Os três aparecem no card. Sem pacote, a pílula lê os produtos do pedido naquele depósito | **Marcar como Enviado** não cobra saldo de depósito sem pacote. Foz só com pacote da loja |
