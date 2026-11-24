@@ -5,6 +5,7 @@ import {
   isMotoboyDashboardOrder,
   isShopeeRouteCustomerNotified,
   isWaitingDashboardShipment,
+  shipQueueSellerLabel,
   splitShipQueueOrders,
 } from "@/lib/ship-queue-columns";
 import { AdminFlashOffersPanel } from "@/components/admin/AdminFlashOffersPanel";
@@ -7822,6 +7823,7 @@ export default function Admin() {
           <div className="space-y-1.5 max-h-80 overflow-y-auto">
             {input.rows.map((o) => {
               const waitingDays = daysSince(o.createdAt);
+              const sellerLabel = shipQueueSellerLabel(o.sellerCode);
               const customerNotified = input.kind === "shopee" && isShopeeRouteCustomerNotified(o);
               const lateToShip = !customerNotified && waitingDays > 3;
               const pendingShipment = getPendingShipmentCopy(o);
@@ -7883,6 +7885,11 @@ export default function Admin() {
                     <div className="min-w-0">
                       <p className={customerNotified ? "text-sm font-medium truncate text-emerald-950" : nameClass}>{o.clientName}</p>
                       <p className={customerNotified ? "text-xs text-emerald-800/80" : metaClass}>#{getOrderDisplayId(o)} · {formatDateBR(o.createdAt)}</p>
+                      {sellerLabel ? (
+                        <p className={`min-w-0 truncate ${customerNotified ? "text-xs text-emerald-800/80" : metaClass}`} title={sellerLabel}>
+                          {sellerLabel}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">

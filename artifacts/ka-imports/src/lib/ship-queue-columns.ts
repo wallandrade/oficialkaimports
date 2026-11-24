@@ -20,6 +20,16 @@ export function isShopeeShippingVia(value: string | null | undefined): boolean {
   return String(value || "").trim().toLowerCase() === "shopee";
 }
 
+/**
+ * Rótulo do vendedor no card da fila. O nome exibido é o slug em `sellerCode`
+ * (a tabela `sellers` não tem outro nome). Sem código, a linha some.
+ */
+export function shipQueueSellerLabel(sellerCode: string | null | undefined): string | null {
+  const name = String(sellerCode ?? "").trim();
+  if (!name) return null;
+  return `Vendedor: ${name}`;
+}
+
 /** O WhatsApp da Rota Shopee já foi aceito. A linha do quadro Envio Shopee fica verde. */
 export function isShopeeRouteCustomerNotified(order: {
   shopeeRouteRequestedAt?: string | Date | null;
