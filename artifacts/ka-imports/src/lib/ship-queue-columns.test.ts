@@ -7,6 +7,7 @@ import {
   isMotoboyDashboardOrder,
   isShopeeRouteCustomerNotified,
   isWaitingDashboardShipment,
+  shipQueueSellerLabel,
   splitShipQueueOrders,
   type ShipQueueColumnOrder,
 } from "./ship-queue-columns";
@@ -100,6 +101,15 @@ test("Envio Shopee fica na coluna da direita e o Copiar TXT de cada lado leva s�
   assert.equal(right.includes("Nome: Ana Lima"), false);
   assert.equal(right.includes("PEDIDO #KA-2803"), false);
   assert.equal(right.includes("PEDIDO #KA-2804"), false);
+});
+
+test("Card da fila mostra o slug do vendedor e some quando o pedido não tem seller", () => {
+  assert.equal(shipQueueSellerLabel("fulano"), "Vendedor: fulano");
+  assert.equal(shipQueueSellerLabel("  maria-silva  "), "Vendedor: maria-silva");
+  assert.equal(shipQueueSellerLabel(null), null);
+  assert.equal(shipQueueSellerLabel(undefined), null);
+  assert.equal(shipQueueSellerLabel(""), null);
+  assert.equal(shipQueueSellerLabel("   "), null);
 });
 
 test("Cliente avisado só quando a Rota Shopee já tem hora, e enviado sai do quadro", () => {
