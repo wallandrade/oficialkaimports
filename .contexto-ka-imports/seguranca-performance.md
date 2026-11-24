@@ -1,12 +1,13 @@
 # Segurança e performance — KA Imports
 
-> **Última atualização:** 2026-11-17
+> **Última atualização:** 2026-11-24
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-24 | Quadro Envio Shopee não avisa o cliente | `PATCH /api/admin/orders/:id/shopee-board-sent` não chama WhatsApp. O log de falha leva `orderId` e `code`, sem SQL, telefone ou texto | O atendimento continua sem gravar o texto. O `PATCH /enviado` do card segue igual |
 | 2026-11-17 | Fila de WhatsApp não devolve o texto nem o telefone inteiro | `GET /api/admin/whatsapp/outbound-queue` exige acesso global. A linha mostra origem, estado, tentativas e `***` + 4 dígitos. `last_error` é um código curto (`http_500`, `timeout`). O worker consulta a cada 60 s e segura `GET_LOCK` só durante um envio | O corpo da mensagem fica na tabela, para o worker reenviar. Não vai para o log |
 | 2026-11-16 | Texto da Rota Shopee no atendimento não vai para o log | A tentativa em `POST /api/whatsapp/support/inbound` não grava telefone, ID nem texto. Falha segue o menu e responde 200. Continua atrás do token do atendimento. Não abre rota nova | O inbound do n8n segue com `X-N8N-Shopee-Secret` |
 | 2026-11-16 | Log não grava telefone da URL | `console.*` mascara telefone em texto e na query (`***` + 4 últimos). CPF, e-mail, nome, token e os parâmetros `query`, `q`, `phone`, `telefone`, `cpf`, `email`, `nome` e `name` saem como `[REDACTED]`. A consulta da rifa no site vai em `POST /api/raffles/reservations/lookup` com JSON. O GET antigo continua, com o mesmo limite e o mesmo token de checkout | SQL, senha, hash e o corpo da resposta do cliente. A lista que a pessoa vê na rifa não muda |

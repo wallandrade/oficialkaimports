@@ -23,6 +23,7 @@ import {
 } from "./shopee-route-core";
 import {
   executeShopeeRouteInbound,
+  markShopeeBoardOrderSent,
   type ShopeeRouteInboundOrder,
   type ShopeeRouteInboundStore,
 } from "./shopee-route-support";
@@ -363,6 +364,32 @@ const shopeeRouteInboundStore: ShopeeRouteInboundStore = {
     });
   },
 };
+
+export async function markAdminShopeeBoardSent(order: ShopeeRouteOrderRow, actor: Actor): Promise<{
+  ok: true;
+  enviado: true;
+  already: boolean;
+  order: ShopeeRouteOrderRow;
+}> {
+  const tenantId = order.tenantId || DEFAULT_TENANT_ID;
+  const result = await markShopeeBoardOrderSent(
+    { orderId: order.id, tenantId },
+    {
+      markEnviadoWithoutInventory: (id, scopedTenantId) => markOrderEnviadoWithoutInventory(id, scopedTenantId),
+      addEvent: async (event) => {
+        await addOrderEvent({
+          orderId: event.orderId,
+          tenantId: event.tenantId,
+          action: event.action,
+          ...actor,
+          payload: event.payload,
+        });
+      },
+    },
+  );
+  const saved = (await reloadOrder(order.id)) || { ...order, enviado: true };
+  return { ...result, order: saved };
+}
 
 export async function receiveShopeeRouteInbound(
   input: { telefone: string; texto: string },

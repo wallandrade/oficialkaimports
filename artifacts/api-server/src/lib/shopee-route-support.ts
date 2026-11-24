@@ -5,6 +5,7 @@ import {
   phonesMatch,
   reviewSummary,
   shopeeRouteCustomerReply,
+  supportMessageHasShopeeId,
   type ShopeeInboundMotivo,
 } from "./shopee-route-core";
 
@@ -111,6 +112,9 @@ export async function executeShopeeRouteInbound(
     return { ok: false, motivo: "payload_invalido" };
   }
   const extracted = extractShopeeOrderId(input.texto);
+  if (!supportMessageHasShopeeId(String(input.texto || ""))) {
+    return { ok: false, motivo: extracted.motivo || "id_invalido" };
+  }
   const awaitingRows = (await store.listAwaiting()).filter(inScope);
   const awaiting = awaitingRows
     .filter((row) => phonesMatch(row.clientPhone, telefone))
@@ -188,6 +192,7 @@ async function handleShopeeOnSupportMessageInner(
 ): Promise<"stop" | "continue"> {
   const customer = customerText(body);
   if (!customer) return "continue";
+  if (!supportMessageHasShopeeId(customer.text)) return "continue";
   if (!await deps.hasAwaiting(customer.phone)) return "continue";
   const result = await deps.receive({ telefone: customer.phone, texto: customer.text.slice(0, 2000) });
   if (!result.ok) return "continue";
@@ -198,6 +203,37 @@ async function handleShopeeOnSupportMessageInner(
     return "continue";
   }
   return "stop";
+}
+
+/** Marca enviado no quadro da Shopee. Não avisa o cliente e não debita estoque. */
+export async function markShopeeBoardOrderSent(
+  input: { orderId: string; tenantId: string },
+  store: {
+    markEnviadoWithoutInventory(id: string, tenantId: string): Promise<{ already: boolean }>;
+    addEvent(event: {
+      orderId: string;
+      tenantId: string | null;
+      action: string;
+      payload: Record<string, unknown>;
+    }): Promise<void>;
+  },
+): Promise<{ ok: true; enviado: true; already: boolean }> {
+  const marked = await store.markEnviadoWithoutInventory(input.orderId, input.tenantId);
+  if (!marked.already) {
+    await store.addEvent({
+      orderId: input.orderId,
+      tenantId: input.tenantId,
+      action: "enviado",
+      payload: {
+        from: false,
+        to: true,
+        via: "shopee_board",
+        inventory: false,
+        summary: "Pedido enviado no quadro, sem baixa de estoque",
+      },
+    });
+  }
+  return { ok: true, enviado: true, already: marked.already };
 }
 
 export async function handleShopeeOnSupportMessage(

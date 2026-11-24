@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-11-22
+> **Última atualização:** 2026-11-24
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-24 | Anti-padrão: tratar toda mensagem do atendimento como ID da Shopee, ou marcar o quadro com `PATCH /enviado` | `supportMessageHasShopeeId` filtra antes de gravar. O botão do quadro chama `PATCH .../shopee-board-sent`, que usa `markOrderEnviadoWithoutInventory`. Salvar a mensagem igual ao padrão apaga `shopee_route_message` | `ensureOrderMarkedEnviado` continua no botão do card. A rota não grava `shipping_via` |
 | 2026-11-22 | Anti-padrão: aviso “Adicionado” fixo no rodapé, com z-index acima do drawer | `PharmaAddedNotice` some com o drawer aberto. Fechado, fica abaixo do header, dentro da safe-area. No celular é compacto e some em 2,8s; no desktop, em 4s. z-index 45, drawer 50 | Preço, checkout, API e o drawer abrindo ao adicionar pela tabela ou pelo card |
 | 2026-11-18 | Anti-padrão: no pedido dividido esconder Motoboy, Minas ou Santa Catarina porque não há pacote naquele depósito | Os três aparecem no card. Sem pacote, a pílula lê os produtos do pedido naquele depósito | **Marcar como Enviado** não cobra saldo de depósito sem pacote. Foz só com pacote da loja |
 | 2026-11-18 | Anti-padrão: pílula de estoque do pedido dividido ler o pedido inteiro em Foz | Cada pacote usa o próprio `inventoryPool` e os próprios itens | Pedido sem divisão segue `inventoryExitPool` ou o frete |
@@ -232,6 +233,7 @@ Código > memória > suposições.
 
 ## Anti-padrões (não reintroduzir)
 
+- Tratar conversa, comprovante ou CNPJ do atendimento como ID da Shopee. Só segue código com letra, número sozinho de 14 a 20 dígitos ou frase curta (“segue o id”, “id da compra”). O resto volta ao menu e não marca `id_invalido`. Não usar `PATCH /api/admin/orders/:id/enviado` no quadro Envio Shopee: esse caminho chama `ensureOrderMarkedEnviado` e baixa estoque. O botão branco usa `PATCH /api/admin/orders/:id/shopee-board-sent` e `markOrderEnviadoWithoutInventory`, sem WhatsApp. Não gravar `shipping_via` nesse clique. Salvar `shopee_route_message` igual ao texto padrão apaga a setting, em `tenant_settings`.
 - Gravar o ID da Rota Shopee em `tracking_code` ou `manual_tracking_code`, ou marcar enviado por `ensureOrderMarkedEnviado` nesse fluxo. O ID é `orders.shopee_order_id`. O enviado da rota não baixa estoque. O crédito não abre outra carteira: é uma linha `shopee_route_credit` em `customer_wallet_ledger`, com chave `shopee-route:{orderId}` e a data `shopee_wallet_credited_at`. O POST do n8n e o inbound exigem `N8N_SHOPEE_SECRET` no header `X-N8N-Shopee-Secret`. Sem o segredo o inbound fica 503. Não logar telefone, texto do cliente, URL com segredo nem SQL. Não juntar a frase inteira num ID: "241116ABCDEFGH ok" continua o código de 14 caracteres, sem o "ok". Se esse ID já está em outro pedido do mesmo telefone, a repetição volta nele (`ja_processado`) e não grava no pedido que ainda aguarda. O atendimento não faz POST em `/api/integrations/shopee-route/inbound`: chama `executeShopeeRouteInbound` com a loja do token. Não casa pedido de outra loja pelo telefone. O inbound do n8n continua sem esse recorte. Não roda essa gravação sem pedido aguardando naquele telefone. Exceção nessa parte não pode derrubar o menu.
 - Cotar ou criar envio EnvioEcom sem `accountId` quando a loja tem mais de uma conta, caindo na primeira (São Paulo). `pickWriteEnvioEcomAccount` responde `ACCOUNT_REQUIRED`. Uma conta configurada continua sem id. Não tratar HTTP 200 do `/shipping/create` como sucesso se não houver id ou código, se `results` vier vazio ou se o corpo tiver erro: isso é 502 `CREATE_REJECTED` e não grava. Não logar o token nem CPF, telefone, endereço ou nome nesse resumo.
 - Disparar a correção de entrega (`deliveryCorrection`) para filial, motoboy, retirada, telefone, e-mail, CEP de origem (`ORIGIN_CEP_REQUIRED`) ou erro de conta EnvioEcom. O fluxo vale só para a loja 1 (`tenant_loja1`, inclusive tenant nulo ou vazio) em CPF/CNPJ, CEP de destino e endereço. Não gravar a URL do n8n no código nem no seed: ela fica em `n8n_delivery_correction_webhook_url` ou no env `N8N_DELIVERY_CORRECTION_WEBHOOK_URL`. Não logar o token, o CPF, o telefone, o endereço nem o corpo do POST.
