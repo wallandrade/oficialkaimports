@@ -6,7 +6,7 @@ import { Copy, CheckCircle2, Clock, AlertCircle, MessageCircle, Loader2 } from "
 import { BrandLoader } from "@/components/BrandLoader";
 import { toast } from "sonner";
 import { useGetPixStatus, useGeneratePix } from "@workspace/api-client-react";
-import { fetchAndCacheSellerWhatsApp, makeWhatsAppLink, formatCurrency } from "@/lib/utils";
+import { formatCurrency, openSellerWhatsAppChat, prefetchActiveSellerWhatsApp } from "@/lib/utils";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -66,13 +66,9 @@ export default function PixPayment() {
     }
   }, [statusData, setLocation]);
 
-  // Pre-fetch seller WhatsApp if not already in session (e.g. page refresh)
+  // /pix/:id has no slug. Prefetch the seller saved from the link before the click.
   useEffect(() => {
-    const sellerCode =
-      sessionStorage.getItem("sellerCode") || localStorage.getItem("sellerCode");
-    if (sellerCode && !sessionStorage.getItem("sellerWhatsapp")) {
-      fetchAndCacheSellerWhatsApp(sellerCode);
-    }
+    void prefetchActiveSellerWhatsApp();
   }, []);
 
   useEffect(() => {
@@ -242,7 +238,7 @@ export default function PixPayment() {
       // Fall back to simple message
     }
 
-    window.open(makeWhatsAppLink(msg), "_blank", "noopener,noreferrer");
+    openSellerWhatsAppChat(msg, (message) => toast.error(message));
   };
 
   const isLoading = timeLeft === null;

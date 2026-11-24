@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { formatCurrency, fetchAndCacheSellerWhatsApp, getActiveWhatsApp } from "@/lib/utils";
+import { formatCurrency, fetchAndCacheSellerWhatsApp, openSellerWhatsAppChat, prefetchActiveSellerWhatsApp } from "@/lib/utils";
 import { getCheckoutSecurityHeaders } from "@/lib/checkout-security";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -113,8 +113,10 @@ function PaymentLinkInner() {
 
   useEffect(() => {
     if (sellerCode) {
-      fetchAndCacheSellerWhatsApp(sellerCode);
+      void fetchAndCacheSellerWhatsApp(sellerCode);
+      return;
     }
+    void prefetchActiveSellerWhatsApp();
   }, [sellerCode]);
 
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
@@ -315,7 +317,7 @@ function PaymentLinkInner() {
       `Pagamento PIX confirmado! Aguardo o retorno da equipe.`;
 
     const openWhatsApp = () => {
-      window.open(`https://wa.me/${getActiveWhatsApp()}?text=${encodeURIComponent(waMsg)}`, "_blank");
+      openSellerWhatsAppChat(waMsg, (message) => toast.error(message));
     };
 
     return (

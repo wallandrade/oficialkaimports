@@ -14,6 +14,7 @@ import { reportClientError } from "@/lib/client-error-reporting";
 import { shouldShowMaintenancePage } from "@/lib/maintenance";
 import { fetchPublicSiteSettings, loadStorefrontSettings } from "@/lib/public-settings";
 import { fallbackSiteName } from "@/lib/store-host";
+import { prefetchActiveSellerWhatsApp } from "@/lib/utils";
 import { isMainStoreFromSettings } from "@/lib/store-theme-preset";
 import { configuredStoreLogo, mainStoreShareImage } from "@/lib/store-logo";
 import StoreConfiguringPage from "@/pages/StoreConfiguringPage";
@@ -356,6 +357,11 @@ function AppInner() {
   useEffect(() => {
     captureReferralFromCurrentUrl();
   }, [location]);
+
+  useEffect(() => {
+    if (isAdmin) return;
+    void prefetchActiveSellerWhatsApp();
+  }, [location, isAdmin]);
 
   useEffect(() => {
     let active = true;

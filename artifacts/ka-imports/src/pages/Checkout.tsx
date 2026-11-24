@@ -21,7 +21,7 @@ import { getStoredReferralCode } from "@/lib/affiliate";
 import { clearStoredFlashOffer, flashCheckoutFields } from "@/lib/flash-offer";
 import { getCheckoutSecurityHeaders } from "@/lib/checkout-security";
 import { getCustomerAuthHeaders, getCustomerToken } from "@/lib/customer-auth";
-import { formatCurrency, getActiveWhatsApp } from "@/lib/utils";
+import { formatCurrency, resolveActiveSellerWhatsApp } from "@/lib/utils";
 import {
   fullInsuranceMixedRateLabel,
   insuranceLinesFromProducts,
@@ -651,31 +651,9 @@ export default function Checkout() {
   const normalizedSellerCode = String(sellerCode || "").trim().toLowerCase();
   const sellerHomeHref = normalizedSellerCode ? `/${encodeURIComponent(normalizedSellerCode)}` : "/";
 
-  const resolveSellerWhatsAppStrict = useCallback(async (): Promise<string | null> => {
-    const normalizedSeller = String(sellerCode || "").trim().toLowerCase();
-    if (!normalizedSeller) return getActiveWhatsApp();
-
-    try {
-      const res = await fetch(`${BASE}/api/sellers/${encodeURIComponent(normalizedSeller)}`);
-      if (res.ok) {
-        const data = (await res.json()) as { whatsapp?: string };
-        const whatsapp = String(data?.whatsapp || "").replace(/\D/g, "");
-        if (whatsapp) return whatsapp;
-      }
-    } catch {
-      // ignore and fall back below
-    }
-
-    const cachedWhatsapp = sessionStorage.getItem("sellerWhatsapp") || "";
-    const cachedSlug = (sessionStorage.getItem("sellerWhatsappSlug") || "").toLowerCase();
-    if (cachedWhatsapp && cachedSlug === normalizedSeller) {
-      const normalizedCached = cachedWhatsapp.replace(/\D/g, "");
-      if (normalizedCached) return normalizedCached;
-    }
-
-    // Fail closed to avoid routing customer to another seller.
-    return null;
-  }, [sellerCode]);
+  const resolveSellerWhatsAppStrict = useCallback((): Promise<string | null> => {
+    return resolveActiveSellerWhatsApp(normalizedSellerCode);
+  }, [normalizedSellerCode]);
 
   // Load shipping options from API
   useEffect(() => {
