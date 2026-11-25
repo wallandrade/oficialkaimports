@@ -6,7 +6,8 @@ import { useCart } from "@/store/use-cart";
 import { clearStoredFlashOffer } from "@/lib/flash-offer";
 import { MessageCircle, CheckCircle } from "lucide-react";
 import { motion } from "framer-motion";
-import { fetchAndCacheSellerWhatsApp, makeWhatsAppLink, formatCurrency } from "@/lib/utils";
+import { toast } from "sonner";
+import { formatCurrency, openSellerWhatsAppChat, prefetchActiveSellerWhatsApp } from "@/lib/utils";
 import { formatMotoboyHomePeriod, MOTOBOY_HOME_REMINDER } from "@/lib/motoboy-slot-hours";
 
 interface OrderInfo {
@@ -124,19 +125,16 @@ export default function Success() {
     localStorage.removeItem("successOrder");
   }, [clearCart]);
 
+  // /success has no slug. Prefetch the seller saved from the link before the click.
   useEffect(() => {
-    const sellerCode =
-      sessionStorage.getItem("sellerCode") || localStorage.getItem("sellerCode");
-    if (sellerCode && !sessionStorage.getItem("sellerWhatsapp")) {
-      fetchAndCacheSellerWhatsApp(sellerCode);
-    }
+    void prefetchActiveSellerWhatsApp();
   }, []);
 
   const handleTrackingClick = () => {
     const msg = orderInfo
       ? buildTrackingMessage(orderInfo)
       : `Olá! Gostaria de acompanhar meu pedido.`;
-    window.open(makeWhatsAppLink(msg), "_blank", "noopener,noreferrer");
+    openSellerWhatsAppChat(msg, (message) => toast.error(message));
   };
 
   return (

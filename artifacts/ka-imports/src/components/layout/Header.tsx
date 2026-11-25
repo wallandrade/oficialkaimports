@@ -2,14 +2,16 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { flushSync } from "react-dom";
 import { Link, useLocation, useSearch } from "wouter";
 import { ShoppingBag, Search, Menu, X, MessageCircle, Home, UserCircle2 } from "lucide-react";
+import { toast } from "sonner";
 import { getCustomerToken } from "@/lib/customer-auth";
 import { useCart } from "@/store/use-cart";
 import { Button } from "@/components/ui/button";
-import { formatCurrency, getActiveWhatsApp } from "@/lib/utils";
+import { formatCurrency, openSellerWhatsAppChat, prefetchActiveSellerWhatsApp } from "@/lib/utils";
 import { fetchPublicSiteSettings } from "@/lib/public-settings";
 import { fallbackSiteName } from "@/lib/store-host";
 import { resolveStoreThemePreset } from "@/lib/store-theme";
 import { pharmaCatalogHref, readPharmaFilters } from "@/lib/pharma-catalog-query";
+import { canonicalPharmaCategory, pharmaMenuCategories } from "@/lib/pharma-home-showcases";
 import { PharmaStoreChrome } from "@/components/layout/PharmaStoreChrome";
 import { PharmaLoginDialog } from "@/components/layout/PharmaLoginDialog";
 import { StoreWordmark } from "@/components/layout/StoreWordmark";
@@ -25,6 +27,8 @@ interface ProductSuggestion {
   promoPrice: number | null;
   promoEndsAt: string | null;
   image: string | null;
+  isActive?: boolean;
+  isSoldOut?: boolean;
 }
 
 function usePublicSiteSettings() {
@@ -249,7 +253,7 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
       const category = String(product.category || "").trim();
       if (category) unique.add(category);
     });
-    return Array.from(unique);
+    return pharmaMenuCategories(Array.from(unique), allProducts);
   }, [allProducts]);
 
   function handleSearch() {
@@ -289,7 +293,7 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
     setShowSuggestions(false);
     setLocation(pharmaCatalogHref(sellerHomeHref, {
       ...pharmaFilters,
-      categoria: category,
+      categoria: canonicalPharmaCategory(category),
       vitrine: category ? "" : pharmaFilters.vitrine,
     }));
   }
@@ -299,31 +303,12 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
     setSearchValue(pharmaFilters.q);
   }, [isPharma, pharmaFilters.q]);
 
-  async function openSupportWhatsApp() {
-    let number = getActiveWhatsApp();
+  useEffect(() => {
+    void prefetchActiveSellerWhatsApp();
+  }, [sellerSlug, location]);
 
-    if (sellerSlug) {
-      try {
-        const res = await fetch(`${BASE}/api/sellers/${encodeURIComponent(sellerSlug)}`);
-        if (res.ok) {
-          const data = (await res.json()) as { whatsapp?: string };
-          const sellerWhatsApp = String(data?.whatsapp || "").replace(/\D/g, "");
-          if (sellerWhatsApp) {
-            number = sellerWhatsApp;
-            sessionStorage.setItem("sellerWhatsapp", sellerWhatsApp);
-            sessionStorage.setItem("sellerWhatsappSlug", sellerSlug);
-          }
-        }
-      } catch {
-        // ignore and use current fallback number
-      }
-    }
-
-    window.open(
-      `https://wa.me/${number}?text=${encodeURIComponent("Olá, gostaria de suporte.")}`,
-      "_blank",
-      "noopener,noreferrer"
-    );
+  function openSupportWhatsApp() {
+    openSellerWhatsAppChat("Olá, gostaria de suporte.", (message) => toast.error(message));
   }
 
   // Open mobile search and auto-focus input in the same tap (iOS keyboard)
@@ -584,9 +569,9 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
 
               <button
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-green-50 text-green-700 font-medium transition-colors"
-                onClick={async () => {
+                onClick={() => {
                   setMenuOpen(false);
-                  await openSupportWhatsApp();
+                  openSupportWhatsApp();
                 }}
               >
                 <MessageCircle className="w-5 h-5" />

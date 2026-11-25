@@ -1,12 +1,13 @@
 # Segurança e performance — KA Imports
 
-> **Última atualização:** 2026-11-22
+> **Última atualização:** 2026-11-24
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-24 | Quadro Envio Shopee não avisa o cliente | `PATCH /api/admin/orders/:id/shopee-board-sent` não chama WhatsApp. O log de falha leva `orderId` e `code`, sem SQL, telefone ou texto | O atendimento continua sem gravar o texto. O `PATCH /enviado` do card segue igual |
 | 2026-11-22 | Log da moderação de grupo sem telefone nem texto | `whatsapp_group_moderation_log` guarda o id da mensagem, o id do grupo, 4 dígitos, o motivo e a ação. O console leva motivo, ação e 6 dígitos do grupo. A aba mostra `***` + 4 dígitos. A URL da Z-API não entra no log | A fila de envio continua com o texto só na tabela, mascarado na resposta |
 | 2026-11-17 | Fila de WhatsApp não devolve o texto nem o telefone inteiro | `GET /api/admin/whatsapp/outbound-queue` exige acesso global. A linha mostra origem, estado, tentativas e `***` + 4 dígitos. `last_error` é um código curto (`http_500`, `timeout`). O worker consulta a cada 60 s e segura `GET_LOCK` só durante um envio | O corpo da mensagem fica na tabela, para o worker reenviar. Não vai para o log |
 | 2026-11-16 | Texto da Rota Shopee no atendimento não vai para o log | A tentativa em `POST /api/whatsapp/support/inbound` não grava telefone, ID nem texto. Falha segue o menu e responde 200. Continua atrás do token do atendimento. Não abre rota nova | O inbound do n8n segue com `X-N8N-Shopee-Secret` |

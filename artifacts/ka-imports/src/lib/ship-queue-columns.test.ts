@@ -5,15 +5,23 @@ import {
   SHIP_QUEUE_COPY_HEADING,
   buildShipQueueCopyText,
   isMotoboyDashboardOrder,
+  isShopeeRouteCustomerNotified,
   isWaitingDashboardShipment,
+  shipQueueSellerLabel,
   splitShipQueueOrders,
   type ShipQueueColumnOrder,
 } from "./ship-queue-columns";
 
-function order(partial: ShipQueueColumnOrder & { id: string; clientName: string; orderNumber: number }): ShipQueueColumnOrder & {
+function order(partial: ShipQueueColumnOrder & {
   id: string;
   clientName: string;
   orderNumber: number;
+  shopeeRouteRequestedAt?: string | null;
+}): ShipQueueColumnOrder & {
+  id: string;
+  clientName: string;
+  orderNumber: number;
+  shopeeRouteRequestedAt?: string | null;
 } {
   return {
     status: "paid",
@@ -93,4 +101,36 @@ test("Envio Shopee fica na coluna da direita e o Copiar TXT de cada lado leva s�
   assert.equal(right.includes("Nome: Ana Lima"), false);
   assert.equal(right.includes("PEDIDO #KA-2803"), false);
   assert.equal(right.includes("PEDIDO #KA-2804"), false);
+});
+
+test("Card da fila mostra o slug do vendedor e some quando o pedido não tem seller", () => {
+  assert.equal(shipQueueSellerLabel("fulano"), "Vendedor: fulano");
+  assert.equal(shipQueueSellerLabel("  maria-silva  "), "Vendedor: maria-silva");
+  assert.equal(shipQueueSellerLabel(null), null);
+  assert.equal(shipQueueSellerLabel(undefined), null);
+  assert.equal(shipQueueSellerLabel(""), null);
+  assert.equal(shipQueueSellerLabel("   "), null);
+});
+
+test("Cliente avisado só quando a Rota Shopee já tem hora, e enviado sai do quadro", () => {
+  const waiting = order({ id: "wait", clientName: "Ana", orderNumber: 1, shopeeRouteRequestedAt: null });
+  const notified = order({
+    id: "told",
+    clientName: "Bruno",
+    orderNumber: 2,
+    shippingVia: "shopee",
+    shopeeRouteRequestedAt: "2026-11-23T18:00:00.000Z",
+  });
+  const blank = order({ id: "blank", clientName: "Carla", orderNumber: 3, shippingVia: "shopee", shopeeRouteRequestedAt: "  " });
+  const sent = order({ ...notified, id: "sent", clientName: "Diego", orderNumber: 4, enviado: true });
+  assert.equal(isShopeeRouteCustomerNotified(waiting), false);
+  assert.equal(isShopeeRouteCustomerNotified(notified), true);
+  assert.equal(isShopeeRouteCustomerNotified(blank), false);
+  assert.equal(isShopeeRouteCustomerNotified(sent), true);
+  assert.equal(isShopeeRouteCustomerNotified({ shopeeRouteRequestedAt: new Date("2026-11-23T18:00:00.000Z") }), true);
+  assert.equal(isShopeeRouteCustomerNotified({ shopeeRouteRequestedAt: new Date("invalid") }), false);
+  const visible = [waiting, notified, blank, sent].filter(isWaitingDashboardShipment);
+  const split = splitShipQueueOrders(visible.filter((row) => !isMotoboyDashboardOrder(row)));
+  assert.deepEqual(split.shopee.map((row) => row.id), ["told", "blank"]);
+  assert.equal(split.shopee.some((row) => row.id === "sent"), false);
 });

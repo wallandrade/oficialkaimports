@@ -1,69 +1,26 @@
 import { useEffect, useState } from "react";
 import { MessageCircle } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { getActiveWhatsApp } from "@/lib/utils";
+import { openSellerWhatsAppChat, prefetchActiveSellerWhatsApp } from "@/lib/utils";
 import { fetchPublicSiteSettings } from "@/lib/public-settings";
 import { fallbackSiteName } from "@/lib/store-host";
 import { isMainStoreFromSettings, resolveStoreThemePreset } from "@/lib/store-theme-preset";
 import { resolveStoreLogo } from "@/lib/store-logo";
 import { StoreWordmark } from "@/components/layout/StoreWordmark";
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-
-const RESERVED_FIRST_SEGMENTS = new Set([
-  "",
-  "admin",
-  "login",
-  "checkout",
-  "pix",
-  "success",
-  "r",
-  "pagamento",
-  "payment-link",
-  "kyc",
-  "rifas",
-  "produto",
-  "frete",
-]);
-
-function getSellerSlugFromPathname(pathname: string): string | null {
-  const seg = pathname.replace(/^\/+/, "").split("/")[0]?.toLowerCase() ?? "";
-  if (!seg || RESERVED_FIRST_SEGMENTS.has(seg)) return null;
-  return seg;
-}
-
-async function resolveSupportWhatsApp(): Promise<string> {
-  const slug = getSellerSlugFromPathname(window.location.pathname);
-  if (!slug) return getActiveWhatsApp();
-
-  try {
-    const res = await fetch(`${BASE}/api/sellers/${encodeURIComponent(slug)}`);
-    if (res.ok) {
-      const data = (await res.json()) as { whatsapp?: string };
-      const whatsapp = (data?.whatsapp ?? "").replace(/\D/g, "");
-      if (whatsapp) {
-        try { sessionStorage.setItem("sellerWhatsapp", whatsapp); } catch {}
-        try { sessionStorage.setItem("sellerWhatsappSlug", slug); } catch {}
-        return whatsapp;
-      }
-    }
-  } catch {
-    // ignore and fallback below
-  }
-
-  return getActiveWhatsApp();
-}
-
-async function openWhatsApp(text: string) {
-  const number = await resolveSupportWhatsApp();
-  const url = `https://wa.me/${number}?text=${encodeURIComponent(text)}`;
-  window.open(url, "_blank", "noopener,noreferrer");
+function openWhatsApp(text: string) {
+  openSellerWhatsAppChat(text, (message) => toast.error(message));
 }
 
 export function Footer() {
   const [siteSettings, setSiteSettings] = useState<Record<string, string>>(() => {
     try { return JSON.parse(localStorage.getItem("siteSettings") || "{}"); } catch { return {}; }
   });
+
+  useEffect(() => {
+    void prefetchActiveSellerWhatsApp();
+  }, []);
 
   useEffect(() => {
     fetchPublicSiteSettings()

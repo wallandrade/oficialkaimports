@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { clearCustomerToken, fetchCustomerProfile, getCustomerAuthHeaders } from "@/lib/customer-auth";
-import { formatCurrency, formatDateBR, formatDateOnlyBR, getActiveWhatsApp } from "@/lib/utils";
+import { formatCurrency, formatDateBR, formatDateOnlyBR, openSellerWhatsAppChat, prefetchActiveSellerWhatsApp } from "@/lib/utils";
 import { formatMotoboyHomePeriod, MOTOBOY_HOME_REMINDER } from "@/lib/motoboy-slot-hours";
 import {
   collapseCustomerPackagesForOrder,
@@ -360,6 +360,10 @@ export default function CustomerOrders() {
   const [loadingDetails, setLoadingDetails] = useState<string | null>(null);
   const [refreshingTrackingId, setRefreshingTrackingId] = useState<string | null>(null);
   const [unreadObservationIds, setUnreadObservationIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    void prefetchActiveSellerWhatsApp();
+  }, []);
 
   const affiliateSummary = useMemo(() => {
     return affiliateData?.summary || {
@@ -955,11 +959,9 @@ export default function CustomerOrders() {
                               size="sm"
                               className="rounded-lg text-xs"
                               onClick={() => {
-                                const phone = getActiveWhatsApp();
-                                window.open(
-                                  `https://wa.me/${phone}?text=${encodeURIComponent(`Olá! Gostaria de informações sobre o pedido #${displayOrderId}`)}`,
-                                  "_blank",
-                                  "noopener,noreferrer"
+                                openSellerWhatsAppChat(
+                                  `Olá! Gostaria de informações sobre o pedido #${displayOrderId}`,
+                                  (message) => toast.error(message),
                                 );
                               }}
                             >

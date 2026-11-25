@@ -8,6 +8,7 @@ import {
   formatBrl,
   normalizeShopeeOrderId,
   normalizeShopeeProductUrl,
+  numericShopeeIdIsTheReply,
   parseShopeeRouteMessage,
   phoneMatchKeys,
   phonesMatch,
@@ -17,6 +18,7 @@ import {
   shopeeRouteCustomerReply,
   selectShopeeRouteProducts,
   summarizeOrderProducts,
+  supportMessageHasShopeeId,
 } from "./shopee-route-core";
 
 test("texto padrão da Rota Shopee traz o link e o resumo", () => {
@@ -71,6 +73,19 @@ test("ID da Shopee aceita o código da compra e recusa telefone ou frase", () =>
   assert.deepEqual(extractShopeeOrderId("meu zap 5511999998888"), { id: null, motivo: "id_invalido" });
   assert.equal(extractShopeeOrderId("241116ABCDEFGH e 241117ZYXWVU12").motivo, "id_ambiguo");
   assert.equal(extractShopeeOrderId("").motivo, "id_invalido");
+});
+
+test("atendimento só trata mensagem que parece ID da Shopee", () => {
+  assert.equal(supportMessageHasShopeeId("oi, cadê meu pedido?"), false);
+  assert.equal(supportMessageHasShopeeId("paguei no cartão 4111111111111111 ontem"), false);
+  assert.equal(supportMessageHasShopeeId("cnpj 12345678000195 da empresa"), false);
+  assert.equal(supportMessageHasShopeeId("241116123456789012"), true);
+  assert.equal(numericShopeeIdIsTheReply("id 241116123456789012", "241116123456789012"), true);
+  assert.equal(supportMessageHasShopeeId("segue o id 241116123456789012"), true);
+  assert.equal(supportMessageHasShopeeId("id da compra 241116123456789012"), true);
+  assert.equal(supportMessageHasShopeeId("241116ABCDEFGH"), true);
+  assert.equal(supportMessageHasShopeeId("segue o id 241116ABCDEFGH obrigado"), true);
+  assert.equal(supportMessageHasShopeeId("241116ABCDEFGH e 241117ZYXWVU12"), true);
 });
 
 test("telefone da loja casa com e sem 55 e com o nono dígito", () => {
