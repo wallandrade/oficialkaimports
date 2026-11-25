@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-11-24
+> **Última atualização:** 2026-11-25
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-25 | Kit virtual só no front da loja 1 | `buildHomeHero` e `buildPharmaShowcases` leem o catálogo já carregado. `?categoria=kit` filtra pelo nome. Sem coluna, sem rota e sem mudança em `GET /api/products` | Categorias reais, os outros presets e o banco |
 | 2026-11-24 | Quadro Envio Shopee sem coluna nova | O verde lê `orders.shopee_route_requested_at`, que `mapOrder` do admin já devolve. O botão é `PATCH /api/admin/orders/:id/shopee-board-sent` | Sem migração. `shipping_via` continua só na seta |
 | 2026-11-18 | Coluna `label_stock_waived_at` em `orders` e `order_shipments` | Schema Drizzle e o boot (`runtime-schema`: `ALTER` se faltar; tabela nova de pacote já nasce com a coluna). Marca `saiu_sem_abater` da lista de etiquetas | `inventory_exited_pools` e `inventory_reserved` continuam a baixa |
 | 2026-11-17 | Tabela `whatsapp_outbound_queue` | Schema Drizzle e o boot (`runtime-schema` cria se não existir). Job `startWhatsappOutboundJob` a cada 60 s, depois do schema. `GET /api/admin/whatsapp/outbound-queue` para quem tem acesso global; o admin principal vê todas as lojas | Não guarda token nem o texto na resposta. Grupos continuam em `whatsapp_group_send_log` |

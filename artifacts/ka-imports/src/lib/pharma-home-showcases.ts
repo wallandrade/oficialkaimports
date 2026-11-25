@@ -5,6 +5,7 @@ export type PharmaShowcaseProduct = {
   name: string;
   category?: string;
   brand?: string | null;
+  isActive?: boolean;
   isSoldOut?: boolean;
   isLaunch?: boolean;
   sortOrder?: number;
@@ -12,7 +13,7 @@ export type PharmaShowcaseProduct = {
   soldQty?: number;
 };
 
-export type PharmaShowcaseId = "tirzepatida" | "retatrutida" | "vendidos" | "lancamentos" | "peptideo";
+export type PharmaShowcaseId = "tirzepatida" | "retatrutida" | "kit" | "vendidos" | "lancamentos" | "peptideo";
 
 export type PharmaShowcaseSection<T extends PharmaShowcaseProduct = PharmaShowcaseProduct> = {
   id: PharmaShowcaseId;
@@ -27,10 +28,15 @@ export type PharmaShowcaseSection<T extends PharmaShowcaseProduct = PharmaShowca
 const SHOWCASE_LIMITS: Record<PharmaShowcaseId, number> = {
   tirzepatida: 12,
   retatrutida: 4,
+  kit: 12,
   vendidos: 8,
   lancamentos: 4,
   peptideo: 12,
 };
+
+/** Chave virtual da URL. Não é valor de `products.category`. */
+export const KIT_FILTER_KEY = "kit";
+export const KIT_CATEGORY_LABEL = "Kit";
 
 export function normalizeCategoryKey(value: unknown): string {
   return String(value || "")
@@ -54,6 +60,31 @@ export function isPeptideCategoryKey(category: unknown): boolean {
   return normalizeCategoryKey(category) === "peptideo";
 }
 
+export function isKitCategoryKey(value: unknown): boolean {
+  return normalizeCategoryKey(value) === KIT_FILTER_KEY;
+}
+
+/** Nome contém "kit", sem acento e sem diferença de maiúsculas. */
+export function productNameIsKit(name: unknown): boolean {
+  return normalizeCategoryKey(name).includes(KIT_FILTER_KEY);
+}
+
+/** Ativo, à venda, e o nome contém "kit". Esgotado e inativo ficam de fora da vitrine. */
+export function isListedKitProduct(product: { name?: string; isActive?: boolean; isSoldOut?: boolean }): boolean {
+  if (product.isActive === false) return false;
+  if (product.isSoldOut === true) return false;
+  return productNameIsKit(product.name);
+}
+
+export function pharmaCategoryLabel(value: string): string {
+  return isKitCategoryKey(value) ? KIT_CATEGORY_LABEL : value;
+}
+
+export function canonicalPharmaCategory(value: string): string {
+  const trimmed = String(value || "").trim();
+  return isKitCategoryKey(trimmed) ? KIT_FILTER_KEY : trimmed;
+}
+
 export function pharmaCategoryMatches(productCategory: unknown, filterCategory: unknown): boolean {
   const filter = String(filterCategory || "").trim();
   if (!filter) return true;
@@ -63,9 +94,34 @@ export function pharmaCategoryMatches(productCategory: unknown, filterCategory: 
   return String(productCategory || "") === filter;
 }
 
+export function productMatchesPharmaCategory(
+  product: { name?: string; category?: string; isActive?: boolean },
+  filterCategory: unknown,
+): boolean {
+  const filter = String(filterCategory || "").trim();
+  if (!filter) return true;
+  if (isKitCategoryKey(filter)) {
+    if (product.isActive === false) return false;
+    return productNameIsKit(product.name);
+  }
+  return pharmaCategoryMatches(product.category, filter);
+}
+
 export function pharmaCategorySelected(menuCategory: string, filterCategory: string): boolean {
   if (!filterCategory.trim()) return false;
+  if (isKitCategoryKey(filterCategory) || isKitCategoryKey(menuCategory)) {
+    return isKitCategoryKey(filterCategory) && isKitCategoryKey(menuCategory);
+  }
   return pharmaCategoryMatches(menuCategory, filterCategory);
+}
+
+export function pharmaMenuCategories<T extends { name?: string; isActive?: boolean; isSoldOut?: boolean }>(
+  categories: string[],
+  products: T[],
+): string[] {
+  if (categories.some((category) => isKitCategoryKey(category))) return categories;
+  if (!products.some((product) => isListedKitProduct(product))) return categories;
+  return [KIT_CATEGORY_LABEL, ...categories];
 }
 
 export function isPharmaShowcaseHome(filters: PharmaCatalogFilters, page: number): boolean {
@@ -171,6 +227,23 @@ function inStock<T extends PharmaShowcaseProduct>(products: T[]): T[] {
   return products.filter((product) => product.isSoldOut !== true);
 }
 
+function kitSection<T extends PharmaShowcaseProduct>(products: T[]): PharmaShowcaseSection<T> | null {
+  const visible = products
+    .filter((product) => isListedKitProduct(product))
+    .sort((a, b) => comparePharmaCategory(a, b, false))
+    .slice(0, SHOWCASE_LIMITS.kit);
+  if (visible.length === 0) return null;
+  return {
+    id: "kit",
+    title: KIT_CATEGORY_LABEL,
+    actionLabel: "Ver todos",
+    ariaLabel: "Ver todos de Kit",
+    categoria: KIT_FILTER_KEY,
+    vitrine: "",
+    products: visible,
+  };
+}
+
 function categorySection<T extends PharmaShowcaseProduct>(
   id: "tirzepatida" | "retatrutida" | "peptideo",
   products: T[],
@@ -210,6 +283,9 @@ export function buildPharmaShowcases<T extends PharmaShowcaseProduct>(products: 
     "Retatrutida",
   );
   if (retatrutida) sections.push(retatrutida);
+
+  const kit = kitSection(products);
+  if (kit) sections.push(kit);
 
   const vendidos = inStock(products)
     .sort(comparePharmaSoldQty)

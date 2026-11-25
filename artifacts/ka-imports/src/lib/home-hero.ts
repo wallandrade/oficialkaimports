@@ -1,6 +1,13 @@
 import type { PharmaCatalogFilters } from "./pharma-catalog-query";
 import { pharmaCatalogHref, readPharmaFilters } from "./pharma-catalog-query";
-import { isPharmaShowcaseHome, normalizeCategoryKey } from "./pharma-home-showcases";
+import {
+  isKitCategoryKey,
+  isListedKitProduct,
+  isPharmaShowcaseHome,
+  KIT_CATEGORY_LABEL,
+  KIT_FILTER_KEY,
+  normalizeCategoryKey,
+} from "./pharma-home-showcases";
 import { compareCatalogSales, type CatalogSalesProduct } from "./catalog-sales";
 
 /** Produto do catálogo público. Campos extras vêm no JSON mesmo fora do tipo gerado. */
@@ -115,6 +122,51 @@ function cardFor(category: string, products: HomeHeroProduct[], cover?: HomeHero
   };
 }
 
+const MAX_CATEGORY_CARDS = 1 + MAX_SMALL_CARDS;
+
+/** Card virtual. A categoria do produto não muda; o clique usa `?categoria=kit`. */
+function kitHeroCard(products: HomeHeroProduct[]): HomeHeroCard | null {
+  const available = products.filter((product) => isListedKitProduct(product));
+  const withImage = available.filter((product) => usableImage(product.image)).sort(compareCatalogSales);
+  const chosen = withImage[0];
+  if (!chosen) return null;
+  const prices = available
+    .map((product) => homeHeroSalePrice(product))
+    .filter((price): price is number => price != null);
+  return {
+    category: KIT_CATEGORY_LABEL,
+    image: usableImage(chosen.image),
+    imageAlt: String(chosen.name || KIT_CATEGORY_LABEL),
+    fromPrice: prices.length > 0 ? Math.min(...prices) : null,
+  };
+}
+
+function withKitCard(cards: HomeHeroCard[], kit: HomeHeroCard | null): HomeHeroCard[] {
+  if (!kit) return cards;
+  const room = cards.length >= MAX_CATEGORY_CARDS ? cards.slice(0, MAX_CATEGORY_CARDS - 1) : cards;
+  return [...room, kit];
+}
+
+/** Mantém os cards pequenos em número par. O equilíbrio tira outra categoria, não o Kit. */
+function balanceCategoryCards(cards: HomeHeroCard[]): HomeHeroCard[] {
+  const next = [...cards];
+  while (next.length > 2 && (next.length - 1) % 2 === 1) {
+    let removeAt = next.length - 1;
+    if (isKitCategoryKey(next[removeAt]?.category)) {
+      removeAt = -1;
+      for (let index = next.length - 1; index >= 0; index -= 1) {
+        if (!isKitCategoryKey(next[index]?.category)) {
+          removeAt = index;
+          break;
+        }
+      }
+      if (removeAt === -1) break;
+    }
+    next.splice(removeAt, 1);
+  }
+  return next;
+}
+
 /**
  * Hero da home a partir do catálogo já carregado (o da loja do domínio).
  * O destaque prefere Tirzepatida ou Retatrutida (também Tirzepatide/Retatrutide).
@@ -122,6 +174,8 @@ function cardFor(category: string, products: HomeHeroProduct[], cover?: HomeHero
  * Empate segue `compareCatalogSales`. Sem nenhuma das duas à venda com foto,
  * cai no mais vendido de qualquer categoria. O título visível é a categoria desse produto.
  * "A partir de" é o menor preço de 1 unidade dos itens à venda dessa categoria.
+ * Se existir kit à venda com foto, um card Kit ocupa uma das 5 vagas da fileira
+ * (largo + até 4 pequenos). Sem kit à venda, a fileira segue só as categorias.
  */
 export function buildHomeHero(products: HomeHeroProduct[], categoryOrder: string[] = []): HomeHeroModel | null {
   const groups = new Map<string, HomeHeroProduct[]>();
@@ -145,7 +199,7 @@ export function buildHomeHero(products: HomeHeroProduct[], categoryOrder: string
   if (!heroCard) return null;
 
   const rest = orderCategories(
-    [...groups.keys()].filter((category) => category !== heroCategory),
+    [...groups.keys()].filter((category) => category !== heroCategory && !isKitCategoryKey(category)),
     categoryOrder,
   );
   const cards: HomeHeroCard[] = [];
@@ -153,11 +207,9 @@ export function buildHomeHero(products: HomeHeroProduct[], categoryOrder: string
     const card = cardFor(category, groups.get(category) ?? []);
     if (!card) continue;
     cards.push(card);
-    if (cards.length >= 1 + MAX_SMALL_CARDS) break;
+    if (cards.length >= MAX_CATEGORY_CARDS) break;
   }
-  if (cards.length > 2 && (cards.length - 1) % 2 === 1) cards.pop();
-
-  const [wide, ...small] = cards;
+  const [wide, ...small] = balanceCategoryCards(withKitCard(cards, kitHeroCard(products)));
   return {
     hero: {
       ...heroCard,
@@ -188,7 +240,8 @@ export function homeHeroCategoryHref(options: {
   sellerSlug?: string;
   base?: string;
 }): string {
-  const category = String(options.category || "").trim();
+  const rawCategory = String(options.category || "").trim();
+  const category = options.mode === "pharma" && isKitCategoryKey(rawCategory) ? KIT_FILTER_KEY : rawCategory;
   if (options.mode === "pharma") {
     const filters: PharmaCatalogFilters = {
       q: "",

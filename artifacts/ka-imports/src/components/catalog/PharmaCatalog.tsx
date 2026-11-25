@@ -6,13 +6,16 @@ import { pharmaCatalogHref, readPharmaFilters, type PharmaCatalogFilters, type P
 import { sortCatalogProducts } from "@/lib/catalog-sales";
 import {
   buildPharmaShowcases,
+  canonicalPharmaCategory,
   comparePharmaCategory,
   comparePharmaLaunches,
   comparePharmaSoldQty,
   isPeptideCategoryKey,
   isPharmaShowcaseHome,
-  pharmaCategoryMatches,
+  pharmaCategoryLabel,
   pharmaCategorySelected,
+  pharmaMenuCategories,
+  productMatchesPharmaCategory,
 } from "@/lib/pharma-home-showcases";
 import { Check, ChevronDown, Search, SlidersHorizontal, X } from "lucide-react";
 import { BrandLoader } from "@/components/BrandLoader";
@@ -30,6 +33,7 @@ type OfferProduct = Product & {
   brand?: string | null;
   bulkDiscountEnabled?: boolean;
   bulkDiscountTiers?: unknown;
+  isActive?: boolean;
   isLaunch?: boolean;
   isSoldOut?: boolean;
   soldQty?: number;
@@ -54,7 +58,7 @@ function matchesFilters(product: OfferProduct, filters: PharmaCatalogFilters): b
     const description = String(product.description || "").toLowerCase();
     if (!name.includes(q) && !description.includes(q)) return false;
   }
-  if (filters.categoria && !pharmaCategoryMatches(product.category, filters.categoria)) return false;
+  if (filters.categoria && !productMatchesPharmaCategory(product, filters.categoria)) return false;
   if (filters.vitrine === "lancamentos" && product.isLaunch !== true) return false;
   if (filters.marca && productBrand(product).toLowerCase() !== filters.marca.toLowerCase()) return false;
   if (filters.promo && !productHasOffer(product)) return false;
@@ -185,16 +189,17 @@ export function PharmaCatalog({
   };
   const showHome = isPharmaShowcaseHome(applied, page);
   const showcases = useMemo(() => (showHome ? buildPharmaShowcases(catalog) : []), [showHome, catalog]);
+  const menuCategories = useMemo(() => pharmaMenuCategories(categories, catalog), [categories, catalog]);
   const sortLabel = SORT_OPTIONS.find((option) => option.id === applied.ordem)?.label || "Relevância";
   const draftProducts = catalog.filter((product) => matchesFilters(product, {
     ...draftFilters,
     vitrine: draftCategory.trim() ? "" : applied.vitrine,
   }));
   const promoScope = catalog.filter((product) => {
-    if (draftCategory && !pharmaCategoryMatches(product.category, draftCategory)) return false;
+    if (draftCategory && !productMatchesPharmaCategory(product, draftCategory)) return false;
     return productHasOffer(product);
   });
-  const brandSource = catalog.filter((product) => !draftCategory || pharmaCategoryMatches(product.category, draftCategory));
+  const brandSource = catalog.filter((product) => !draftCategory || productMatchesPharmaCategory(product, draftCategory));
   const brandOptions = uniqueBrands(brandSource).filter((brand) => {
     const query = brandQuery.trim().toLowerCase();
     return !query || brand.toLowerCase().includes(query);
@@ -203,7 +208,10 @@ export function PharmaCatalog({
   const activeFilterCount = [applied.categoria, applied.marca, applied.promo ? "1" : "", applied.vitrine].filter(Boolean).length;
 
   function go(next: PharmaCatalogFilters) {
-    setLocation(pharmaCatalogHref(homeHref, next));
+    setLocation(pharmaCatalogHref(homeHref, {
+      ...next,
+      categoria: canonicalPharmaCategory(next.categoria),
+    }));
   }
 
   function openSheet() {
@@ -283,7 +291,7 @@ export function PharmaCatalog({
           <div className="mb-3 flex flex-wrap gap-2">
             {applied.categoria && (
               <button type="button" onClick={() => go({ ...applied, categoria: "" })} className="inline-flex items-center gap-1 rounded-full bg-[var(--pharma-green-soft,#e8f8ee)] px-3 py-1 text-sm font-medium text-[var(--pharma-green-ink,#166534)]">
-                {applied.categoria}
+                {pharmaCategoryLabel(applied.categoria)}
                 <X className="h-3.5 w-3.5" />
               </button>
             )}
@@ -483,7 +491,7 @@ export function PharmaCatalog({
               >
                 Todas
               </button>
-              {categories.map((category) => {
+              {menuCategories.map((category) => {
                 const selected = pharmaCategorySelected(category, draftCategory);
                 return (
                   <button
@@ -502,7 +510,7 @@ export function PharmaCatalog({
             </div>
 
             <p className="mb-2 text-sm font-semibold text-neutral-800">
-              {draftCategory ? `Marcas em ${draftCategory}` : "Marcas"}
+              {draftCategory ? `Marcas em ${pharmaCategoryLabel(draftCategory)}` : "Marcas"}
             </p>
             <div className="relative mb-3">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />

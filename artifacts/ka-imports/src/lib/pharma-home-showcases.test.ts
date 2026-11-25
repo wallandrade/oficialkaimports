@@ -4,10 +4,14 @@ import test from "node:test";
 import { pharmaCatalogHref, readPharmaFilters } from "./pharma-catalog-query";
 import {
   buildPharmaShowcases,
+  canonicalPharmaCategory,
   comparePharmaCategory,
   comparePharmaLaunches,
   isPharmaShowcaseHome,
   pharmaCategoryMatches,
+  pharmaCategorySelected,
+  pharmaMenuCategories,
+  productMatchesPharmaCategory,
   type PharmaShowcaseProduct,
 } from "./pharma-home-showcases";
 
@@ -100,6 +104,90 @@ test("home limpa corta cinco blocos e esgota some da vitrine", () => {
   assert.deepEqual(sections[3]?.products.map((product) => product.id), ["launch-new", "launch-old"]);
   assert.equal(sections[4]?.products.some((product) => product.id === "launch-old"), true);
   assert.equal(sections[4]?.products.some((product) => product.id === "pep"), true);
+});
+
+test("kit entra depois da retatrutida e o produto continua na categoria real", () => {
+  const products: PharmaShowcaseProduct[] = [
+    item({ id: "tirze", name: "Tirze pura", category: "Tirzepatida", soldQty: 4 }),
+    item({ id: "kit-tirze", name: "Kit Tirzepatida 30mg", category: "Tirzepatida", soldQty: 3, sortOrder: 1 }),
+    item({ id: "reta", name: "Reta", category: "Retatrutide", soldQty: 2 }),
+    item({ id: "kit-pep", name: "KIT peptídeo", category: "Peptídeo", brand: "Zeta", soldQty: 8 }),
+    item({ id: "kit-med", name: "kít medicamento", category: "Medicamento", soldQty: 1 }),
+    item({ id: "kit-out", name: "Kit esgotado", category: "Medicamento", isSoldOut: true, soldQty: 99 }),
+    item({ id: "kit-off", name: "Kit inativo", category: "Medicamento", isActive: false, soldQty: 50 }),
+    item({ id: "plain", name: "Ampola", category: "Medicamento", soldQty: 7 }),
+    item({ id: "agua", name: "Agua", category: "Água", soldQty: 40 }),
+  ];
+
+  const sections = buildPharmaShowcases(products);
+  assert.deepEqual(sections.map((section) => section.id), ["tirzepatida", "retatrutida", "kit", "vendidos", "peptideo"]);
+  const tirze = sections.find((section) => section.id === "tirzepatida");
+  assert.equal(tirze?.products.some((product) => product.id === "kit-tirze"), true);
+  assert.equal(tirze?.products.some((product) => product.id === "tirze"), true);
+  const kit = sections.find((section) => section.id === "kit");
+  assert.equal(kit?.title, "Kit");
+  assert.equal(kit?.categoria, "kit");
+  assert.equal(kit?.actionLabel, "Ver todos");
+  assert.equal(kit?.ariaLabel, "Ver todos de Kit");
+  assert.deepEqual(kit?.products.map((product) => product.id), ["kit-tirze", "kit-pep", "kit-med"]);
+  assert.equal(sections.find((section) => section.id === "peptideo")?.products.some((product) => product.id === "kit-pep"), true);
+  assert.equal(sections.find((section) => section.id === "vendidos")?.products.some((product) => product.id === "kit-out"), false);
+  assert.equal(pharmaCatalogHref("/", { ...cleanFilters, categoria: kit?.categoria || "" }), "/?categoria=kit");
+});
+
+test("vitrine de kit corta em 12 e some sem produto à venda", () => {
+  const kits = Array.from({ length: 13 }, (_, index) => item({
+    id: `kit-${index}`,
+    name: `Kit ${index}`,
+    category: "Medicamento",
+    soldQty: 13 - index,
+  }));
+  const sections = buildPharmaShowcases([
+    ...kits,
+    item({ id: "agua", name: "Agua", category: "Água", soldQty: 1 }),
+  ]);
+  const kit = sections.find((section) => section.id === "kit");
+  assert.equal(kit?.products.length, 12);
+  assert.equal(kit?.products[0]?.id, "kit-0");
+  assert.equal(kit?.products.some((product) => product.id === "kit-12"), false);
+  assert.deepEqual(sections.map((section) => section.id), ["kit", "vendidos"]);
+
+  const hidden = buildPharmaShowcases([
+    item({ id: "out", name: "Kit esgotado", category: "Medicamento", isSoldOut: true, soldQty: 4 }),
+    item({ id: "off", name: "Kit inativo", category: "Medicamento", isActive: false, soldQty: 3 }),
+    item({ id: "plain", name: "Ampola", category: "Medicamento", soldQty: 2 }),
+  ]);
+  assert.equal(hidden.some((section) => section.id === "kit"), false);
+});
+
+test("filtro kit é virtual e o menu só ganha Kit com produto à venda", () => {
+  assert.equal(productMatchesPharmaCategory({ name: "Kit Ampola", category: "Medicamento" }, "kit"), true);
+  assert.equal(productMatchesPharmaCategory({ name: "Kit Ampola", category: "Medicamento" }, "Medicamento"), true);
+  assert.equal(productMatchesPharmaCategory({ name: "  KÍT Alpha  ", category: "Peptídeo" }, "KIT"), true);
+  assert.equal(productMatchesPharmaCategory({ name: "Ampola", category: "Medicamento" }, "kit"), false);
+  assert.equal(productMatchesPharmaCategory({ name: "Kit Ampola", category: "Medicamento", isActive: false }, "kit"), false);
+  assert.equal(productMatchesPharmaCategory(item({ id: "sold", name: "Kit esgotado", isSoldOut: true }), "kit"), true);
+  assert.equal(productMatchesPharmaCategory({ name: "Tirze", category: "Tirzepatída" }, "Tirzepatida"), true);
+  assert.equal(pharmaCategorySelected("Kit", "kit"), true);
+  assert.equal(pharmaCategorySelected("Água", "kit"), false);
+  assert.equal(pharmaCategorySelected("Água", "Água"), true);
+  assert.equal(canonicalPharmaCategory(" Kit "), "kit");
+  assert.equal(canonicalPharmaCategory(" Tirzepatida "), "Tirzepatida");
+
+  const categories = ["Tirzepatida", "Peptídeo", "Medicamento"];
+  assert.deepEqual(pharmaMenuCategories(categories, [item({ id: "a", name: "Ampola" })]), categories);
+  assert.deepEqual(
+    pharmaMenuCategories(categories, [item({ id: "k", name: "Kit promo", category: "Tirzepatida" })]),
+    ["Kit", ...categories],
+  );
+  assert.deepEqual(
+    pharmaMenuCategories(categories, [item({ id: "out", name: "Kit esgotado", isSoldOut: true })]),
+    categories,
+  );
+  assert.deepEqual(
+    pharmaMenuCategories(["Tirzepatida", "Kit"], [item({ id: "k", name: "Kit promo" })]),
+    ["Tirzepatida", "Kit"],
+  );
 });
 
 test("secao sem produto em estoque some", () => {
