@@ -11,6 +11,7 @@ import { fetchPublicSiteSettings } from "@/lib/public-settings";
 import { fallbackSiteName } from "@/lib/store-host";
 import { resolveStoreThemePreset } from "@/lib/store-theme";
 import { pharmaCatalogHref, readPharmaFilters } from "@/lib/pharma-catalog-query";
+import { canonicalPharmaCategory, pharmaMenuCategories } from "@/lib/pharma-home-showcases";
 import { PharmaStoreChrome } from "@/components/layout/PharmaStoreChrome";
 import { PharmaLoginDialog } from "@/components/layout/PharmaLoginDialog";
 import { StoreWordmark } from "@/components/layout/StoreWordmark";
@@ -26,6 +27,8 @@ interface ProductSuggestion {
   promoPrice: number | null;
   promoEndsAt: string | null;
   image: string | null;
+  isActive?: boolean;
+  isSoldOut?: boolean;
 }
 
 function usePublicSiteSettings() {
@@ -250,7 +253,7 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
       const category = String(product.category || "").trim();
       if (category) unique.add(category);
     });
-    return Array.from(unique);
+    return pharmaMenuCategories(Array.from(unique), allProducts);
   }, [allProducts]);
 
   function handleSearch() {
@@ -290,7 +293,7 @@ export function Header({ minimal = false }: { minimal?: boolean }) {
     setShowSuggestions(false);
     setLocation(pharmaCatalogHref(sellerHomeHref, {
       ...pharmaFilters,
-      categoria: category,
+      categoria: canonicalPharmaCategory(category),
       vitrine: category ? "" : pharmaFilters.vitrine,
     }));
   }

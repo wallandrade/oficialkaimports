@@ -48,7 +48,10 @@ test("destaque prefere Tirzepatida ou Retatrutida mesmo se outra categoria vende
   assert.equal(model?.hero.subtitle, "mais vendido");
   assert.equal(model?.hero.fromPrice, 220);
   assert.equal(model?.wide?.category, "Água");
-  assert.deepEqual(model?.small.map((card) => card.category), ["Retatrutide", "Peptideo"]);
+  // "Kit peptídeo" vira o card Kit. Peptideo sai para os pequenos continuarem em número par.
+  assert.deepEqual(model?.small.map((card) => card.category), ["Retatrutide", "Kit"]);
+  assert.equal(model?.small.find((card) => card.category === "Kit")?.fromPrice, 320);
+  assert.equal(model?.small.find((card) => card.category === "Kit")?.imageAlt, "Kit peptídeo");
 });
 
 test("grafia sem acento, maiúsculas e Tirzepatide/Retatrutide entram na mesma escolha", () => {
@@ -198,6 +201,7 @@ test("hero só na home limpa", () => {
   assert.equal(shouldShowHomeHero({ pharma: true, search: "" }), true);
   assert.equal(shouldShowHomeHero({ pharma: true, search: "?q=agua" }), false);
   assert.equal(shouldShowHomeHero({ pharma: true, search: "?categoria=Botox" }), false);
+  assert.equal(shouldShowHomeHero({ pharma: true, search: "?categoria=kit" }), false);
   assert.equal(shouldShowHomeHero({ pharma: true, search: "?marca=Veltrane" }), false);
   assert.equal(shouldShowHomeHero({ pharma: true, search: "?promo=1" }), false);
   assert.equal(shouldShowHomeHero({ pharma: true, search: "?vitrine=vendidos" }), false);
@@ -209,10 +213,102 @@ test("hero só na home limpa", () => {
   assert.equal(shouldShowHomeHero({ pharma: false, brand: "Veltrane" }), false);
 });
 
+test("card Kit ocupa uma das cinco vagas e o destaque continua na linha preferida", () => {
+  const rows = ["Tirzepatida", "A", "B", "C", "D", "E"].map((category) => product({
+    id: category,
+    name: category === "Tirzepatida" ? "TG Tirzepatida" : category,
+    category,
+    soldQty: category === "Tirzepatida" ? 50 : 1,
+    price: category === "Tirzepatida" ? 500 : 100,
+  }));
+  const model = buildHomeHero([
+    ...rows,
+    product({
+      id: "kit-cover",
+      name: "KIT lista",
+      category: "Peptídeo",
+      soldQty: 8,
+      price: 450,
+      image: "https://cdn.example/kit-lista.jpg",
+    }),
+    product({
+      id: "kit-promo",
+      name: "Kit promo",
+      category: "Tirzepatida",
+      soldQty: 2,
+      price: 800,
+      promoPrice: 420,
+      image: "https://cdn.example/kit-promo.jpg",
+    }),
+    product({
+      id: "kit-out",
+      name: "Kit esgotado",
+      category: "Medicamento",
+      soldQty: 99,
+      price: 10,
+      isSoldOut: true,
+      image: "https://cdn.example/kit-out.jpg",
+    }),
+    product({
+      id: "kit-off",
+      name: "Kit inativo",
+      category: "Medicamento",
+      soldQty: 90,
+      price: 5,
+      isActive: false,
+      image: "https://cdn.example/kit-off.jpg",
+    }),
+  ], ["Tirzepatida", "A", "B", "C", "D", "E", "Peptídeo", "Medicamento"]);
+
+  assert.equal(model?.hero.productId, "Tirzepatida");
+  assert.equal(model?.hero.category, "Tirzepatida");
+  assert.equal(model?.hero.fromPrice, 420);
+  assert.equal(model?.wide?.category, "A");
+  assert.deepEqual(model?.small.map((card) => card.category), ["B", "C", "D", "Kit"]);
+  const kit = model?.small.find((card) => card.category === "Kit");
+  assert.equal(kit?.image, "https://cdn.example/kit-lista.jpg");
+  assert.equal(kit?.imageAlt, "KIT lista");
+  assert.equal(kit?.fromPrice, 420);
+});
+
+test("kit com acento entra no card e no preço da categoria real", () => {
+  const model = buildHomeHero([
+    product({ id: "t", name: "TG", category: "Tirzepatida", soldQty: 3, price: 500 }),
+    product({ id: "k", name: "  KÍT Alpha  ", category: "Medicamento", soldQty: 1, price: 510, promoPrice: 420 }),
+  ], ["Tirzepatida", "Medicamento"]);
+
+  assert.equal(model?.hero.category, "Tirzepatida");
+  assert.equal(model?.hero.fromPrice, 500);
+  assert.equal(model?.wide?.category, "Medicamento");
+  assert.equal(model?.wide?.fromPrice, 420);
+  assert.equal(model?.small[0]?.category, "Kit");
+  assert.equal(model?.small[0]?.fromPrice, 420);
+  assert.equal(model?.small[0]?.imageAlt, "  KÍT Alpha  ");
+});
+
+test("sem kit à venda com foto o card Kit não entra", () => {
+  const model = buildHomeHero([
+    product({ id: "t", name: "TG", category: "Tirzepatida", soldQty: 4, price: 200 }),
+    product({ id: "a", name: "Água", category: "Água", soldQty: 1, price: 30 }),
+    product({ id: "out", name: "Kit esgotado", category: "Medicamento", isSoldOut: true, price: 10, soldQty: 9 }),
+    product({ id: "off", name: "Kit inativo", category: "Medicamento", isActive: false, price: 10 }),
+    product({ id: "nofoto", name: "Kit sem foto", category: "Medicamento", image: "", price: 10 }),
+    product({ id: "plain", name: "Ampola", category: "Medicamento", price: 40, soldQty: 2 }),
+  ], ["Tirzepatida", "Água", "Medicamento"]);
+
+  assert.equal(model?.hero.category, "Tirzepatida");
+  assert.equal(model?.wide?.category, "Água");
+  assert.deepEqual(model?.small.map((card) => card.category), ["Medicamento"]);
+});
+
 test("link da categoria fica na home da loja", () => {
   assert.equal(
     homeHeroCategoryHref({ category: "Tirzepatida", homeHref: "/kaique", mode: "pharma" }),
     "/kaique?categoria=Tirzepatida",
+  );
+  assert.equal(
+    homeHeroCategoryHref({ category: "Kit", homeHref: "/", mode: "pharma" }),
+    "/?categoria=kit",
   );
   assert.equal(
     homeHeroCategoryHref({ category: "Água", homeHref: "/", mode: "path", sellerSlug: "loja", base: "" }),
