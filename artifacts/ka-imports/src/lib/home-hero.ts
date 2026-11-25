@@ -124,11 +124,11 @@ function cardFor(category: string, products: HomeHeroProduct[], cover?: HomeHero
 
 const MAX_CATEGORY_CARDS = 1 + MAX_SMALL_CARDS;
 
-/** Card virtual. A categoria do produto não muda; o clique usa `?categoria=kit`. */
-function kitHeroCard(products: HomeHeroProduct[]): HomeHeroCard | null {
+/** Um card para toda grafia de Kit. O clique usa `?categoria=kit`. */
+function kitHeroCard(products: HomeHeroProduct[], cover?: HomeHeroProduct): HomeHeroCard | null {
   const available = products.filter((product) => isListedKitProduct(product));
   const withImage = available.filter((product) => usableImage(product.image)).sort(compareCatalogSales);
-  const chosen = withImage[0];
+  const chosen = cover && isListedKitProduct(cover) && usableImage(cover.image) ? cover : withImage[0];
   if (!chosen) return null;
   const prices = available
     .map((product) => homeHeroSalePrice(product))
@@ -142,7 +142,7 @@ function kitHeroCard(products: HomeHeroProduct[]): HomeHeroCard | null {
 }
 
 function withKitCard(cards: HomeHeroCard[], kit: HomeHeroCard | null): HomeHeroCard[] {
-  if (!kit) return cards;
+  if (!kit || cards.some((card) => isKitCategoryKey(card.category))) return cards;
   const room = cards.length >= MAX_CATEGORY_CARDS ? cards.slice(0, MAX_CATEGORY_CARDS - 1) : cards;
   return [...room, kit];
 }
@@ -174,8 +174,10 @@ function balanceCategoryCards(cards: HomeHeroCard[]): HomeHeroCard[] {
  * Empate segue `compareCatalogSales`. Sem nenhuma das duas à venda com foto,
  * cai no mais vendido de qualquer categoria. O título visível é a categoria desse produto.
  * "A partir de" é o menor preço de 1 unidade dos itens à venda dessa categoria.
- * Se existir kit à venda com foto, um card Kit ocupa uma das 5 vagas da fileira
- * (largo + até 4 pequenos). Sem kit à venda, a fileira segue só as categorias.
+ * Se existir produto da categoria Kit à venda com foto, um card Kit ocupa uma
+ * das 5 vagas da fileira (largo + até 4 pequenos). Grafias diferentes viram
+ * um card. Se o destaque já é Kit, a fileira não ganha outro. Sem Kit à venda
+ * com foto, a fileira segue só as outras categorias.
  */
 export function buildHomeHero(products: HomeHeroProduct[], categoryOrder: string[] = []): HomeHeroModel | null {
   const groups = new Map<string, HomeHeroProduct[]>();
@@ -195,7 +197,11 @@ export function buildHomeHero(products: HomeHeroProduct[], categoryOrder: string
   if (!best) return null;
 
   const heroCategory = categoryName(best);
-  const heroCard = cardFor(heroCategory, groups.get(heroCategory) ?? [], best);
+  const heroIsKit = isKitCategoryKey(heroCategory);
+  const kitCard = kitHeroCard(products, heroIsKit ? best : undefined);
+  const heroCard = heroIsKit
+    ? kitCard ?? cardFor(heroCategory, groups.get(heroCategory) ?? [], best)
+    : cardFor(heroCategory, groups.get(heroCategory) ?? [], best);
   if (!heroCard) return null;
 
   const rest = orderCategories(
@@ -209,7 +215,7 @@ export function buildHomeHero(products: HomeHeroProduct[], categoryOrder: string
     cards.push(card);
     if (cards.length >= MAX_CATEGORY_CARDS) break;
   }
-  const [wide, ...small] = balanceCategoryCards(withKitCard(cards, kitHeroCard(products)));
+  const [wide, ...small] = balanceCategoryCards(withKitCard(cards, heroIsKit ? null : kitCard));
   return {
     hero: {
       ...heroCard,
