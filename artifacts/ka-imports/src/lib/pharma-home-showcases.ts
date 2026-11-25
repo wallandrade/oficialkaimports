@@ -34,7 +34,7 @@ const SHOWCASE_LIMITS: Record<PharmaShowcaseId, number> = {
   peptideo: 12,
 };
 
-/** Chave virtual da URL. Não é valor de `products.category`. */
+/** `?categoria=kit`. A categoria gravada pode ser Kit, KIT ou kít. */
 export const KIT_FILTER_KEY = "kit";
 export const KIT_CATEGORY_LABEL = "Kit";
 
@@ -64,16 +64,11 @@ export function isKitCategoryKey(value: unknown): boolean {
   return normalizeCategoryKey(value) === KIT_FILTER_KEY;
 }
 
-/** Nome contém "kit", sem acento e sem diferença de maiúsculas. */
-export function productNameIsKit(name: unknown): boolean {
-  return normalizeCategoryKey(name).includes(KIT_FILTER_KEY);
-}
-
-/** Ativo, à venda, e o nome contém "kit". Esgotado e inativo ficam de fora da vitrine. */
-export function isListedKitProduct(product: { name?: string; isActive?: boolean; isSoldOut?: boolean }): boolean {
+/** Ativo, à venda, e `products.category` é Kit. Esgotado e inativo ficam de fora da vitrine. */
+export function isListedKitProduct(product: { category?: string; isActive?: boolean; isSoldOut?: boolean }): boolean {
   if (product.isActive === false) return false;
   if (product.isSoldOut === true) return false;
-  return productNameIsKit(product.name);
+  return isKitCategoryKey(product.category);
 }
 
 export function pharmaCategoryLabel(value: string): string {
@@ -88,6 +83,7 @@ export function canonicalPharmaCategory(value: string): string {
 export function pharmaCategoryMatches(productCategory: unknown, filterCategory: unknown): boolean {
   const filter = String(filterCategory || "").trim();
   if (!filter) return true;
+  if (isKitCategoryKey(filter)) return isKitCategoryKey(productCategory);
   if (isRetatrutideCategory(filter)) return isRetatrutideCategory(productCategory);
   if (isTirzepatidaCategory(filter)) return isTirzepatidaCategory(productCategory);
   if (isPeptideCategoryKey(filter)) return isPeptideCategoryKey(productCategory);
@@ -102,7 +98,7 @@ export function productMatchesPharmaCategory(
   if (!filter) return true;
   if (isKitCategoryKey(filter)) {
     if (product.isActive === false) return false;
-    return productNameIsKit(product.name);
+    return pharmaCategoryMatches(product.category, filter);
   }
   return pharmaCategoryMatches(product.category, filter);
 }
@@ -115,13 +111,27 @@ export function pharmaCategorySelected(menuCategory: string, filterCategory: str
   return pharmaCategoryMatches(menuCategory, filterCategory);
 }
 
-export function pharmaMenuCategories<T extends { name?: string; isActive?: boolean; isSoldOut?: boolean }>(
+export function pharmaMenuCategories<T extends { category?: string; isActive?: boolean; isSoldOut?: boolean }>(
   categories: string[],
   products: T[],
 ): string[] {
-  if (categories.some((category) => isKitCategoryKey(category))) return categories;
-  if (!products.some((product) => isListedKitProduct(product))) return categories;
-  return [KIT_CATEGORY_LABEL, ...categories];
+  const result: string[] = [];
+  let kitSeen = false;
+  for (const category of categories) {
+    const label = String(category || "").trim();
+    if (!label) continue;
+    if (isKitCategoryKey(label)) {
+      if (kitSeen) continue;
+      kitSeen = true;
+      result.push(KIT_CATEGORY_LABEL);
+      continue;
+    }
+    result.push(label);
+  }
+  if (!kitSeen && products.some((product) => isListedKitProduct(product))) {
+    return [KIT_CATEGORY_LABEL, ...result];
+  }
+  return result;
 }
 
 export function isPharmaShowcaseHome(filters: PharmaCatalogFilters, page: number): boolean {

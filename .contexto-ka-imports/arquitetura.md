@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-25 | Kit da home lê `products.category` | `isListedKitProduct` e `?categoria=kit` comparam a categoria normalizada. `pharmaMenuCategories` junta as grafias num rótulo Kit. O hero reserva uma vaga e não repete o card se o destaque já é Kit | API, banco, ordem da seção (depois de Retatrutida, antes de Mais vendidos) e o Ver todos |
 | 2026-11-25 | Kit virtual só no front da loja 1 | `buildHomeHero` e `buildPharmaShowcases` leem o catálogo já carregado. `?categoria=kit` filtra pelo nome. Sem coluna, sem rota e sem mudança em `GET /api/products` | Categorias reais, os outros presets e o banco |
 | 2026-11-24 | Quadro Envio Shopee sem coluna nova | O verde lê `orders.shopee_route_requested_at`, que `mapOrder` do admin já devolve. O botão é `PATCH /api/admin/orders/:id/shopee-board-sent` | Sem migração. `shipping_via` continua só na seta |
 | 2026-11-18 | Coluna `label_stock_waived_at` em `orders` e `order_shipments` | Schema Drizzle e o boot (`runtime-schema`: `ALTER` se faltar; tabela nova de pacote já nasce com a coluna). Marca `saiu_sem_abater` da lista de etiquetas | `inventory_exited_pools` e `inventory_reserved` continuam a baixa |
