@@ -14,6 +14,7 @@ import { ShopeeRouteBadge, ShopeeRouteOrderControls, ShopeeRouteSettingsCard } f
 import type { AdminOrderClientCorrection } from "@/lib/admin-page-types";
 import { WhatsappRecoveryPanel } from "@/components/admin/WhatsappRecoveryPanel";
 import { WhatsAppGroupCampaignCard } from "@/components/admin/WhatsAppGroupCampaignCard";
+import { WhatsAppGroupModerationCard } from "@/components/admin/WhatsAppGroupModerationCard";
 import { orderToPostPaymentText } from "@/lib/post-payment-message";
 import { storeNotificationIcon } from "@/lib/store-logo";
 import { settleOrderEdit } from "@/lib/order-edit-settlement";
@@ -8663,7 +8664,10 @@ export default function Admin() {
             onRefresh={fetchRecurringCustomers}
           />
         ) : tab === "automacao" && isPrimary ? (
-          <WhatsAppGroupCampaignCard />
+          <div className="space-y-6">
+            <WhatsAppGroupModerationCard />
+            <WhatsAppGroupCampaignCard />
+          </div>
         ) : tab === "recuperacao" ? (
           <WhatsappRecoveryPanel />
         ) : tab === "support" ? (

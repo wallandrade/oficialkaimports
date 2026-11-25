@@ -24,6 +24,7 @@
     "test:shipping-channel": "node --test --import tsx ./src/lib/shipping-via.test.ts",
     "test:shopee-route": "node --test --import tsx ./src/lib/shopee-route-core.test.ts ./src/lib/shopee-route-support.test.ts",
     "test:whatsapp-outbound": "node --test --import tsx ./src/lib/whatsapp-outbound-policy.test.ts ./src/lib/zapi-send.test.ts ./src/lib/whatsapp-dispatch.test.ts ./src/lib/whatsapp-outbound-worker.test.ts",
+    "test:whatsapp-group-moderation": "node --test --import tsx ./src/lib/whatsapp-group-moderation.test.ts",
     "test:shipping-channel-local": "node --test --import tsx ./src/routes/shipping-channel.integration.test.ts",
     "test:safe-log": "node --test --import tsx ./src/lib/safe-log.test.ts ./src/lib/raffle-reservation-lookup.test.ts"
   },

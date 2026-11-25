@@ -3,6 +3,7 @@ import { Router, type IRouter } from "express";
 import { and, desc, eq, isNull, or } from "drizzle-orm";
 import {
   db,
+  pool,
   productsTable,
   siteSettingsTable,
   whatsappGroupCustomPostsTable,
@@ -21,6 +22,15 @@ import {
   type ScheduleInput,
   type ScheduleMode,
 } from "../lib/whatsapp-group-campaign";
+import {
+  GROUP_MODERATION_ALLOW_PHONES_SETTING,
+  GROUP_MODERATION_DRY_RUN_SETTING,
+  GROUP_MODERATION_ENABLED_SETTING,
+  GROUP_MODERATION_GROUP_IDS_SETTING,
+  GROUP_MODERATION_STORE_PHONE_SETTING,
+  parseModerationGroupIds,
+  parseModerationPhones,
+} from "../lib/whatsapp-group-moderation";
 
 const router: IRouter = Router();
 
@@ -350,6 +360,110 @@ router.delete("/admin/whatsapp/groups/custom/:id", requirePrimaryAdmin, async (r
   } catch (error) {
     console.error("[WhatsAppGroups] exclusão falhou", error);
     res.status(500).json({ error: "INTERNAL_ERROR", message: "Não foi possível apagar o aviso." });
+  }
+});
+
+function envSwitch(name: string): "on" | "off" | "unset" {
+  const value = String(process.env[name] || "").trim().toLowerCase();
+  if (value === "1" || value === "true" || value === "yes") return "on";
+  if (value === "0" || value === "false" || value === "no") return "off";
+  return "unset";
+}
+
+function envFilled(name: string): boolean {
+  return String(process.env[name] || "").trim().length > 0;
+}
+
+async function moderationLogs(): Promise<Array<{ groupTail: string; participantTail: string; action: string; createdAt: string }>> {
+  try {
+    const [rows] = await pool.query(
+      `SELECT group_id AS groupId, participant_tail AS participantTail, action, created_at AS createdAt
+       FROM whatsapp_group_moderation_log
+       ORDER BY created_at DESC
+       LIMIT 30`,
+    );
+    if (!Array.isArray(rows)) return [];
+    return rows.map((row) => {
+      const item = row as { groupId?: unknown; participantTail?: unknown; action?: unknown; createdAt?: unknown };
+      const created = item.createdAt instanceof Date ? item.createdAt : new Date(String(item.createdAt || ""));
+      const tail = String(item.participantTail || "").replace(/\D/g, "").slice(-4);
+      return {
+        groupTail: String(item.groupId || "").slice(-6),
+        participantTail: tail ? `***${tail}` : "***",
+        action: String(item.action || ""),
+        createdAt: Number.isNaN(created.getTime()) ? "" : created.toISOString(),
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+router.get("/admin/whatsapp/group-moderation", requirePrimaryAdmin, async (_req, res) => {
+  try {
+    const [enabled, dryRun, groupIds, allowPhones, storePhone, logs] = await Promise.all([
+      readSetting(GROUP_MODERATION_ENABLED_SETTING),
+      readSetting(GROUP_MODERATION_DRY_RUN_SETTING),
+      readSetting(GROUP_MODERATION_GROUP_IDS_SETTING),
+      readSetting(GROUP_MODERATION_ALLOW_PHONES_SETTING),
+      readSetting(GROUP_MODERATION_STORE_PHONE_SETTING),
+      moderationLogs(),
+    ]);
+    res.json({
+      enabled: enabled.trim() === "1",
+      dryRun: dryRun.trim() === "1",
+      groupIds,
+      allowPhones,
+      storePhone,
+      envEnabled: envSwitch("WHATSAPP_GROUP_MODERATION_ENABLED"),
+      envDryRun: envSwitch("WHATSAPP_GROUP_MODERATION_DRY_RUN"),
+      groupIdsFromEnv: envFilled("WHATSAPP_GROUP_MODERATION_GROUP_IDS"),
+      allowPhonesFromEnv: envFilled("WHATSAPP_GROUP_MODERATION_ALLOW_PHONES"),
+      storePhoneFromEnv: envFilled("WHATSAPP_GROUP_MODERATION_STORE_PHONE"),
+      zapiConfigured: zapiMainCredentials() != null,
+      logs,
+    });
+  } catch (error) {
+    console.error("[WhatsApp grupos] leitura da moderação falhou", error);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Não foi possível carregar a moderação." });
+  }
+});
+
+router.put("/admin/whatsapp/group-moderation", requirePrimaryAdmin, async (req, res) => {
+  try {
+    const body = req.body as {
+      enabled?: unknown;
+      dryRun?: unknown;
+      groupIds?: unknown;
+      allowPhones?: unknown;
+      storePhone?: unknown;
+    };
+    const ids = parseModerationGroupIds(body.groupIds);
+    if (!ids.ok) {
+      res.status(400).json({ error: "INVALID_INPUT", message: ids.message });
+      return;
+    }
+    const phones = parseModerationPhones(body.allowPhones, "Número da lista inválido. Use DDI e DDD.");
+    if (!phones.ok) {
+      res.status(400).json({ error: "INVALID_INPUT", message: phones.message });
+      return;
+    }
+    const storeDigits = String(body.storePhone ?? "").replace(/\D/g, "");
+    if (storeDigits && (storeDigits.length < 10 || storeDigits.length > 15)) {
+      res.status(400).json({ error: "INVALID_INPUT", message: "O número da loja precisa ter DDI e DDD." });
+      return;
+    }
+    const enabled = body.enabled === true || body.enabled === 1 || body.enabled === "1";
+    const dryRun = body.dryRun === true || body.dryRun === 1 || body.dryRun === "1";
+    await writeSetting(GROUP_MODERATION_ENABLED_SETTING, enabled ? "1" : "0");
+    await writeSetting(GROUP_MODERATION_DRY_RUN_SETTING, dryRun ? "1" : "0");
+    await writeSetting(GROUP_MODERATION_GROUP_IDS_SETTING, ids.ids.join("\n"));
+    await writeSetting(GROUP_MODERATION_ALLOW_PHONES_SETTING, phones.phones.join("\n"));
+    await writeSetting(GROUP_MODERATION_STORE_PHONE_SETTING, storeDigits);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("[WhatsApp grupos] gravação da moderação falhou", error);
+    res.status(500).json({ error: "INTERNAL_ERROR", message: "Não foi possível salvar a moderação." });
   }
 });
 

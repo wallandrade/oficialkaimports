@@ -42,5 +42,6 @@ export * from "./flash-offers";
 export * from "./whatsapp-support-sessions";
 export * from "./whatsapp-recovery-sends";
 export * from "./whatsapp-group-campaign";
+export * from "./whatsapp-group-moderation";
 export * from "./whatsapp-outbound-queue";
 export * from "./pix-charge-proofs";
