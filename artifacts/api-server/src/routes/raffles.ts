@@ -216,10 +216,19 @@ async function getRaffleResult(raffleId: string, tenantId = DEFAULT_TENANT_ID) {
   return result ?? null;
 }
 
+type RaffleNumberReader = {
+  select: typeof db.select;
+};
+
 /** Return set of numbers already taken (reserved/paid) for a raffle */
-async function getTakenNumbers(raffleId: string, tenantId = DEFAULT_TENANT_ID): Promise<Set<number>> {
+async function getTakenNumbers(
+  raffleId: string,
+  tenantId = DEFAULT_TENANT_ID,
+  reader: RaffleNumberReader = db,
+  lock = false,
+): Promise<Set<number>> {
   const now = new Date();
-  const rows = await db
+  const query = reader
     .select({ numbers: raffleReservationsTable.numbers, status: raffleReservationsTable.status, expiresAt: raffleReservationsTable.expiresAt })
     .from(raffleReservationsTable)
     .where(and(
@@ -227,6 +236,7 @@ async function getTakenNumbers(raffleId: string, tenantId = DEFAULT_TENANT_ID): 
       eq(raffleReservationsTable.raffleId, raffleId),
       inArray(raffleReservationsTable.status, ["reserved", "paid"]),
     ));
+  const rows = lock ? await query.for("update") : await query;
 
   const taken = new Set<number>();
   for (const row of rows) {
@@ -325,55 +335,68 @@ router.post("/raffles/:id/reserve", async (req, res) => {
     return;
   }
 
-  const [raffle] = await db
-    .select()
-    .from(rafflesTable)
-    .where(and(buildRafflesTenantWhere(tenantId), eq(rafflesTable.id, reserveRaffleId), eq(rafflesTable.status, "active")))
-    .limit(1);
+  const clientDocument = client.cpf.replace(/\D/g, "");
+  const promotions = await getRafflePromotions(reserveRaffleId, true, tenantId);
 
-  if (!raffle) {
-    res.status(404).json({ error: "NOT_FOUND", message: "Rifa não encontrada ou encerrada." });
-    return;
-  }
+  // Mesma trava do pagamento forçado: quem chega depois vê o número já pago.
+  const created = await db.transaction(async (tx) => {
+    const [raffle] = await tx
+      .select()
+      .from(rafflesTable)
+      .where(and(
+        buildRafflesTenantWhere(tenantId),
+        eq(rafflesTable.id, reserveRaffleId),
+        eq(rafflesTable.status, "active"),
+      ))
+      .limit(1)
+      .for("update");
 
-  // Validate number range
-  const price = Number(raffle.pricePerNumber);
-  for (const n of numbers) {
-    if (!Number.isInteger(n) || n < 1 || n > raffle.totalNumbers) {
-      res.status(400).json({ error: "INVALID_INPUT", message: `Número ${n} é inválido.` });
-      return;
+    if (!raffle) {
+      return { ok: false as const, httpStatus: 404 as const, error: "NOT_FOUND" as const, message: "Rifa não encontrada ou encerrada." };
     }
-  }
 
-  // Check conflicts
-  const taken = await getTakenNumbers(raffle.id, tenantId);
-  const conflict = numbers.find((n) => taken.has(n));
-  if (conflict !== undefined) {
-    res.status(409).json({ error: "NUMBER_TAKEN", message: `O número ${conflict} já está reservado.` });
+    const price = Number(raffle.pricePerNumber);
+    for (const n of numbers) {
+      if (!Number.isInteger(n) || n < 1 || n > raffle.totalNumbers) {
+        return { ok: false as const, httpStatus: 400 as const, error: "INVALID_INPUT" as const, message: `Número ${n} é inválido.` };
+      }
+    }
+
+    const taken = await getTakenNumbers(raffle.id, tenantId, tx, true);
+    const conflict = numbers.find((n) => taken.has(n));
+    if (conflict !== undefined) {
+      return { ok: false as const, httpStatus: 409 as const, error: "NUMBER_TAKEN" as const, message: `O número ${conflict} já está reservado.` };
+    }
+
+    const matchingPromotions = promotions.filter((p) => p.quantity === numbers.length);
+    const bestPromotion = matchingPromotions.sort((a, b) => Number(a.promoPrice) - Number(b.promoPrice))[0] ?? null;
+    const totalAmount = bestPromotion ? Number(bestPromotion.promoPrice) : price * numbers.length;
+    const reservationId = crypto.randomBytes(8).toString("hex");
+    const expiresAt = new Date(Date.now() + raffle.reservationHours * 60 * 60 * 1000);
+
+    await tx.insert(raffleReservationsTable).values({
+      id: reservationId,
+      tenantId,
+      raffleId: raffle.id,
+      numbers: JSON.stringify(numbers),
+      clientName: client.name,
+      clientEmail: client.email,
+      clientPhone: client.phone,
+      clientDocument,
+      totalAmount: String(totalAmount),
+      status: "reserved",
+      expiresAt,
+    });
+
+    return { ok: true as const, reservationId, totalAmount, expiresAt, bestPromotion };
+  });
+
+  if (!created.ok) {
+    res.status(created.httpStatus).json({ error: created.error, message: created.message });
     return;
   }
 
-  const promotions = await getRafflePromotions(raffle.id, true, tenantId);
-  const matchingPromotions = promotions.filter((p) => p.quantity === numbers.length);
-  const bestPromotion = matchingPromotions.sort((a, b) => Number(a.promoPrice) - Number(b.promoPrice))[0] ?? null;
-
-  const totalAmount = bestPromotion ? Number(bestPromotion.promoPrice) : price * numbers.length;
-  const reservationId = crypto.randomBytes(8).toString("hex");
-  const expiresAt = new Date(Date.now() + raffle.reservationHours * 60 * 60 * 1000);
-
-  await db.insert(raffleReservationsTable).values({
-    id: reservationId,
-    tenantId,
-    raffleId: raffle.id,
-    numbers: JSON.stringify(numbers),
-    clientName: client.name,
-    clientEmail: client.email,
-    clientPhone: client.phone,
-    clientDocument: client.cpf.replace(/\D/g, ""),
-    totalAmount: String(totalAmount),
-    status: "reserved",
-    expiresAt,
-  });
+  const { reservationId, totalAmount, expiresAt, bestPromotion } = created;
 
   // Generate PIX
   const gatewayProvider = await getActivePixGateway(tenantId);
@@ -391,11 +414,11 @@ router.post("/raffles/:id/reserve", async (req, res) => {
         name: client.name,
         email: client.email,
         phone: client.phone,
-        document: client.cpf.replace(/\D/g, ""),
+        document: clientDocument,
       },
       metadata: {
         reservationId,
-        raffleId: raffle.id,
+        raffleId: reserveRaffleId,
         numbers: JSON.stringify(numbers),
       },
       callbackUrl,
@@ -956,6 +979,7 @@ router.patch("/admin/raffles/:id/reservations/:reservationId/mark-paid", require
 
   if (force) {
     // Paga reserva expirada só se os números ainda estiverem livres e a rifa não foi sorteada.
+    // A trava da linha da rifa é a mesma do POST /raffles/:id/reserve.
     const outcome = await db.transaction(async (tx) => {
       const [raffle] = await tx
         .select({ id: rafflesTable.id, status: rafflesTable.status })
