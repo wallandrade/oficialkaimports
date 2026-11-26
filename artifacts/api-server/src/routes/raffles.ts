@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db, rafflesTable, raffleReservationsTable, raffleResultsTable, rafflePromotionsTable, siteSettingsTable, tenantSettingsTable } from "@workspace/db";
-import { eq, and, inArray, isNull, or, sql } from "drizzle-orm";
+import { eq, and, asc, inArray, isNull, or, sql } from "drizzle-orm";
 import crypto from "crypto";
 import { getAdminScope, requireAdminAuth, requireStoreWideAdmin } from "./admin-auth";
 import {
@@ -22,10 +22,11 @@ import {
   pixNoticeLogFields,
   readPixNotice,
   readWebhookSecret,
+  updatedRowCount,
   webhookAuthenticated,
 } from "../lib/pix-settlement";
 import { authenticatePixNotice, rememberGatewayChargeProof } from "../lib/pix-charge-proof";
-import { canUndoManualRafflePayment, rafflePaymentBlockReason } from "../lib/raffle-pix-confirm-core";
+import { canUndoManualRafflePayment, decideManualRafflePayment, rafflePaymentBlockReason } from "../lib/raffle-pix-confirm-core";
 
 const router: IRouter = Router();
 
@@ -927,6 +928,7 @@ router.patch("/admin/raffles/:id/reservations/:reservationId/cancel", requireAdm
 router.patch("/admin/raffles/:id/reservations/:reservationId/mark-paid", requireAdminAuth, requireStoreWideAdmin, async (req, res) => {
   const tenantId = getAdminScope(req)?.tenantId || DEFAULT_TENANT_ID;
   const { id: raffleId, reservationId } = req.params as { id: string; reservationId: string };
+  const force = req.body?.force === true;
 
   const [reservation] = await db
     .select()
@@ -944,7 +946,107 @@ router.patch("/admin/raffles/:id/reservations/:reservationId/mark-paid", require
   }
 
   if (reservation.status === "paid") {
+    if (force) {
+      res.json({ ok: true, status: "paid", paidSource: reservation.paidSource });
+      return;
+    }
     res.json({ ok: true, status: "paid" });
+    return;
+  }
+
+  if (force) {
+    // Paga reserva expirada só se os números ainda estiverem livres e a rifa não foi sorteada.
+    const outcome = await db.transaction(async (tx) => {
+      const [raffle] = await tx
+        .select({ id: rafflesTable.id, status: rafflesTable.status })
+        .from(rafflesTable)
+        .where(and(buildRafflesTenantWhere(tenantId), eq(rafflesTable.id, raffleId)))
+        .limit(1)
+        .for("update");
+      if (!raffle) {
+        return { ok: false as const, httpStatus: 404 as const, error: "NOT_FOUND" as const, message: "Rifa não encontrada." };
+      }
+
+      const [published] = await tx
+        .select({ id: raffleResultsTable.id })
+        .from(raffleResultsTable)
+        .where(and(buildRaffleResultsTenantWhere(tenantId), eq(raffleResultsTable.raffleId, raffleId)))
+        .limit(1)
+        .for("update");
+
+      const lockedRows = await tx
+        .select({
+          id: raffleReservationsTable.id,
+          numbers: raffleReservationsTable.numbers,
+          status: raffleReservationsTable.status,
+          expiresAt: raffleReservationsTable.expiresAt,
+          paidSource: raffleReservationsTable.paidSource,
+        })
+        .from(raffleReservationsTable)
+        .where(and(
+          buildRaffleReservationsTenantWhere(tenantId),
+          eq(raffleReservationsTable.raffleId, raffleId),
+        ))
+        .orderBy(asc(raffleReservationsTable.id))
+        .for("update");
+
+      const current = lockedRows.find((row) => row.id === reservation.id);
+      if (!current) {
+        return { ok: false as const, httpStatus: 404 as const, error: "NOT_FOUND" as const, message: "Reserva não encontrada." };
+      }
+      if (current.status === "paid") {
+        return { ok: true as const, status: "paid" as const, paidSource: current.paidSource };
+      }
+
+      const decision = decideManualRafflePayment({
+        force: true,
+        reservationId: current.id,
+        reservationStatus: current.status,
+        reservationExpiresAt: current.expiresAt,
+        reservationNumbers: parseNumbers(current.numbers),
+        now: new Date(),
+        competing: lockedRows.map((row) => ({
+          id: row.id,
+          numbers: parseNumbers(row.numbers),
+          status: row.status,
+          expiresAt: row.expiresAt,
+        })),
+        raffleDrawn: raffle.status === "drawn" || Boolean(published),
+      });
+      if (!decision.ok) return decision;
+
+      const paidAt = new Date();
+      const updated = await tx
+        .update(raffleReservationsTable)
+        .set({ status: "paid", paidSource: "manual", updatedAt: paidAt })
+        .where(and(
+          buildRaffleReservationsTenantWhere(tenantId),
+          eq(raffleReservationsTable.id, current.id),
+          inArray(raffleReservationsTable.status, ["reserved", "expired"]),
+        ));
+      if (updatedRowCount(updated) < 1) {
+        return {
+          ok: false as const,
+          httpStatus: 409 as const,
+          error: "RESERVATION_CHANGED" as const,
+          message: "A reserva mudou. Atualize a lista e tente de novo.",
+        };
+      }
+      return { ok: true as const, status: "paid" as const, paidSource: "manual" as const };
+    });
+
+    if (outcome.ok) {
+      res.json({ ok: true, status: "paid", paidSource: outcome.paidSource });
+      return;
+    }
+    const body: { error: string; message: string; conflictNumbers?: number[] } = {
+      error: outcome.error,
+      message: outcome.message,
+    };
+    if (outcome.error === "NUMBER_ALREADY_ASSIGNED" && outcome.conflictNumbers?.length) {
+      body.conflictNumbers = outcome.conflictNumbers;
+    }
+    res.status(outcome.httpStatus).json(body);
     return;
   }
 

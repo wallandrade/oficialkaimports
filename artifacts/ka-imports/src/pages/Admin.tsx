@@ -5640,6 +5640,55 @@ export default function Admin() {
     }
   }, [fetchRaffleRanking, handleUnauthorized]);
 
+  const forceRaffleReservationPayment = useCallback(async (raffleId: string, reservation: AdminRaffleReservation) => {
+    const expired = reservation.status === "expired" || reservation.isExpired;
+    if (!expired || reservation.status === "paid") {
+      toast.error("Só é possível forçar o pagamento de uma reserva expirada.");
+      return;
+    }
+
+    const numbersLabel = reservation.numbers.join(", ");
+    const confirmed = window.confirm(
+      `Forçar o pagamento de ${reservation.clientName}? Números ${numbersLabel}, valor ${formatCurrency(Number(reservation.totalAmount))}. Isso só funciona se esses números ainda estiverem livres.`,
+    );
+    if (!confirmed) return;
+
+    setRaffleApprovingReservationId(reservation.id);
+    try {
+      const res = await fetch(`${BASE}/api/admin/raffles/${raffleId}/reservations/${reservation.id}/mark-paid`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({ force: true }),
+      });
+
+      if (res.status === 401) { handleUnauthorized(); return; }
+
+      const data = await res.json().catch(() => ({} as { message?: string; error?: string; conflictNumbers?: number[]; paidSource?: string | null }));
+      if (!res.ok) {
+        const conflictNumbers = Array.isArray(data.conflictNumbers) ? data.conflictNumbers : [];
+        if (res.status === 409 && conflictNumbers.length > 0) {
+          toast.error(`Não foi possível forçar o pagamento. Números em conflito: ${conflictNumbers.join(", ")}.`);
+          return;
+        }
+        toast.error(data.message || "Erro ao forçar pagamento.");
+        return;
+      }
+
+      const paidSource = data.paidSource === "pix" ? "pix" : "manual";
+      setRaffleReservations((prev) => prev.map((rv) =>
+        rv.id === reservation.id
+          ? { ...rv, status: "paid", isExpired: false, paidSource }
+          : rv,
+      ));
+      toast.success("Pagamento forçado. Os números ficam pagos.");
+      void fetchRaffleRanking(raffleId);
+    } catch {
+      toast.error("Erro ao forçar pagamento.");
+    } finally {
+      setRaffleApprovingReservationId(null);
+    }
+  }, [fetchRaffleRanking, handleUnauthorized]);
+
   const undoManualRafflePayment = useCallback(async (raffleId: string, reservation: AdminRaffleReservation) => {
     if (reservation.status !== "paid" || reservation.paidSource !== "manual") {
       toast.error("Só é possível cancelar um pagamento aprovado manualmente.");
@@ -10309,6 +10358,20 @@ export default function Admin() {
                                   >
                                     {raffleCancelingReservationId === rv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />}
                                     <span className="ml-1">Cancelar pagamento</span>
+                                  </Button>
+                                </div>
+                              ) : (rv.status === "expired" || rv.isExpired) && rv.status !== "paid" ? (
+                                <div className="flex justify-end">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 px-2.5 text-xs border-amber-200 text-amber-800 hover:bg-amber-50"
+                                    onClick={() => raffleViewId && forceRaffleReservationPayment(raffleViewId, rv)}
+                                    disabled={raffleApprovingReservationId === rv.id || raffleCancelingReservationId === rv.id}
+                                  >
+                                    {raffleApprovingReservationId === rv.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <AlertTriangle className="w-3.5 h-3.5" />}
+                                    <span className="ml-1">Forçar pagamento</span>
                                   </Button>
                                 </div>
                               ) : (
