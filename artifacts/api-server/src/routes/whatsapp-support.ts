@@ -1,13 +1,17 @@
 import { Router, type IRouter } from "express";
 import { handleWhatsappSupportInbound } from "../lib/whatsapp-support";
+import { readWhatsappSupportToken, whatsappWebhookAllowsQueryToken } from "../lib/whatsapp-support-token";
 
 const router: IRouter = Router();
 
 router.post("/whatsapp/support/inbound", async (req, res) => {
   try {
-    const queryToken = typeof req.query.token === "string" ? req.query.token : "";
-    const headerToken = String(req.get("x-whatsapp-support-token") || "");
-    const result = await handleWhatsappSupportInbound(req.body, headerToken || queryToken);
+    const token = readWhatsappSupportToken({
+      headerToken: req.get("x-whatsapp-support-token"),
+      queryToken: req.query.token,
+      allowQueryToken: whatsappWebhookAllowsQueryToken(),
+    });
+    const result = await handleWhatsappSupportInbound(req.body, token);
     res.status(result.status).json(result.status === 401 ? { error: "UNAUTHORIZED" } : { ok: true });
   } catch (err) {
     console.warn("[WHATSAPP_SUPPORT] Falha ao receber mensagem", err);

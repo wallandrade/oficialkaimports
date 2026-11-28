@@ -3,7 +3,7 @@ pkgs = ["nodejs_22", "pnpm-9_x"]
 
 [phases.install]
 cmds = [
-	"pnpm install --no-frozen-lockfile --prod=false --filter @workspace/api-server..."
+	"pnpm install --frozen-lockfile --prod=false --filter @workspace/api-server..."
 ]
 
 [phases.build]

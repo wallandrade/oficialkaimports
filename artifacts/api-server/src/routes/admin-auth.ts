@@ -11,7 +11,7 @@ const router: IRouter = Router();
 const TOKEN_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const IS_PRODUCTION = String(process.env.NODE_ENV || "").toLowerCase() === "production";
 const ADMIN_AUTH_VERBOSE_LOGS = String(process.env.ADMIN_AUTH_VERBOSE_LOGS || "false").toLowerCase() === "true";
-const ADMIN_ALLOW_QUERY_TOKEN = String(process.env.ADMIN_ALLOW_QUERY_TOKEN || "true").toLowerCase() === "true";
+const ADMIN_ALLOW_QUERY_TOKEN = String(process.env.ADMIN_ALLOW_QUERY_TOKEN || "false").toLowerCase() === "true";
 const ADMIN_LOGIN_RATE_WINDOW_MS = Number(process.env.ADMIN_LOGIN_RATE_WINDOW_MS || 10 * 60 * 1000);
 const ADMIN_LOGIN_RATE_MAX_ATTEMPTS = Number(process.env.ADMIN_LOGIN_RATE_MAX_ATTEMPTS || 8);
 const ADMIN_LOGIN_RATE_BLOCK_MS = Number(process.env.ADMIN_LOGIN_RATE_BLOCK_MS || 15 * 60 * 1000);

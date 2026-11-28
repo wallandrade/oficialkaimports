@@ -1,0 +1,7 @@
+title = "KA Imports"
+
+[extend]
+useDefault = true
+
+# O CI não varre o histórico antigo. O workflow passa --log-opts só no intervalo
+# do diff: base..head no pull request e before..sha no push da main.

@@ -6,7 +6,8 @@
   "scripts": {
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
     "typecheck:libs": "tsc --build",
-    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
+    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
+    "test": "pnpm --filter @workspace/api-server test && pnpm --filter @workspace/ka-imports test && pnpm --filter @workspace/scripts test:costprice"
   },
   "private": true,
   "devDependencies": {
@@ -21,7 +22,12 @@
   "pnpm": {
     "overrides": {
       "react": "19.1.0",
-      "react-dom": "19.1.0"
+      "react-dom": "19.1.0",
+      "proxy-addr": ">=2.0.8",
+      "body-parser": ">=2.4.0",
+      "fast-uri": ">=3.1.9 <4",
+      "zod": ">=4.6.6",
+      "orval": ">=8.22.0"
     }
   },
   "dependencies": {
