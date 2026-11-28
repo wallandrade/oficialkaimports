@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { Lock, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { isSitePasswordExemptPath, shouldMountStorefrontWidgets } from "@/lib/site-widget-access";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const SESSION_KEY = "ka_site_unlocked";
@@ -268,24 +269,17 @@ function PasswordScreen({
   );
 }
 
-const PAYMENT_PATHS = ["/checkout", "/pix/", "/pix", "/success", "/pagamento", "/payment-link"];
-function isPaymentPath(location: string) {
-  return PAYMENT_PATHS.some((p) => location === p || location.startsWith(p + "/") || location.startsWith(p + "?"));
-}
+const SiteWidgetAccessContext = createContext(false);
 
-function isDeliveryCorrectionPath(location: string) {
-  const path = location.split("?")[0] || "";
-  return path === "/corrigir-entrega" || path.startsWith("/corrigir-entrega/");
+/** True só quando a vitrine está aberta (ou a rota é isenta). Widgets globais leem isto. */
+export function useStorefrontWidgetsAllowed(): boolean {
+  return useContext(SiteWidgetAccessContext);
 }
 
 export function SitePasswordGate({ children }: { children: ReactNode }) {
   const [location] = useLocation();
 
-  const isAdminPath   = location.startsWith("/admin");
-  const isKycPath     = location.startsWith("/kyc");
-  const isPmtPath     = isPaymentPath(location);
-  const isCorrectionPath = isDeliveryCorrectionPath(location);
-  const isExemptPath  = isAdminPath || isKycPath || isPmtPath || isCorrectionPath;
+  const isExemptPath = isSitePasswordExemptPath(location);
 
   const [unlocked, setUnlocked] = useState<boolean>(() => {
     if (isExemptPath) return true;
@@ -318,27 +312,38 @@ export function SitePasswordGate({ children }: { children: ReactNode }) {
     return () => { cancelled = true; };
   }, [isExemptPath, unlocked]);
 
-  if (unlocked || isExemptPath) return <>{children}</>;
+  const widgetsAllowed = shouldMountStorefrontWidgets({
+    location,
+    sessionUnlocked: unlocked,
+    siteProtected: protected_,
+  });
 
-  if (protected_ === null) return <>{children}</>;
-
-  if (!protected_) return <>{children}</>;
+  let body: ReactNode;
+  if (unlocked || isExemptPath || protected_ === null || !protected_) {
+    body = children;
+  } else {
+    body = (
+      <PasswordScreen
+        title="Acesso Restrito"
+        subtitle="Esta loja está com acesso por senha. Insira a senha para continuar."
+        release={release}
+        onReleaseElapsed={handleReleaseElapsed}
+        onVerify={async (pw) => {
+          const ok = await verifyPassword("site", pw);
+          if (ok) {
+            sessionStorage.setItem(SESSION_KEY, "1");
+            setUnlocked(true);
+          }
+          return ok;
+        }}
+      />
+    );
+  }
 
   return (
-    <PasswordScreen
-      title="Acesso Restrito"
-      subtitle="Esta loja está com acesso por senha. Insira a senha para continuar."
-      release={release}
-      onReleaseElapsed={handleReleaseElapsed}
-      onVerify={async (pw) => {
-        const ok = await verifyPassword("site", pw);
-        if (ok) {
-          sessionStorage.setItem(SESSION_KEY, "1");
-          setUnlocked(true);
-        }
-        return ok;
-      }}
-    />
+    <SiteWidgetAccessContext.Provider value={widgetsAllowed}>
+      {body}
+    </SiteWidgetAccessContext.Provider>
   );
 }
 

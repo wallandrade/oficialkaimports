@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-28 | Widgets da vitrine respeitam a senha do site | `useStorefrontWidgetsAllowed` fica falso na tela “Acesso Restrito” e enquanto `site` ainda é desconhecido. Rota isenta e `ka_site_unlocked` continuam liberando na hora | Não é login de admin nem de cliente. `PaymentPasswordGate` segue separado |
 | 2026-11-28 | Sessão admin não entra mais pela query | `ADMIN_ALLOW_QUERY_TOKEN` padrão `false`. Bearer e cookie seguem. `CHECKOUT_TOKEN_SECRET` vazio impede o boot | Login, seller-scoped e o token de convidado |
 | 2026-11-24 | Quadro Envio Shopee marca enviado com a sessão do pedido | `PATCH /api/admin/orders/:id/shopee-board-sent` exige `requireAdminAuth`. Sem sessão: 401. Seller sem slug: 403. O pedido passa por `loadShopeeRouteOrder` (loja e, no seller-scoped, o vendedor). Outra loja ou outro vendedor: 404 | O crédito da carteira continua só com `hasGlobalAccess`. O `PATCH /enviado` e o inbound do n8n seguem |
 | 2026-11-16 | ID da Shopee no atendimento fica na loja do token | `POST /api/whatsapp/support/inbound` só casa pedido da loja daquele token. Loja 1 inclui tenant nulo ou vazio. O inbound do n8n segue sem loja | O segredo `X-N8N-Shopee-Secret` e o crédito global |
@@ -93,7 +94,7 @@ Código > memória > tipagens.
 
 ## Site / payment password gate
 
-- FE: `SitePasswordGate` / `PaymentPasswordGate` — barreira de acesso ao site/link, **não** é auth admin/customer.
+- FE: `SitePasswordGate` / `PaymentPasswordGate` — barreira de acesso ao site/link, **não** é auth admin/customer. Prova social e promoção relâmpago só montam quando `shouldMountStorefrontWidgets` é verdadeiro (rota isenta, sessão `ka_site_unlocked`, ou `GET /api/is-protected` com `site: false`). Na espera e com `site: true` eles ficam desmontados, então o sorteio não grava a visita.
 
 ## Checkout security
 
