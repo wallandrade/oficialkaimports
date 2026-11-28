@@ -144,6 +144,12 @@ const IMAGE_SETTING_KEYS = new Set([
   "catalog_banner_mobile",
 ]);
 
+const HIDDEN_BACKUP_SETTING_KEYS = ["backup_last_status", "backup_alert_last_date"];
+
+function stripHiddenBackupSettings(out: Record<string, string>): void {
+  for (const key of HIDDEN_BACKUP_SETTING_KEYS) delete out[key];
+}
+
 function isTruthySetting(value: string | undefined): boolean {
   return ["1", "true", "on", "yes", "enabled"].includes(String(value || "").trim().toLowerCase());
 }
@@ -283,6 +289,7 @@ router.get("/settings", async (_req, res) => {
     const themePreset = publicStoreThemePreset(tenantId, allSettings.store_theme_preset);
     if (themePreset) out.store_theme_preset = themePreset;
     Object.assign(out, publicStoreIdentity(tenantId));
+    stripHiddenBackupSettings(out);
     res.json(out);
   } catch {
     res.json({});
@@ -309,6 +316,7 @@ router.get("/admin/settings", requireAdminAuth, async (req, res) => {
     for (const secretKey of [PIX_GATEWAY_SETTING_KEYS.publicKey, PIX_GATEWAY_SETTING_KEYS.secretKey]) {
       if (out[secretKey]) out[secretKey] = maskGatewaySecret(out[secretKey]!);
     }
+    stripHiddenBackupSettings(out);
     res.json(out);
   } catch {
     res.status(500).json({});

@@ -1,12 +1,13 @@
 # Integrações externas — KA Imports
 
-> **Última atualização:** 2026-11-24
+> **Última atualização:** 2026-11-28
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-28 | Backup diário também espelha a mídia e avisa na Z-API | `db-backup-r2.mjs` continua o comando do cron. Faz o dump e, mesmo se ele falhar, o espelho `media/`. Grava `backup_last_status` em `site_settings` da loja 1. Falha manda `send-text` para `BACKUP_ALERT_PHONES`. A API confere a cada 30 min, das 4h às 12h, no máximo um aviso por dia | Não apaga objeto no destino. Não entra na fila `whatsapp_outbound_queue` nem no n8n. `run_command` do job igual. Lifecycle do bucket e a env `BACKUP_ALERT_PHONES` não foram alterados daqui |
 | 2026-11-24 | Atendimento da Rota Shopee ignora conversa e comprovante | `supportMessageHasShopeeId` no começo de `handleShopeeOnSupportMessage` e de `executeShopeeRouteInbound`. Sem ID de verdade, o menu segue e não grava revisão. O quadro marca enviado em `PATCH /api/admin/orders/:id/shopee-board-sent` sem WhatsApp e sem estoque | `POST /api/integrations/shopee-route/inbound` continua com o mesmo header e o mesmo JSON. Modo n8n, fila de 10 min e instância `ZAPI_MAIN_*` iguais. ID válido no POST ainda grava |
 | 2026-11-22 | Moderação de convite nos grupos da instância main | Desligada. `WHATSAPP_GROUP_MODERATION_ENABLED=1` apaga o convite `chat.whatsapp.com` e remove a pessoa. `WHATSAPP_GROUP_MODERATION_DRY_RUN=1` só grava o log. Grupos saem da lista de IDs (env ou setting). Fora da lista, desligado ou sem ID: não chama a Z-API. Admin, número da loja e allowlist ficam. O mesmo celular vale com ou sem o 55 e com ou sem o 9 depois do DDD. DELETE e remove-participant saem direto, fora da fila | Atendimento 1:1, fila `whatsapp_outbound_queue`, campanha de foto e a instância poly. Filial não entra. Nenhum env de produção foi ligado |
 | 2026-11-18 | A Yury lê as etiquetas que ainda não baixaram estoque | `GET /api/integrations/labels/pending-stock` com `LABEL_STOCK_SYNC_TOKEN` (Bearer ou `X-Api-Key`). Sem token: 503. Token errado: 401. Uma linha por pacote no dividido; no envio único, o id do pedido. `POST .../labels/:labelId/stock-result` grava `baixou_estoque` ou `saiu_sem_abater`. O primeiro não chama o `exit` | A baixa do card continua no `POST /api/integrations/inventory/exit`. Fóz não entra. Não cria pedido na Yury |
@@ -169,6 +170,9 @@ Código > memória. Não reintroduzir providers antigos sem evidência.
 - **Cloudflare R2** (S3-compatible): upload imagens produto/comprovantes etc. (`lib/r2.ts`).
 - Etiqueta EnvioEcom: PDF em `tracking-labels/` via `uploadShipmentLabelPdfToR2`. O arquivo no bucket continua com chave aleatória. O download (`GET /admin/envioecom/orders/:id/label-pdf`, admin com acesso global) manda o nome `Cliente Número.pdf` (e o pool no split: Fóz Guaçu, Motoboy, Minas ou Santa Catarina) e o clique grava esse arquivo uma vez. Só lê data URL ou o host público do R2 desta loja.
 - Script migrate: `scripts/src/migrate-product-images-to-r2.ts`.
+- **Backup diário:** o cron `0 3 * * *` America/Sao_Paulo continua `node --max-old-space-size=192 scripts/src/db-backup-r2.mjs`. O dump vai para `kaimports-db-backups/mysql/`. Em seguida o mesmo processo espelha `oficialkaimports-media` (`products/`, `tracking-labels/`, `whatsapp-groups/`, `site-settings/`) para `kaimports-db-backups/media/`. Lista o destino uma vez, compara chave e tamanho, copia só o que falta ou mudou de tamanho, quatro por vez, sem apagar. Origem vazia ou falha numa chave sai com código 1. A origem usa `CLOUDFLARE_R2_*`; o destino usa `BACKUP_R2_*`.
+- O heartbeat fica em `site_settings` da `tenant_loja1`: `backup_last_status` (JSON com `dateSP`, `dbOk`, `dumpKey`, `dumpBytes`, `mediaOk`, `copied`, `total`, `finishedAt`) e `backup_alert_last_date`. As duas não entram em `PUBLIC_KEYS`, `ALLOWED_KEYS` nem em `public-settings.ts`. Linha de outra loja não é alterada.
+- Alerta só na Z-API, direto, sem n8n e sem `whatsapp_outbound_queue`. O job usa `fetch` em `/send-text` com `ZAPI_MAIN_*`, `WHATSAPP_ZAPI_DRY_RUN` e `WHATSAPP_ZAPI_FAKE_ONLY`. O watchdog (`startBackupWatchdogJob`, a cada 30 min entre 04:00 e 12:00 de São Paulo) usa `sendZapiMessage` com `live: true`. Os dois leem `BACKUP_ALERT_PHONES`. Sem a variável, só logam aviso. Um aviso por dia. O log não leva telefone, SQL nem segredo. Detalhe operacional em `docs/DB_BACKUP_R2.md`.
 
 ## EnvioEcom (frete / etiqueta / rastreio)
 

@@ -1,12 +1,13 @@
 # Arquitetura — KA Imports
 
-> **Última atualização:** 2026-11-25
+> **Última atualização:** 2026-11-28
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-28 | Watchdog do backup no boot da API | `startBackupWatchdogJob` em `index.ts`, a cada 30 min, das 4h às 12h de São Paulo. Lê `site_settings` da loja 1 | O cron do dump continua o mesmo comando. Sem tabela nova |
 | 2026-11-25 | Kit da home lê `products.category` | `isListedKitProduct` e `?categoria=kit` comparam a categoria normalizada. `pharmaMenuCategories` junta as grafias num rótulo Kit. O hero reserva uma vaga e não repete o card se o destaque já é Kit | API, banco, ordem da seção (depois de Retatrutida, antes de Mais vendidos) e o Ver todos |
 | 2026-11-25 | Kit virtual só no front da loja 1 | `buildHomeHero` e `buildPharmaShowcases` leem o catálogo já carregado. `?categoria=kit` filtra pelo nome. Sem coluna, sem rota e sem mudança em `GET /api/products` | Categorias reais, os outros presets e o banco |
 | 2026-11-24 | Quadro Envio Shopee sem coluna nova | O verde lê `orders.shopee_route_requested_at`, que `mapOrder` do admin já devolve. O botão é `PATCH /api/admin/orders/:id/shopee-board-sent` | Sem migração. `shipping_via` continua só na seta |
@@ -150,7 +151,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 
 - Entry: `artifacts/api-server/src/index.ts` → `app.ts` → `routes/index.ts`.
 - Health: `GET /healthz`.
-- Jobs no boot: reconciliação (expiração 24h), raffle expiry, reconcile logistics, pull de cobertura Motoboy Yury (15 min, se token), pull de estoque Motoboy/Minas/Santa Catarina Yury (3 min, se token), fila de WhatsApp do cliente (60 s, no máximo 1 envio a cada 10 min por número).
+- Jobs no boot: reconciliação (expiração 24h), raffle expiry, reconcile logistics, pull de cobertura Motoboy Yury (15 min, se token), pull de estoque Motoboy/Minas/Santa Catarina Yury (3 min, se token), fila de WhatsApp do cliente (60 s, no máximo 1 envio a cada 10 min por número), watchdog do backup (30 min, só entre 4h e 12h de São Paulo, no máximo um WhatsApp por dia).
 - Aviso de postagem: `GET /api/shipping-logistics/forecast` (público, por tenant). `promisedHours` pode ser o manual (`shipping-queue-deadline.ts`); `availableSlots` sai de `getOrderLogisticsForecast`. A gravação da vaga não lê essas settings.
 - Checkout Motoboy: `GET /api/motoboy-coverage/lookup` (público, por tenant). Geocode do destino no servidor (`motoboy-geocode.ts`: Google → AwesomeAPI → Nominatim → Photon → BrasilAPI; cache CEP+número, erro 10 min). Origem fixa na Sé. Km de rua em `motoboy-route.ts`. A faixa de CEP só entra se o km não tiver coordenada. Settings de km em `ALLOWED_KEYS`, fora de `PUBLIC_KEYS`.
 - Webhook cobertura Motoboy: `POST /api/webhooks/yury/motoboy-coverage` (body cru + HMAC) **antes** de `express.json()`.
@@ -189,6 +190,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 
 - Cloudflare R2 via S3 SDK (`artifacts/api-server/src/lib/r2.ts`).
 - Env: `CLOUDFLARE_R2_*`.
+- O cron `scripts/src/db-backup-r2.mjs` manda o dump para `kaimports-db-backups/mysql/` e espelha a mídia da loja em `media/` sem apagar. Status em `site_settings` (`backup_last_status`), fora da vitrine.
 
 ## Deploy / ambientes conhecidos
 

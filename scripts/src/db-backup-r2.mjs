@@ -1,9 +1,15 @@
 #!/usr/bin/env node
-// Daily logical backup of the MySQL database to Cloudflare R2 (S3 API).
+// Daily backup orchestrator. The DigitalOcean run command stays:
+//   node --max-old-space-size=192 scripts/src/db-backup-r2.mjs
+//
+// 1. MySQL dump -> gzip -> multipart upload under mysql/ (this file).
+// 2. Incremental media mirror into media/ (scripts/src/media-backup-r2.mjs).
+// A failure in one part does not skip the other. Then it writes backup_last_status
+// on site_settings for tenant_loja1 and, if anything failed, sends one Z-API
+// send-text. Exit code 1 when either part or the heartbeat failed.
 //
 // Streams: MySQL rows -> SQL text -> gzip -> 8 MiB multipart parts -> R2.
-// Memory stays bounded (~2 parts in flight), so a DB of hundreds of MB is fine
-// on the smallest App Platform instance. Any error aborts the upload and exits 1.
+// Memory stays bounded, including four in-flight media copies on a 192 MB heap.
 //
 // Required env:
 //   DATABASE_URL                     mysql://user:pass@host:port/db?ssl-mode=REQUIRED
@@ -11,11 +17,20 @@
 //   BACKUP_R2_SECRET_ACCESS_KEY
 //   BACKUP_R2_BUCKET                 e.g. kaimports-db-backups
 //   CLOUDFLARE_R2_ACCOUNT_ID         (or BACKUP_S3_ENDPOINT for any S3-compatible target)
+//   CLOUDFLARE_R2_ACCESS_KEY_ID      source media bucket (read)
+//   CLOUDFLARE_R2_SECRET_ACCESS_KEY
+//   CLOUDFLARE_R2_BUCKET_NAME        e.g. oficialkaimports-media
 // Optional env:
 //   DATABASE_CA_CERT                 PEM; when set, TLS is verified against it
 //   BACKUP_KEY_PREFIX                default "mysql/"
 //   BACKUP_TIME_ZONE                 default TZ or America/Sao_Paulo (used in the object key)
-//   BACKUP_OUTPUT_FILE               write the .sql.gz to this local path instead of uploading
+//   BACKUP_OUTPUT_FILE               local dump only: skips media, heartbeat and alert
+//   BACKUP_ALERT_PHONES              comma-separated digits starting with 55
+//   ZAPI_MAIN_INSTANCE_ID            direct send-text when a part fails
+//   ZAPI_MAIN_TOKEN
+//   ZAPI_CLIENT_TOKEN
+//   WHATSAPP_ZAPI_DRY_RUN            1/true/yes: do not call Z-API
+//   WHATSAPP_ZAPI_FAKE_ONLY          1/true/yes: only phones starting with 550000
 //
 // Restore:  gunzip -c FILE.sql.gz | mysql -h HOST -P PORT -u USER -p --ssl-mode=REQUIRED DBNAME
 
@@ -33,6 +48,17 @@ import {
   AbortMultipartUploadCommand,
   HeadObjectCommand,
 } from "@aws-sdk/client-s3";
+import { runMediaBackup } from "./media-backup-r2.mjs";
+import {
+  clipBackupError,
+  formatBackupAlertText,
+  parseBackupAlertPhones,
+  saoPauloParts,
+  sendBackupAlert,
+} from "./backup-alert.mjs";
+
+const BACKUP_TENANT_ID = "tenant_loja1";
+const BACKUP_STATUS_KEY = "backup_last_status";
 
 const PART_SIZE = 8 * 1024 * 1024; // R2: all parts except the last must be the same size
 const MAX_STMT_BYTES = 1024 * 1024; // max size of one multi-row INSERT
@@ -274,7 +300,7 @@ function multipartSink({ client, bucket, key, stats }) {
   return sink;
 }
 
-async function main() {
+async function runDatabaseBackup() {
   const started = Date.now();
   const stats = { tables: 0, views: 0, triggers: 0, rows: 0, rawBytes: 0, compressedBytes: 0, sha256: "" };
   const outFile = process.env.BACKUP_OUTPUT_FILE;
@@ -368,18 +394,139 @@ async function main() {
       `${stats.rows} rows; raw ${fmtBytes(stats.rawBytes)}, gzip ${fmtBytes(stats.compressedBytes)}, ` +
       `sha256 ${stats.sha256}, ${((Date.now() - started) / 1000).toFixed(1)}s, max RSS ${Math.round(process.resourceUsage().maxRSS / 1024)} MiB`,
   );
+  return { key: outFile ? null : key, bytes: stats.compressedBytes };
+}
+
+function mediaStats(err) {
+  return {
+    copied: Number(err?.copied) || 0,
+    total: Number(err?.total) || 0,
+    bytes: Number(err?.bytes) || 0,
+  };
+}
+
+async function writeHeartbeat(payload) {
+  const conn = mysql.createConnection(connectionOptions());
+  conn.on("error", () => {});
+  const json = JSON.stringify(payload);
+  try {
+    const [rows] = await conn.promise().query(
+      "SELECT tenant_id AS tenantId FROM site_settings WHERE `key` = ? LIMIT 1",
+      [BACKUP_STATUS_KEY],
+    );
+    const current = Array.isArray(rows) && rows[0] ? String(rows[0].tenantId || "").trim() : "";
+    if (Array.isArray(rows) && rows.length > 0 && current && current !== BACKUP_TENANT_ID) {
+      throw new Error("status de backup pertence a outra loja");
+    }
+    if (Array.isArray(rows) && rows.length > 0) {
+      const [updated] = await conn.promise().query(
+        "UPDATE site_settings SET `value` = ?, tenant_id = ?, updated_at = UTC_TIMESTAMP() WHERE `key` = ? AND (tenant_id = ? OR tenant_id IS NULL OR tenant_id = '')",
+        [json, BACKUP_TENANT_ID, BACKUP_STATUS_KEY, BACKUP_TENANT_ID],
+      );
+      if (!updated || Number(updated.affectedRows) < 1) {
+        throw new Error("não gravou o status do backup");
+      }
+      return;
+    }
+    await conn.promise().query(
+      "INSERT INTO site_settings (`key`, `value`, tenant_id, updated_at) VALUES (?, ?, ?, UTC_TIMESTAMP())",
+      [BACKUP_STATUS_KEY, json, BACKUP_TENANT_ID],
+    );
+  } finally {
+    conn.destroy();
+  }
+}
+
+async function orchestrate() {
+  if (process.env.BACKUP_OUTPUT_FILE) {
+    log("arquivo local: só o dump, sem mídia e sem alerta");
+    await runDatabaseBackup();
+    return false;
+  }
+
+  const failures = [];
+  let db = { ok: false, key: null, bytes: null };
+  try {
+    const dumped = await runDatabaseBackup();
+    db = { ok: true, key: dumped.key, bytes: dumped.bytes };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "erro no banco";
+    db = { ok: false, key: null, bytes: null };
+    failures.push({ stage: "banco", error: message });
+    log(`banco FALHOU: ${clipBackupError(message)}`);
+  }
+
+  let media = { ok: false, copied: 0, total: 0 };
+  try {
+    const copied = await runMediaBackup();
+    media = { ok: true, copied: copied.copied, total: copied.total };
+  } catch (err) {
+    const stats = mediaStats(err);
+    const message = err instanceof Error ? err.message : "erro na mídia";
+    media = { ok: false, copied: stats.copied, total: stats.total };
+    failures.push({ stage: "mídia", error: message });
+    log(`mídia FALHOU: ${clipBackupError(message)}`);
+  }
+
+  const finishedAt = new Date();
+  const clock = saoPauloParts(finishedAt);
+  let heartbeatOk = true;
+  try {
+    await writeHeartbeat({
+      dateSP: clock.dateSP,
+      dbOk: db.ok,
+      dumpKey: db.ok ? db.key : null,
+      dumpBytes: db.ok ? db.bytes : null,
+      mediaOk: media.ok,
+      copied: media.copied,
+      total: media.total,
+      finishedAt: finishedAt.toISOString(),
+    });
+    log(`heartbeat dbOk=${db.ok} mediaOk=${media.ok}`);
+  } catch (err) {
+    heartbeatOk = false;
+    const message = err instanceof Error ? err.message : "não gravou o status do backup";
+    failures.push({ stage: "registro", error: message });
+    log(`registro FALHOU: ${clipBackupError(message)}`);
+  }
+
+  log(`fim banco=${db.ok ? "ok" : "falha"} midia=${media.ok ? "ok" : "falha"} registro=${heartbeatOk ? "ok" : "falha"}`);
+  if (failures.length === 0) return false;
+
+  const phones = parseBackupAlertPhones(process.env.BACKUP_ALERT_PHONES);
+  if (phones.length === 0) {
+    log("aviso: BACKUP_ALERT_PHONES ausente; alerta não enviado");
+    return true;
+  }
+  const message = formatBackupAlertText({
+    stages: failures.map((failure) => failure.stage),
+    details: failures,
+    now: finishedAt,
+  });
+  try {
+    await sendBackupAlert({ env: process.env, phones, message, log });
+  } catch {
+    log("aviso: alerta não saiu");
+  }
+  return true;
 }
 
 // Anything that ends the process without reaching the success path is a failure.
 process.exitCode = 1;
+let finished = false;
 process.on("beforeExit", () => {
-  if (process.exitCode !== 0) console.error("[db-backup] FAILED: process ended before the backup completed");
+  if (!finished) console.error("[db-backup] FAILED: process ended before the backup completed");
 });
 
-main().then(
-  () => process.exit(0),
+orchestrate().then(
+  (failed) => {
+    finished = true;
+    process.exit(failed ? 1 : 0);
+  },
   (err) => {
-    console.error(`[db-backup] FAILED: ${err?.stack || err}`);
+    finished = true;
+    const message = err instanceof Error ? err.message : "erro";
+    console.error(`[db-backup] FAILED: ${clipBackupError(message)}`);
     process.exit(1);
   },
 );

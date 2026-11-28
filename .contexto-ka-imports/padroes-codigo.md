@@ -1,12 +1,13 @@
 # Padrões de código — KA Imports
 
-> **Última atualização:** 2026-11-25
+> **Última atualização:** 2026-11-28
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-28 | Anti-padrão: alerta de backup pelo n8n ou pela fila, ou apagar a mídia no espelho | O cron chama a Z-API direto. O watchdog usa `sendZapiMessage` com `live: true`, fora de `whatsapp_outbound_queue`. O espelho só copia. As chaves `backup_last_status` e `backup_alert_last_date` ficam fora do allowlist | O WhatsApp de cliente continua na fila quando a setting é `direto` |
 | 2026-11-25 | Anti-padrão: montar o Kit da home pelo nome, ou somar Kit virtual ao Kit que `/api/products` já devolve | O critério é a categoria normalizada. Chip, menu, filtro e cards mostram um Kit | Os outros temas, a API e o banco |
 | 2026-11-25 | Anti-padrão: gravar categoria Kit no produto para aparecer na vitrine | O filtro é `?categoria=kit` no front. O nome contém “kit”. `products.category` continua a do cadastro | API, banco e os outros temas |
 | 2026-11-24 | Anti-padrão: com vendedor na sessão, abrir WhatsApp no número padrão enquanto o GET do slug não voltou | O clique usa `resolveSellerWhatsAppStrict`. Sem o número daquele slug, não abre `support_whatsapp` nem `DEFAULT_WHATSAPP` | Visitante sem slug segue o número da loja |
@@ -237,6 +238,7 @@ Código > memória > suposições.
 
 ## Anti-padrões (não reintroduzir)
 
+- Mandar o alerta de backup pelo n8n ou por `whatsapp_outbound_queue`. O cron usa `send-text` direto (`ZAPI_MAIN_*`, dry-run e fake-only). O watchdog usa `sendZapiMessage` com `live: true` para `BACKUP_ALERT_PHONES`. Não logar telefone, SQL nem segredo. Não colocar `backup_last_status` nem `backup_alert_last_date` em `PUBLIC_KEYS` ou `ALLOWED_KEYS`. Não apagar objeto no espelho `media/`: só copia o que falta ou mudou de tamanho.
 - Tratar conversa, comprovante ou CNPJ do atendimento como ID da Shopee. Só segue código com letra, número sozinho de 14 a 20 dígitos ou frase curta (“segue o id”, “id da compra”). O resto volta ao menu e não marca `id_invalido`. Não usar `PATCH /api/admin/orders/:id/enviado` no quadro Envio Shopee: esse caminho chama `ensureOrderMarkedEnviado` e baixa estoque. O botão branco usa `PATCH /api/admin/orders/:id/shopee-board-sent` e `markOrderEnviadoWithoutInventory`, sem WhatsApp. Não gravar `shipping_via` nesse clique. Salvar `shopee_route_message` igual ao texto padrão apaga a setting, em `tenant_settings`.
 - Escolher grupo da moderação pelo nome, ou apagar e remover passando por `whatsapp_outbound_queue` / `sendZapiMessage`. A lista é de ID da Z-API. O DELETE e o `remove-participant` saem direto na instância main. Dry run não chama esses dois. Não gravar telefone completo, nome nem texto em `whatsapp_group_moderation_log`.
 - Gravar o ID da Rota Shopee em `tracking_code` ou `manual_tracking_code`, ou marcar enviado por `ensureOrderMarkedEnviado` nesse fluxo. O ID é `orders.shopee_order_id`. O enviado da rota não baixa estoque. O crédito não abre outra carteira: é uma linha `shopee_route_credit` em `customer_wallet_ledger`, com chave `shopee-route:{orderId}` e a data `shopee_wallet_credited_at`. O POST do n8n e o inbound exigem `N8N_SHOPEE_SECRET` no header `X-N8N-Shopee-Secret`. Sem o segredo o inbound fica 503. Não logar telefone, texto do cliente, URL com segredo nem SQL. Não juntar a frase inteira num ID: "241116ABCDEFGH ok" continua o código de 14 caracteres, sem o "ok". Se esse ID já está em outro pedido do mesmo telefone, a repetição volta nele (`ja_processado`) e não grava no pedido que ainda aguarda. O atendimento não faz POST em `/api/integrations/shopee-route/inbound`: chama `executeShopeeRouteInbound` com a loja do token. Não casa pedido de outra loja pelo telefone. O inbound do n8n continua sem esse recorte. Não roda essa gravação sem pedido aguardando naquele telefone. Exceção nessa parte não pode derrubar o menu.
