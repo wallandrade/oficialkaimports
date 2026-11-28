@@ -64,6 +64,14 @@ async function buildAll() {
       "process.env.NODE_ENV": '"production"',
     },
     minify: true,
+    // `await import("@workspace/db")` (brevo.ts, whatsapp-group-moderation.ts)
+    // faz o esbuild embrulhar o grafo do db em `__esm` lazy, e isso inclui o zod.
+    // O zod 4 declara `sideEffects` so para ./compile, entao o esbuild descartava o
+    // `init_*()` dos importadores estaticos (lib/api-zod) e `z.string()` rodava com
+    // ZodString ainda undefined: "TypeError: e is not a constructor" no boot.
+    // Ignorar o campo `sideEffects` dos pacotes mantem os inits. Nao remova sem
+    // rodar `pnpm --filter @workspace/api-server smoke:boot`.
+    ignoreAnnotations: true,
     external: externals,
     logLevel: "info",
   });
