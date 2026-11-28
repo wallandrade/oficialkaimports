@@ -7,6 +7,7 @@
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-28 | Bundle da API não descarta o init do zod 4 | `artifacts/api-server/build.ts` passa `ignoreAnnotations: true` no esbuild. O Nixpacks continua gerando `dist/index.cjs`. O CI sobe esse arquivo e espera `GET /api/healthz` 200 (`.github/smoke-api-boot.mjs`, `if: always()`). Script: `pnpm --filter @workspace/api-server smoke:boot` | Minify, externals e o filtro do Nixpacks. Env e o app na DigitalOcean não foram alterados daqui |
 | 2026-11-28 | Watchdog do backup no boot da API | `startBackupWatchdogJob` em `index.ts`, a cada 30 min, das 4h às 12h de São Paulo. Lê `site_settings` da loja 1. `running` de hoje há menos de 3 h não avisa; depois disso avisa travado. O claim do alerta é atômico | O cron do dump continua o mesmo comando. Sem tabela nova |
 | 2026-11-28 | Install do Nixpacks usa o lockfile | `nixpacks.toml` chama `pnpm install --frozen-lockfile`. CI em `.github/workflows/ci.yml` no PR e no push da `main` | O filtro continua `@workspace/api-server`. O app na DigitalOcean não foi alterado daqui |
 | 2026-11-25 | Kit da home lê `products.category` | `isListedKitProduct` e `?categoria=kit` comparam a categoria normalizada. `pharmaMenuCategories` junta as grafias num rótulo Kit. O hero reserva uma vaga e não repete o card se o destaque já é Kit | API, banco, ordem da seção (depois de Retatrutida, antes de Mais vendidos) e o Ver todos |
@@ -151,7 +152,8 @@ Monorepo **pnpm workspaces** + TypeScript.
 ## API
 
 - Entry: `artifacts/api-server/src/index.ts` → `app.ts` → `routes/index.ts`.
-- Health: `GET /healthz`.
+- Bundle de produção: `build.ts` (esbuild, minify) grava `artifacts/api-server/dist/index.cjs`. O Nixpacks roda `pnpm --filter @workspace/api-server build`. `ignoreAnnotations: true` impede o esbuild de honrar o `sideEffects` do zod 4 (só `./compile`). Sem isso, o `await import("@workspace/db")` joga o zod no `__esm` lazy, o init some e o boot quebra com `TypeError: e is not a constructor`.
+- Health: `GET /api/healthz` devolve `{ status: "ok" }` (`HealthCheckResponse`). `GET /health` devolve o texto `OK`.
 - Jobs no boot: reconciliação (expiração 24h), raffle expiry, reconcile logistics, pull de cobertura Motoboy Yury (15 min, se token), pull de estoque Motoboy/Minas/Santa Catarina Yury (3 min, se token), fila de WhatsApp do cliente (60 s, no máximo 1 envio a cada 10 min por número), watchdog do backup (na subida e a cada 30 min, só entre 4h e 12h de São Paulo; `running` recente não avisa; claim único por dia, até 3 tentativas se o envio falhar).
 - Aviso de postagem: `GET /api/shipping-logistics/forecast` (público, por tenant). `promisedHours` pode ser o manual (`shipping-queue-deadline.ts`); `availableSlots` sai de `getOrderLogisticsForecast`. A gravação da vaga não lê essas settings.
 - Checkout Motoboy: `GET /api/motoboy-coverage/lookup` (público, por tenant). Geocode do destino no servidor (`motoboy-geocode.ts`: Google → AwesomeAPI → Nominatim → Photon → BrasilAPI; cache CEP+número, erro 10 min). Origem fixa na Sé. Km de rua em `motoboy-route.ts`. A faixa de CEP só entra se o km não tiver coordenada. Settings de km em `ALLOWED_KEYS`, fora de `PUBLIC_KEYS`.
