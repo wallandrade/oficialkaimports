@@ -22,6 +22,7 @@ import {
   SITE_PASSWORD_RELEASED_LABEL,
   SITE_RELEASE_SCHEDULED_LABEL,
   sitePasswordCardStatus,
+  siteReleaseSaveSteps,
   siteReleaseScheduleActive,
 } from "@/lib/site-password-status";
 import { settleOrderEdit } from "@/lib/order-edit-settlement";
@@ -22384,19 +22385,22 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
     }
     siteReleaseSyncPaused.current = true;
     let saved = false;
+    const enabling = siteReleaseEnabled;
+    const at = siteReleaseAt.trim();
+    const message = siteReleaseMessage.trim();
     try {
-      const enabledOk = await onSave("site_release_enabled", siteReleaseEnabled ? "1" : "0", { quiet: true });
-      if (!enabledOk) return;
-      const at = siteReleaseAt.trim();
-      const atOk = at
-        ? await onSave("site_release_at", at, { quiet: true })
-        : await onDelete("site_release_at", { quiet: true });
-      if (!atOk) return;
-      const message = siteReleaseMessage.trim();
-      const messageOk = message
-        ? await onSave("site_release_message", message, { quiet: true })
-        : await onDelete("site_release_message", { quiet: true });
-      if (!messageOk) return;
+      for (const step of siteReleaseSaveSteps(enabling)) {
+        const ok = step === "enabled"
+          ? await onSave("site_release_enabled", enabling ? "1" : "0", { quiet: true })
+          : step === "at"
+            ? (at
+              ? await onSave("site_release_at", at, { quiet: true })
+              : await onDelete("site_release_at", { quiet: true }))
+            : (message
+              ? await onSave("site_release_message", message, { quiet: true })
+              : await onDelete("site_release_message", { quiet: true }));
+        if (!ok) return;
+      }
       await onReloadSettings();
       saved = true;
       toast.success("Liberação salva.");

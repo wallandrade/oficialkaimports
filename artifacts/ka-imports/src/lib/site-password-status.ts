@@ -22,3 +22,14 @@ export function sitePasswordCardStatus(
 export function siteReleaseScheduleActive(protection: SiteProtectionView): boolean {
   return protection?.release != null;
 }
+
+export type SiteReleaseSaveStep = "enabled" | "at" | "message";
+
+/**
+ * Desligar grava o interruptor primeiro: a loja fecha mesmo se a data falhar.
+ * Ligar grava a data e a mensagem antes. Um `1` com a data antiga no passado
+ * abriria a loja até o PUT seguinte, e uma data que falha deixaria a loja aberta.
+ */
+export function siteReleaseSaveSteps(enabled: boolean): readonly SiteReleaseSaveStep[] {
+  return enabled ? ["at", "message", "enabled"] : ["enabled", "at", "message"];
+}

@@ -5,6 +5,7 @@ import {
   SITE_PASSWORD_RELEASED_LABEL,
   SITE_RELEASE_SCHEDULED_LABEL,
   sitePasswordCardStatus,
+  siteReleaseSaveSteps,
   siteReleaseScheduleActive,
 } from "./site-password-status.ts";
 
@@ -26,6 +27,11 @@ test("sem resposta da API o card não afirma proteção nem liberação", () => 
   assert.equal(sitePasswordCardStatus(true, null), null);
   assert.equal(sitePasswordCardStatus(false, { site: false, release: null }), null);
   assert.equal(sitePasswordCardStatus(false, null), null);
+});
+
+test("ligar grava a data antes do interruptor e desligar faz o contrário", () => {
+  assert.deepEqual(siteReleaseSaveSteps(true), ["at", "message", "enabled"]);
+  assert.deepEqual(siteReleaseSaveSteps(false), ["enabled", "at", "message"]);
 });
 
 test("liberação automática ligada segue o release da API", () => {
