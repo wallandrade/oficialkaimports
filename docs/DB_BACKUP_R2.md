@@ -49,7 +49,7 @@ No começo o job grava `backup_last_status` com `status: "running"`, `dateSP` e 
 {"status":"ok","dateSP":"2026-11-28","dbOk":true,"dumpKey":"mysql/2026-11-28_0300.sql.gz","dumpBytes":123,"mediaOk":true,"copied":0,"total":2634,"startedAt":"2026-11-28T06:00:00.000Z","finishedAt":"2026-11-28T06:10:00.000Z"}
 ```
 
-`backup_alert_last_date` é o claim do aviso. O valor `AAAA-MM-DD` significa que o alerta daquele dia saiu. `AAAA-MM-DD@N` é um envio em andamento. `AAAA-MM-DD#N` são N tentativas em que nenhum telefone recebeu. O `INSERT ... ON DUPLICATE KEY UPDATE` só deixa seguir quem mudou a linha. Se todos os telefones falharem, o claim volta para `#N`, no máximo 3 vezes no dia. Job e watchdog usam a mesma chave, então um não repete o outro. Linha de outra loja não é alterada.
+`backup_alert_last_date` é o claim do aviso. O valor `AAAA-MM-DD` significa que o alerta daquele dia saiu. `AAAA-MM-DD@N@ms` é um envio em andamento, com a hora em milissegundos. `AAAA-MM-DD#N` são N tentativas em que nenhum telefone recebeu. Quem envia faz `UPDATE ... WHERE value =` o valor que leu, então um `affectedRows` de linha encontrada sem troca não conta. Um claim parado há mais de 15 minutos, ou sem hora, pode ser retomado e não silencia o dia. Se todos os telefones falharem, o claim volta para `#N`, no máximo 3 vezes no dia. Job e watchdog usam a mesma chave. Linha de outra loja não é alterada.
 
 As duas chaves ficam fora de `PUBLIC_KEYS`, de `ALLOWED_KEYS` e de `public-settings.ts`. A resposta de settings ainda apaga essas chaves se um dia entrarem na lista.
 
@@ -57,7 +57,7 @@ Alerta do job, só quando algo falhou: `POST /send-text` na Z-API com `ZAPI_MAIN
 
 ## Watchdog na API
 
-`startBackupWatchdogJob()` sobe com a API. Confere na subida e depois a cada 30 minutos, entre 04:00 e 12:00 de `America/Sao_Paulo`. Lê `backup_last_status`. Não avisa enquanto `status` for `running` de hoje e `startedAt` tiver menos de 3 horas. Passou disso, avisa `backup travado`. Fora esse caso, avisa se a data não é de hoje, se `dbOk` ou `mediaOk` não for verdadeiro, ou se o banco não respondeu. O claim em `backup_alert_last_date` é o mesmo do job: quem não mudar a linha não envia. O envio é `sendZapiMessage` com `live: true`, direto para `BACKUP_ALERT_PHONES`. Não entra na fila.
+`startBackupWatchdogJob()` sobe com a API. Confere na subida e depois a cada 30 minutos, entre 04:00 e 12:00 de `America/Sao_Paulo`. Lê `backup_last_status`. Não avisa enquanto `status` for `running` de hoje e `startedAt` tiver menos de 3 horas. Passou disso, avisa `backup travado`. Até as 06:00, status de outro dia ou banco inacessível também não avisam: o cron das 03:00 ainda pode estar gravando. Depois das 06:00, avisa se a data não é de hoje, se `dbOk` ou `mediaOk` não for verdadeiro, ou se o banco não respondeu. O claim em `backup_alert_last_date` é o mesmo do job: quem não mudar a linha não envia. O envio é `sendZapiMessage` com `live: true`, direto para `BACKUP_ALERT_PHONES`. Não entra na fila.
 
 `BACKUP_ALERT_PHONES` precisa estar no ambiente do app, não só no job: a API e o cron leem a mesma variável.
 

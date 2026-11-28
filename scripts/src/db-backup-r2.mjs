@@ -460,16 +460,20 @@ async function orchestrate() {
 
   const startedAt = new Date();
   const startedClock = saoPauloParts(startedAt);
-  try {
-    await writeHeartbeat({
-      status: "running",
-      dateSP: startedClock.dateSP,
-      startedAt: startedAt.toISOString(),
-    });
-    log("heartbeat status=running");
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "não gravou o status do backup";
-    log(`registro FALHOU: ${clipBackupError(message)}`);
+  let runningOk = false;
+  for (let attempt = 0; attempt < 3 && !runningOk; attempt += 1) {
+    try {
+      await writeHeartbeat({
+        status: "running",
+        dateSP: startedClock.dateSP,
+        startedAt: startedAt.toISOString(),
+      });
+      runningOk = true;
+      log("heartbeat status=running");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "não gravou o status do backup";
+      log(`registro FALHOU: ${clipBackupError(message)}`);
+    }
   }
 
   const failures = [];

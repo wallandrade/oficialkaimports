@@ -6,8 +6,8 @@ import {
   BACKUP_STATUS_KEY,
   BACKUP_TENANT_ID,
   backupAlertClaimBlocks,
-  backupAlertClaimSql,
   backupClock,
+  nextBackupAlertClaim,
   backupSettingOwnedByLoja1,
   decideBackupWatchdog,
   formatBackupAlertText,
@@ -22,10 +22,10 @@ let alertedDateSP: string | null = null;
 
 type AlertClaim = { token: string; failedValue: string };
 
-function claimToken(value: string, dateSP: string): AlertClaim | null {
-  const match = value.match(new RegExp(`^${dateSP.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}@(\\d+)$`));
-  if (!match) return null;
-  return { token: value, failedValue: `${dateSP}#${match[1]}` };
+function claimChanged(header: { affectedRows?: number; changedRows?: number } | null | undefined): boolean {
+  if (!header) return false;
+  if (typeof header.changedRows === "number") return header.changedRows > 0;
+  return Number(header.affectedRows) > 0;
 }
 
 async function readBackupRows(): Promise<Array<{ key: string; value: string; tenantId: string | null }>> {
@@ -42,20 +42,38 @@ async function readBackupRows(): Promise<Array<{ key: string; value: string; ten
     ));
 }
 
-async function claimBackupAlert(dateSP: string): Promise<AlertClaim | null> {
+async function claimBackupAlert(dateSP: string, now = Date.now()): Promise<AlertClaim | null> {
   const conn = await pool.getConnection();
   try {
-    const { sql, params } = backupAlertClaimSql(dateSP);
-    const [header] = await conn.query(sql, params) as unknown as [{ affectedRows?: number }];
-    if (!Number(header?.affectedRows)) return null;
     const [rows] = await conn.query(
       "SELECT `value` AS value, tenant_id AS tenantId FROM site_settings WHERE `key` = ? LIMIT 1",
       [BACKUP_ALERT_DATE_KEY],
     ) as unknown as [Array<{ value?: string; tenantId?: string | null }>];
     const row = rows?.[0];
     const tenant = String(row?.tenantId || "").trim();
-    if (tenant && tenant !== BACKUP_TENANT_ID) return null;
-    return claimToken(String(row?.value || ""), dateSP);
+    if (row && tenant && tenant !== BACKUP_TENANT_ID) return null;
+    const current = row ? String(row.value || "") : "";
+    const plan = nextBackupAlertClaim(row ? current : "", dateSP, now);
+    if (!plan) return null;
+    if (!row) {
+      try {
+        const [header] = await conn.query(
+          "INSERT INTO site_settings (`key`, `value`, tenant_id, updated_at) VALUES (?, ?, ?, UTC_TIMESTAMP())",
+          [BACKUP_ALERT_DATE_KEY, plan.next, BACKUP_TENANT_ID],
+        ) as unknown as [{ affectedRows?: number }];
+        if (!Number(header?.affectedRows)) return null;
+      } catch (err) {
+        if (String((err as { code?: string } | null)?.code || "") === "ER_DUP_ENTRY") return null;
+        throw err;
+      }
+      return { token: plan.next, failedValue: plan.failedValue };
+    }
+    const [header] = await conn.query(
+      "UPDATE site_settings SET `value` = ?, updated_at = UTC_TIMESTAMP() WHERE `key` = ? AND `value` = ? AND (tenant_id = ? OR tenant_id IS NULL OR tenant_id = '')",
+      [plan.next, BACKUP_ALERT_DATE_KEY, current, BACKUP_TENANT_ID],
+    ) as unknown as [{ affectedRows?: number; changedRows?: number }];
+    if (!claimChanged(header)) return null;
+    return { token: plan.next, failedValue: plan.failedValue };
   } finally {
     conn.release();
   }

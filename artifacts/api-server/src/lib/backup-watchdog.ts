@@ -5,7 +5,9 @@ export const BACKUP_TENANT_ID = "tenant_loja1";
 export const BACKUP_STATUS_KEY = "backup_last_status";
 export const BACKUP_ALERT_DATE_KEY = "backup_alert_last_date";
 export const BACKUP_ALERT_MAX_ATTEMPTS = 3;
+export const BACKUP_CLAIM_STALE_MS = 15 * 60 * 1000;
 export const BACKUP_RUNNING_GRACE_MS = 3 * 60 * 60 * 1000;
+export const BACKUP_QUIET_UNTIL_MINUTES = 6 * 60;
 
 const WINDOW_START_MINUTES = 4 * 60;
 const WINDOW_END_MINUTES = 12 * 60;
@@ -116,60 +118,39 @@ export function clipBackupError(value: unknown): string {
 export function nextBackupAlertClaim(
   current: string | null | undefined,
   dateSP: string,
+  now: number = Date.now(),
 ): { next: string; failedValue: string } | null {
   const value = String(current ?? "").trim();
   const day = String(dateSP || "").trim();
-  if (!day) return null;
+  const at = Number(now);
+  if (!day || !Number.isFinite(at)) return null;
   if (value === day) return null;
-  if (new RegExp(`^${escapeRegExp(day)}@\\d+$`).test(value)) return null;
+  const progress = value.match(new RegExp(`^${escapeRegExp(day)}@(\\d+)(?:@(\\d+))?$`));
+  if (progress) {
+    const attempt = Number(progress[1]);
+    if (attempt < 1 || attempt > BACKUP_ALERT_MAX_ATTEMPTS) return null;
+    const stamp = progress[2] ? Number(progress[2]) : 0;
+    const age = at - stamp;
+    if (progress[2] && age >= 0 && age < BACKUP_CLAIM_STALE_MS) return null;
+    return { next: `${day}@${attempt}@${at}`, failedValue: `${day}#${attempt}` };
+  }
   const failed = value.match(new RegExp(`^${escapeRegExp(day)}#(\\d+)$`));
   if (failed) {
     const attempts = Number(failed[1]);
     if (attempts >= BACKUP_ALERT_MAX_ATTEMPTS) return null;
     const attempt = attempts + 1;
-    return { next: `${day}@${attempt}`, failedValue: `${day}#${attempt}` };
+    return { next: `${day}@${attempt}@${at}`, failedValue: `${day}#${attempt}` };
   }
-  return { next: `${day}@1`, failedValue: `${day}#1` };
+  return { next: `${day}@1@${at}`, failedValue: `${day}#1` };
 }
 
 export function backupAlertClaimBlocks(raw: string | null | undefined, dateSP: string): boolean {
   const value = String(raw ?? "").trim();
   const day = String(dateSP || "").trim();
-  if (!day || !value.startsWith(day)) return false;
+  if (!day || (value !== day && !value.startsWith(`${day}#`))) return false;
   if (value === day) return true;
-  if (new RegExp(`^${escapeRegExp(day)}@\\d+$`).test(value)) return true;
   const failed = value.match(new RegExp(`^${escapeRegExp(day)}#(\\d+)$`));
   return Boolean(failed && Number(failed[1]) >= BACKUP_ALERT_MAX_ATTEMPTS);
-}
-
-export function backupAlertClaimSql(dateSP: string, tenantId = BACKUP_TENANT_ID): { sql: string; params: Array<string | number> } {
-  const sql = [
-    "INSERT INTO site_settings (`key`, `value`, tenant_id, updated_at)",
-    "VALUES (?, CONCAT(?, '@1'), ?, UTC_TIMESTAMP())",
-    "ON DUPLICATE KEY UPDATE `value` = IF(",
-    "tenant_id IS NOT NULL AND tenant_id <> '' AND tenant_id <> ?,",
-    "`value`,",
-    "IF(`value` = ? OR `value` LIKE CONCAT(?, '@%'), `value`,",
-    "IF(`value` REGEXP CONCAT('^', ?, '#[0-9]+$') AND CAST(SUBSTRING_INDEX(`value`, '#', -1) AS UNSIGNED) >= ?, `value`,",
-    "IF(`value` REGEXP CONCAT('^', ?, '#[0-9]+$'), CONCAT(?, '@', CAST(SUBSTRING_INDEX(`value`, '#', -1) AS UNSIGNED) + 1),",
-    "CONCAT(?, '@1')))))",
-  ].join(" ");
-  return {
-    sql,
-    params: [
-      BACKUP_ALERT_DATE_KEY,
-      dateSP,
-      tenantId,
-      tenantId,
-      dateSP,
-      dateSP,
-      dateSP,
-      BACKUP_ALERT_MAX_ATTEMPTS,
-      dateSP,
-      dateSP,
-      dateSP,
-    ],
-  };
 }
 
 export function formatBackupAlertText(input: {
@@ -211,15 +192,18 @@ export function decideBackupWatchdog(input: {
   if (String(input.lastAlertDateSP || "").trim() === clock.dateSP) {
     return { alert: false, reason: "already_alerted" };
   }
+  const quiet = clock.hour * 60 + clock.minute < BACKUP_QUIET_UNTIL_MINUTES;
   if (input.status === "unreachable") {
+    if (quiet) return { alert: false, reason: "running" };
     return { alert: true, reason: "db_unreachable", stage: "banco", error: "banco inacessível" };
   }
   const status = input.status;
   const dateSP = String(status?.dateSP || "").trim();
-  if (!status || !dateSP) {
-    return { alert: true, reason: "missing", stage: "banco, mídia", error: "backup de hoje não encontrado" };
-  }
-  if (dateSP !== clock.dateSP) {
+  if (!status || !dateSP || dateSP !== clock.dateSP) {
+    if (quiet) return { alert: false, reason: "running" };
+    if (!status || !dateSP) {
+      return { alert: true, reason: "missing", stage: "banco, mídia", error: "backup de hoje não encontrado" };
+    }
     return { alert: true, reason: "stale", stage: "banco, mídia", error: "último backup não é de hoje" };
   }
   if (status.status === "running") {

@@ -6,7 +6,6 @@ import {
   BACKUP_RUNNING_GRACE_MS,
   BACKUP_STATUS_KEY,
   backupAlertClaimBlocks,
-  backupAlertClaimSql,
   clipBackupError,
   decideBackupWatchdog,
   formatBackupAlertText,
@@ -18,6 +17,7 @@ import {
 const TODAY = new Date("2026-11-28T15:00:00.000Z"); // 12:00 SP
 const BEFORE = new Date("2026-11-28T06:59:00.000Z"); // 03:59 SP
 const OPEN = new Date("2026-11-28T07:00:00.000Z"); // 04:00 SP
+const SIX = new Date("2026-11-28T09:00:00.000Z"); // 06:00 SP
 const AFTER = new Date("2026-11-28T15:01:00.000Z"); // 12:01 SP
 
 const okStatus = {
@@ -67,12 +67,23 @@ test("watchdog fica quieto fora da janela e quando o backup de hoje está ok", (
 });
 
 test("watchdog alerta sem status de hoje, com falha ou com banco inacessível, uma vez por dia", () => {
-  const missing = decideBackupWatchdog({ now: OPEN, status: null, lastAlertDateSP: null });
+  const earlyMissing = decideBackupWatchdog({ now: OPEN, status: null, lastAlertDateSP: null });
+  assert.equal(earlyMissing.alert, false);
+  assert.equal(earlyMissing.reason, "running");
+
+  const missing = decideBackupWatchdog({ now: SIX, status: null, lastAlertDateSP: null });
   assert.equal(missing.alert, true);
   if (missing.alert) assert.equal(missing.error, "backup de hoje não encontrado");
 
-  const stale = decideBackupWatchdog({
+  const earlyStale = decideBackupWatchdog({
     now: OPEN,
+    status: { ...okStatus, dateSP: "2026-11-27" },
+    lastAlertDateSP: null,
+  });
+  assert.equal(earlyStale.alert, false);
+
+  const stale = decideBackupWatchdog({
+    now: SIX,
     status: { ...okStatus, dateSP: "2026-11-27" },
     lastAlertDateSP: null,
   });
@@ -103,7 +114,9 @@ test("watchdog alerta sem status de hoje, com falha ou com banco inacessível, u
   assert.equal(both.alert, true);
   if (both.alert) assert.equal(both.stage, "banco, mídia");
 
-  const down = decideBackupWatchdog({ now: OPEN, status: "unreachable", lastAlertDateSP: null });
+  const earlyDown = decideBackupWatchdog({ now: OPEN, status: "unreachable", lastAlertDateSP: null });
+  assert.equal(earlyDown.alert, false);
+  const down = decideBackupWatchdog({ now: SIX, status: "unreachable", lastAlertDateSP: null });
   assert.equal(down.alert, true);
   if (down.alert) assert.equal(down.error, "banco inacessível");
 
@@ -146,22 +159,30 @@ test("running de hoje dentro de 3h não alerta; depois de 3h avisa travado", () 
     assert.equal(stuck.error, "backup travado");
   }
 
-  const yesterday = decideBackupWatchdog({
+  const yesterdayEarly = decideBackupWatchdog({
     now: OPEN,
+    status: { status: "running", dateSP: "2026-11-27", startedAt: "2026-11-27T06:00:00.000Z" },
+    lastAlertDateSP: null,
+  });
+  assert.equal(yesterdayEarly.reason, "running");
+  const yesterday = decideBackupWatchdog({
+    now: SIX,
     status: { status: "running", dateSP: "2026-11-27", startedAt: "2026-11-27T06:00:00.000Z" },
     lastAlertDateSP: null,
   });
   assert.equal(yesterday.reason, "stale");
 
-  assert.equal(nextBackupAlertClaim("2026-11-28", "2026-11-28"), null);
-  assert.deepEqual(nextBackupAlertClaim("2026-11-28#2", "2026-11-28"), {
-    next: "2026-11-28@3",
+  const now = 1_700_000_000_000;
+  assert.equal(nextBackupAlertClaim("2026-11-28", "2026-11-28", now), null);
+  assert.deepEqual(nextBackupAlertClaim("2026-11-28#2", "2026-11-28", now), {
+    next: `2026-11-28@3@${now}`,
     failedValue: "2026-11-28#3",
   });
-  assert.equal(nextBackupAlertClaim("2026-11-28#3", "2026-11-28"), null);
-  assert.equal(backupAlertClaimBlocks("2026-11-28@1", "2026-11-28"), true);
+  assert.equal(nextBackupAlertClaim("2026-11-28#3", "2026-11-28", now), null);
+  assert.equal(nextBackupAlertClaim(`2026-11-28@1@${now - 1000}`, "2026-11-28", now), null);
+  assert.equal(nextBackupAlertClaim(`2026-11-28@1@${now - 16 * 60 * 1000}`, "2026-11-28", now)?.next, `2026-11-28@1@${now}`);
+  assert.equal(backupAlertClaimBlocks("2026-11-28@1@1", "2026-11-28"), false);
   assert.equal(backupAlertClaimBlocks("2026-11-28#1", "2026-11-28"), false);
-  assert.match(backupAlertClaimSql("2026-11-28").sql, /ON DUPLICATE KEY UPDATE/);
   assert.equal(
     clipBackupError("Access denied for user 'doadmin'@'db-mysql-nyc3-1.ondigitalocean.com'"),
     "Access denied for user '[redacted]'@'[redacted]'",

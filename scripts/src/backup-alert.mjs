@@ -52,6 +52,7 @@ export function parseBackupAlertPhones(raw) {
 export const BACKUP_ALERT_DATE_KEY = "backup_alert_last_date";
 export const BACKUP_ALERT_TENANT_ID = "tenant_loja1";
 export const BACKUP_ALERT_MAX_ATTEMPTS = 3;
+export const BACKUP_CLAIM_STALE_MS = 15 * 60 * 1000;
 
 function looksLikeSql(text) {
   return /\b(insert\s+into|delete\s+from|replace\s+into|update\s+[`'"]?[a-z_][\w]*[`'"]?\s+set|select\s+.+\s+from)\b/i.test(text);
@@ -79,62 +80,43 @@ export function clipBackupError(value) {
 }
 
 /**
- * `YYYY-MM-DD` = enviado. `YYYY-MM-DD@N` = claim em andamento. `YYYY-MM-DD#N` = N falhas, liberado.
+ * `YYYY-MM-DD` = enviado. `YYYY-MM-DD@N@ms` = claim em andamento.
+ * `YYYY-MM-DD#N` = N falhas, liberado. Um `@` com mais de 15 min, ou sem hora, pode ser retomado.
  * @returns {{ next: string, failedValue: string } | null}
  */
-export function nextBackupAlertClaim(current, dateSP) {
+export function nextBackupAlertClaim(current, dateSP, now = Date.now()) {
   const value = String(current ?? "").trim();
   const day = String(dateSP || "").trim();
-  if (!day) return null;
+  const at = Number(now);
+  if (!day || !Number.isFinite(at)) return null;
   if (value === day) return null;
-  if (new RegExp(`^${escapeRegExp(day)}@\\d+$`).test(value)) return null;
+  const progress = value.match(new RegExp(`^${escapeRegExp(day)}@(\\d+)(?:@(\\d+))?$`));
+  if (progress) {
+    const attempt = Number(progress[1]);
+    if (attempt < 1 || attempt > BACKUP_ALERT_MAX_ATTEMPTS) return null;
+    const stamp = progress[2] ? Number(progress[2]) : 0;
+    const age = at - stamp;
+    if (progress[2] && age >= 0 && age < BACKUP_CLAIM_STALE_MS) return null;
+    return { next: `${day}@${attempt}@${at}`, failedValue: `${day}#${attempt}` };
+  }
   const failed = value.match(new RegExp(`^${escapeRegExp(day)}#(\\d+)$`));
   if (failed) {
     const attempts = Number(failed[1]);
     if (attempts >= BACKUP_ALERT_MAX_ATTEMPTS) return null;
     const attempt = attempts + 1;
-    return { next: `${day}@${attempt}`, failedValue: `${day}#${attempt}` };
+    return { next: `${day}@${attempt}@${at}`, failedValue: `${day}#${attempt}` };
   }
-  return { next: `${day}@1`, failedValue: `${day}#1` };
+  return { next: `${day}@1@${at}`, failedValue: `${day}#1` };
 }
 
-/** True when today's alert must not be sent again. */
+/** True when today's alert was sent, or the three tries are already used. An in-progress claim does not count. */
 export function backupAlertClaimBlocks(raw, dateSP) {
   const value = String(raw ?? "").trim();
   const day = String(dateSP || "").trim();
-  if (!day || !value.startsWith(day)) return false;
+  if (!day || value !== day && !value.startsWith(`${day}#`)) return false;
   if (value === day) return true;
-  if (new RegExp(`^${escapeRegExp(day)}@\\d+$`).test(value)) return true;
   const failed = value.match(new RegExp(`^${escapeRegExp(day)}#(\\d+)$`));
   return Boolean(failed && Number(failed[1]) >= BACKUP_ALERT_MAX_ATTEMPTS);
-}
-
-export function backupAlertClaimSql(dateSP, tenantId = BACKUP_ALERT_TENANT_ID) {
-  const sql = [
-    "INSERT INTO site_settings (`key`, `value`, tenant_id, updated_at)",
-    "VALUES (?, CONCAT(?, '@1'), ?, UTC_TIMESTAMP())",
-    "ON DUPLICATE KEY UPDATE `value` = IF(",
-    "tenant_id IS NOT NULL AND tenant_id <> '' AND tenant_id <> ?,",
-    "`value`,",
-    "IF(`value` = ? OR `value` LIKE CONCAT(?, '@%'), `value`,",
-    "IF(`value` REGEXP CONCAT('^', ?, '#[0-9]+$') AND CAST(SUBSTRING_INDEX(`value`, '#', -1) AS UNSIGNED) >= ?, `value`,",
-    "IF(`value` REGEXP CONCAT('^', ?, '#[0-9]+$'), CONCAT(?, '@', CAST(SUBSTRING_INDEX(`value`, '#', -1) AS UNSIGNED) + 1),",
-    "CONCAT(?, '@1')))))",
-  ].join(" ");
-  const params = [
-    BACKUP_ALERT_DATE_KEY,
-    dateSP,
-    tenantId,
-    tenantId,
-    dateSP,
-    dateSP,
-    dateSP,
-    BACKUP_ALERT_MAX_ATTEMPTS,
-    dateSP,
-    dateSP,
-    dateSP,
-  ];
-  return { sql, params };
 }
 
 function settingCell(row, name, index) {
@@ -143,22 +125,42 @@ function settingCell(row, name, index) {
   return row[name];
 }
 
-export async function claimBackupAlertDate(query, dateSP, tenantId = BACKUP_ALERT_TENANT_ID) {
-  const { sql, params } = backupAlertClaimSql(dateSP, tenantId);
-  const [header] = await query(sql, params);
-  const affected = Number(header?.affectedRows || 0);
-  if (!affected) return null;
+function claimChanged(header) {
+  if (!header) return false;
+  if (typeof header.changedRows === "number") return header.changedRows > 0;
+  return Number(header.affectedRows) > 0;
+}
+
+export async function claimBackupAlertDate(query, dateSP, tenantId = BACKUP_ALERT_TENANT_ID, now = Date.now()) {
   const [rows] = await query(
     "SELECT `value` AS value, tenant_id AS tenantId FROM site_settings WHERE `key` = ? LIMIT 1",
     [BACKUP_ALERT_DATE_KEY],
   );
   const row = Array.isArray(rows) ? rows[0] : null;
   const tenant = String(settingCell(row, "tenantId", 1) || "").trim();
-  if (tenant && tenant !== tenantId) return null;
-  const value = String(settingCell(row, "value", 0) || "");
-  const match = value.match(new RegExp(`^${escapeRegExp(dateSP)}@(\\d+)$`));
-  if (!match) return null;
-  return { token: value, failedValue: `${dateSP}#${match[1]}` };
+  if (row && tenant && tenant !== tenantId) return null;
+  const current = row ? String(settingCell(row, "value", 0) || "") : "";
+  const plan = nextBackupAlertClaim(row ? current : "", dateSP, now);
+  if (!plan) return null;
+  if (!row) {
+    try {
+      const [header] = await query(
+        "INSERT INTO site_settings (`key`, `value`, tenant_id, updated_at) VALUES (?, ?, ?, UTC_TIMESTAMP())",
+        [BACKUP_ALERT_DATE_KEY, plan.next, tenantId],
+      );
+      if (!Number(header?.affectedRows)) return null;
+    } catch (err) {
+      if (String(err?.code || "") === "ER_DUP_ENTRY") return null;
+      throw err;
+    }
+    return { token: plan.next, failedValue: plan.failedValue };
+  }
+  const [header] = await query(
+    "UPDATE site_settings SET `value` = ?, updated_at = UTC_TIMESTAMP() WHERE `key` = ? AND `value` = ? AND (tenant_id = ? OR tenant_id IS NULL OR tenant_id = '')",
+    [plan.next, BACKUP_ALERT_DATE_KEY, current, tenantId],
+  );
+  if (!claimChanged(header)) return null;
+  return { token: plan.next, failedValue: plan.failedValue };
 }
 
 export async function finishBackupAlertClaim(query, dateSP, claim, outcome, tenantId = BACKUP_ALERT_TENANT_ID) {

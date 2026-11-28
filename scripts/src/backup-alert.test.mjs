@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   backupAlertClaimBlocks,
-  backupAlertClaimSql,
   claimBackupAlertDate,
   clipBackupError,
   formatBackupAlertText,
@@ -53,29 +52,46 @@ test("texto curto em português corta o erro em 200 caracteres", () => {
 });
 
 test("o claim lê a linha mesmo quando o driver devolve array", async () => {
+  const now = 1_700_000_000_000;
   const query = async (sql) => {
-    if (String(sql).startsWith("SELECT")) return [[["2026-11-28@1", "tenant_loja1"]]];
-    return [{ affectedRows: 1 }];
+    if (String(sql).startsWith("SELECT")) return [[["2026-11-27", "tenant_loja1"]]];
+    return [{ affectedRows: 1, changedRows: 1 }];
   };
-  const claim = await claimBackupAlertDate(query, "2026-11-28");
-  assert.deepEqual(claim, { token: "2026-11-28@1", failedValue: "2026-11-28#1" });
+  const claim = await claimBackupAlertDate(query, "2026-11-28", "tenant_loja1", now);
+  assert.deepEqual(claim, { token: `2026-11-28@1@${now}`, failedValue: "2026-11-28#1" });
   const other = await claimBackupAlertDate(async (sql) => {
-    if (String(sql).startsWith("SELECT")) return [[["2026-11-28@1", "tenant_fh"]]];
-    return [{ affectedRows: 1 }];
-  }, "2026-11-28");
+    if (String(sql).startsWith("SELECT")) return [[["2026-11-28@1@1", "tenant_fh"]]];
+    return [{ affectedRows: 1, changedRows: 1 }];
+  }, "2026-11-28", "tenant_loja1", now);
   assert.equal(other, null);
 });
 
+test("o claim só segue se o UPDATE troca o valor anterior", async () => {
+  const now = 1_700_000_000_000;
+  const previous = `2026-11-28@1@${now - 16 * 60 * 1000}`;
+  let update = null;
+  const claim = await claimBackupAlertDate(async (sql, params) => {
+    if (String(sql).startsWith("SELECT")) return [[{ value: previous, tenantId: "tenant_loja1" }]];
+    update = params;
+    return [{ affectedRows: 1, changedRows: 0 }];
+  }, "2026-11-28", "tenant_loja1", now);
+  assert.equal(claim, null);
+  assert.equal(update[2], previous);
+});
+
 test("o claim do alerta só muda a linha até 3 falhas no dia", () => {
-  assert.deepEqual(nextBackupAlertClaim("", "2026-11-28"), { next: "2026-11-28@1", failedValue: "2026-11-28#1" });
-  assert.equal(nextBackupAlertClaim("2026-11-28", "2026-11-28"), null);
-  assert.equal(nextBackupAlertClaim("2026-11-28@2", "2026-11-28"), null);
-  assert.deepEqual(nextBackupAlertClaim("2026-11-28#1", "2026-11-28"), { next: "2026-11-28@2", failedValue: "2026-11-28#2" });
-  assert.equal(nextBackupAlertClaim("2026-11-28#3", "2026-11-28"), null);
+  const now = 1_700_000_000_000;
+  assert.deepEqual(nextBackupAlertClaim("", "2026-11-28", now), { next: `2026-11-28@1@${now}`, failedValue: "2026-11-28#1" });
+  assert.equal(nextBackupAlertClaim("2026-11-28", "2026-11-28", now), null);
+  assert.equal(nextBackupAlertClaim(`2026-11-28@2@${now - 1000}`, "2026-11-28", now), null);
+  const stale = nextBackupAlertClaim(`2026-11-28@1@${now - 16 * 60 * 1000}`, "2026-11-28", now);
+  assert.equal(stale.next, `2026-11-28@1@${now}`);
+  assert.deepEqual(nextBackupAlertClaim("2026-11-28#1", "2026-11-28", now), { next: `2026-11-28@2@${now}`, failedValue: "2026-11-28#2" });
+  assert.equal(nextBackupAlertClaim("2026-11-28#3", "2026-11-28", now), null);
   assert.equal(backupAlertClaimBlocks("2026-11-28", "2026-11-28"), true);
+  assert.equal(backupAlertClaimBlocks("2026-11-28@1@1", "2026-11-28"), false);
   assert.equal(backupAlertClaimBlocks("2026-11-28#2", "2026-11-28"), false);
   assert.equal(backupAlertClaimBlocks("2026-11-27", "2026-11-28"), false);
-  assert.match(backupAlertClaimSql("2026-11-28").sql, /ON DUPLICATE KEY UPDATE/);
 });
 
 test("dry-run e modo de teste não chamam a rede para celular real", async () => {
