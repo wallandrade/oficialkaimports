@@ -3911,15 +3911,16 @@ export default function Admin() {
     finally { setProductsLoading(false); }
   }, [handleUnauthorized]);
 
-  const fetchSettings = useCallback(async () => {
+  const fetchSettings = useCallback(async (options?: { adminOnly?: boolean }): Promise<boolean> => {
     try {
       const res = await fetch(`${BASE}/api/admin/settings`, { headers: authHeaders() });
-      if (res.status === 401) { handleUnauthorized(); return; }
+      if (res.status === 401) { handleUnauthorized(); return false; }
       if (res.ok) {
         const data = await res.json() as Record<string, string>;
         setSettings(data);
-        return;
+        return true;
       }
+      if (options?.adminOnly) return false;
 
       // Fallback to public endpoint if admin endpoint is temporarily unavailable.
       const publicRes = await fetch(`${BASE}/api/settings`);
@@ -3928,6 +3929,7 @@ export default function Admin() {
         setSettings(data);
       }
     } catch { /* ignore */ }
+    return false;
   }, [handleUnauthorized]);
 
   const fetchTenants = useCallback(async () => {
@@ -22279,7 +22281,7 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
   onTestOutboundWebhook: () => void;
   onSave: (key: string, value: string, options?: { quiet?: boolean }) => Promise<boolean>;
   onDelete: (key: string, options?: { quiet?: boolean }) => Promise<boolean>;
-  onReloadSettings: () => Promise<void>;
+  onReloadSettings: (options?: { adminOnly?: boolean }) => Promise<boolean>;
   brevoApiKey: string;
   setBrevoApiKey: (v: string) => void;
   brevoConfigured: boolean;
@@ -22330,20 +22332,23 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
   const savedSiteReleaseMessage = settings["site_release_message"];
   const sitePasswordSaved = String(settings["site_password"] ?? "").length > 0;
   const siteReleaseSyncPaused = useRef(false);
+  const siteProtectionRequest = useRef(0);
   const [siteReleaseRevision, setSiteReleaseRevision] = useState(0);
   const [siteProtection, setSiteProtection] = useState<{ site?: boolean; release?: unknown } | null>(null);
 
   const refreshSiteProtection = useCallback(async () => {
+    const requestId = siteProtectionRequest.current + 1;
+    siteProtectionRequest.current = requestId;
+    setSiteProtection(null);
     try {
       const res = await fetch(`${BASE}/api/is-protected`, { cache: "no-store" });
-      if (!res.ok) {
-        setSiteProtection(null);
-        return;
-      }
+      if (requestId !== siteProtectionRequest.current) return;
+      if (!res.ok) return;
       const data = await res.json() as { site?: boolean; release?: unknown };
+      if (requestId !== siteProtectionRequest.current) return;
       setSiteProtection({ site: data.site === true, release: data.release ?? null });
     } catch {
-      setSiteProtection(null);
+      if (requestId !== siteProtectionRequest.current) return;
     }
   }, []);
 
@@ -22374,6 +22379,7 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
   }, [savedSiteReleaseEnabled, savedSiteReleaseAt, savedSiteReleaseMessage, siteReleaseRevision]);
 
   useEffect(() => {
+    if (siteReleaseSyncPaused.current) return;
     void refreshSiteProtection();
   }, [refreshSiteProtection, sitePasswordSaved, savedSiteReleaseEnabled, savedSiteReleaseAt, savedSiteReleaseMessage, siteReleaseRevision]);
 
@@ -22401,12 +22407,17 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
               : await onDelete("site_release_message", { quiet: true }));
         if (!ok) return;
       }
-      await onReloadSettings();
+      const reloaded = await onReloadSettings({ adminOnly: true });
+      if (!reloaded) {
+        toast.error("Não foi possível reler as configurações. O que foi gravado continua na tela.");
+        return;
+      }
       saved = true;
       toast.success("Liberação salva.");
     } finally {
       siteReleaseSyncPaused.current = false;
       if (saved) setSiteReleaseRevision((value) => value + 1);
+      else void refreshSiteProtection();
     }
   };
 
