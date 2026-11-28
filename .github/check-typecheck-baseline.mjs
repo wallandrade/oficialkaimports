@@ -13,11 +13,10 @@ const packages = [
 ];
 
 function countErrors(filter) {
-  const result = spawnSync(
-    "pnpm",
-    ["--filter", filter, "exec", "tsc", "-p", "tsconfig.json", "--noEmit", "--pretty", "false"],
-    { cwd: root, encoding: "utf8" },
-  );
+  const result = spawnSync("pnpm", ["--filter", filter, "run", "typecheck"], {
+    cwd: root,
+    encoding: "utf8",
+  });
   const text = `${result.stdout || ""}\n${result.stderr || ""}`;
   return (text.match(/error TS\d+/g) || []).length;
 }

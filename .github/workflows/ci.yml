@@ -30,21 +30,25 @@ jobs:
 
       - name: Typecheck das libs e do sandbox
         run: |
-          pnpm exec tsc -b --pretty false
-          pnpm --filter @workspace/mockup-sandbox exec tsc -p tsconfig.json --noEmit --pretty false
+          pnpm exec tsc -b --force --pretty false
+          pnpm --filter @workspace/mockup-sandbox run typecheck
 
       - name: Typecheck do front, da API e dos scripts contra a baseline
+        id: baseline
         run: node .github/check-typecheck-baseline.mjs
 
       - name: Testes
+        if: always()
         run: pnpm test
         env:
           CHECKOUT_TOKEN_SECRET: test-checkout-token-secret
 
       - name: Audit high em produção
+        if: always()
         run: pnpm audit --prod --audit-level=high
 
       - name: Gitleaks só no diff
+        if: always()
         env:
           GITLEAKS_VERSION: 8.28.0
         run: |
