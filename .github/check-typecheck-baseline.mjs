@@ -18,7 +18,16 @@ function countErrors(filter) {
     encoding: "utf8",
   });
   const text = `${result.stdout || ""}\n${result.stderr || ""}`;
-  return (text.match(/error TS\d+/g) || []).length;
+  const count = (text.match(/error TS\d+/g) || []).length;
+  if (result.error || result.status === null) {
+    const reason = result.error ? result.error.message : "processo sem código de saída";
+    throw new Error(`${filter}: o typecheck não rodou (${reason})`);
+  }
+  if (result.status !== 0 && count === 0) {
+    const tail = text.trim().split("\n").slice(-8).join("\n");
+    throw new Error(`${filter}: o typecheck saiu com código ${result.status} e sem erro TS\n${tail}`);
+  }
+  return count;
 }
 
 const counts = {};
