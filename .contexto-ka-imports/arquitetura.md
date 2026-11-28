@@ -8,6 +8,7 @@
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
 | 2026-11-28 | Watchdog do backup no boot da API | `startBackupWatchdogJob` em `index.ts`, a cada 30 min, das 4h às 12h de São Paulo. Lê `site_settings` da loja 1. `running` de hoje há menos de 3 h não avisa; depois disso avisa travado. O claim do alerta é atômico | O cron do dump continua o mesmo comando. Sem tabela nova |
+| 2026-11-28 | Install do Nixpacks usa o lockfile | `nixpacks.toml` chama `pnpm install --frozen-lockfile`. CI em `.github/workflows/ci.yml` no PR e no push da `main` | O filtro continua `@workspace/api-server`. O app na DigitalOcean não foi alterado daqui |
 | 2026-11-25 | Kit da home lê `products.category` | `isListedKitProduct` e `?categoria=kit` comparam a categoria normalizada. `pharmaMenuCategories` junta as grafias num rótulo Kit. O hero reserva uma vaga e não repete o card se o destaque já é Kit | API, banco, ordem da seção (depois de Retatrutida, antes de Mais vendidos) e o Ver todos |
 | 2026-11-25 | Kit virtual só no front da loja 1 | `buildHomeHero` e `buildPharmaShowcases` leem o catálogo já carregado. `?categoria=kit` filtra pelo nome. Sem coluna, sem rota e sem mudança em `GET /api/products` | Categorias reais, os outros presets e o banco |
 | 2026-11-24 | Quadro Envio Shopee sem coluna nova | O verde lê `orders.shopee_route_requested_at`, que `mapOrder` do admin já devolve. O botão é `PATCH /api/admin/orders/:id/shopee-board-sent` | Sem migração. `shipping_via` continua só na seta |
@@ -200,7 +201,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 | API prod | Rewrite Vercel → `https://lobster-app-7f8c2.ondigitalocean.app/api/...` |
 | SEO | `/robots.txt` estático. `/sitemap.xml` → função `artifacts/ka-imports/api/sitemap.js`. O fallback da SPA já ignora os dois nomes |
 | Railway | `railway.json` continua no repo; a API de produção não usa mais essa URL |
-| Nixpacks | `nixpacks.toml` (Node 22, pnpm 9, filter api-server) |
+| Nixpacks | `nixpacks.toml` (Node 22, pnpm 9, filter api-server, `pnpm install --frozen-lockfile`) |
 | Replit | `.replit` / `replit.md` (legado/dev — docs podem estar desatualizados) |
 
 ## Offline

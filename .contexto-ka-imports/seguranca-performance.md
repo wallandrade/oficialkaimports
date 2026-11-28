@@ -8,6 +8,7 @@
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
 | 2026-11-28 | Status do backup fora da vitrine e do log | `backup_last_status` e `backup_alert_last_date` não entram em `PUBLIC_KEYS`, `ALLOWED_KEYS` nem em `public-settings.ts`. O GET ainda tira as duas se aparecerem. O alerta e o log do cron não levam telefone, SQL, segredo, host nem usuário do MySQL. O claim do aviso não sobrescreve linha de outra loja | A senha do site, o webhook PIX e a fila de WhatsApp do cliente |
+| 2026-11-28 | Token admin na query desligado; checkout sem segredo literal; webhook de atendimento por header | `ADMIN_ALLOW_QUERY_TOKEN` nasce `false`. Sem `CHECKOUT_TOKEN_SECRET` a API não sobe. A flag `SECURITY_REQUIRE_CHECKOUT_TOKEN_SECRET` saiu. `POST /api/whatsapp/support/inbound` lê `x-whatsapp-support-token`. `?token=` só com `WHATSAPP_WEBHOOK_ALLOW_QUERY_TOKEN` (padrão `true`). O CI roda `tsc -b --force` e depois o script `typecheck` de cada pacote, compara com `.github/typecheck-baseline.json` e falha se a contagem subir. Testes, audit e gitleaks seguem mesmo se essa conta falhar. `pnpm audit --prod --audit-level=high` | Cookie e Bearer do admin. Token de convidado e o de corrigir entrega. PIX. O gitleaks do CI olha só o diff |
 | 2026-11-24 | Quadro Envio Shopee não avisa o cliente | `PATCH /api/admin/orders/:id/shopee-board-sent` não chama WhatsApp. O log de falha leva `orderId` e `code`, sem SQL, telefone ou texto | O atendimento continua sem gravar o texto. O `PATCH /enviado` do card segue igual |
 | 2026-11-22 | Log da moderação de grupo sem telefone nem texto | `whatsapp_group_moderation_log` guarda o id da mensagem, o id do grupo, 4 dígitos, o motivo e a ação. O console leva motivo, ação e 6 dígitos do grupo. A aba mostra `***` + 4 dígitos. A URL da Z-API não entra no log | A fila de envio continua com o texto só na tabela, mascarado na resposta |
 | 2026-11-17 | Fila de WhatsApp não devolve o texto nem o telefone inteiro | `GET /api/admin/whatsapp/outbound-queue` exige acesso global. A linha mostra origem, estado, tentativas e `***` + 4 dígitos. `last_error` é um código curto (`http_500`, `timeout`). O worker consulta a cada 60 s e segura `GET_LOCK` só durante um envio | O corpo da mensagem fica na tabela, para o worker reenviar. Não vai para o log |
@@ -48,7 +49,9 @@
 
 - **CORS**: allowlist env `CORS_ALLOWED_ORIGINS` ou default `ka-imports.com` + hosts de tenants no DB (cache TTL) — `app.ts`.
 - **Origin enforce** (flag): `SECURITY_ORIGIN_ENFORCE`.
-- **Checkout token**: obrigatório conforme flags/`SECURITY_REQUIRE_CHECKOUT_TOKEN_SECRET`.
+- **Checkout token**: `CHECKOUT_TOKEN_SECRET` é obrigatório no boot (`readCheckoutTokenSecret` em `app.ts`). Vazio interrompe a inicialização. Não há segredo literal no código. A flag `SECURITY_REQUIRE_CHECKOUT_TOKEN_SECRET` não existe mais.
+- **Admin na query**: `getTokenFromRequest` só aceita `?token=` se `ADMIN_ALLOW_QUERY_TOKEN=true`. O padrão é `false`. Bearer e cookie `admin_session` continuam.
+- **Atendimento WhatsApp**: o token entra em `x-whatsapp-support-token`. A query só vale com `WHATSAPP_WEBHOOK_ALLOW_QUERY_TOKEN` (padrão `true`, porque a Z-API não manda esse header).
 - **Admin login rate limit**: tentativas/janela/bloqueio configuráveis.
 - **Cookies admin**: SameSite/Secure sensíveis a produção (`none`+`secure` típico cross-site FE/API).
 - **Erros 500**: menos detalhes em produção. O handler global (`app.ts`) não devolve `stack` nem `err.message` cru. `res.json` passa por `sanitizeHttpBody`. `Date` de coluna sai como ISO, igual ao `JSON.stringify`.

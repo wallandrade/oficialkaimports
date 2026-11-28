@@ -1,12 +1,13 @@
 # Auth e permissões — KA Imports
 
-> **Última atualização:** 2026-11-24
+> **Última atualização:** 2026-11-28
 > Descreve o que *já existe no código*; não especular.
 
 ## Changelog
 
 | Data | O quê | Impacto | O que NÃO mudou |
 |------|--------|---------|-----------------|
+| 2026-11-28 | Sessão admin não entra mais pela query | `ADMIN_ALLOW_QUERY_TOKEN` padrão `false`. Bearer e cookie seguem. `CHECKOUT_TOKEN_SECRET` vazio impede o boot | Login, seller-scoped e o token de convidado |
 | 2026-11-24 | Quadro Envio Shopee marca enviado com a sessão do pedido | `PATCH /api/admin/orders/:id/shopee-board-sent` exige `requireAdminAuth`. Sem sessão: 401. Seller sem slug: 403. O pedido passa por `loadShopeeRouteOrder` (loja e, no seller-scoped, o vendedor). Outra loja ou outro vendedor: 404 | O crédito da carteira continua só com `hasGlobalAccess`. O `PATCH /enviado` e o inbound do n8n seguem |
 | 2026-11-16 | ID da Shopee no atendimento fica na loja do token | `POST /api/whatsapp/support/inbound` só casa pedido da loja daquele token. Loja 1 inclui tenant nulo ou vazio. O inbound do n8n segue sem loja | O segredo `X-N8N-Shopee-Secret` e o crédito global |
 | 2026-11-16 | Rota Shopee: segredo do n8n e crédito só com acesso global | `POST /api/integrations/shopee-route/inbound` não usa sessão. Exige `X-N8N-Shopee-Secret`. Disparo e edição do ID usam o mesmo recorte do pedido (loja e, no seller-scoped, o vendedor). `POST .../shopee-wallet-credit` exige `hasGlobalAccess`, como o ajuste da carteira | Seller-scoped continua 403 no crédito. Settings da rota seguem `canManageSettings` |
@@ -97,7 +98,8 @@ Código > memória > tipagens.
 ## Checkout security
 
 - Token efêmero: FE `getCheckoutToken` → `GET /api/security/checkout-token`.
-- Flags env: `SECURITY_ORIGIN_ENFORCE`, `SECURITY_REQUIRE_CHECKOUT_TOKEN_SECRET`.
+- `CHECKOUT_TOKEN_SECRET` tem de existir no ambiente. Sem ele o processo não sobe. A flag `SECURITY_REQUIRE_CHECKOUT_TOKEN_SECRET` saiu. `SECURITY_ORIGIN_ENFORCE` continua opt-in.
+- `ADMIN_ALLOW_QUERY_TOKEN` nasce `false`. A sessão admin vem de `Authorization: Bearer` ou do cookie.
 
 ## Isolamento multi-tenant
 

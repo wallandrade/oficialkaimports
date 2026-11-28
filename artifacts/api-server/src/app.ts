@@ -10,6 +10,7 @@ import { exec } from "child_process";
 import crypto from "crypto";
 import { db, tenantsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { readCheckoutTokenSecret } from "./lib/checkout-token-secret";
 
 const DEFAULT_ALLOWED_ORIGINS = [
   "https://ka-imports.com",
@@ -17,8 +18,6 @@ const DEFAULT_ALLOWED_ORIGINS = [
 ];
 
 const SECURITY_ORIGIN_ENFORCE = String(process.env.SECURITY_ORIGIN_ENFORCE || "false").toLowerCase() === "true";
-const SECURITY_REQUIRE_CHECKOUT_TOKEN_SECRET =
-  String(process.env.SECURITY_REQUIRE_CHECKOUT_TOKEN_SECRET || "false").toLowerCase() === "true";
 
 function normalizeOrigin(origin: string): string {
   try {
@@ -177,7 +176,7 @@ const sensitivePublicReadPathPatterns = [
 ];
 
 const CHECKOUT_TOKEN_TTL_MS = Number(process.env.CHECKOUT_TOKEN_TTL_MS || 5 * 60 * 1000);
-const CHECKOUT_TOKEN_SECRET = process.env.CHECKOUT_TOKEN_SECRET || "";
+const CHECKOUT_TOKEN_SECRET = readCheckoutTokenSecret();
 
 type CheckoutTokenPayload = {
   ts: number;
@@ -204,9 +203,8 @@ function hashUserAgent(ua: string): string {
 }
 
 function signCheckoutPayload(payloadB64: string): string {
-  const effectiveSecret = CHECKOUT_TOKEN_SECRET || "unsafe-dev-secret-change-me";
   return toBase64Url(
-    crypto.createHmac("sha256", effectiveSecret).update(payloadB64).digest(),
+    crypto.createHmac("sha256", CHECKOUT_TOKEN_SECRET).update(payloadB64).digest(),
   );
 }
 
@@ -336,14 +334,6 @@ function resolvePublicReadRule(path: string): RateLimitRule | undefined {
 }
 
 function verifyCheckoutTokenOrReject(req: express.Request, res: express.Response): boolean {
-  if (SECURITY_REQUIRE_CHECKOUT_TOKEN_SECRET && !CHECKOUT_TOKEN_SECRET) {
-    res.status(503).json({
-      error: "SECURITY_MISCONFIGURED",
-      message: "Configuração de segurança incompleta.",
-    });
-    return false;
-  }
-
   const checkoutToken = req.get("x-checkout-token") || "";
   if (!checkoutToken || !verifyCheckoutToken(checkoutToken, req.get("user-agent") || "")) {
     console.warn("[SECURITY] Missing/invalid checkout token", {
@@ -392,12 +382,6 @@ app.use((_req, res, next) => {
 
 if (!process.env.CORS_ALLOWED_ORIGINS) {
   console.info("[SECURITY] CORS_ALLOWED_ORIGINS não definido. Usando fallback interno.");
-}
-if (!CHECKOUT_TOKEN_SECRET) {
-  console.warn("[SECURITY] CHECKOUT_TOKEN_SECRET não definido. Defina no ambiente para proteção máxima.");
-}
-if (SECURITY_REQUIRE_CHECKOUT_TOKEN_SECRET && !CHECKOUT_TOKEN_SECRET) {
-  console.error("[SECURITY] SECURITY_REQUIRE_CHECKOUT_TOKEN_SECRET=true, mas CHECKOUT_TOKEN_SECRET não está definido.");
 }
 
 // Selective logging middleware - only log sensitive paths and errors
@@ -491,11 +475,6 @@ app.use(express.json({ limit: "15mb" }));
 app.use(express.urlencoded({ extended: true, limit: "15mb" }));
 
 app.get("/api/security/checkout-token", (req, res) => {
-  if (SECURITY_REQUIRE_CHECKOUT_TOKEN_SECRET && !CHECKOUT_TOKEN_SECRET) {
-    res.status(503).json({ error: "SECURITY_MISCONFIGURED", message: "Configuração de segurança incompleta." });
-    return;
-  }
-
   const origin = req.get("origin");
   if (origin && !isOriginAllowed(origin)) {
     res.status(403).json({ error: "FORBIDDEN_ORIGIN", message: "Origem não autorizada." });
