@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { planMediaCopy } from "./media-backup-plan.mjs";
+import { copyPlanned, formatMediaCopyFailure } from "./media-backup-r2.mjs";
 
 test("copia o que falta e o que mudou de tamanho, e não apaga o que só está no destino", () => {
   const source = [
@@ -35,6 +36,30 @@ test("origem vazia dá total zero", () => {
   assert.equal(plan.total, 0);
   assert.equal(plan.missing, 0);
   assert.deepEqual(plan.copy, []);
+});
+
+test("uma chave que falha não impede a cópia das outras", async () => {
+  const items = [
+    { key: "products/a.jpg", size: 10 },
+    { key: "products/bad.jpg", size: 20 },
+    { key: "products/c.jpg", size: 30 },
+    { key: "tracking-labels/d.pdf", size: 5 },
+  ];
+  const copied = [];
+  const result = await copyPlanned(items, async (item) => {
+    if (item.key === "products/bad.jpg") throw new Error("negado");
+    copied.push(item.key);
+  });
+  assert.deepEqual(copied.sort(), ["products/a.jpg", "products/c.jpg", "tracking-labels/d.pdf"]);
+  assert.equal(result.copied, 3);
+  assert.equal(result.bytes, 45);
+  assert.equal(result.failures.length, 1);
+  assert.equal(result.failures[0].key, "products/bad.jpg");
+  const many = Array.from({ length: 6 }, (_, index) => ({ key: `products/${index}.jpg`, message: "x" }));
+  const text = formatMediaCopyFailure(many);
+  assert.match(text, /^falha ao copiar 6 chave\(s\): /);
+  assert.equal(text.split(", ").length, 5);
+  assert.equal(text.includes("products/5.jpg"), false);
 });
 
 test("a mesma chave repetida conta uma vez", () => {

@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  backupAlertClaimBlocks,
+  backupAlertClaimSql,
   clipBackupError,
   formatBackupAlertText,
+  nextBackupAlertClaim,
   parseBackupAlertPhones,
   sendBackupAlert,
 } from "./backup-alert.mjs";
@@ -37,6 +40,27 @@ test("texto curto em português corta o erro em 200 caracteres", () => {
   assert.equal(clipped.length <= 200, true);
   assert.equal(clipBackupError("x".repeat(250)).length, 200);
   assert.equal(text.endsWith("Hora: 28/11/2026 03:05"), true);
+  assert.equal(
+    clipBackupError("Access denied for user 'doadmin'@'10.1.2.3' (using password: YES)"),
+    "Access denied for user '[redacted]'@'[redacted]' (using password: YES)",
+  );
+  assert.equal(
+    clipBackupError("connect ECONNREFUSED db-mysql-nyc3-1.ondigitalocean.com:25060"),
+    "connect ECONNREFUSED [host]",
+  );
+  assert.equal(clipBackupError("chave products/1730000000000-ab.jpg"), "chave products/1730000000000-ab.jpg");
+});
+
+test("o claim do alerta só muda a linha até 3 falhas no dia", () => {
+  assert.deepEqual(nextBackupAlertClaim("", "2026-11-28"), { next: "2026-11-28@1", failedValue: "2026-11-28#1" });
+  assert.equal(nextBackupAlertClaim("2026-11-28", "2026-11-28"), null);
+  assert.equal(nextBackupAlertClaim("2026-11-28@2", "2026-11-28"), null);
+  assert.deepEqual(nextBackupAlertClaim("2026-11-28#1", "2026-11-28"), { next: "2026-11-28@2", failedValue: "2026-11-28#2" });
+  assert.equal(nextBackupAlertClaim("2026-11-28#3", "2026-11-28"), null);
+  assert.equal(backupAlertClaimBlocks("2026-11-28", "2026-11-28"), true);
+  assert.equal(backupAlertClaimBlocks("2026-11-28#2", "2026-11-28"), false);
+  assert.equal(backupAlertClaimBlocks("2026-11-27", "2026-11-28"), false);
+  assert.match(backupAlertClaimSql("2026-11-28").sql, /ON DUPLICATE KEY UPDATE/);
 });
 
 test("dry-run e modo de teste não chamam a rede para celular real", async () => {

@@ -135,7 +135,7 @@ async function putBody(client, bucket, key, body, size, contentType) {
   }
 }
 
-async function copyOne(source, dest, sourceBucket, destBucket, item) {
+async function copyOnce(source, dest, sourceBucket, destBucket, item) {
   if (item.size === 0) {
     await putBody(dest, destBucket, item.destKey, null, 0);
     return;
@@ -151,13 +151,26 @@ async function copyOne(source, dest, sourceBucket, destBucket, item) {
   }
 }
 
-async function copyPlanned(items, copyOneItem) {
+async function copyOne(source, dest, sourceBucket, destBucket, item) {
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      await copyOnce(source, dest, sourceBucket, destBucket, item);
+      return;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError;
+}
+
+export async function copyPlanned(items, copyOneItem) {
   let cursor = 0;
   let copied = 0;
   let bytes = 0;
   const failures = [];
   const workers = Array.from({ length: Math.min(MEDIA_COPY_CONCURRENCY, items.length) }, async () => {
-    while (failures.length === 0) {
+    while (true) {
       const index = cursor;
       cursor += 1;
       if (index >= items.length) return;
@@ -167,12 +180,22 @@ async function copyPlanned(items, copyOneItem) {
         copied += 1;
         bytes += item.size;
       } catch (err) {
-        failures.push(err instanceof Error ? err.message : "erro ao copiar");
+        failures.push({
+          key: String(item?.key || ""),
+          message: err instanceof Error ? err.message : "erro ao copiar",
+        });
       }
     }
   });
-  if (workers.length) await Promise.all(workers);
+  if (items.length) await Promise.all(workers);
   return { copied, bytes, failures };
+}
+
+export function formatMediaCopyFailure(failures) {
+  const keys = failures.map((failure) => failure.key).filter(Boolean).slice(0, 5);
+  const count = failures.length;
+  if (!keys.length) return `falha ao copiar ${count} chave(s)`;
+  return `falha ao copiar ${count} chave(s): ${keys.join(", ")}`;
 }
 
 function statsError(message, stats) {
@@ -224,13 +247,18 @@ export async function runMediaBackup(options = {}) {
     }
     const result = await copyPlanned(plan.copy, (item) => copyOne(source, dest, sourceBucket, destBucket, item));
     const failed = result.failures.length;
-    log(`mídia copiados=${result.copied} faltando=${plan.missing} bytes=${result.bytes} total=${plan.total} falhas=${failed}`);
+    const examples = result.failures.slice(0, 5).map((failure) => failure.key).filter(Boolean);
+    log(
+      `mídia copiados=${result.copied} faltando=${plan.missing} bytes=${result.bytes} total=${plan.total} falhas=${failed}` +
+        (examples.length ? ` exemplos=${examples.join(",")}` : ""),
+    );
     if (failed > 0) {
-      const reason = String(result.failures[0] || "erro ao copiar").replace(/\s+/g, " ").trim();
-      throw statsError(
-        `falha ao copiar ${failed} chave(s): ${reason}`,
-        { copied: result.copied, total: plan.total, bytes: result.bytes, missing: plan.missing },
-      );
+      throw statsError(formatMediaCopyFailure(result.failures), {
+        copied: result.copied,
+        total: plan.total,
+        bytes: result.bytes,
+        missing: plan.missing,
+      });
     }
     return { copied: result.copied, missing: plan.missing, bytes: result.bytes, total: plan.total };
   } finally {

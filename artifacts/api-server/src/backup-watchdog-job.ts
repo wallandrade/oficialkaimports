@@ -1,10 +1,12 @@
-import { and, eq, isNull, or } from "drizzle-orm";
-import { db, siteSettingsTable } from "@workspace/db";
+import { eq, or } from "drizzle-orm";
+import { db, pool, siteSettingsTable } from "@workspace/db";
 import { sendZapiMessage } from "./lib/zapi-send";
 import {
   BACKUP_ALERT_DATE_KEY,
   BACKUP_STATUS_KEY,
   BACKUP_TENANT_ID,
+  backupAlertClaimBlocks,
+  backupAlertClaimSql,
   backupClock,
   backupSettingOwnedByLoja1,
   decideBackupWatchdog,
@@ -18,8 +20,12 @@ const TICK_MS = 30 * 60 * 1000;
 
 let alertedDateSP: string | null = null;
 
-function isDupEntry(err: unknown): boolean {
-  return String((err as { code?: string } | null)?.code || "") === "ER_DUP_ENTRY";
+type AlertClaim = { token: string; failedValue: string };
+
+function claimToken(value: string, dateSP: string): AlertClaim | null {
+  const match = value.match(new RegExp(`^${dateSP.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}@(\\d+)$`));
+  if (!match) return null;
+  return { token: value, failedValue: `${dateSP}#${match[1]}` };
 }
 
 async function readBackupRows(): Promise<Array<{ key: string; value: string; tenantId: string | null }>> {
@@ -36,38 +42,31 @@ async function readBackupRows(): Promise<Array<{ key: string; value: string; ten
     ));
 }
 
-async function writeAlertDate(dateSP: string): Promise<void> {
-  const owned = or(
-    eq(siteSettingsTable.tenantId, BACKUP_TENANT_ID),
-    isNull(siteSettingsTable.tenantId),
-    eq(siteSettingsTable.tenantId, ""),
+async function claimBackupAlert(dateSP: string): Promise<AlertClaim | null> {
+  const conn = await pool.getConnection();
+  try {
+    const { sql, params } = backupAlertClaimSql(dateSP);
+    const [header] = await conn.query(sql, params) as unknown as [{ affectedRows?: number }];
+    if (!Number(header?.affectedRows)) return null;
+    const [rows] = await conn.query(
+      "SELECT `value` AS value, tenant_id AS tenantId FROM site_settings WHERE `key` = ? LIMIT 1",
+      [BACKUP_ALERT_DATE_KEY],
+    ) as unknown as [Array<{ value?: string; tenantId?: string | null }>];
+    const row = rows?.[0];
+    const tenant = String(row?.tenantId || "").trim();
+    if (tenant && tenant !== BACKUP_TENANT_ID) return null;
+    return claimToken(String(row?.value || ""), dateSP);
+  } finally {
+    conn.release();
+  }
+}
+
+async function finishBackupAlert(dateSP: string, claim: AlertClaim, outcome: "sent" | "failed"): Promise<void> {
+  const next = outcome === "sent" ? dateSP : claim.failedValue;
+  await pool.query(
+    "UPDATE site_settings SET `value` = ?, updated_at = UTC_TIMESTAMP() WHERE `key` = ? AND `value` = ? AND (tenant_id = ? OR tenant_id IS NULL OR tenant_id = '')",
+    [next, BACKUP_ALERT_DATE_KEY, claim.token, BACKUP_TENANT_ID],
   );
-  const [existing] = await db
-    .select({ tenantId: siteSettingsTable.tenantId })
-    .from(siteSettingsTable)
-    .where(eq(siteSettingsTable.key, BACKUP_ALERT_DATE_KEY))
-    .limit(1);
-  if (existing && !backupSettingOwnedByLoja1(existing.tenantId)) {
-    console.warn("[backup] data do alerta é de outra loja; não altero");
-    return;
-  }
-  if (!existing) {
-    try {
-      await db.insert(siteSettingsTable).values({
-        key: BACKUP_ALERT_DATE_KEY,
-        value: dateSP,
-        tenantId: BACKUP_TENANT_ID,
-        updatedAt: new Date(),
-      });
-      return;
-    } catch (err) {
-      if (!isDupEntry(err)) throw err;
-    }
-  }
-  await db
-    .update(siteSettingsTable)
-    .set({ value: dateSP, tenantId: BACKUP_TENANT_ID, updatedAt: new Date() })
-    .where(and(eq(siteSettingsTable.key, BACKUP_ALERT_DATE_KEY), owned));
 }
 
 export async function runBackupWatchdogTick(now = new Date()): Promise<void> {
@@ -75,7 +74,7 @@ export async function runBackupWatchdogTick(now = new Date()): Promise<void> {
   if (!clock.inside) return;
 
   let status: BackupLastStatus | null | "unreachable" = null;
-  let lastAlertDateSP = alertedDateSP;
+  let lastAlertDateSP: string | null = null;
   try {
     const rows = await readBackupRows();
     const statusRow = rows.find((row) => row.key === BACKUP_STATUS_KEY);
@@ -90,11 +89,12 @@ export async function runBackupWatchdogTick(now = new Date()): Promise<void> {
     }
     if (alertRow && backupSettingOwnedByLoja1(alertRow.tenantId)) {
       const stored = String(alertRow.value || "").trim();
-      if (stored) lastAlertDateSP = stored;
+      if (backupAlertClaimBlocks(stored, clock.dateSP)) lastAlertDateSP = clock.dateSP;
     }
   } catch {
     console.warn("[backup] não leu o status");
     status = "unreachable";
+    lastAlertDateSP = alertedDateSP;
   }
 
   const decision = decideBackupWatchdog({ now, status, lastAlertDateSP });
@@ -105,6 +105,15 @@ export async function runBackupWatchdogTick(now = new Date()): Promise<void> {
     console.warn("[backup] BACKUP_ALERT_PHONES ausente; alerta não enviado");
     return;
   }
+
+  let claim: AlertClaim | null = null;
+  try {
+    claim = await claimBackupAlert(clock.dateSP);
+  } catch {
+    console.warn("[backup] não registrei o alerta");
+    return;
+  }
+  if (!claim) return;
 
   const message = formatBackupAlertText({
     stages: [decision.stage],
@@ -123,13 +132,11 @@ export async function runBackupWatchdogTick(now = new Date()): Promise<void> {
     if (result.ok) delivered = true;
     else console.warn(`[backup] alerta não saiu (${result.error || "erro"})`);
   }
-  if (!delivered) return;
-
-  alertedDateSP = clock.dateSP;
+  if (delivered) alertedDateSP = clock.dateSP;
   try {
-    await writeAlertDate(clock.dateSP);
+    await finishBackupAlert(clock.dateSP, claim, delivered ? "sent" : "failed");
   } catch {
-    console.warn("[backup] não gravou a data do alerta");
+    console.warn("[backup] não fechei o alerta");
   }
 }
 

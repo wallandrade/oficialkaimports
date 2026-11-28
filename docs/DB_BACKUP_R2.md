@@ -36,26 +36,28 @@ O dump derruba e recria cada tabela. Restaure num banco vazio, ou num que pode s
 
 - Origem: prefixos `products/`, `tracking-labels/`, `whatsapp-groups/` e `site-settings/`. ListObjects paginado.
 - Destino: uma listagem só, prefixo `media/`.
-- Copia só chave ausente ou com tamanho diferente. Não apaga o que já está no destino.
-- Leitura com a chave `CLOUDFLARE_R2_*`. Gravação com `BACKUP_R2_*`. Get em stream e Put, ou multipart de 8 MiB quando o objeto passa disso. Quatro cópias ao mesmo tempo, para caber no heap de 192 MB.
-- Origem com 0 objetos é erro. Qualquer chave que falhar encerra com código 1 e entra na conta do alerta.
+- Copia só chave ausente ou com tamanho diferente. A chave da loja é timestamp mais aleatório e não muda, então tamanho igual significa o mesmo objeto. Não há comparação de checksum. Não apaga o que já está no destino.
+- Leitura com a chave `CLOUDFLARE_R2_*`. Gravação com `BACKUP_R2_*`. Get em stream e Put, ou multipart de 8 MiB quando o objeto passa disso. Se o Put falhar, busca o objeto de novo e tenta uma vez. Quatro cópias ao mesmo tempo, para caber no heap de 192 MB.
+- Origem com 0 objetos é erro. Uma chave que falha não interrompe as outras. No fim, se alguma falhou, sai com código 1 e o alerta diz quantas e até 5 chaves de exemplo.
 - Log: `copiados`, `faltando`, `bytes`, `total`, `falhas`.
 
 ## Heartbeat e alerta
 
-Heartbeat em `site_settings`, `tenant_id = tenant_loja1`, chave `backup_last_status`:
+No começo o job grava `backup_last_status` com `status: "running"`, `dateSP` e `startedAt`. No fim troca por `ok` ou `failed`, com `dbOk`, `dumpKey`, `dumpBytes`, `mediaOk`, `copied`, `total` e `finishedAt`. Tenant `tenant_loja1`.
 
 ```json
-{"dateSP":"2026-11-28","dbOk":true,"dumpKey":"mysql/2026-11-28_0300.sql.gz","dumpBytes":123,"mediaOk":true,"copied":0,"total":2634,"finishedAt":"2026-11-28T06:10:00.000Z"}
+{"status":"ok","dateSP":"2026-11-28","dbOk":true,"dumpKey":"mysql/2026-11-28_0300.sql.gz","dumpBytes":123,"mediaOk":true,"copied":0,"total":2634,"startedAt":"2026-11-28T06:00:00.000Z","finishedAt":"2026-11-28T06:10:00.000Z"}
 ```
 
-`backup_alert_last_date` guarda o dia em que o watchdog já avisou. As duas chaves ficam fora de `PUBLIC_KEYS`, de `ALLOWED_KEYS` e de `public-settings.ts`. A resposta de settings ainda apaga essas chaves se um dia entrarem na lista. Não mexe em linha de outra loja.
+`backup_alert_last_date` é o claim do aviso. O valor `AAAA-MM-DD` significa que o alerta daquele dia saiu. `AAAA-MM-DD@N` é um envio em andamento. `AAAA-MM-DD#N` são N tentativas em que nenhum telefone recebeu. O `INSERT ... ON DUPLICATE KEY UPDATE` só deixa seguir quem mudou a linha. Se todos os telefones falharem, o claim volta para `#N`, no máximo 3 vezes no dia. Job e watchdog usam a mesma chave, então um não repete o outro. Linha de outra loja não é alterada.
 
-Alerta do job, só quando algo falhou: `POST /send-text` na Z-API com `ZAPI_MAIN_INSTANCE_ID`, `ZAPI_MAIN_TOKEN` e `ZAPI_CLIENT_TOKEN`. Não usa n8n nem `whatsapp_outbound_queue`. `WHATSAPP_ZAPI_DRY_RUN` não chama a rede. `WHATSAPP_ZAPI_FAKE_ONLY` só aceita número que começa com `550000`. Destinatários: `BACKUP_ALERT_PHONES` (vírgula; só dígitos, começando com 55, 12 ou 13 posições). Sem a variável, o job só escreve um aviso no log. O texto é `[Ka Imports] Backup falhou`, a etapa (`banco`, `mídia` ou `registro`), o erro em no máximo 200 caracteres e a hora de São Paulo. O log não leva telefone, SQL nem segredo.
+As duas chaves ficam fora de `PUBLIC_KEYS`, de `ALLOWED_KEYS` e de `public-settings.ts`. A resposta de settings ainda apaga essas chaves se um dia entrarem na lista.
+
+Alerta do job, só quando algo falhou: `POST /send-text` na Z-API com `ZAPI_MAIN_INSTANCE_ID`, `ZAPI_MAIN_TOKEN` e `ZAPI_CLIENT_TOKEN`. Não usa n8n nem `whatsapp_outbound_queue`. `WHATSAPP_ZAPI_DRY_RUN` não chama a rede. `WHATSAPP_ZAPI_FAKE_ONLY` só aceita número que começa com `550000`. Destinatários: `BACKUP_ALERT_PHONES` (vírgula; só dígitos, começando com 55, 12 ou 13 posições). Sem a variável, o job só escreve um aviso no log. O texto é `[Ka Imports] Backup falhou`, a etapa (`banco`, `mídia` ou `registro`), o erro em no máximo 200 caracteres e a hora de São Paulo. O log não leva telefone, SQL, segredo, host nem usuário do MySQL.
 
 ## Watchdog na API
 
-`startBackupWatchdogJob()` sobe com a API, no mesmo formato do job da fila de WhatsApp. A cada 30 minutos, entre 04:00 e 12:00 de `America/Sao_Paulo`, lê `backup_last_status`. Avisa se a data não é de hoje, se `dbOk` ou `mediaOk` não for verdadeiro, ou se o banco não respondeu. No máximo um aviso por dia, pela chave `backup_alert_last_date`. O envio é `sendZapiMessage` com `live: true`, direto para `BACKUP_ALERT_PHONES`. Não entra na fila.
+`startBackupWatchdogJob()` sobe com a API, no mesmo formato do job da fila de WhatsApp. A cada 30 minutos, entre 04:00 e 12:00 de `America/Sao_Paulo`, lê `backup_last_status`. Não avisa enquanto `status` for `running` de hoje e `startedAt` tiver menos de 3 horas. Passou disso, avisa `backup travado`. Fora esse caso, avisa se a data não é de hoje, se `dbOk` ou `mediaOk` não for verdadeiro, ou se o banco não respondeu. O claim em `backup_alert_last_date` é o mesmo do job: quem não mudar a linha não envia. O envio é `sendZapiMessage` com `live: true`, direto para `BACKUP_ALERT_PHONES`. Não entra na fila.
 
 `BACKUP_ALERT_PHONES` precisa estar no ambiente do app, não só no job: a API e o cron leem a mesma variável.
 

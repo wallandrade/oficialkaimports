@@ -3,10 +3,14 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   BACKUP_ALERT_DATE_KEY,
+  BACKUP_RUNNING_GRACE_MS,
   BACKUP_STATUS_KEY,
+  backupAlertClaimBlocks,
+  backupAlertClaimSql,
   clipBackupError,
   decideBackupWatchdog,
   formatBackupAlertText,
+  nextBackupAlertClaim,
   parseBackupAlertPhones,
   parseBackupLastStatus,
 } from "./backup-watchdog";
@@ -112,6 +116,56 @@ test("watchdog alerta sem status de hoje, com falha ou com banco inacessível, u
   assert.equal(parseBackupLastStatus("{"), null);
   assert.equal(parseBackupLastStatus("null"), null);
   assert.equal(parseBackupLastStatus('{"dateSP":"2026-11-28"}')?.dateSP, "2026-11-28");
+});
+
+test("running de hoje dentro de 3h não alerta; depois de 3h avisa travado", () => {
+  const fresh = decideBackupWatchdog({
+    now: OPEN,
+    status: {
+      status: "running",
+      dateSP: "2026-11-28",
+      startedAt: new Date(OPEN.getTime() - 60 * 60 * 1000).toISOString(),
+    },
+    lastAlertDateSP: null,
+  });
+  assert.equal(fresh.alert, false);
+  assert.equal(fresh.reason, "running");
+
+  const stuck = decideBackupWatchdog({
+    now: OPEN,
+    status: {
+      status: "running",
+      dateSP: "2026-11-28",
+      startedAt: new Date(OPEN.getTime() - BACKUP_RUNNING_GRACE_MS).toISOString(),
+    },
+    lastAlertDateSP: null,
+  });
+  assert.equal(stuck.alert, true);
+  if (stuck.alert) {
+    assert.equal(stuck.reason, "stuck");
+    assert.equal(stuck.error, "backup travado");
+  }
+
+  const yesterday = decideBackupWatchdog({
+    now: OPEN,
+    status: { status: "running", dateSP: "2026-11-27", startedAt: "2026-11-27T06:00:00.000Z" },
+    lastAlertDateSP: null,
+  });
+  assert.equal(yesterday.reason, "stale");
+
+  assert.equal(nextBackupAlertClaim("2026-11-28", "2026-11-28"), null);
+  assert.deepEqual(nextBackupAlertClaim("2026-11-28#2", "2026-11-28"), {
+    next: "2026-11-28@3",
+    failedValue: "2026-11-28#3",
+  });
+  assert.equal(nextBackupAlertClaim("2026-11-28#3", "2026-11-28"), null);
+  assert.equal(backupAlertClaimBlocks("2026-11-28@1", "2026-11-28"), true);
+  assert.equal(backupAlertClaimBlocks("2026-11-28#1", "2026-11-28"), false);
+  assert.match(backupAlertClaimSql("2026-11-28").sql, /ON DUPLICATE KEY UPDATE/);
+  assert.equal(
+    clipBackupError("Access denied for user 'doadmin'@'db-mysql-nyc3-1.ondigitalocean.com'"),
+    "Access denied for user '[redacted]'@'[redacted]'",
+  );
 });
 
 test("as chaves do backup não entram na vitrine nem no allowlist do admin", () => {

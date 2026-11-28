@@ -50,7 +50,9 @@ import {
 } from "@aws-sdk/client-s3";
 import { runMediaBackup } from "./media-backup-r2.mjs";
 import {
+  claimBackupAlertDate,
   clipBackupError,
+  finishBackupAlertClaim,
   formatBackupAlertText,
   parseBackupAlertPhones,
   saoPauloParts,
@@ -346,7 +348,7 @@ async function runDatabaseBackup() {
   let connError;
   conn.on("error", (e) => {
     connError = e;
-    log(`connection error: ${e.message}`);
+    log(`connection error: ${clipBackupError(e?.message)}`);
     activeRowStream?.destroy(e);
     source?.destroy(e);
   });
@@ -437,11 +439,35 @@ async function writeHeartbeat(payload) {
   }
 }
 
+async function withMysql(fn) {
+  const conn = mysql.createConnection(connectionOptions());
+  conn.on("error", () => {});
+  try {
+    return await fn((sql, params) => conn.promise().query(sql, params));
+  } finally {
+    conn.destroy();
+  }
+}
+
 async function orchestrate() {
   if (process.env.BACKUP_OUTPUT_FILE) {
     log("arquivo local: só o dump, sem mídia e sem alerta");
     await runDatabaseBackup();
     return false;
+  }
+
+  const startedAt = new Date();
+  const startedClock = saoPauloParts(startedAt);
+  try {
+    await writeHeartbeat({
+      status: "running",
+      dateSP: startedClock.dateSP,
+      startedAt: startedAt.toISOString(),
+    });
+    log("heartbeat status=running");
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "não gravou o status do backup";
+    log(`registro FALHOU: ${clipBackupError(message)}`);
   }
 
   const failures = [];
@@ -473,6 +499,7 @@ async function orchestrate() {
   let heartbeatOk = true;
   try {
     await writeHeartbeat({
+      status: failures.length ? "failed" : "ok",
       dateSP: clock.dateSP,
       dbOk: db.ok,
       dumpKey: db.ok ? db.key : null,
@@ -480,6 +507,7 @@ async function orchestrate() {
       mediaOk: media.ok,
       copied: media.copied,
       total: media.total,
+      startedAt: startedAt.toISOString(),
       finishedAt: finishedAt.toISOString(),
     });
     log(`heartbeat dbOk=${db.ok} mediaOk=${media.ok}`);
@@ -503,10 +531,30 @@ async function orchestrate() {
     details: failures,
     now: finishedAt,
   });
+  let claim = null;
   try {
-    await sendBackupAlert({ env: process.env, phones, message, log });
+    claim = await withMysql((query) => claimBackupAlertDate(query, clock.dateSP));
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : "erro";
+    log(`aviso: não registrei o alerta: ${clipBackupError(detail)}`);
+    return true;
+  }
+  if (!claim) {
+    log("alerta já registrado hoje");
+    return true;
+  }
+  let delivered = false;
+  try {
+    const sent = await sendBackupAlert({ env: process.env, phones, message, log });
+    delivered = Boolean(sent?.dryRun) || Number(sent?.sent) > 0;
   } catch {
     log("aviso: alerta não saiu");
+  }
+  try {
+    await withMysql((query) => finishBackupAlertClaim(query, clock.dateSP, claim, delivered ? "sent" : "failed"));
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : "erro";
+    log(`aviso: não fechei o alerta: ${clipBackupError(detail)}`);
   }
   return true;
 }

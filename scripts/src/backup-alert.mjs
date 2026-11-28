@@ -49,8 +49,16 @@ export function parseBackupAlertPhones(raw) {
   return out;
 }
 
+export const BACKUP_ALERT_DATE_KEY = "backup_alert_last_date";
+export const BACKUP_ALERT_TENANT_ID = "tenant_loja1";
+export const BACKUP_ALERT_MAX_ATTEMPTS = 3;
+
 function looksLikeSql(text) {
   return /\b(insert\s+into|delete\s+from|replace\s+into|update\s+[`'"]?[a-z_][\w]*[`'"]?\s+set|select\s+.+\s+from)\b/i.test(text);
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /** Short error safe to put in a WhatsApp message and in the job log. */
@@ -58,11 +66,101 @@ export function clipBackupError(value) {
   let text = String(value ?? "").replace(/\s+/g, " ").trim();
   text = text.replace(/mysql:\/\/\S+/gi, "[redacted]");
   text = text.replace(/https?:\/\/\S+/gi, "[url]");
-  text = text.replace(/\b(password|secret|token|access[_-]?key|authorization)\s*[:=]\s*\S+/gi, "$1=[redacted]");
-  text = text.replace(/\d{12,}/g, "[numero]");
+  text = text.replace(/\bfor user\s+'[^']*'/gi, "for user '[redacted]'");
+  text = text.replace(/user\s+'[^']*'/gi, "user '[redacted]'");
+  text = text.replace(/@'[^']*'/g, "@'[redacted]'");
+  text = text.replace(/\b(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?\b/g, "[host]");
+  text = text.replace(/\b(?:[a-z0-9-]+\.)+(?:com|net|io|app|internal|local|cloud)(?::\d+)?\b/gi, "[host]");
+  text = text.replace(/\b(password|secret|token|access[_-]?key|authorization)\s*[:=]\s*(?!YES\b|NO\b)\S+/gi, "$1=[redacted]");
+  text = text.replace(/\b55\d{10,11}\b/g, "[numero]");
   if (!text) text = "erro desconhecido";
   if (looksLikeSql(text)) text = "erro no banco";
   return text.length > 200 ? text.slice(0, 200) : text;
+}
+
+/**
+ * `YYYY-MM-DD` = enviado. `YYYY-MM-DD@N` = claim em andamento. `YYYY-MM-DD#N` = N falhas, liberado.
+ * @returns {{ next: string, failedValue: string } | null}
+ */
+export function nextBackupAlertClaim(current, dateSP) {
+  const value = String(current ?? "").trim();
+  const day = String(dateSP || "").trim();
+  if (!day) return null;
+  if (value === day) return null;
+  if (new RegExp(`^${escapeRegExp(day)}@\\d+$`).test(value)) return null;
+  const failed = value.match(new RegExp(`^${escapeRegExp(day)}#(\\d+)$`));
+  if (failed) {
+    const attempts = Number(failed[1]);
+    if (attempts >= BACKUP_ALERT_MAX_ATTEMPTS) return null;
+    const attempt = attempts + 1;
+    return { next: `${day}@${attempt}`, failedValue: `${day}#${attempt}` };
+  }
+  return { next: `${day}@1`, failedValue: `${day}#1` };
+}
+
+/** True when today's alert must not be sent again. */
+export function backupAlertClaimBlocks(raw, dateSP) {
+  const value = String(raw ?? "").trim();
+  const day = String(dateSP || "").trim();
+  if (!day || !value.startsWith(day)) return false;
+  if (value === day) return true;
+  if (new RegExp(`^${escapeRegExp(day)}@\\d+$`).test(value)) return true;
+  const failed = value.match(new RegExp(`^${escapeRegExp(day)}#(\\d+)$`));
+  return Boolean(failed && Number(failed[1]) >= BACKUP_ALERT_MAX_ATTEMPTS);
+}
+
+export function backupAlertClaimSql(dateSP, tenantId = BACKUP_ALERT_TENANT_ID) {
+  const sql = [
+    "INSERT INTO site_settings (`key`, `value`, tenant_id, updated_at)",
+    "VALUES (?, CONCAT(?, '@1'), ?, UTC_TIMESTAMP())",
+    "ON DUPLICATE KEY UPDATE `value` = IF(",
+    "tenant_id IS NOT NULL AND tenant_id <> '' AND tenant_id <> ?,",
+    "`value`,",
+    "IF(`value` = ? OR `value` LIKE CONCAT(?, '@%'), `value`,",
+    "IF(`value` REGEXP CONCAT('^', ?, '#[0-9]+$') AND CAST(SUBSTRING_INDEX(`value`, '#', -1) AS UNSIGNED) >= ?, `value`,",
+    "IF(`value` REGEXP CONCAT('^', ?, '#[0-9]+$'), CONCAT(?, '@', CAST(SUBSTRING_INDEX(`value`, '#', -1) AS UNSIGNED) + 1),",
+    "CONCAT(?, '@1')))))",
+  ].join(" ");
+  const params = [
+    BACKUP_ALERT_DATE_KEY,
+    dateSP,
+    tenantId,
+    tenantId,
+    dateSP,
+    dateSP,
+    dateSP,
+    BACKUP_ALERT_MAX_ATTEMPTS,
+    dateSP,
+    dateSP,
+    dateSP,
+  ];
+  return { sql, params };
+}
+
+export async function claimBackupAlertDate(query, dateSP, tenantId = BACKUP_ALERT_TENANT_ID) {
+  const { sql, params } = backupAlertClaimSql(dateSP, tenantId);
+  const [header] = await query(sql, params);
+  const affected = Number(header?.affectedRows || 0);
+  if (!affected) return null;
+  const [rows] = await query(
+    "SELECT `value` AS value, tenant_id AS tenantId FROM site_settings WHERE `key` = ? LIMIT 1",
+    [BACKUP_ALERT_DATE_KEY],
+  );
+  const row = Array.isArray(rows) ? rows[0] : null;
+  const tenant = String(row?.tenantId || "").trim();
+  if (tenant && tenant !== tenantId) return null;
+  const value = String(row?.value || "");
+  const match = value.match(new RegExp(`^${escapeRegExp(dateSP)}@(\\d+)$`));
+  if (!match) return null;
+  return { token: value, failedValue: `${dateSP}#${match[1]}` };
+}
+
+export async function finishBackupAlertClaim(query, dateSP, claim, outcome, tenantId = BACKUP_ALERT_TENANT_ID) {
+  const next = outcome === "sent" ? dateSP : claim.failedValue;
+  await query(
+    "UPDATE site_settings SET `value` = ?, updated_at = UTC_TIMESTAMP() WHERE `key` = ? AND `value` = ? AND (tenant_id = ? OR tenant_id IS NULL OR tenant_id = '')",
+    [next, BACKUP_ALERT_DATE_KEY, claim.token, tenantId],
+  );
 }
 
 /**
