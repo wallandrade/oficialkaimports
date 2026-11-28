@@ -18,8 +18,6 @@ const DEFAULT_ALLOWED_ORIGINS = [
 ];
 
 const SECURITY_ORIGIN_ENFORCE = String(process.env.SECURITY_ORIGIN_ENFORCE || "false").toLowerCase() === "true";
-const SECURITY_REQUIRE_CHECKOUT_TOKEN_SECRET =
-  String(process.env.SECURITY_REQUIRE_CHECKOUT_TOKEN_SECRET || "true").toLowerCase() === "true";
 
 function normalizeOrigin(origin: string): string {
   try {
@@ -336,14 +334,6 @@ function resolvePublicReadRule(path: string): RateLimitRule | undefined {
 }
 
 function verifyCheckoutTokenOrReject(req: express.Request, res: express.Response): boolean {
-  if (SECURITY_REQUIRE_CHECKOUT_TOKEN_SECRET && !CHECKOUT_TOKEN_SECRET) {
-    res.status(503).json({
-      error: "SECURITY_MISCONFIGURED",
-      message: "Configuração de segurança incompleta.",
-    });
-    return false;
-  }
-
   const checkoutToken = req.get("x-checkout-token") || "";
   if (!checkoutToken || !verifyCheckoutToken(checkoutToken, req.get("user-agent") || "")) {
     console.warn("[SECURITY] Missing/invalid checkout token", {
@@ -485,11 +475,6 @@ app.use(express.json({ limit: "15mb" }));
 app.use(express.urlencoded({ extended: true, limit: "15mb" }));
 
 app.get("/api/security/checkout-token", (req, res) => {
-  if (SECURITY_REQUIRE_CHECKOUT_TOKEN_SECRET && !CHECKOUT_TOKEN_SECRET) {
-    res.status(503).json({ error: "SECURITY_MISCONFIGURED", message: "Configuração de segurança incompleta." });
-    return;
-  }
-
   const origin = req.get("origin");
   if (origin && !isOriginAllowed(origin)) {
     res.status(403).json({ error: "FORBIDDEN_ORIGIN", message: "Origem não autorizada." });

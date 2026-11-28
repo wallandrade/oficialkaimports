@@ -98,7 +98,7 @@ Código > memória > tipagens.
 ## Checkout security
 
 - Token efêmero: FE `getCheckoutToken` → `GET /api/security/checkout-token`.
-- `CHECKOUT_TOKEN_SECRET` tem de existir no ambiente. Sem ele o processo não sobe. `SECURITY_REQUIRE_CHECKOUT_TOKEN_SECRET` nasce `true`. `SECURITY_ORIGIN_ENFORCE` continua opt-in.
+- `CHECKOUT_TOKEN_SECRET` tem de existir no ambiente. Sem ele o processo não sobe. A flag `SECURITY_REQUIRE_CHECKOUT_TOKEN_SECRET` saiu. `SECURITY_ORIGIN_ENFORCE` continua opt-in.
 - `ADMIN_ALLOW_QUERY_TOKEN` nasce `false`. A sessão admin vem de `Authorization: Bearer` ou do cookie.
 
 ## Isolamento multi-tenant
