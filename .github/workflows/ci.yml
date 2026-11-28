@@ -37,6 +37,12 @@ jobs:
         id: baseline
         run: node .github/check-typecheck-baseline.mjs
 
+      - name: Smoke de boot da API (build do nixpacks + dist/index.cjs + healthz)
+        if: always()
+        run: |
+          pnpm --filter @workspace/api-server build
+          node .github/smoke-api-boot.mjs
+
       - name: Testes
         if: always()
         run: pnpm test

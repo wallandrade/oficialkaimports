@@ -9,6 +9,7 @@
 |------|--------|---------|-----------------|
 | 2026-11-28 | Ligar a liberação não abre a loja no meio do save | A data e a mensagem são gravadas antes de `site_release_enabled` = `1`. Desligar continua gravando o `0` primeiro | `decideSiteProtection`. Quem já entrou na sessão |
 | 2026-11-28 | Card da senha do site segue o estado efetivo | “Proteção ativa” só com `site: true` em `GET /api/is-protected`. Senha salva com a loja aberta não aparece como proteção. `DELETE` de setting sem `res.ok` não tira a chave da tela. A senha não entra nesse texto | Quem já desbloqueou a sessão continua dentro. A senha não vai para o log nem para `PUBLIC_KEYS` |
+| 2026-11-28 | Smoke de boot do bundle no CI | O job `verify` roda `pnpm --filter @workspace/api-server build` e `node .github/smoke-api-boot.mjs` com `if: always()`. O script sobe `dist/index.cjs` com env falso (`CHECKOUT_TOKEN_SECRET` de teste, MySQL numa porta fechada) e espera `GET /api/healthz` 200 `{ status: "ok" }` | Typecheck, testes, `pnpm audit --prod --audit-level=high` e gitleaks. Env de produção |
 | 2026-11-28 | Status do backup fora da vitrine e do log | `backup_last_status` e `backup_alert_last_date` não entram em `PUBLIC_KEYS`, `ALLOWED_KEYS` nem em `public-settings.ts`. O GET ainda tira as duas se aparecerem. O alerta e o log do cron não levam telefone, SQL, segredo, host nem usuário do MySQL. O claim do aviso não sobrescreve linha de outra loja | A senha do site, o webhook PIX e a fila de WhatsApp do cliente |
 | 2026-11-28 | Token admin na query desligado; checkout sem segredo literal; webhook de atendimento por header | `ADMIN_ALLOW_QUERY_TOKEN` nasce `false`. Sem `CHECKOUT_TOKEN_SECRET` a API não sobe. A flag `SECURITY_REQUIRE_CHECKOUT_TOKEN_SECRET` saiu. `POST /api/whatsapp/support/inbound` lê `x-whatsapp-support-token`. `?token=` só com `WHATSAPP_WEBHOOK_ALLOW_QUERY_TOKEN` (padrão `true`). O CI roda `tsc -b --force` e depois o script `typecheck` de cada pacote, compara com `.github/typecheck-baseline.json` e falha se a contagem subir. Testes, audit e gitleaks seguem mesmo se essa conta falhar. `pnpm audit --prod --audit-level=high` | Cookie e Bearer do admin. Token de convidado e o de corrigir entrega. PIX. O gitleaks do CI olha só o diff |
 | 2026-11-24 | Quadro Envio Shopee não avisa o cliente | `PATCH /api/admin/orders/:id/shopee-board-sent` não chama WhatsApp. O log de falha leva `orderId` e `code`, sem SQL, telefone ou texto | O atendimento continua sem gravar o texto. O `PATCH /enviado` do card segue igual |
@@ -71,7 +72,8 @@
 
 ## Ops / health
 
-- `GET /healthz` → `{ status: "ok" }` (Zod `HealthCheckResponse`).
+- `GET /api/healthz` → `{ status: "ok" }` (Zod `HealthCheckResponse`). `GET /health` devolve o texto `OK`.
+- O CI sobe o mesmo `dist/index.cjs` do Nixpacks e chama `GET /api/healthz` (`.github/smoke-api-boot.mjs`). O banco do smoke aponta para uma porta fechada; `ensureRuntimeSchema` registra a falha e o processo continua.
 - Jobs periódicos: expiração pedidos 24h; raffle expiry; reconcile logistics no boot; cobertura Motoboy Yury 15 min; estoque Motoboy/Minas Yury 3 min; lista de extravio da Yury 10 min.
 - Unhandled rejection / uncaughtException: log sem derrubar processo (`index.ts`).
 
