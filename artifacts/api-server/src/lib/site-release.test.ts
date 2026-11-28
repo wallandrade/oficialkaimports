@@ -6,6 +6,7 @@ import {
   normalizeSiteReleaseMessage,
   parseSaoPauloDateTime,
 } from "./site-release";
+import { mergeTenantSettingRows } from "./tenant-settings-rows";
 
 const FUTURE = "2026-11-20T21:00";
 const PAST = "2026-11-13T09:00";
@@ -144,4 +145,20 @@ test("each store uses only its own settings", () => {
 test("rejects a message longer than 80 characters", () => {
   assert.equal(normalizeSiteReleaseMessage("a".repeat(80)).ok, true);
   assert.equal(normalizeSiteReleaseMessage("a".repeat(81)).ok, false);
+});
+
+test("residual NULL or blank does not reopen the store when tenant_loja1 turned the switch off", () => {
+  const merged = mergeTenantSettingRows([
+    { tenantId: "", key: "site_release_enabled", value: "1" },
+    { tenantId: "", key: "site_release_at", value: PAST },
+    { tenantId: null, key: "site_password", value: "segredo" },
+    { tenantId: "tenant_loja1", key: "site_release_enabled", value: "0" },
+    { tenantId: "tenant_loja1", key: "site_password", value: "segredo" },
+    { tenantId: "tenant_loja1", key: "site_release_at", value: PAST },
+  ], "tenant_loja1");
+
+  const decision = decideSiteProtection(merged, AFTER);
+  assert.equal(merged.site_release_enabled, "0");
+  assert.equal(decision.site, true);
+  assert.equal(decision.release, null);
 });

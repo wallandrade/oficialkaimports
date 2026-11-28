@@ -17,6 +17,14 @@ import { WhatsAppGroupCampaignCard } from "@/components/admin/WhatsAppGroupCampa
 import { WhatsAppGroupModerationCard } from "@/components/admin/WhatsAppGroupModerationCard";
 import { orderToPostPaymentText } from "@/lib/post-payment-message";
 import { storeNotificationIcon } from "@/lib/store-logo";
+import {
+  SITE_PASSWORD_ACTIVE_LABEL,
+  SITE_PASSWORD_RELEASED_LABEL,
+  SITE_RELEASE_SCHEDULED_LABEL,
+  sitePasswordCardStatus,
+  siteReleaseSaveSteps,
+  siteReleaseScheduleActive,
+} from "@/lib/site-password-status";
 import { settleOrderEdit } from "@/lib/order-edit-settlement";
 import {
   emptyVariantGroupDraft,
@@ -3903,15 +3911,16 @@ export default function Admin() {
     finally { setProductsLoading(false); }
   }, [handleUnauthorized]);
 
-  const fetchSettings = useCallback(async () => {
+  const fetchSettings = useCallback(async (options?: { adminOnly?: boolean }): Promise<boolean> => {
     try {
       const res = await fetch(`${BASE}/api/admin/settings`, { headers: authHeaders() });
-      if (res.status === 401) { handleUnauthorized(); return; }
+      if (res.status === 401) { handleUnauthorized(); return false; }
       if (res.ok) {
         const data = await res.json() as Record<string, string>;
         setSettings(data);
-        return;
+        return true;
       }
+      if (options?.adminOnly) return false;
 
       // Fallback to public endpoint if admin endpoint is temporarily unavailable.
       const publicRes = await fetch(`${BASE}/api/settings`);
@@ -3920,6 +3929,7 @@ export default function Admin() {
         setSettings(data);
       }
     } catch { /* ignore */ }
+    return false;
   }, [handleUnauthorized]);
 
   const fetchTenants = useCallback(async () => {
@@ -5323,36 +5333,42 @@ export default function Admin() {
     finally { setSettingsLoading((p) => ({ ...p, [key]: false })); }
   }, []);
 
-  const deleteSetting = useCallback(async (key: string) => {
+  const deleteSetting = useCallback(async (key: string, options?: { quiet?: boolean }): Promise<boolean> => {
     setSettingsLoading((p) => ({ ...p, [key]: true }));
     try {
-      await fetch(`${BASE}/api/admin/settings/${key}`, { method: "DELETE", headers: authHeaders() });
+      const res = await fetch(`${BASE}/api/admin/settings/${key}`, { method: "DELETE", headers: authHeaders() });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({} as { message?: string }));
+        toast.error(data.message || "Erro ao remover.");
+        return false;
+      }
       setSettings((p) => { const n = { ...p }; delete n[key]; return n; });
 
       if (
-        key === "envioecom_checkout_carrier_priority"
-        || key === "shipping_queue_manual_enabled"
-        || key === "shipping_queue_manual_hours"
-        || key === "site_release_enabled"
-        || key === "site_release_at"
-        || key === "site_release_message"
+        key !== "envioecom_checkout_carrier_priority"
+        && key !== "shipping_queue_manual_enabled"
+        && key !== "shipping_queue_manual_hours"
+        && key !== "site_release_enabled"
+        && key !== "site_release_at"
+        && key !== "site_release_message"
       ) {
-        toast.success("Configuração removida.");
-        return;
+        try {
+          const cached = JSON.parse(localStorage.getItem("siteSettings") || "{}") as Record<string, string>;
+          const next = { ...cached };
+          delete next[key];
+          localStorage.setItem("siteSettings", JSON.stringify(next));
+          window.dispatchEvent(new CustomEvent("ka-site-settings-updated", { detail: next }));
+        } catch {
+          // ignore storage issues
+        }
       }
 
-      try {
-        const cached = JSON.parse(localStorage.getItem("siteSettings") || "{}") as Record<string, string>;
-        const next = { ...cached };
-        delete next[key];
-        localStorage.setItem("siteSettings", JSON.stringify(next));
-        window.dispatchEvent(new CustomEvent("ka-site-settings-updated", { detail: next }));
-      } catch {
-        // ignore storage issues
-      }
-
-      toast.success("Configuração removida.");
-    } catch { toast.error("Erro ao remover."); }
+      if (!options?.quiet) toast.success("Configuração removida.");
+      return true;
+    } catch {
+      toast.error("Erro ao remover.");
+      return false;
+    }
     finally { setSettingsLoading((p) => ({ ...p, [key]: false })); }
   }, []);
 
@@ -12558,6 +12574,7 @@ export default function Admin() {
               onTestOutboundWebhook={testOutboundWebhook}
               onSave={saveSetting}
               onDelete={deleteSetting}
+              onReloadSettings={fetchSettings}
               brevoApiKey={brevoApiKey}
               setBrevoApiKey={setBrevoApiKey}
               brevoConfigured={brevoConfigured}
@@ -22253,7 +22270,7 @@ function ImageUploadCard({
   );
 }
 
-function ConfiguracoesPanel({ adminTenantId, settings, loading, products, clientErrors, clientErrorsLoading, onRefreshClientErrors, onTestOutboundWebhook, onSave, onDelete, brevoApiKey, setBrevoApiKey, brevoConfigured, brevoTesting, onTestBrevoConnection, webhookPixUrl }: {
+function ConfiguracoesPanel({ adminTenantId, settings, loading, products, clientErrors, clientErrorsLoading, onRefreshClientErrors, onTestOutboundWebhook, onSave, onDelete, onReloadSettings, brevoApiKey, setBrevoApiKey, brevoConfigured, brevoTesting, onTestBrevoConnection, webhookPixUrl }: {
   adminTenantId: string;
   settings: Record<string, string>;
   loading: Record<string, boolean>;
@@ -22262,8 +22279,9 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
   clientErrorsLoading: boolean;
   onRefreshClientErrors: () => void;
   onTestOutboundWebhook: () => void;
-  onSave: (key: string, value: string) => void;
-  onDelete: (key: string) => void;
+  onSave: (key: string, value: string, options?: { quiet?: boolean }) => Promise<boolean>;
+  onDelete: (key: string, options?: { quiet?: boolean }) => Promise<boolean>;
+  onReloadSettings: (options?: { adminOnly?: boolean }) => Promise<boolean>;
   brevoApiKey: string;
   setBrevoApiKey: (v: string) => void;
   brevoConfigured: boolean;
@@ -22309,6 +22327,30 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
   const outboundEnabled = !["0", "false", "off", "no", "disabled"].includes(String(settings["outbound_webhook_enabled"] ?? "0").toLowerCase());
   const outboundEventNewOrder = !["0", "false", "off", "no", "disabled"].includes(String(settings["outbound_webhook_event_new_order"] ?? "1").toLowerCase());
   const outboundEventOrderPaid = !["0", "false", "off", "no", "disabled"].includes(String(settings["outbound_webhook_event_order_paid"] ?? "1").toLowerCase());
+  const savedSiteReleaseEnabled = settings["site_release_enabled"];
+  const savedSiteReleaseAt = settings["site_release_at"];
+  const savedSiteReleaseMessage = settings["site_release_message"];
+  const sitePasswordSaved = String(settings["site_password"] ?? "").length > 0;
+  const siteReleaseSyncPaused = useRef(false);
+  const siteProtectionRequest = useRef(0);
+  const [siteReleaseRevision, setSiteReleaseRevision] = useState(0);
+  const [siteProtection, setSiteProtection] = useState<{ site?: boolean; release?: unknown } | null>(null);
+
+  const refreshSiteProtection = useCallback(async () => {
+    const requestId = siteProtectionRequest.current + 1;
+    siteProtectionRequest.current = requestId;
+    setSiteProtection(null);
+    try {
+      const res = await fetch(`${BASE}/api/is-protected`, { cache: "no-store" });
+      if (requestId !== siteProtectionRequest.current) return;
+      if (!res.ok) return;
+      const data = await res.json() as { site?: boolean; release?: unknown };
+      if (requestId !== siteProtectionRequest.current) return;
+      setSiteProtection({ site: data.site === true, release: data.release ?? null });
+    } catch {
+      if (requestId !== siteProtectionRequest.current) return;
+    }
+  }, []);
 
   useEffect(() => {
     setOutboundUrl(settings["outbound_webhook_url"] ?? "");
@@ -22323,14 +22365,61 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
     else if (preset === "market_showcase") setStoreThemePreset("market_showcase");
     else if (preset === "pharma_compact" && canUsePharmaTheme) setStoreThemePreset("pharma_compact");
     else setStoreThemePreset("default");
-    setSiteReleaseEnabled(["1", "true", "on", "yes", "enabled"].includes(String(settings["site_release_enabled"] ?? "").trim().toLowerCase()));
-    setSiteReleaseAt(settings["site_release_at"] ?? "");
-    setSiteReleaseMessage(settings["site_release_message"] ?? "");
     setPromoCountdownEnabled(!["0", "false", "off", "no", "disabled"].includes(String(settings["promo_countdown_enabled"] ?? "0").toLowerCase()));
     setPromoCountdownDateTime(settings["promo_countdown_datetime"] ?? "");
     setPromoCountdownText(settings["promo_countdown_text"] ?? "");
     setSyncProductsFromLoja1Enabled(!["0", "false", "off", "no", "disabled"].includes(String(settings["tenant_sync_products_from_loja1"] ?? "0").toLowerCase()));
   }, [settings, canUsePharmaTheme]);
+
+  useEffect(() => {
+    if (siteReleaseSyncPaused.current) return;
+    setSiteReleaseEnabled(["1", "true", "on", "yes", "enabled"].includes(String(savedSiteReleaseEnabled ?? "").trim().toLowerCase()));
+    setSiteReleaseAt(savedSiteReleaseAt ?? "");
+    setSiteReleaseMessage(savedSiteReleaseMessage ?? "");
+  }, [savedSiteReleaseEnabled, savedSiteReleaseAt, savedSiteReleaseMessage, siteReleaseRevision]);
+
+  useEffect(() => {
+    if (siteReleaseSyncPaused.current) return;
+    void refreshSiteProtection();
+  }, [refreshSiteProtection, sitePasswordSaved, savedSiteReleaseEnabled, savedSiteReleaseAt, savedSiteReleaseMessage, siteReleaseRevision]);
+
+  const saveSiteRelease = async () => {
+    if (siteReleaseSyncPaused.current) return;
+    if (siteReleaseEnabled && !siteReleaseAt.trim()) {
+      toast.error("Selecione a data e a hora de Brasília para liberar o site.");
+      return;
+    }
+    siteReleaseSyncPaused.current = true;
+    let saved = false;
+    const enabling = siteReleaseEnabled;
+    const at = siteReleaseAt.trim();
+    const message = siteReleaseMessage.trim();
+    try {
+      for (const step of siteReleaseSaveSteps(enabling)) {
+        const ok = step === "enabled"
+          ? await onSave("site_release_enabled", enabling ? "1" : "0", { quiet: true })
+          : step === "at"
+            ? (at
+              ? await onSave("site_release_at", at, { quiet: true })
+              : await onDelete("site_release_at", { quiet: true }))
+            : (message
+              ? await onSave("site_release_message", message, { quiet: true })
+              : await onDelete("site_release_message", { quiet: true }));
+        if (!ok) return;
+      }
+      const reloaded = await onReloadSettings({ adminOnly: true });
+      if (!reloaded) {
+        toast.error("Não foi possível reler as configurações. O que foi gravado continua na tela.");
+        return;
+      }
+      saved = true;
+      toast.success("Liberação salva.");
+    } finally {
+      siteReleaseSyncPaused.current = false;
+      if (saved) setSiteReleaseRevision((value) => value + 1);
+      else void refreshSiteProtection();
+    }
+  };
 
   const togglePaymentMethod = (key: "checkout_enable_pix" | "checkout_enable_card" | "checkout_enable_whatsapp", enabled: boolean) => {
     onSave(key, enabled ? "1" : "0");
@@ -23175,8 +23264,11 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
                 Salvar
               </Button>
             </div>
-            {settings["site_password"] && (
-              <p className="text-xs text-emerald-600 mt-2 flex items-center gap-1"><CheckCircle className="w-3 h-3" />Proteção ativa</p>
+            {sitePasswordCardStatus(sitePasswordSaved, siteProtection) === "active" && (
+              <p className="text-xs text-emerald-600 mt-2 flex items-center gap-1"><CheckCircle className="w-3 h-3" />{SITE_PASSWORD_ACTIVE_LABEL}</p>
+            )}
+            {sitePasswordCardStatus(sitePasswordSaved, siteProtection) === "released" && (
+              <p className="text-xs text-amber-700 mt-2">{SITE_PASSWORD_RELEASED_LABEL}</p>
             )}
 
             <div className="mt-4 space-y-3 border-t border-border/60 pt-4">
@@ -23224,18 +23316,7 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
 
               <Button
                 size="sm"
-                onClick={() => {
-                  if (siteReleaseEnabled && !siteReleaseAt.trim()) {
-                    toast.error("Selecione a data e a hora de Brasília para liberar o site.");
-                    return;
-                  }
-                  onSave("site_release_enabled", siteReleaseEnabled ? "1" : "0");
-                  if (siteReleaseAt.trim()) onSave("site_release_at", siteReleaseAt.trim());
-                  else onDelete("site_release_at");
-                  const message = siteReleaseMessage.trim();
-                  if (message) onSave("site_release_message", message);
-                  else onDelete("site_release_message");
-                }}
+                onClick={() => { void saveSiteRelease(); }}
                 disabled={!!loading["site_release_enabled"] || !!loading["site_release_at"] || !!loading["site_release_message"]}
               >
                 {(loading["site_release_enabled"] || loading["site_release_at"] || loading["site_release_message"])
@@ -23243,8 +23324,8 @@ function ConfiguracoesPanel({ adminTenantId, settings, loading, products, client
                   : "Salvar liberação"}
               </Button>
 
-              {["1", "true", "on", "yes", "enabled"].includes(String(settings["site_release_enabled"] ?? "").trim().toLowerCase()) && (
-                <p className="text-xs text-emerald-600 flex items-center gap-1"><CheckCircle className="w-3 h-3" />Liberação automática ligada</p>
+              {siteReleaseScheduleActive(siteProtection) && (
+                <p className="text-xs text-emerald-600 flex items-center gap-1"><CheckCircle className="w-3 h-3" />{SITE_RELEASE_SCHEDULED_LABEL}</p>
               )}
             </div>
           </div>

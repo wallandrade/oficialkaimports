@@ -22,7 +22,7 @@
     "test:admin-seller-scope": "node --test --import tsx ./src/lib/admin-seller-scope-core.test.ts ./src/lib/order-events.test.ts",
     "test:admin-seller-scope-local": "node --test --import tsx ./src/routes/admin-seller-scope.integration.test.ts",
     "test:admin-tenant": "node --test --import tsx ./src/lib/admin-tenant-pick.test.ts ./src/lib/tenant-store-scope.test.ts ./src/lib/tenant-product-sync.test.ts ./src/lib/tenant-context.test.ts",
-    "test:site-release": "node --test --import tsx ./src/lib/site-release.test.ts",
+    "test:site-release": "node --test --import tsx ./src/lib/site-release.test.ts ./src/lib/tenant-settings-rows.test.ts",
     "test:shipping-channel": "node --test --import tsx ./src/lib/shipping-via.test.ts",
     "test:shopee-route": "node --test --import tsx ./src/lib/shopee-route-core.test.ts ./src/lib/shopee-route-support.test.ts",
     "test:whatsapp-outbound": "node --test --import tsx ./src/lib/whatsapp-outbound-policy.test.ts ./src/lib/zapi-send.test.ts ./src/lib/whatsapp-dispatch.test.ts ./src/lib/whatsapp-outbound-worker.test.ts",

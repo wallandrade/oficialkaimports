@@ -50,6 +50,7 @@ import {
   SITE_RELEASE_KEYS,
   SITE_RELEASE_MESSAGE_KEY,
 } from "../lib/site-release";
+import { mergeTenantSettingRows } from "../lib/tenant-settings-rows";
 
 const router: IRouter = Router();
 
@@ -206,10 +207,7 @@ async function getTenantSettingsMap(tenantId: string): Promise<Record<string, st
       .where(buildTenantSettingsTenantWhere(tenantId));
   }
 
-  const out: Record<string, string> = {};
-  for (const row of rows) {
-    out[row.key] = row.value;
-  }
+  const out = mergeTenantSettingRows(rows, tenantId, DEFAULT_TENANT_ID);
 
   if (tenantId === DEFAULT_TENANT_ID) {
     const legacyRows = await db.select().from(siteSettingsTable);
@@ -260,6 +258,11 @@ async function upsertTenantSetting(tenantId: string, key: string, value: string)
       .onDuplicateKeyUpdate({
         set: { value, updatedAt: new Date() },
       });
+    // Residual NULL ou '' da mesma chave não pode voltar a ganhar da linha tenant_loja1.
+    await db.delete(tenantSettingsTable).where(and(
+      eq(tenantSettingsTable.key, key),
+      or(isNull(tenantSettingsTable.tenantId), eq(tenantSettingsTable.tenantId, "")),
+    ));
   }
 }
 
