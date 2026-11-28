@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { BrandPageLoader } from "@/components/BrandLoader";
-import { SitePasswordGate } from "@/components/SitePasswordGate";
+import { SitePasswordGate, useStorefrontWidgetsAllowed } from "@/components/SitePasswordGate";
 import SocialProofWidget from "@/components/SocialProofWidget";
 import { FlashOfferHost } from "@/components/flash/FlashOfferHost";
 import { captureReferralFromCurrentUrl } from "@/lib/affiliate";
@@ -350,6 +350,18 @@ function Router() {
   );
 }
 
+function StorefrontWidgets() {
+  const allowed = useStorefrontWidgetsAllowed();
+  const [location] = useLocation();
+  if (!allowed) return null;
+  return (
+    <>
+      {!location.startsWith("/admin") && <SocialProofWidget />}
+      <FlashOfferHost />
+    </>
+  );
+}
+
 function AppInner() {
   const [location] = useLocation();
   const isAdmin = location.startsWith("/admin");
@@ -424,9 +436,8 @@ function AppInner() {
     <AppErrorBoundary locationKey={location}>
       <SitePasswordGate>
         <Router />
+        <StorefrontWidgets />
       </SitePasswordGate>
-      {!isAdmin && <SocialProofWidget />}
-      <FlashOfferHost />
     </AppErrorBoundary>
   );
 }
