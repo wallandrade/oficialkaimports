@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   backupAlertClaimBlocks,
   backupAlertClaimSql,
+  claimBackupAlertDate,
   clipBackupError,
   formatBackupAlertText,
   nextBackupAlertClaim,
@@ -49,6 +50,20 @@ test("texto curto em português corta o erro em 200 caracteres", () => {
     "connect ECONNREFUSED [host]",
   );
   assert.equal(clipBackupError("chave products/1730000000000-ab.jpg"), "chave products/1730000000000-ab.jpg");
+});
+
+test("o claim lê a linha mesmo quando o driver devolve array", async () => {
+  const query = async (sql) => {
+    if (String(sql).startsWith("SELECT")) return [[["2026-11-28@1", "tenant_loja1"]]];
+    return [{ affectedRows: 1 }];
+  };
+  const claim = await claimBackupAlertDate(query, "2026-11-28");
+  assert.deepEqual(claim, { token: "2026-11-28@1", failedValue: "2026-11-28#1" });
+  const other = await claimBackupAlertDate(async (sql) => {
+    if (String(sql).startsWith("SELECT")) return [[["2026-11-28@1", "tenant_fh"]]];
+    return [{ affectedRows: 1 }];
+  }, "2026-11-28");
+  assert.equal(other, null);
 });
 
 test("o claim do alerta só muda a linha até 3 falhas no dia", () => {

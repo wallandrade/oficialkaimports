@@ -151,7 +151,7 @@ Monorepo **pnpm workspaces** + TypeScript.
 
 - Entry: `artifacts/api-server/src/index.ts` → `app.ts` → `routes/index.ts`.
 - Health: `GET /healthz`.
-- Jobs no boot: reconciliação (expiração 24h), raffle expiry, reconcile logistics, pull de cobertura Motoboy Yury (15 min, se token), pull de estoque Motoboy/Minas/Santa Catarina Yury (3 min, se token), fila de WhatsApp do cliente (60 s, no máximo 1 envio a cada 10 min por número), watchdog do backup (30 min, só entre 4h e 12h de São Paulo; `running` recente não avisa; claim único por dia, até 3 tentativas se o envio falhar).
+- Jobs no boot: reconciliação (expiração 24h), raffle expiry, reconcile logistics, pull de cobertura Motoboy Yury (15 min, se token), pull de estoque Motoboy/Minas/Santa Catarina Yury (3 min, se token), fila de WhatsApp do cliente (60 s, no máximo 1 envio a cada 10 min por número), watchdog do backup (na subida e a cada 30 min, só entre 4h e 12h de São Paulo; `running` recente não avisa; claim único por dia, até 3 tentativas se o envio falhar).
 - Aviso de postagem: `GET /api/shipping-logistics/forecast` (público, por tenant). `promisedHours` pode ser o manual (`shipping-queue-deadline.ts`); `availableSlots` sai de `getOrderLogisticsForecast`. A gravação da vaga não lê essas settings.
 - Checkout Motoboy: `GET /api/motoboy-coverage/lookup` (público, por tenant). Geocode do destino no servidor (`motoboy-geocode.ts`: Google → AwesomeAPI → Nominatim → Photon → BrasilAPI; cache CEP+número, erro 10 min). Origem fixa na Sé. Km de rua em `motoboy-route.ts`. A faixa de CEP só entra se o km não tiver coordenada. Settings de km em `ALLOWED_KEYS`, fora de `PUBLIC_KEYS`.
 - Webhook cobertura Motoboy: `POST /api/webhooks/yury/motoboy-coverage` (body cru + HMAC) **antes** de `express.json()`.

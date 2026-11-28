@@ -412,11 +412,13 @@ async function writeHeartbeat(payload) {
   conn.on("error", () => {});
   const json = JSON.stringify(payload);
   try {
-    const [rows] = await conn.promise().query(
-      "SELECT tenant_id AS tenantId FROM site_settings WHERE `key` = ? LIMIT 1",
-      [BACKUP_STATUS_KEY],
-    );
-    const current = Array.isArray(rows) && rows[0] ? String(rows[0].tenantId || "").trim() : "";
+    const [rows] = await conn.promise().query({
+      sql: "SELECT tenant_id AS tenantId FROM site_settings WHERE `key` = ? LIMIT 1",
+      values: [BACKUP_STATUS_KEY],
+      rowsAsArray: false,
+    });
+    const first = Array.isArray(rows) ? rows[0] : null;
+    const current = String((Array.isArray(first) ? first[0] : first?.tenantId) || "").trim();
     if (Array.isArray(rows) && rows.length > 0 && current && current !== BACKUP_TENANT_ID) {
       throw new Error("status de backup pertence a outra loja");
     }
@@ -443,7 +445,7 @@ async function withMysql(fn) {
   const conn = mysql.createConnection(connectionOptions());
   conn.on("error", () => {});
   try {
-    return await fn((sql, params) => conn.promise().query(sql, params));
+    return await fn((sql, params) => conn.promise().query({ sql, values: params, rowsAsArray: false }));
   } finally {
     conn.destroy();
   }

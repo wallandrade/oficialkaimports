@@ -137,6 +137,12 @@ export function backupAlertClaimSql(dateSP, tenantId = BACKUP_ALERT_TENANT_ID) {
   return { sql, params };
 }
 
+function settingCell(row, name, index) {
+  if (!row) return "";
+  if (Array.isArray(row)) return row[index];
+  return row[name];
+}
+
 export async function claimBackupAlertDate(query, dateSP, tenantId = BACKUP_ALERT_TENANT_ID) {
   const { sql, params } = backupAlertClaimSql(dateSP, tenantId);
   const [header] = await query(sql, params);
@@ -147,9 +153,9 @@ export async function claimBackupAlertDate(query, dateSP, tenantId = BACKUP_ALER
     [BACKUP_ALERT_DATE_KEY],
   );
   const row = Array.isArray(rows) ? rows[0] : null;
-  const tenant = String(row?.tenantId || "").trim();
+  const tenant = String(settingCell(row, "tenantId", 1) || "").trim();
   if (tenant && tenant !== tenantId) return null;
-  const value = String(row?.value || "");
+  const value = String(settingCell(row, "value", 0) || "");
   const match = value.match(new RegExp(`^${escapeRegExp(dateSP)}@(\\d+)$`));
   if (!match) return null;
   return { token: value, failedValue: `${dateSP}#${match[1]}` };

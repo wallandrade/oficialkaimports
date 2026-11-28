@@ -153,6 +153,7 @@ export function startBackupWatchdogJob(): void {
         ticking = false;
       });
   };
+  tick();
   setInterval(tick, TICK_MS);
-  console.info("[backup] conferência a cada 30 min, das 4h às 12h (São Paulo).");
+  console.info("[backup] conferência na subida e a cada 30 min, das 4h às 12h (São Paulo).");
 }

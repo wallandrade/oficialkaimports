@@ -57,7 +57,7 @@ Alerta do job, só quando algo falhou: `POST /send-text` na Z-API com `ZAPI_MAIN
 
 ## Watchdog na API
 
-`startBackupWatchdogJob()` sobe com a API, no mesmo formato do job da fila de WhatsApp. A cada 30 minutos, entre 04:00 e 12:00 de `America/Sao_Paulo`, lê `backup_last_status`. Não avisa enquanto `status` for `running` de hoje e `startedAt` tiver menos de 3 horas. Passou disso, avisa `backup travado`. Fora esse caso, avisa se a data não é de hoje, se `dbOk` ou `mediaOk` não for verdadeiro, ou se o banco não respondeu. O claim em `backup_alert_last_date` é o mesmo do job: quem não mudar a linha não envia. O envio é `sendZapiMessage` com `live: true`, direto para `BACKUP_ALERT_PHONES`. Não entra na fila.
+`startBackupWatchdogJob()` sobe com a API. Confere na subida e depois a cada 30 minutos, entre 04:00 e 12:00 de `America/Sao_Paulo`. Lê `backup_last_status`. Não avisa enquanto `status` for `running` de hoje e `startedAt` tiver menos de 3 horas. Passou disso, avisa `backup travado`. Fora esse caso, avisa se a data não é de hoje, se `dbOk` ou `mediaOk` não for verdadeiro, ou se o banco não respondeu. O claim em `backup_alert_last_date` é o mesmo do job: quem não mudar a linha não envia. O envio é `sendZapiMessage` com `live: true`, direto para `BACKUP_ALERT_PHONES`. Não entra na fila.
 
 `BACKUP_ALERT_PHONES` precisa estar no ambiente do app, não só no job: a API e o cron leem a mesma variável.
 
